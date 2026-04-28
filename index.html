@@ -608,7 +608,7 @@
   <div class="header">
     <div>
       <div class="header-title">PutSeller Pro</div>
-      <div class="header-sub">Options Income Strategy · v1.2</div>
+      <div class="header-sub">Options Income Strategy · v1.3</div>
     </div>
     <button class="settings-btn" onclick="openSettings()">⚙ Settings</button>
   </div>
@@ -855,12 +855,25 @@ Built for iPhone 13 mini / 15 Pro</div>
     <button class="btn btn-secondary" onclick="closeSettings()">Cancel</button>
 
     <hr class="divider">
+    <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent)"></span>App Updates</div>
+    <button class="btn btn-secondary" onclick="forceAppRefresh()">🔄 Force App Refresh</button>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">
+      Clears the app page cache and reloads the latest version from GitHub Pages.
+      Your Finnhub key, watchlist, cached prices, and conviction dashboards are preserved.
+      Use this after deploying a new version to confirm you are running the latest build.
+    </div>
+
+    <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--danger)"></span>Danger Zone</div>
     <button class="btn btn-danger" onclick="clearAllData()">Clear All Cached Data</button>
 
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
     <div class="commentary" style="font-size:13px">
+<strong>v1.3 -- 2026-04-28</strong>
+- Force App Refresh button added to Settings -- clears page cache only, preserves all user data
+- Surgical alternative to the Danger Zone full clear button
+
 <strong>v1.2 -- 2026-04-28</strong>
 - Price history and VIX data now routed through Cloudflare Worker proxy to fix Yahoo Finance CORS block
 - Bollinger Bands and RSI charts now load correctly on Ticker tab
@@ -996,6 +1009,22 @@ function clearAllData() {
   toast('All data cleared');
   closeSettings();
   renderWatchlist();
+}
+
+// Clears only the service worker page cache (forces latest index.html
+// to be fetched from GitHub Pages) while preserving all localStorage
+// data -- Finnhub key, watchlist, cached prices, conviction dashboards.
+function forceAppRefresh() {
+  if ('caches' in window) {
+    caches.keys().then(keys => {
+      Promise.all(keys.map(k => caches.delete(k))).then(() => {
+        toast('App cache cleared -- reloading with latest version...', 2500);
+        setTimeout(() => window.location.reload(true), 2500);
+      });
+    });
+  } else {
+    window.location.reload(true);
+  }
 }
 
 // ═══════════════════════════════════════════

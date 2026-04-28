@@ -40,7 +40,7 @@
     background: var(--bg);
     color: var(--text);
     font-family: var(--sans);
-    font-size: 16px;
+    font-size: 18px;
     min-height: 100vh;
     overscroll-behavior: none;
   }
@@ -313,9 +313,9 @@
     vertical-align: middle;
   }
   .dash-table tr:last-child td { border-bottom: none; }
-  .dash-table tr.high td { background: rgba(0,200,150,0.05); }
-  .dash-table tr.medium td { background: rgba(255,165,2,0.05); }
-  .dash-table tr.low td { background: rgba(255,71,87,0.05); }
+  .dash-table tr.high td { background: rgba(0,200,150,0.20); border-left: 3px solid rgba(0,200,150,0.7); }
+  .dash-table tr.medium td { background: rgba(255,193,7,0.22); border-left: 3px solid rgba(255,193,7,0.7); }
+  .dash-table tr.low td { background: rgba(255,71,87,0.18); border-left: 3px solid rgba(255,71,87,0.6); }
 
   /* ── VIX Zone Banner ── */
   .vix-banner {
@@ -367,8 +367,8 @@
     white-space: nowrap;
   }
   .options-table td:first-child { text-align: left; color: var(--text2); }
-  .options-table tr.highlighted td { background: rgba(0,212,170,0.08); }
-  .options-table tr.highlighted td:first-child { border-left: 2px solid var(--accent); }
+  .options-table tr.highlighted td { background: rgba(0,212,170,0.22); }
+  .options-table tr.highlighted td:first-child { border-left: 3px solid var(--accent); }
   .apy-cell { color: var(--accent) !important; font-weight: 500; }
   .apy-cell.great { color: var(--green) !important; }
 
@@ -608,7 +608,7 @@
   <div class="header">
     <div>
       <div class="header-title">PutSeller Pro</div>
-      <div class="header-sub">Options Income Strategy · v1.3</div>
+      <div class="header-sub">Options Income Strategy · v1.4</div>
     </div>
     <button class="settings-btn" onclick="openSettings()">⚙ Settings</button>
   </div>
@@ -870,6 +870,19 @@ Built for iPhone 13 mini / 15 Pro</div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
     <div class="commentary" style="font-size:13px">
+<strong>v1.4 -- 2026-04-28</strong>
+- Conviction dashboard: card layout per ticker (no more cramped table on iPhone)
+- Conviction dashboard: Rec Strike, Expiration, Est APY displayed per card
+- Conviction dashboard: full narrative analysis per ticker, tap card to analyze
+- RSI chart: overbought (red) and oversold (green) shading now renders correctly
+- After-hours price displayed on Ticker tab when market is closed
+- Earnings timing: shows (before open) or (after close) alongside date
+- Ticker/Options tabs stay synchronized via shared currentTicker
+- Watchlist tap correctly populates Ticker dropdown
+- Options state clears when ticker changes, preserves when just switching tabs
+- Font size increased to 18px for better iPhone readability
+- Options table and conviction dashboard colors brightened
+
 <strong>v1.3 -- 2026-04-28</strong>
 - Force App Refresh button added to Settings -- clears page cache only, preserves all user data
 - Surgical alternative to the Danger Zone full clear button
@@ -921,6 +934,7 @@ const S = {
 let FINNHUB_KEY = S.get('finnhub_key') || '';
 let watchlist = S.get('watchlist') || ['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
 let currentMode = 'puts'; // puts or calls
+let currentTicker = ''; // shared across Ticker and Options tabs
 let optionsChart = null;
 let oiChart = null;
 let bbChart = null;
@@ -973,7 +987,14 @@ function showTab(name) {
   const idx = tabs.indexOf(name);
   document.querySelectorAll('.nav-tab')[idx].classList.add('active');
   if (name === 'watchlist') renderWatchlist();
-  if (name === 'ticker' || name === 'options') populateSelects();
+  // Sync dropdowns to currentTicker when switching to ticker or options tab
+  // but do NOT repopulate selects (which would lose the selection)
+  if (name === 'ticker' && currentTicker) {
+    document.getElementById('ticker-select').value = currentTicker;
+  }
+  if (name === 'options' && currentTicker) {
+    document.getElementById('options-ticker-select').value = currentTicker;
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -1055,6 +1076,25 @@ async function yahooHistory(symbol, range='6mo', interval='1d') {
   return { timestamps: ts, closes, volumes };
 }
 
+// After-hours / pre-market price via Worker -> Yahoo quote summary
+async function fetchAfterHoursPrice(symbol) {
+  try {
+    const url = `${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=history&range=1d&interval=1m`;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const d = await r.json();
+    // Yahoo returns postMarketPrice in the meta section for recent quotes
+    const meta = d.chart?.result?.[0]?.meta;
+    if (!meta) return null;
+    return {
+      postMarketPrice: meta.postMarketPrice || null,
+      postMarketChangePercent: meta.postMarketChangePercent || null,
+      regularMarketPrice: meta.regularMarketPrice || null,
+      marketState: meta.marketState || null
+    };
+  } catch { return null; }
+}
+
 // Yahoo Finance options chain via Cloudflare Worker proxy
 // The Worker handles cookie+crumb auth server-side, bypassing browser CORS
 const WORKER_URL = 'https://wheel.kevinjeu.workers.dev';
@@ -1096,7 +1136,10 @@ function renderWatchlist() {
 }
 
 function selectTickerFromWatchlist(t) {
+  currentTicker = t;
+  populateSelects();
   document.getElementById('ticker-select').value = t;
+  document.getElementById('options-ticker-select').value = t;
   showTab('ticker');
   loadTicker();
 }
@@ -1135,6 +1178,13 @@ function populateSelects() {
 async function loadTicker() {
   const t = document.getElementById('ticker-select').value;
   if (!t) return;
+  // Sync shared ticker and Options tab dropdown
+  if (t !== currentTicker) {
+    currentTicker = t;
+    document.getElementById('options-ticker-select').value = t;
+    // Clear options state since ticker changed
+    clearOptionsState();
+  }
   const el = document.getElementById('ticker-content');
   el.innerHTML = `<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading ${t}...</div></div>`;
 
@@ -1166,9 +1216,18 @@ async function loadTicker() {
         eps: metrics.metric?.epsBasicExclExtraAnnual || null,
         dividendYield: metrics.metric?.dividendYieldIndicatedAnnual || null,
         earningsDate: earnings?.earningsCalendar?.[0]?.date || null,
+        earningsHour: earnings?.earningsCalendar?.[0]?.hour || null,
         ts: nowPT(),
         isLive: true
       };
+      // Fetch after-hours price from Yahoo 1m chart meta
+      try {
+        const ahData = await fetchAfterHoursPrice(t);
+        if (ahData) {
+          snap.postMarketPrice = ahData.postMarketPrice;
+          snap.marketState = ahData.marketState;
+        }
+      } catch {}
       S.set('snap_' + t, snap);
     } catch(e) {
       const cached = S.get('snap_' + t);
@@ -1234,15 +1293,18 @@ function renderTickerContent(snap, hist, isLive) {
   const rsiColor = rsiVal >= 70 ? 'var(--red)' : rsiVal <= 30 ? 'var(--green)' : 'var(--text)';
   const rsiLabel = rsiVal >= 70 ? 'Overbought' : rsiVal <= 30 ? 'Oversold' : 'Neutral';
 
+  const earningsHour = snap.earningsHour || '';
+  const earningsTimingLabel = earningsHour === 'bmo' ? ' (before open)' : earningsHour === 'amc' ? ' (after close)' : earningsHour === 'dmh' ? ' (during hours)' : '';
   const earningsStr = snap.earningsDate
-    ? `<div class="earnings-warn" style="margin-top:10px">⚠ Next Earnings: ${snap.earningsDate}</div>` : '';
+    ? `<div class="earnings-warn" style="margin-top:10px">⚠ Next Earnings: ${snap.earningsDate}${earningsTimingLabel}</div>` : '';
 
   el.innerHTML = `
     <div class="card">
       <div class="card-title"><span class="dot"></span>${snap.ticker} — ${snap.name}</div>
       ${tsChip(snap.ts, isLive)}
       <div style="font-family:var(--mono);font-size:28px;font-weight:500;color:var(--text);margin-bottom:4px">$${snap.price?.toFixed(2) || 'N/A'}</div>
-      <div style="font-family:var(--mono);font-size:13px;color:${chgColor};margin-bottom:14px">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>
+      <div style="font-family:var(--mono);font-size:13px;color:${chgColor};margin-bottom:6px">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>
+      ${snap.postMarketPrice ? `<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarketPrice > snap.price ? 'var(--green)' : 'var(--red)'};margin-bottom:8px">After-hours: $${snap.postMarketPrice.toFixed(2)} <span style="font-size:10px;color:var(--text3)">(${snap.marketState || ''})</span></div>` : ''}
       <div class="metrics-grid">
         <div class="metric-tile"><div class="metric-label">52W High</div><div class="metric-value">$${snap.week52High?.toFixed(2) || 'N/A'}</div></div>
         <div class="metric-tile"><div class="metric-label">52W Low</div><div class="metric-value">$${snap.week52Low?.toFixed(2) || 'N/A'}</div></div>
@@ -1310,28 +1372,75 @@ function renderBBChart(bbData, hist) {
   const rsiCtx = document.getElementById('rsi-chart')?.getContext('2d');
   if (rsiCtx && rsiVals.length > 0) {
     const rsiLabels = labels.slice(labels.length - rsiVals.length);
+    // Split RSI into overbought (>70) and oversold (<30) fill datasets
+    // Values outside the threshold zone are set to null so only the
+    // relevant region gets filled, matching matplotlib fill_between behavior
+    const overboughtFill = rsiVals.map(v => v >= 70 ? v : null);
+    const oversoldFill   = rsiVals.map(v => v <= 30 ? v : null);
+    const ob70Line = rsiVals.map(() => 70);
+    const os30Line = rsiVals.map(() => 30);
     if (window._rsiChart) window._rsiChart.destroy();
     window._rsiChart = new Chart(rsiCtx, {
       type: 'line',
       data: {
         labels: rsiLabels,
-        datasets: [{ label: 'RSI', data: rsiVals, borderColor: '#7c6af7', borderWidth: 1.5, pointRadius: 0, tension: 0.2, fill: false }]
+        datasets: [
+          // Overbought fill: RSI values above 70 filled down to 70 line
+          {
+            data: overboughtFill,
+            borderColor: 'transparent',
+            backgroundColor: 'rgba(255,71,87,0.25)',
+            fill: { target: { value: 70 }, above: 'rgba(255,71,87,0.25)', below: 'transparent' },
+            pointRadius: 0, tension: 0.2, spanGaps: false
+          },
+          // Oversold fill: RSI values below 30 filled up to 30 line
+          {
+            data: oversoldFill,
+            borderColor: 'transparent',
+            backgroundColor: 'rgba(0,200,150,0.25)',
+            fill: { target: { value: 30 }, above: 'transparent', below: 'rgba(0,200,150,0.25)' },
+            pointRadius: 0, tension: 0.2, spanGaps: false
+          },
+          // Main RSI line on top
+          { label: 'RSI', data: rsiVals, borderColor: '#7c6af7', borderWidth: 1.5, pointRadius: 0, tension: 0.2, fill: false }
+        ]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          annotation: {}
-        },
+        plugins: { legend: { display: false } },
         scales: {
           x: { ticks: { display: false }, grid: { color: '#2a2e38' } },
           y: {
             min: 0, max: 100,
-            ticks: { color: '#555870', font: { size: 9 }, stepSize: 30, values: [30,70] },
+            ticks: { color: '#555870', font: { size: 9 }, stepSize: 30 },
             grid: { color: '#2a2e38' }
           }
         }
-      }
+      },
+      plugins: [{
+        id: 'rsiThresholds',
+        afterDraw(chart) {
+          const ctx2 = chart.ctx;
+          const xAxis = chart.scales.x;
+          const yAxis = chart.scales.y;
+          // Draw 70 line
+          const y70 = yAxis.getPixelForValue(70);
+          const y30 = yAxis.getPixelForValue(30);
+          ctx2.save();
+          ctx2.setLineDash([4,3]);
+          ctx2.lineWidth = 1;
+          ctx2.strokeStyle = 'rgba(255,71,87,0.7)';
+          ctx2.beginPath(); ctx2.moveTo(xAxis.left, y70); ctx2.lineTo(xAxis.right, y70); ctx2.stroke();
+          ctx2.strokeStyle = 'rgba(0,200,150,0.7)';
+          ctx2.beginPath(); ctx2.moveTo(xAxis.left, y30); ctx2.lineTo(xAxis.right, y30); ctx2.stroke();
+          ctx2.setLineDash([]);
+          ctx2.fillStyle = 'rgba(255,71,87,0.7)'; ctx2.font = '9px DM Mono, monospace';
+          ctx2.fillText('70', xAxis.right + 3, y70 + 3);
+          ctx2.fillStyle = 'rgba(0,200,150,0.7)';
+          ctx2.fillText('30', xAxis.right + 3, y30 + 3);
+          ctx2.restore();
+        }
+      }]
     });
   }
 }
@@ -1353,10 +1462,28 @@ function updateSlider(id) {
   document.getElementById(id + '-val').textContent = document.getElementById(id).value + '%';
 }
 
+function clearOptionsState() {
+  document.getElementById('exp-section').style.display = 'none';
+  document.getElementById('options-content').innerHTML = '';
+  document.getElementById('options-earnings-warn').innerHTML = '';
+  document.getElementById('oi-chart-section').style.display = 'none';
+  document.getElementById('oi-analysis').innerHTML = '';
+  currentExpirations = [];
+  selectedExpirations = [];
+  currentOptionsData = null;
+  if (window._oiChart) { window._oiChart.destroy(); window._oiChart = null; }
+}
+
 async function loadOptionsForTicker() {
   const t = document.getElementById('options-ticker-select').value;
-  if (!t) { document.getElementById('exp-section').style.display = 'none'; return; }
-
+  if (!t) { clearOptionsState(); return; }
+  // Sync shared ticker and Ticker tab dropdown
+  if (t !== currentTicker) {
+    currentTicker = t;
+    document.getElementById('ticker-select').value = t;
+    // Clear ticker content since ticker changed
+    document.getElementById('ticker-content').innerHTML = '<div class="empty"><div class="empty-icon">📈</div>Ticker changed -- select Ticker tab to reload</div>';
+  }
   document.getElementById('exp-section').style.display = 'none';
   document.getElementById('options-content').innerHTML = `<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading options for ${t}...</div></div>`;
 
@@ -2144,49 +2271,44 @@ function scoreCalls({ price, rsiVal, ma50, ma200, rangePos, earningsDate, recStr
 function renderDashTable(elId, results, ts, isLive) {
   const el = document.getElementById(elId);
   if (!results.length) { el.innerHTML = '<div class="empty">No data</div>'; return; }
-  el.innerHTML = `
-    <div style="overflow-x:auto">
-      <table class="dash-table">
-        <thead>
-          <tr>
-            <th>Ticker</th>
-            <th>Signal</th>
-            <th>Price / IVR</th>
-            <th>Rec. Strike</th>
-            <th>Exp / APY</th>
-            <th>Analysis</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${results.filter(r => r.signal !== 'error').map(r => {
-            const ivrLine = r.ivrBadge ? r.ivrBadge : '';
-            const apyLine = r.estApy ? `<span style="color:var(--accent);font-size:11px">${r.estApy}</span>` : '--';
-            const expLine = r.expiration && r.expiration !== '--' ? `<span style="font-size:9px;color:var(--text3)">${r.expiration}</span>` : '--';
-            return `<tr class="${r.signal}">
-              <td>
-                <div style="font-weight:600;color:var(--accent);font-size:13px">${r.ticker}</div>
-                ${r.earningsDate ? '<div style="color:var(--warn);font-size:9px">⚠ earnings ' + r.earningsDate + '</div>' : ''}
-              </td>
-              <td>
-                <span class="signal signal-${r.signal}">${r.signal === 'high' ? '🟢' : r.signal === 'medium' ? '🟡' : '🔴'} ${r.signal}</span>
-                <div style="font-family:var(--mono);font-size:11px;margin-top:3px">${r.price ? '$' + r.price.toFixed(2) : 'N/A'}</div>
-              </td>
-              <td>${ivrLine || '--'}</td>
-              <td style="font-family:var(--mono);font-size:12px;color:var(--text)">
-                ${r.recStrike || '--'}
-              </td>
-              <td>
-                ${expLine}<br>${apyLine}
-              </td>
-              <td style="font-size:10px;color:var(--text2);max-width:140px;line-height:1.4">
-                ${r.narrative || r.factors || '--'}
-              </td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
+  // Card-per-ticker layout works better on small iPhone screens than a wide table
+  const cards = results.filter(r => r.signal !== 'error').map(r => {
+    const borderColor = r.signal === 'high' ? 'rgba(0,200,150,0.7)' :
+                        r.signal === 'medium' ? 'rgba(255,193,7,0.7)' : 'rgba(255,71,87,0.6)';
+    const bgColor = r.signal === 'high' ? 'rgba(0,200,150,0.12)' :
+                    r.signal === 'medium' ? 'rgba(255,193,7,0.12)' : 'rgba(255,71,87,0.10)';
+    const signalIcon = r.signal === 'high' ? '🟢' : r.signal === 'medium' ? '🟡' : '🔴';
+    const signalLabel = r.signal.toUpperCase();
+    const ivrBadge = r.ivrBadge || '';
+    const recStrike = r.recStrike && r.recStrike !== '--' ? r.recStrike : null;
+    const expLine = r.expiration && r.expiration !== '--' ? r.expiration : null;
+    const apyLine = r.estApy && r.estApy !== '--' ? r.estApy : null;
+    const earningsWarn = r.earningsDate ? `<span style="color:var(--warn);font-size:11px">⚠ Earnings ${r.earningsDate}</span>` : '';
+    return `
+      <div style="background:${bgColor};border:1px solid ${borderColor};border-left:4px solid ${borderColor};border-radius:10px;padding:12px;margin-bottom:10px;cursor:pointer"
+           onclick="selectTickerFromWatchlist('${r.ticker}')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+          <div>
+            <span style="font-family:var(--sans);font-size:18px;font-weight:700;color:var(--accent)">${r.ticker}</span>
+            ${r.price ? `<span style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-left:8px">$${r.price.toFixed(2)}</span>` : ''}
+          </div>
+          <div style="text-align:right">
+            <div style="font-family:var(--mono);font-size:12px;font-weight:600">${signalIcon} ${signalLabel}</div>
+            ${ivrBadge}
+          </div>
+        </div>
+        ${recStrike ? `
+        <div style="display:flex;gap:16px;margin-bottom:8px;font-family:var(--mono)">
+          <div><span style="font-size:10px;color:var(--text3);display:block">REC STRIKE</span><span style="font-size:14px;color:var(--text)">${recStrike}</span></div>
+          ${expLine ? `<div><span style="font-size:10px;color:var(--text3);display:block">EXPIRATION</span><span style="font-size:13px;color:var(--text2)">${expLine}</span></div>` : ''}
+          ${apyLine ? `<div><span style="font-size:10px;color:var(--text3);display:block">EST APY</span><span style="font-size:14px;color:var(--accent)">${apyLine}</span></div>` : ''}
+        </div>` : ''}
+        ${earningsWarn ? `<div style="margin-bottom:6px">${earningsWarn}</div>` : ''}
+        ${r.narrative ? `<div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6;border-top:1px solid rgba(255,255,255,0.05);padding-top:8px;margin-top:4px">${r.narrative}</div>` : ''}
+        <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px;text-align:right">Tap to analyze →</div>
+      </div>`;
+  }).join('');
+  el.innerHTML = cards;
 }
 
 // ═══════════════════════════════════════════

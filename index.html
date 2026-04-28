@@ -1,0 +1,2024 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PutSeller">
+<title>PutSeller Pro</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111318;
+    --surface2: #1a1d24;
+    --surface3: #22262f;
+    --border: #2a2e38;
+    --accent: #00d4aa;
+    --accent2: #ff6b35;
+    --accent3: #7c6af7;
+    --danger: #ff4757;
+    --warn: #ffa502;
+    --text: #e8eaf0;
+    --text2: #8b8fa8;
+    --text3: #555870;
+    --green: #00c896;
+    --red: #ff4757;
+    --yellow: #ffd32a;
+    --mono: 'DM Mono', monospace;
+    --sans: 'Syne', sans-serif;
+    --radius: 10px;
+    --radius-lg: 16px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    min-height: 100vh;
+    overscroll-behavior: none;
+  }
+
+  /* ── App Shell ── */
+  #app { display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* ── Header ── */
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 16px 12px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .header-title {
+    font-family: var(--sans);
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--accent);
+  }
+  .header-sub {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text3);
+    margin-top: 1px;
+  }
+  .settings-btn {
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    color: var(--text2);
+    border-radius: 8px;
+    padding: 7px 11px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: var(--mono);
+  }
+
+  /* ── Nav Tabs ── */
+  .nav-tabs {
+    display: flex;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nav-tabs::-webkit-scrollbar { display: none; }
+  .nav-tab {
+    flex: 0 0 auto;
+    padding: 11px 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text3);
+    border: none;
+    background: none;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    transition: all 0.2s;
+  }
+  .nav-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  /* ── Main Content ── */
+  .main { flex: 1; padding: 14px; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  .card-title {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text3);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .card-title .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: inline-block;
+  }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: none;
+    border-radius: var(--radius);
+    padding: 11px 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    width: 100%;
+    margin-bottom: 8px;
+  }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-primary:active { opacity: 0.8; }
+  .btn-secondary { background: var(--surface3); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:active { opacity: 0.8; }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-sm { padding: 7px 12px; font-size: 11px; width: auto; margin-bottom: 0; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Inputs ── */
+  .input-group { margin-bottom: 12px; }
+  .input-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text2);
+    margin-bottom: 5px;
+    display: block;
+  }
+  .input {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 10px 12px;
+    outline: none;
+    transition: border-color 0.2s;
+    -webkit-appearance: none;
+  }
+  .input:focus { border-color: var(--accent); }
+
+  /* ── Metric Tiles ── */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .metric-tile {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+  }
+  .metric-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 3px;
+  }
+  .metric-value {
+    font-family: var(--mono);
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text);
+  }
+  .metric-sub {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text3);
+    margin-top: 2px;
+  }
+  .metric-value.up { color: var(--green); }
+  .metric-value.down { color: var(--red); }
+
+  /* ── Watchlist ── */
+  .watchlist-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .watchlist-item:active { border-color: var(--accent); }
+  .watchlist-ticker {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--accent);
+  }
+  .watchlist-price {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    text-align: right;
+  }
+  .watchlist-change {
+    font-family: var(--mono);
+    font-size: 10px;
+    margin-top: 1px;
+  }
+  .watchlist-ts {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text3);
+    margin-top: 1px;
+  }
+  .watchlist-remove {
+    background: none;
+    border: none;
+    color: var(--text3);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 8px;
+    margin-left: 8px;
+    flex-shrink: 0;
+  }
+
+  /* ── Signal Badges ── */
+  .signal {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    font-weight: 500;
+  }
+  .signal-high { background: rgba(0,200,150,0.15); color: var(--green); border: 1px solid rgba(0,200,150,0.3); }
+  .signal-medium { background: rgba(255,165,2,0.15); color: var(--warn); border: 1px solid rgba(255,165,2,0.3); }
+  .signal-low { background: rgba(255,71,87,0.15); color: var(--red); border: 1px solid rgba(255,71,87,0.3); }
+
+  /* ── Dashboard Table ── */
+  .dash-table { width: 100%; border-collapse: collapse; }
+  .dash-table th {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .dash-table td {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    padding: 8px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .dash-table tr:last-child td { border-bottom: none; }
+  .dash-table tr.high td { background: rgba(0,200,150,0.05); }
+  .dash-table tr.medium td { background: rgba(255,165,2,0.05); }
+  .dash-table tr.low td { background: rgba(255,71,87,0.05); }
+
+  /* ── VIX Zone Banner ── */
+  .vix-banner {
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .vix-banner-label {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .vix-banner-value {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 500;
+  }
+  .vix-low { background: rgba(33,150,243,0.15); border: 1px solid rgba(33,150,243,0.4); }
+  .vix-normal { background: rgba(0,200,150,0.15); border: 1px solid rgba(0,200,150,0.4); }
+  .vix-elevated { background: rgba(255,165,2,0.15); border: 1px solid rgba(255,165,2,0.4); }
+  .vix-high { background: rgba(255,71,87,0.15); border: 1px solid rgba(255,71,87,0.4); }
+  .vix-extreme { background: rgba(124,106,247,0.15); border: 1px solid rgba(124,106,247,0.4); }
+
+  /* ── Options Table ── */
+  .options-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .options-table { width: 100%; border-collapse: collapse; min-width: 520px; }
+  .options-table th {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    padding: 6px 8px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .options-table th:first-child { text-align: left; }
+  .options-table td {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    padding: 7px 8px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .options-table td:first-child { text-align: left; color: var(--text2); }
+  .options-table tr.highlighted td { background: rgba(0,212,170,0.08); }
+  .options-table tr.highlighted td:first-child { border-left: 2px solid var(--accent); }
+  .apy-cell { color: var(--accent) !important; font-weight: 500; }
+  .apy-cell.great { color: var(--green) !important; }
+
+  /* ── Chart Canvas ── */
+  .chart-wrap {
+    position: relative;
+    height: 200px;
+    margin-bottom: 8px;
+  }
+
+  /* ── IVR Badge ── */
+  .ivr-badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+  .ivr-low { background: rgba(33,150,243,0.2); color: #64b5f6; }
+  .ivr-normal { background: rgba(0,200,150,0.2); color: var(--green); }
+  .ivr-elevated { background: rgba(255,165,2,0.2); color: var(--warn); }
+  .ivr-high { background: rgba(255,71,87,0.2); color: var(--red); }
+
+  /* ── Timestamp ── */
+  .ts-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text3);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin-bottom: 8px;
+  }
+  .ts-chip.stale { color: var(--warn); border-color: rgba(255,165,2,0.3); }
+  .ts-chip.live { color: var(--green); border-color: rgba(0,200,150,0.3); }
+
+  /* ── Progress / Spinner ── */
+  .spinner {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .progress-bar-wrap {
+    height: 3px;
+    background: var(--surface3);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .progress-bar {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.3s;
+  }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 10px 16px;
+    border-radius: var(--radius);
+    z-index: 999;
+    opacity: 0;
+    transition: opacity 0.3s;
+    white-space: nowrap;
+    pointer-events: none;
+    max-width: 90vw;
+    text-align: center;
+  }
+  .toast.show { opacity: 1; }
+
+  /* ── Settings Panel ── */
+  .settings-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 200;
+    backdrop-filter: blur(4px);
+  }
+  .settings-overlay.open { display: flex; align-items: flex-end; }
+  .settings-sheet {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    border-radius: 20px 20px 0 0;
+    padding: 20px 16px 40px;
+    width: 100%;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+  .settings-handle {
+    width: 36px; height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin: 0 auto 18px;
+  }
+  .settings-title {
+    font-family: var(--sans);
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 16px;
+  }
+
+  /* ── Expiration Chips ── */
+  .exp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .exp-chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text2);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .exp-chip.selected { background: rgba(0,212,170,0.15); border-color: var(--accent); color: var(--accent); }
+
+  /* ── Mode Toggle ── */
+  .mode-toggle {
+    display: flex;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .mode-btn {
+    flex: 1;
+    padding: 9px;
+    font-family: var(--mono);
+    font-size: 11px;
+    border: none;
+    background: none;
+    color: var(--text3);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .mode-btn.active { background: var(--accent); color: #000; font-weight: 500; }
+
+  /* ── Slider ── */
+  .slider-wrap { margin-bottom: 12px; }
+  .slider-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .slider-label { font-family: var(--mono); font-size: 11px; color: var(--text2); }
+  .slider-val { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: var(--surface3);
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+  }
+
+  /* ── Commentary Box ── */
+  .commentary {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text2);
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* ── Empty State ── */
+  .empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text3);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .empty-icon { font-size: 32px; margin-bottom: 10px; }
+
+  /* ── Section Divider ── */
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 14px 0;
+  }
+
+  /* ── Inline row ── */
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row .input { flex: 1; }
+
+  /* ── Earnings Warning ── */
+  .earnings-warn {
+    background: rgba(255,165,2,0.1);
+    border: 1px solid rgba(255,165,2,0.3);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--warn);
+    margin-bottom: 10px;
+    line-height: 1.5;
+  }
+
+  /* Ensure no blue link color on tapped items */
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div>
+      <div class="header-title">PutSeller Pro</div>
+      <div class="header-sub">Options Income Strategy</div>
+    </div>
+    <button class="settings-btn" onclick="openSettings()">⚙ Settings</button>
+  </div>
+
+  <!-- NAV TABS -->
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="showTab('dashboard')">Dashboard</button>
+    <button class="nav-tab" onclick="showTab('watchlist')">Watchlist</button>
+    <button class="nav-tab" onclick="showTab('ticker')">Ticker</button>
+    <button class="nav-tab" onclick="showTab('options')">Options</button>
+    <button class="nav-tab" onclick="showTab('vix')">VIX</button>
+    <button class="nav-tab" onclick="showTab('guide')">Guide</button>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- ═══ DASHBOARD TAB ═══ -->
+    <div id="tab-dashboard" class="tab-panel active">
+
+      <div class="card">
+        <div class="card-title"><span class="dot"></span>Conviction Dashboards</div>
+        <div class="input-group">
+          <label class="input-label">Target APY %</label>
+          <input class="input" type="number" id="target-apy" value="12" min="5" max="50">
+        </div>
+        <button class="btn btn-primary" id="run-dashboard-btn" onclick="runDashboards()">
+          🔍 Run Both Conviction Dashboards
+        </button>
+        <div id="dashboard-progress" style="display:none">
+          <div class="progress-bar-wrap"><div class="progress-bar" id="dash-progress-bar" style="width:0%"></div></div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-align:center" id="dash-progress-label">Scoring tickers...</div>
+        </div>
+      </div>
+
+      <!-- Put Dashboard -->
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--red)"></span>📉 Put-Selling Conviction</div>
+        <div id="put-dash-ts"></div>
+        <div id="put-dashboard-content">
+          <div class="empty"><div class="empty-icon">📊</div>Press Run to generate</div>
+        </div>
+      </div>
+
+      <!-- CC Dashboard -->
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--green)"></span>📈 Covered Call Conviction</div>
+        <div id="cc-dash-ts"></div>
+        <div id="cc-dashboard-content">
+          <div class="empty"><div class="empty-icon">📊</div>Press Run to generate</div>
+        </div>
+      </div>
+
+    </div><!-- /dashboard -->
+
+    <!-- ═══ WATCHLIST TAB ═══ -->
+    <div id="tab-watchlist" class="tab-panel">
+
+      <div class="card">
+        <div class="card-title"><span class="dot"></span>Manage Watchlist</div>
+        <div class="row">
+          <input class="input" type="text" id="new-ticker-input" placeholder="e.g. AAPL" style="text-transform:uppercase">
+          <button class="btn btn-secondary btn-sm" onclick="addTicker()">Add</button>
+        </div>
+        <button class="btn btn-secondary" id="prefetch-btn" onclick="prefetchAll()">
+          🔄 Prefetch All Ticker Data
+        </button>
+        <div id="prefetch-progress" style="display:none">
+          <div class="progress-bar-wrap"><div class="progress-bar" id="prefetch-progress-bar" style="width:0%"></div></div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-align:center" id="prefetch-label">Fetching...</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="dot"></span>Watchlist</div>
+        <div id="watchlist-items"></div>
+      </div>
+
+    </div><!-- /watchlist -->
+
+    <!-- ═══ TICKER TAB ═══ -->
+    <div id="tab-ticker" class="tab-panel">
+
+      <div class="card">
+        <div class="card-title"><span class="dot"></span>Select Ticker</div>
+        <select class="input" id="ticker-select" onchange="loadTicker()">
+          <option value="">-- Select --</option>
+        </select>
+      </div>
+
+      <div id="ticker-content">
+        <div class="empty"><div class="empty-icon">📈</div>Select a ticker above</div>
+      </div>
+
+    </div><!-- /ticker -->
+
+    <!-- ═══ OPTIONS TAB ═══ -->
+    <div id="tab-options" class="tab-panel">
+
+      <div class="card">
+        <div class="card-title"><span class="dot"></span>Options Analysis</div>
+        <select class="input" id="options-ticker-select" onchange="loadOptionsForTicker()" style="margin-bottom:10px">
+          <option value="">-- Select Ticker --</option>
+        </select>
+        <div class="mode-toggle">
+          <button class="mode-btn active" id="mode-puts" onclick="setMode('puts')">📉 Sell Puts</button>
+          <button class="mode-btn" id="mode-calls" onclick="setMode('calls')">📈 Sell Calls</button>
+        </div>
+        <div id="exp-section" style="display:none">
+          <label class="input-label">Expirations</label>
+          <div class="exp-chips" id="exp-chips"></div>
+          <div class="slider-wrap">
+            <div class="slider-row">
+              <span class="slider-label">% Below Price</span>
+              <span class="slider-val" id="pct-below-val">20%</span>
+            </div>
+            <input type="range" id="pct-below" min="1" max="50" value="20" oninput="updateSlider('pct-below')">
+          </div>
+          <div class="slider-wrap">
+            <div class="slider-row">
+              <span class="slider-label">% Above Price</span>
+              <span class="slider-val" id="pct-above-val">5%</span>
+            </div>
+            <input type="range" id="pct-above" min="1" max="50" value="5" oninput="updateSlider('pct-above')">
+          </div>
+          <div class="input-group">
+            <label class="input-label">Highlight APY ≥ %</label>
+            <input class="input" type="number" id="highlight-apy" value="12">
+          </div>
+          <button class="btn btn-primary" onclick="buildOptionsTable()">Load Options Chain</button>
+        </div>
+      </div>
+
+      <div id="options-earnings-warn"></div>
+      <div id="options-content"></div>
+      <div id="oi-chart-section" style="display:none">
+        <div class="card">
+          <div class="card-title"><span class="dot"></span>Open Interest by Strike</div>
+          <div id="oi-ts"></div>
+          <div class="chart-wrap" style="height:220px">
+            <canvas id="oi-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /options -->
+
+    <!-- ═══ VIX TAB ═══ -->
+    <div id="tab-vix" class="tab-panel">
+
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--accent3)"></span>VIX Market Environment</div>
+        <button class="btn btn-secondary" onclick="loadVIX()">🌡️ Refresh VIX Data</button>
+      </div>
+
+      <div id="vix-content">
+        <div class="empty"><div class="empty-icon">🌡️</div>Press Refresh to load VIX</div>
+      </div>
+
+    </div><!-- /vix -->
+
+    <!-- ═══ GUIDE TAB ═══ -->
+    <div id="tab-guide" class="tab-panel">
+      <div class="card">
+        <div class="card-title"><span class="dot"></span>Support / Resistance</div>
+        <div class="commentary">S1: nearest volume support below price (strongest short-term floor)
+S2-S5: additional supports, progressively weaker
+R1: nearest resistance above price (immediate ceiling)
+R2-R5: additional resistances above R1
+
+Volume Profile (VP): price zones where most shares traded -- act as both support (from above) and resistance (from below)
+52W Low: major annual support, break below is a warning
+52W High: major resistance, break above triggers momentum
+50/200-day MA: dynamic support/resistance, widely watched
+Round numbers: psychological S/R ($50, $100, $150 etc)
+High put OI: gravitational support via market maker hedging
+High call OI: resistance ceiling via market maker hedging
+VIX &lt; 15: thin premiums
+VIX 15-20: normal conditions
+VIX 20-30: elevated, favorable for put selling
+VIX &gt; 30: fear spike, exceptional premium, higher risk
+VIX backwardation (VIX &gt; VIX3M): acute near-term fear, historically strong time to sell puts</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="dot"></span>Income Strategy</div>
+        <div class="commentary">TARGET YIELD: 12% annualized per transaction
+HORIZON: 1.5 to 3 months out (nimble, active)
+OTM BUFFER: 5-12% preferred (balanced risk/reward)
+LIQUIDITY: monthly OI &gt; 1000 contracts
+
+PUTS: sell when RSI oversold, lower 52W range, price near VP support, no near-term earnings
+CALLS: sell when RSI overbought, upper 52W range, price near VP resistance, own the shares
+
+APY CALC (puts): premium / (strike x 100) x 365/DTE x 100
+APY CALC (calls): premium / (current price x 100) x 365/DTE x 100
+
+SIZING: look-through strike value aligned with portfolio
+CASH: park premiums in SGOV pending redeployment
+RISK: avoid earnings windows, watch beta for OTM sizing
+AWARENESS: Thu expiry possible if Fri is a holiday</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="dot"></span>About This App</div>
+        <div class="commentary">Data: Finnhub (quotes, fundamentals, earnings)
+       Cboe public endpoint (options chains)
+       Yahoo Finance chart API (price history, VIX)
+
+Offline: all data cached to localStorage after fetch
+         stale data shown with timestamp when offline
+
+Version: 1.0.0 -- HTML5 PWA
+Built for iPhone 13 mini / 15 Pro</div>
+      </div>
+    </div><!-- /guide -->
+
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- SETTINGS OVERLAY -->
+<div class="settings-overlay" id="settings-overlay" onclick="closeSettingsIfOutside(event)">
+  <div class="settings-sheet">
+    <div class="settings-handle"></div>
+    <div class="settings-title">⚙ Settings</div>
+
+    <div class="input-group">
+      <label class="input-label">Finnhub API Key</label>
+      <input class="input" type="password" id="finnhub-key-input" placeholder="Paste your Finnhub API key">
+    </div>
+
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">
+      Get a free key at finnhub.io — takes 2 minutes, no credit card.
+      Key is stored locally on your device only, never sent anywhere except Finnhub.
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">Default Watchlist (comma separated)</label>
+      <input class="input" type="text" id="default-watchlist-input" value="NVDA,AMZN,GOOGL,GLW,MS,PANW,NET,NFLX,SHOP,ORCL,TSLA">
+    </div>
+
+    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+    <button class="btn btn-secondary" onclick="closeSettings()">Cancel</button>
+
+    <hr class="divider">
+    <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--danger)"></span>Danger Zone</div>
+    <button class="btn btn-danger" onclick="clearAllData()">Clear All Cached Data</button>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════
+// STORAGE HELPERS
+// ═══════════════════════════════════════════
+const S = {
+  get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del: k => localStorage.removeItem(k)
+};
+
+// ═══════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════
+let FINNHUB_KEY = S.get('finnhub_key') || '';
+let watchlist = S.get('watchlist') || ['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
+let currentMode = 'puts'; // puts or calls
+let optionsChart = null;
+let oiChart = null;
+let bbChart = null;
+
+const DEFAULT_WATCHLIST = ['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
+
+// ═══════════════════════════════════════════
+// TIME HELPERS
+// ═══════════════════════════════════════════
+function nowPT() {
+  return new Date().toLocaleString('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }) + ' PT';
+}
+
+function tsChip(ts, isLive=true) {
+  const cls = isLive ? 'live' : 'stale';
+  const icon = isLive ? '🟢' : '⏱';
+  return `<div class="ts-chip ${cls}">${icon} ${ts}</div>`;
+}
+
+function hoursSince(tsStr) {
+  if (!tsStr) return 999;
+  try {
+    const d = new Date(tsStr.replace(' PT',''));
+    return (Date.now() - d.getTime()) / 3600000;
+  } catch { return 999; }
+}
+
+// ═══════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════
+function toast(msg, dur=2500) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), dur);
+}
+
+// ═══════════════════════════════════════════
+// NAV TABS
+// ═══════════════════════════════════════════
+function showTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  const tabs = ['dashboard','watchlist','ticker','options','vix','guide'];
+  const idx = tabs.indexOf(name);
+  document.querySelectorAll('.nav-tab')[idx].classList.add('active');
+  if (name === 'watchlist') renderWatchlist();
+  if (name === 'ticker' || name === 'options') populateSelects();
+}
+
+// ═══════════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════════
+function openSettings() {
+  document.getElementById('finnhub-key-input').value = FINNHUB_KEY;
+  document.getElementById('default-watchlist-input').value = watchlist.join(',');
+  document.getElementById('settings-overlay').classList.add('open');
+}
+function closeSettings() {
+  document.getElementById('settings-overlay').classList.remove('open');
+}
+function closeSettingsIfOutside(e) {
+  if (e.target === document.getElementById('settings-overlay')) closeSettings();
+}
+function saveSettings() {
+  const key = document.getElementById('finnhub-key-input').value.trim();
+  if (key) { FINNHUB_KEY = key; S.set('finnhub_key', key); }
+  const wl = document.getElementById('default-watchlist-input').value
+    .split(',').map(t => t.trim().toUpperCase()).filter(t => t.length > 0);
+  if (wl.length > 0) { watchlist = wl; S.set('watchlist', wl); }
+  closeSettings();
+  renderWatchlist();
+  populateSelects();
+  toast('Settings saved');
+}
+function clearAllData() {
+  if (!confirm('Clear all cached data?')) return;
+  localStorage.clear();
+  FINNHUB_KEY = '';
+  watchlist = [...DEFAULT_WATCHLIST];
+  toast('All data cleared');
+  closeSettings();
+  renderWatchlist();
+}
+
+// ═══════════════════════════════════════════
+// FINNHUB API
+// ═══════════════════════════════════════════
+async function fh(path) {
+  if (!FINNHUB_KEY) { toast('⚠ Add Finnhub key in Settings'); throw new Error('No API key'); }
+  const url = `https://finnhub.io/api/v1${path}&token=${FINNHUB_KEY}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`Finnhub ${r.status}`);
+  return r.json();
+}
+
+// Yahoo Finance chart (CORS works for history)
+async function yahooHistory(symbol, range='6mo', interval='1d') {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}&includePrePost=false`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`Yahoo ${r.status}`);
+  const d = await r.json();
+  const result = d.chart.result[0];
+  const ts = result.timestamp.map(t => new Date(t * 1000));
+  const closes = result.indicators.quote[0].close;
+  const volumes = result.indicators.quote[0].volume || [];
+  return { timestamps: ts, closes, volumes };
+}
+
+// Cboe options chain (no auth needed)
+async function cboeOptions(symbol) {
+  const url = `https://cdn.cboe.com/api/global/delayed_quotes/options/${symbol.replace('^','%5E')}.json`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`Cboe ${r.status}`);
+  return r.json();
+}
+
+// ═══════════════════════════════════════════
+// WATCHLIST RENDER
+// ═══════════════════════════════════════════
+function renderWatchlist() {
+  const el = document.getElementById('watchlist-items');
+  if (!watchlist.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">📋</div>Watchlist is empty</div>'; return; }
+  el.innerHTML = watchlist.map(t => {
+    const cached = S.get('snap_' + t);
+    const price = cached ? `$${cached.price.toFixed(2)}` : '--';
+    const chg = cached ? cached.change : 0;
+    const chgPct = cached ? cached.changePct : 0;
+    const chgColor = chg >= 0 ? 'var(--green)' : 'var(--red)';
+    const chgStr = cached ? `${chg >= 0 ? '+' : ''}${chg.toFixed(2)} (${chgPct >= 0 ? '+' : ''}${chgPct.toFixed(2)}%)` : '';
+    const ts = cached ? cached.ts : '';
+    return `<div class="watchlist-item" onclick="selectTickerFromWatchlist('${t}')">
+      <div>
+        <div class="watchlist-ticker">${t}</div>
+        ${cached ? `<div class="watchlist-ts">${ts}</div>` : ''}
+      </div>
+      <div style="text-align:right">
+        <div class="watchlist-price">${price}</div>
+        ${cached ? `<div class="watchlist-change" style="color:${chgColor}">${chgStr}</div>` : ''}
+      </div>
+      <button class="watchlist-remove" onclick="removeTicker(event,'${t}')">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function selectTickerFromWatchlist(t) {
+  document.getElementById('ticker-select').value = t;
+  showTab('ticker');
+  loadTicker();
+}
+
+function addTicker() {
+  const inp = document.getElementById('new-ticker-input');
+  const t = inp.value.trim().toUpperCase();
+  if (!t) return;
+  if (watchlist.includes(t)) { toast(`${t} already in watchlist`); return; }
+  watchlist.push(t);
+  S.set('watchlist', watchlist);
+  inp.value = '';
+  renderWatchlist();
+  populateSelects();
+  toast(`Added ${t}`);
+}
+
+function removeTicker(e, t) {
+  e.stopPropagation();
+  watchlist = watchlist.filter(x => x !== t);
+  S.set('watchlist', watchlist);
+  renderWatchlist();
+  populateSelects();
+}
+
+function populateSelects() {
+  const opts = ['<option value="">-- Select --</option>',
+    ...watchlist.map(t => `<option value="${t}">${t}</option>`)].join('');
+  document.getElementById('ticker-select').innerHTML = opts;
+  document.getElementById('options-ticker-select').innerHTML = opts;
+}
+
+// ═══════════════════════════════════════════
+// TICKER SNAPSHOT
+// ═══════════════════════════════════════════
+async function loadTicker() {
+  const t = document.getElementById('ticker-select').value;
+  if (!t) return;
+  const el = document.getElementById('ticker-content');
+  el.innerHTML = `<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading ${t}...</div></div>`;
+
+  try {
+    // Try live data first
+    let snap, hist6mo, isLive = true;
+    try {
+      const [quote, profile, metrics] = await Promise.all([
+        fh(`/quote?symbol=${t}`),
+        fh(`/stock/profile2?symbol=${t}`),
+        fh(`/stock/metric?symbol=${t}&metric=all`)
+      ]);
+      const earnings = await fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),90))}`);
+
+      snap = {
+        ticker: t,
+        name: profile.name || t,
+        price: quote.c,
+        prevClose: quote.pc,
+        change: quote.c - quote.pc,
+        changePct: ((quote.c - quote.pc) / quote.pc * 100),
+        high: quote.h,
+        low: quote.l,
+        week52High: metrics.metric?.['52WeekHigh'] || null,
+        week52Low: metrics.metric?.['52WeekLow'] || null,
+        marketCap: profile.marketCapitalization ? profile.marketCapitalization * 1e6 : null,
+        beta: metrics.metric?.beta || null,
+        peRatio: metrics.metric?.peBasicExclExtraTTM || null,
+        eps: metrics.metric?.epsBasicExclExtraAnnual || null,
+        dividendYield: metrics.metric?.dividendYieldIndicatedAnnual || null,
+        earningsDate: earnings?.earningsCalendar?.[0]?.date || null,
+        ts: nowPT(),
+        isLive: true
+      };
+      S.set('snap_' + t, snap);
+    } catch(e) {
+      const cached = S.get('snap_' + t);
+      if (cached) { snap = cached; isLive = false; }
+      else { throw new Error('No data and no cache available'); }
+    }
+
+    // Price history
+    try {
+      hist6mo = await yahooHistory(t, '6mo', '1d');
+      S.set('hist_' + t, { timestamps: hist6mo.timestamps.map(d => d.toISOString()), closes: hist6mo.closes, volumes: hist6mo.volumes, ts: nowPT() });
+    } catch {
+      const cached = S.get('hist_' + t);
+      if (cached) { hist6mo = { timestamps: cached.timestamps.map(d => new Date(d)), closes: cached.closes, volumes: cached.volumes }; isLive = false; }
+    }
+
+    renderTickerContent(snap, hist6mo, isLive);
+    renderWatchlist();
+  } catch(err) {
+    el.innerHTML = `<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;
+  }
+}
+
+function fmtDate(d) {
+  return d.toISOString().split('T')[0];
+}
+function addDays(d, n) {
+  const r = new Date(d); r.setDate(r.getDate() + n); return r;
+}
+
+function fmtCap(v) {
+  if (!v) return 'N/A';
+  if (v >= 1e12) return `$${(v/1e12).toFixed(2)}T`;
+  if (v >= 1e9) return `$${(v/1e9).toFixed(2)}B`;
+  if (v >= 1e6) return `$${(v/1e6).toFixed(2)}M`;
+  return `$${v}`;
+}
+
+function renderTickerContent(snap, hist, isLive) {
+  const el = document.getElementById('ticker-content');
+  const chgColor = snap.change >= 0 ? 'var(--green)' : 'var(--red)';
+  const chgSign = snap.change >= 0 ? '+' : '';
+
+  // Compute RSI and Bollinger from hist
+  let rsiStr = 'N/A', bbStr = '';
+  let bbData = null;
+  if (hist && hist.closes && hist.closes.length > 20) {
+    const closes = hist.closes.filter(c => c !== null);
+    const rsi = computeRSI(closes);
+    const lastRSI = rsi[rsi.length - 1];
+    rsiStr = lastRSI ? lastRSI.toFixed(1) : 'N/A';
+
+    const sma20 = closes.map((_, i) => i < 19 ? null : avg(closes.slice(i-19, i+1)));
+    const std20 = closes.map((_, i) => i < 19 ? null : stdDev(closes.slice(i-19, i+1)));
+    const upper = sma20.map((s, i) => s ? s + 2*std20[i] : null);
+    const lower = sma20.map((s, i) => s ? s - 2*std20[i] : null);
+    const last = closes.length - 1;
+    bbStr = `SMA20 $${sma20[last]?.toFixed(2)} | Upper $${upper[last]?.toFixed(2)} | Lower $${lower[last]?.toFixed(2)}`;
+    bbData = { timestamps: hist.timestamps, closes, sma20, upper, lower };
+  }
+
+  const rsiVal = parseFloat(rsiStr);
+  const rsiColor = rsiVal >= 70 ? 'var(--red)' : rsiVal <= 30 ? 'var(--green)' : 'var(--text)';
+  const rsiLabel = rsiVal >= 70 ? 'Overbought' : rsiVal <= 30 ? 'Oversold' : 'Neutral';
+
+  const earningsStr = snap.earningsDate
+    ? `<div class="earnings-warn" style="margin-top:10px">⚠ Next Earnings: ${snap.earningsDate}</div>` : '';
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-title"><span class="dot"></span>${snap.ticker} — ${snap.name}</div>
+      ${tsChip(snap.ts, isLive)}
+      <div style="font-family:var(--mono);font-size:28px;font-weight:500;color:var(--text);margin-bottom:4px">$${snap.price?.toFixed(2) || 'N/A'}</div>
+      <div style="font-family:var(--mono);font-size:13px;color:${chgColor};margin-bottom:14px">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>
+      <div class="metrics-grid">
+        <div class="metric-tile"><div class="metric-label">52W High</div><div class="metric-value">$${snap.week52High?.toFixed(2) || 'N/A'}</div></div>
+        <div class="metric-tile"><div class="metric-label">52W Low</div><div class="metric-value">$${snap.week52Low?.toFixed(2) || 'N/A'}</div></div>
+        <div class="metric-tile"><div class="metric-label">Market Cap</div><div class="metric-value" style="font-size:13px">${fmtCap(snap.marketCap)}</div></div>
+        <div class="metric-tile"><div class="metric-label">Beta</div><div class="metric-value">${snap.beta?.toFixed(2) || 'N/A'}</div></div>
+        <div class="metric-tile"><div class="metric-label">P/E (TTM)</div><div class="metric-value">${snap.peRatio?.toFixed(1) || 'N/A'}</div></div>
+        <div class="metric-tile"><div class="metric-label">Div Yield</div><div class="metric-value">${snap.dividendYield ? (snap.dividendYield).toFixed(2)+'%' : 'N/A'}</div></div>
+        <div class="metric-tile"><div class="metric-label">RSI (14)</div><div class="metric-value" style="color:${rsiColor}">${rsiStr}</div><div class="metric-sub">${rsiLabel}</div></div>
+        <div class="metric-tile"><div class="metric-label">Day Range</div><div class="metric-value" style="font-size:11px">$${snap.low?.toFixed(2)}–$${snap.high?.toFixed(2)}</div></div>
+      </div>
+      ${earningsStr}
+    </div>
+
+    ${hist ? `
+    <div class="card">
+      <div class="card-title"><span class="dot"></span>Bollinger Bands + RSI (6mo)</div>
+      <div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div>
+      <div class="chart-wrap" style="height:80px"><canvas id="rsi-chart"></canvas></div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div>
+    </div>` : ''}
+  `;
+
+  if (bbData) renderBBChart(bbData, hist);
+}
+
+function renderBBChart(bbData, hist) {
+  const labels = bbData.timestamps.map(d => {
+    if (!(d instanceof Date)) d = new Date(d);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  });
+
+  const closes = bbData.closes.filter((c,i) => c !== null);
+  const rsiVals = computeRSI(hist.closes.filter(c => c !== null));
+
+  // BB Chart
+  const bbCtx = document.getElementById('bb-chart')?.getContext('2d');
+  if (bbCtx) {
+    if (window._bbChart) window._bbChart.destroy();
+    window._bbChart = new Chart(bbCtx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Close', data: bbData.closes, borderColor: '#e8eaf0', borderWidth: 1.5, pointRadius: 0, tension: 0.2, fill: false },
+          { label: 'SMA20', data: bbData.sma20, borderColor: '#7c6af7', borderWidth: 1, pointRadius: 0, borderDash: [4,3], fill: false },
+          { label: 'Upper', data: bbData.upper, borderColor: '#ff4757', borderWidth: 1, pointRadius: 0, borderDash: [2,3], fill: false },
+          { label: 'Lower', data: bbData.lower, borderColor: '#00c896', borderWidth: 1, pointRadius: 0, borderDash: [2,3], fill: false },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#555870', font: { size: 9 }, maxTicksLimit: 6 }, grid: { color: '#2a2e38' } },
+          y: { ticks: { color: '#555870', font: { size: 9 } }, grid: { color: '#2a2e38' } }
+        }
+      }
+    });
+  }
+
+  // RSI Chart
+  const rsiCtx = document.getElementById('rsi-chart')?.getContext('2d');
+  if (rsiCtx && rsiVals.length > 0) {
+    const rsiLabels = labels.slice(labels.length - rsiVals.length);
+    if (window._rsiChart) window._rsiChart.destroy();
+    window._rsiChart = new Chart(rsiCtx, {
+      type: 'line',
+      data: {
+        labels: rsiLabels,
+        datasets: [{ label: 'RSI', data: rsiVals, borderColor: '#7c6af7', borderWidth: 1.5, pointRadius: 0, tension: 0.2, fill: false }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          annotation: {}
+        },
+        scales: {
+          x: { ticks: { display: false }, grid: { color: '#2a2e38' } },
+          y: {
+            min: 0, max: 100,
+            ticks: { color: '#555870', font: { size: 9 }, stepSize: 30, values: [30,70] },
+            grid: { color: '#2a2e38' }
+          }
+        }
+      }
+    });
+  }
+}
+
+// ═══════════════════════════════════════════
+// OPTIONS CHAIN
+// ═══════════════════════════════════════════
+let currentExpirations = [];
+let selectedExpirations = [];
+let currentOptionsData = null;
+
+function setMode(mode) {
+  currentMode = mode;
+  document.getElementById('mode-puts').classList.toggle('active', mode === 'puts');
+  document.getElementById('mode-calls').classList.toggle('active', mode === 'calls');
+}
+
+function updateSlider(id) {
+  document.getElementById(id + '-val').textContent = document.getElementById(id).value + '%';
+}
+
+async function loadOptionsForTicker() {
+  const t = document.getElementById('options-ticker-select').value;
+  if (!t) { document.getElementById('exp-section').style.display = 'none'; return; }
+
+  document.getElementById('exp-section').style.display = 'none';
+  document.getElementById('options-content').innerHTML = `<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading options for ${t}...</div></div>`;
+
+  try {
+    let data, isLive = true;
+    try {
+      data = await cboeOptions(t);
+      S.set('options_' + t, { data, ts: nowPT() });
+    } catch {
+      const cached = S.get('options_' + t);
+      if (cached) { data = cached.data; isLive = false; }
+      else throw new Error('No options data available');
+    }
+
+    currentOptionsData = data;
+
+    // Parse expirations
+    const exps = new Set();
+    (data.data?.options || []).forEach(o => {
+      const exp = o.option?.slice(t.length, t.length + 6);
+      if (exp) exps.add('20' + exp.slice(0,2) + '-' + exp.slice(2,4) + '-' + exp.slice(4,6));
+    });
+
+    // Filter to monthly (3rd Friday or Thursday)
+    const monthly = [...exps].filter(e => {
+      const d = new Date(e);
+      return (d.getDay() === 5 || d.getDay() === 4) && d.getDate() >= 15 && d.getDate() <= 21;
+    }).sort().slice(0, 3);
+
+    currentExpirations = monthly;
+    selectedExpirations = [...monthly];
+
+    // Render exp chips
+    const chipsEl = document.getElementById('exp-chips');
+    chipsEl.innerHTML = monthly.map(e =>
+      `<div class="exp-chip selected" id="chip-${e}" onclick="toggleExp('${e}')">${e}</div>`
+    ).join('');
+
+    document.getElementById('exp-section').style.display = 'block';
+    document.getElementById('options-content').innerHTML = '';
+
+    // Earnings warning
+    const snap = S.get('snap_' + t);
+    if (snap?.earningsDate) {
+      const today = new Date();
+      const earningsD = new Date(snap.earningsDate);
+      const warn = monthly.filter(e => {
+        const expD = new Date(e);
+        return today < earningsD && earningsD <= expD;
+      });
+      const warnEl = document.getElementById('options-earnings-warn');
+      warnEl.innerHTML = warn.length
+        ? `<div class="earnings-warn">⚠ Earnings on ${snap.earningsDate} falls within ${warn.join(', ')} expiration window. Elevated assignment risk.</div>` : '';
+    }
+
+    if (!isLive) {
+      const cached = S.get('options_' + t);
+      document.getElementById('options-content').innerHTML = `<div class="ts-chip stale">⏱ Using cached options data from ${cached?.ts || 'unknown'}</div>`;
+    }
+
+  } catch(err) {
+    document.getElementById('options-content').innerHTML = `<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;
+  }
+}
+
+function toggleExp(e) {
+  if (selectedExpirations.includes(e)) {
+    selectedExpirations = selectedExpirations.filter(x => x !== e);
+    document.getElementById('chip-' + e)?.classList.remove('selected');
+  } else {
+    selectedExpirations.push(e);
+    document.getElementById('chip-' + e)?.classList.add('selected');
+  }
+}
+
+function buildOptionsTable() {
+  const t = document.getElementById('options-ticker-select').value;
+  if (!t || !currentOptionsData) return;
+
+  const snap = S.get('snap_' + t);
+  const currentPrice = snap?.price;
+  if (!currentPrice) { toast('Load ticker snapshot first'); return; }
+
+  const pctBelow = parseInt(document.getElementById('pct-below').value);
+  const pctAbove = parseInt(document.getElementById('pct-above').value);
+  const lowerBound = currentPrice * (1 - pctBelow / 100);
+  const upperBound = currentPrice * (1 + pctAbove / 100);
+  const hlApy = parseFloat(document.getElementById('highlight-apy').value) || 12;
+  const today = new Date();
+
+  // Parse all options from Cboe data
+  const allOptions = currentOptionsData.data?.options || [];
+  const rows = [];
+
+  allOptions.forEach(o => {
+    const sym = o.option || '';
+    const tickerLen = t.length;
+    if (!sym.startsWith(t)) return;
+
+    const dateStr = sym.slice(tickerLen, tickerLen + 6);
+    const optType = sym[tickerLen + 6]; // C or P
+    const strikeRaw = parseInt(sym.slice(tickerLen + 7, tickerLen + 12)) / 1000;
+
+    if (currentMode === 'puts' && optType !== 'P') return;
+    if (currentMode === 'calls' && optType !== 'C') return;
+    if (strikeRaw < lowerBound || strikeRaw > upperBound) return;
+
+    const expDate = '20' + dateStr.slice(0,2) + '-' + dateStr.slice(2,4) + '-' + dateStr.slice(4,6);
+    if (!selectedExpirations.includes(expDate)) return;
+
+    const expD = new Date(expDate);
+    const dte = Math.max(Math.round((expD - today) / 86400000), 1);
+    const bid = o.bid || 0;
+    const ask = o.ask || 0;
+    const last = o.last_sale_price || 0;
+    const oi = o.open_interest || 0;
+    const vol = o.volume || 0;
+    const iv = o.iv || 0;
+    const premium = (bid > 0 ? bid : last) * 100;
+
+    let apy;
+    if (currentMode === 'calls') {
+      apy = premium / (currentPrice * 100) * (365 / dte) * 100;
+    } else {
+      apy = premium / (strikeRaw * 100) * (365 / dte) * 100;
+    }
+
+    rows.push({ expDate, strike: strikeRaw, bid, ask, last, premium, apy, oi, vol, iv, dte });
+  });
+
+  // Sort by expiration then strike
+  rows.sort((a,b) => a.expDate.localeCompare(b.expDate) || a.strike - b.strike);
+
+  if (!rows.length) {
+    document.getElementById('options-content').innerHTML = '<div class="card"><div class="empty"><div class="empty-icon">🔍</div>No options found in selected range</div></div>';
+    document.getElementById('oi-chart-section').style.display = 'none';
+    return;
+  }
+
+  const tableHTML = `
+    <div class="card">
+      <div class="card-title"><span class="dot"></span>${currentMode === 'puts' ? '📉 Put' : '📈 Call'} Options — ${t} @ $${currentPrice.toFixed(2)}</div>
+      <div class="ts-chip live">🟢 ${nowPT()}</div>
+      <div class="options-table-wrap">
+        <table class="options-table">
+          <thead>
+            <tr>
+              <th>Exp / Strike</th>
+              <th>Bid</th>
+              <th>Ask</th>
+              <th>Premium</th>
+              <th>APY</th>
+              <th>OI</th>
+              <th>IV</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => {
+              const hl = r.apy >= hlApy;
+              const apyCls = r.apy >= hlApy * 1.5 ? 'apy-cell great' : r.apy >= hlApy ? 'apy-cell' : '';
+              return `<tr class="${hl ? 'highlighted' : ''}">
+                <td>${r.expDate}<br><span style="color:var(--accent);font-size:12px">$${formatStrike(r.strike)}</span></td>
+                <td>$${r.bid.toFixed(2)}</td>
+                <td>$${r.ask.toFixed(2)}</td>
+                <td>$${(r.premium).toFixed(0)}</td>
+                <td class="${apyCls}">${r.apy.toFixed(1)}%</td>
+                <td>${r.oi.toLocaleString()}</td>
+                <td>${(r.iv * 100).toFixed(1)}%</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('options-content').innerHTML = tableHTML;
+
+  // OI Chart
+  renderOIChart(rows, currentPrice, t);
+}
+
+function formatStrike(x) {
+  return x === Math.floor(x) ? x.toString() : x.toFixed(2);
+}
+
+function renderOIChart(rows, currentPrice, t) {
+  const section = document.getElementById('oi-chart-section');
+  section.style.display = 'block';
+
+  // Group by strike, sum OI
+  const byStrike = {};
+  rows.forEach(r => {
+    if (!byStrike[r.strike]) byStrike[r.strike] = 0;
+    byStrike[r.strike] += r.oi;
+  });
+  const strikes = Object.keys(byStrike).map(Number).sort((a,b) => a-b);
+  const ois = strikes.map(s => byStrike[s]);
+  const labels = strikes.map(s => '$' + formatStrike(s));
+
+  // Find nearest strike to current price
+  const nearestIdx = strikes.reduce((bi, s, i) => Math.abs(s - currentPrice) < Math.abs(strikes[bi] - currentPrice) ? i : bi, 0);
+
+  const bgColors = strikes.map(s => {
+    if (currentMode === 'puts') return s <= currentPrice ? 'rgba(0,212,170,0.6)' : 'rgba(42,46,56,0.6)';
+    return s > currentPrice ? 'rgba(255,107,53,0.6)' : 'rgba(42,46,56,0.6)';
+  });
+
+  const cached = S.get('options_' + t);
+  document.getElementById('oi-ts').innerHTML = tsChip(cached?.ts || nowPT(), true);
+
+  const ctx = document.getElementById('oi-chart').getContext('2d');
+  if (window._oiChart) window._oiChart.destroy();
+  window._oiChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Open Interest', data: ois, backgroundColor: bgColors, borderRadius: 3 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => `OI: ${ctx.parsed.y.toLocaleString()}` } }
+      },
+      scales: {
+        x: { ticks: { color: '#555870', font: { size: 9 }, maxRotation: 45 }, grid: { color: '#2a2e38' } },
+        y: { ticks: { color: '#555870', font: { size: 9 } }, grid: { color: '#2a2e38' } }
+      }
+    }
+  });
+}
+
+// ═══════════════════════════════════════════
+// VIX
+// ═══════════════════════════════════════════
+async function loadVIX() {
+  const el = document.getElementById('vix-content');
+  el.innerHTML = `<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading VIX data...</div></div>`;
+
+  try {
+    let vixHist, vix3mHist, isLive = true;
+    try {
+      [vixHist, vix3mHist] = await Promise.all([
+        yahooHistory('^VIX', '1y', '1d'),
+        yahooHistory('^VIX3M', '1y', '1d')
+      ]);
+      S.set('vix_hist', { timestamps: vixHist.timestamps.map(d => d.toISOString()), closes: vixHist.closes, ts: nowPT() });
+      S.set('vix3m_hist', { timestamps: vix3mHist.timestamps.map(d => d.toISOString()), closes: vix3mHist.closes, ts: nowPT() });
+    } catch {
+      const cv = S.get('vix_hist'), cv3 = S.get('vix3m_hist');
+      if (cv) {
+        vixHist = { timestamps: cv.timestamps.map(d => new Date(d)), closes: cv.closes };
+        vix3mHist = cv3 ? { timestamps: cv3.timestamps.map(d => new Date(d)), closes: cv3.closes } : null;
+        isLive = false;
+      } else throw new Error('No VIX data available');
+    }
+
+    const closes = vixHist.closes.filter(c => c !== null);
+    const vixCurrent = closes[closes.length - 1];
+    const pct1y = closes.filter(c => c < vixCurrent).length / closes.length * 100;
+
+    const vix3mCloses = vix3mHist?.closes?.filter(c => c !== null) || [];
+    const vix3mCurrent = vix3mCloses.length ? vix3mCloses[vix3mCloses.length - 1] : null;
+    const tsRatio = vix3mCurrent ? vixCurrent / vix3mCurrent : null;
+
+    // Zone
+    let zoneClass, zoneLabel, zoneGuidance;
+    if (vixCurrent < 15) {
+      zoneClass = 'vix-low'; zoneLabel = 'LOW — Thin Premiums';
+      zoneGuidance = 'Premiums are compressed. Maintain discipline -- do not chase yield by going too close to current price. Consider waiting for a VIX uptick before adding new positions.';
+    } else if (vixCurrent < 20) {
+      zoneClass = 'vix-normal'; zoneLabel = 'NORMAL — Standard Conditions';
+      zoneGuidance = 'Standard put-selling conditions. Stick to your 12% APY target and maintain a 5-10% OTM buffer.';
+    } else if (vixCurrent < 30) {
+      zoneClass = 'vix-elevated'; zoneLabel = 'ELEVATED — Favorable for Put Selling';
+      zoneGuidance = 'Sweet spot for premium collection. IV is elevated enough for good premiums without extreme market stress. Consider widening OTM buffer slightly given higher realized vol.';
+    } else if (vixCurrent < 40) {
+      zoneClass = 'vix-high'; zoneLabel = 'HIGH — Fear Spike';
+      zoneGuidance = 'Exceptional premium opportunity but elevated assignment risk. VIX spikes above 30 have historically been near peak fear. Use smaller position sizes on highest-conviction names only.';
+    } else {
+      zoneClass = 'vix-extreme'; zoneLabel = 'EXTREME — Crisis Territory';
+      zoneGuidance = 'Extraordinary premiums. Sell puts only on your strongest-conviction, best-balance-sheet names at wider OTM than usual. These conditions always normalize.';
+    }
+
+    // Term structure
+    let tsLabel = '', tsGuidance = '';
+    if (tsRatio !== null) {
+      if (tsRatio > 1.05) {
+        tsLabel = 'BACKWARDATION ⚠';
+        tsGuidance = 'VIX > VIX3M: acute near-term fear, market expects volatility to subside. Historically a strong contrarian signal -- among the best times to sell puts on quality names.';
+      } else if (tsRatio > 0.95) {
+        tsLabel = 'FLAT';
+        tsGuidance = 'Near-term and medium-term vol expectations are similar. Neutral signal.';
+      } else {
+        tsLabel = 'CONTANGO (normal)';
+        tsGuidance = 'VIX < VIX3M: market expects more uncertainty 3 months out than today. Normal structure, standard conditions for put selling.';
+      }
+    }
+
+    // BB for VIX (6mo)
+    const vix6mo = closes.slice(-126);
+    const sma20 = vix6mo.map((_, i) => i < 19 ? null : avg(vix6mo.slice(i-19, i+1)));
+    const std20 = vix6mo.map((_, i) => i < 19 ? null : stdDev(vix6mo.slice(i-19, i+1)));
+    const upper = sma20.map((s, i) => s ? s + 2*std20[i] : null);
+    const lower = sma20.map((s, i) => s ? s - 2*std20[i] : null);
+    const ts6mo = vixHist.timestamps.slice(-126);
+    const vix3m6mo = vix3mCloses.slice(-126);
+
+    const bbUpper = upper[upper.length-1];
+    const bbLower = lower[lower.length-1];
+    const bbSMA = sma20[sma20.length-1];
+
+    let bbComment = '';
+    if (bbUpper && vixCurrent >= bbUpper * 0.97) bbComment = 'VIX near upper Bollinger Band -- mean reversion likely, good time to sell puts before premiums compress.';
+    else if (bbLower && vixCurrent <= bbLower * 1.03) bbComment = 'VIX near lower Bollinger Band -- premiums compressed. Volatility expansion may be approaching.';
+    else bbComment = `VIX within normal range (${bbLower?.toFixed(1)} – ${bbUpper?.toFixed(1)}, SMA ${bbSMA?.toFixed(1)}).`;
+
+    const cachedV = S.get('vix_hist');
+    el.innerHTML = `
+      <div class="${zoneClass} vix-banner">
+        <div>
+          <div class="vix-banner-label">${zoneLabel}</div>
+          <div style="font-family:var(--mono);font-size:10px;opacity:0.7;margin-top:2px">${pct1y.toFixed(0)}th percentile (1Y)</div>
+        </div>
+        <div class="vix-banner-value">${vixCurrent.toFixed(2)}</div>
+      </div>
+      ${tsChip(isLive ? nowPT() : (cachedV?.ts || ''), isLive)}
+      <div class="metrics-grid">
+        <div class="metric-tile"><div class="metric-label">VIX</div><div class="metric-value">${vixCurrent.toFixed(2)}</div></div>
+        <div class="metric-tile"><div class="metric-label">1Y Percentile</div><div class="metric-value">${pct1y.toFixed(0)}th</div></div>
+        ${vix3mCurrent ? `<div class="metric-tile"><div class="metric-label">VIX3M</div><div class="metric-value">${vix3mCurrent.toFixed(2)}</div></div>` : ''}
+        ${tsRatio ? `<div class="metric-tile"><div class="metric-label">VIX/VIX3M</div><div class="metric-value" style="font-size:13px">${tsRatio.toFixed(3)}</div><div class="metric-sub">${tsLabel}</div></div>` : ''}
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--accent3)"></span>VIX Chart (6mo) with Bollinger Bands</div>
+        <div class="chart-wrap" style="height:200px"><canvas id="vix-bb-chart"></canvas></div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbComment}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:var(--accent3)"></span>VIX Commentary</div>
+        <div class="commentary">Zone: ${zoneLabel}
+
+${zoneGuidance}
+
+${tsRatio ? `Term Structure: ${tsLabel}
+${tsGuidance}
+
+` : ''}Bollinger: ${bbComment}
+
+Note: VIX reflects S&P 500 implied volatility. Individual stock IV (which drives your actual premiums on NVDA, TSLA etc.) can differ substantially -- especially for high-beta tech which often carries IV well above VIX even in calm markets.</div>
+      </div>
+    `;
+
+    // Render VIX BB chart
+    const labels6mo = ts6mo.map(d => {
+      if (!(d instanceof Date)) d = new Date(d);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+
+    const vixCtx = document.getElementById('vix-bb-chart')?.getContext('2d');
+    if (vixCtx) {
+      if (window._vixBBChart) window._vixBBChart.destroy();
+      window._vixBBChart = new Chart(vixCtx, {
+        type: 'line',
+        data: {
+          labels: labels6mo,
+          datasets: [
+            { label: 'VIX', data: vix6mo, borderColor: '#e8eaf0', borderWidth: 2, pointRadius: 0, tension: 0.2, fill: false },
+            { label: 'SMA20', data: sma20, borderColor: '#7c6af7', borderWidth: 1, pointRadius: 0, borderDash: [4,3], fill: false },
+            { label: 'Upper', data: upper, borderColor: '#ff4757', borderWidth: 1, pointRadius: 0, borderDash: [2,3], fill: false },
+            { label: 'Lower', data: lower, borderColor: '#00c896', borderWidth: 1, pointRadius: 0, borderDash: [2,3], fill: false },
+            ...(vix3m6mo.length ? [{ label: 'VIX3M', data: vix3m6mo, borderColor: '#7c6af7', borderWidth: 1, pointRadius: 0, borderDash: [6,3], opacity: 0.5, fill: false }] : [])
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: '#555870', font: { size: 9 }, maxTicksLimit: 6 }, grid: { color: '#2a2e38' } },
+            y: { ticks: { color: '#555870', font: { size: 9 } }, grid: { color: '#2a2e38' } }
+          }
+        }
+      });
+    }
+
+  } catch(err) {
+    el.innerHTML = `<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;
+  }
+}
+
+// ═══════════════════════════════════════════
+// CONVICTION DASHBOARDS
+// ═══════════════════════════════════════════
+async function runDashboards() {
+  if (!FINNHUB_KEY) { toast('⚠ Add Finnhub key in Settings'); return; }
+  const btn = document.getElementById('run-dashboard-btn');
+  btn.disabled = true;
+  document.getElementById('dashboard-progress').style.display = 'block';
+  const targetAPY = parseFloat(document.getElementById('target-apy').value) || 12;
+  const total = watchlist.length;
+  const putResults = [], ccResults = [];
+
+  for (let i = 0; i < watchlist.length; i++) {
+    const t = watchlist[i];
+    const pct = Math.round((i / total) * 100);
+    document.getElementById('dash-progress-bar').style.width = pct + '%';
+    document.getElementById('dash-progress-label').textContent = `Scoring ${t} (${i+1}/${total})...`;
+
+    try {
+      const [quote, metrics, earnings] = await Promise.all([
+        fh(`/quote?symbol=${t}`),
+        fh(`/stock/metric?symbol=${t}&metric=all`),
+        fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),90))}`)
+      ]);
+
+      const price = quote.c;
+      const prevClose = quote.pc;
+      const week52High = metrics.metric?.['52WeekHigh'];
+      const week52Low = metrics.metric?.['52WeekLow'];
+      const beta = metrics.metric?.beta;
+      const earningsDate = earnings?.earningsCalendar?.[0]?.date || null;
+
+      // Fetch history for RSI + MA
+      let rsiVal = null, ma50 = null, ma200 = null, rangePos = null;
+      try {
+        const hist = await yahooHistory(t, '1y', '1d');
+        const closes = hist.closes.filter(c => c !== null);
+        const rsi = computeRSI(closes);
+        rsiVal = rsi[rsi.length - 1];
+        ma50 = avg(closes.slice(-50));
+        ma200 = avg(closes.slice(-200));
+        if (week52High && week52Low && week52High > week52Low) {
+          rangePos = (price - week52Low) / (week52High - week52Low);
+        }
+      } catch {}
+
+      // Get IVR from current IV vs 1Y range
+      let ivrVal = null, ivrLabel = '', ivrCls = '';
+      try {
+        // Use current options chain IV as proxy for current IV
+        const optData = S.get('options_' + t);
+        if (optData) {
+          const allIVs = (optData.data?.data?.options || []).map(o => o.iv).filter(v => v > 0);
+          if (allIVs.length) {
+            const currentIV = allIVs.reduce((a,b) => a+b,0) / allIVs.length;
+            // Compare to 52W IV range from metrics
+            const ivHigh = metrics.metric?.['52WeekHighIV'] || metrics.metric?.['260DayHighVolatility'] || null;
+            const ivLow = metrics.metric?.['52WeekLowIV'] || metrics.metric?.['260DayLowVolatility'] || null;
+            if (ivHigh && ivLow && ivHigh > ivLow) {
+              ivrVal = ((currentIV - ivLow) / (ivHigh - ivLow)) * 100;
+            }
+          }
+        }
+        if (ivrVal === null) {
+          // Use annualized volatility from metrics as fallback
+          const vol = metrics.metric?.['260DayVolatility'] || metrics.metric?.annualizedDeviation || null;
+          if (vol) ivrVal = Math.min(100, (vol / 60) * 100); // rough normalization
+        }
+        if (ivrVal !== null) {
+          if (ivrVal < 30) { ivrLabel = 'Low IV'; ivrCls = 'ivr-low'; }
+          else if (ivrVal < 60) { ivrLabel = 'Normal IV'; ivrCls = 'ivr-normal'; }
+          else if (ivrVal < 80) { ivrLabel = 'Elevated IV'; ivrCls = 'ivr-elevated'; }
+          else { ivrLabel = 'High IV'; ivrCls = 'ivr-high'; }
+        }
+      } catch {}
+
+      // Score for puts
+      const putScore = scorePuts({ price, rsiVal, ma50, ma200, rangePos, earningsDate, week52High, week52Low });
+      const ccScore = scoreCalls({ price, rsiVal, ma50, ma200, rangePos, earningsDate, week52High, week52Low });
+
+      const ivrBadge = ivrVal !== null ? `<span class="ivr-badge ${ivrCls}">${ivrLabel} (${ivrVal.toFixed(0)})</span>` : '';
+
+      const commonFields = { ticker: t, price, ivrBadge, earningsDate };
+      putResults.push({ ...commonFields, score: putScore.score, signal: putScore.signal, factors: putScore.factors });
+      ccResults.push({ ...commonFields, score: ccScore.score, signal: ccScore.signal, factors: ccScore.factors });
+
+    } catch(e) {
+      putResults.push({ ticker: t, price: null, score: -99, signal: 'error', factors: 'Data unavailable', ivrBadge: '', earningsDate: null });
+      ccResults.push({ ticker: t, price: null, score: -99, signal: 'error', factors: 'Data unavailable', ivrBadge: '', earningsDate: null });
+    }
+
+    if (i < watchlist.length - 1) await sleep(800);
+  }
+
+  document.getElementById('dash-progress-bar').style.width = '100%';
+  document.getElementById('dash-progress-label').textContent = 'Done!';
+  setTimeout(() => { document.getElementById('dashboard-progress').style.display = 'none'; }, 1500);
+  btn.disabled = false;
+
+  putResults.sort((a,b) => b.score - a.score);
+  ccResults.sort((a,b) => b.score - a.score);
+
+  const ts = nowPT();
+  S.set('conviction_puts', { results: putResults, ts });
+  S.set('conviction_cc', { results: ccResults, ts });
+
+  renderDashTable('put-dashboard-content', putResults, ts, true);
+  renderDashTable('cc-dashboard-content', ccResults, ts, true);
+  document.getElementById('put-dash-ts').innerHTML = tsChip(ts, true);
+  document.getElementById('cc-dash-ts').innerHTML = tsChip(ts, true);
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function scorePuts({ price, rsiVal, ma50, ma200, rangePos, earningsDate }) {
+  let score = 0; const reasons = [];
+  const today = new Date();
+  if (rsiVal !== null) {
+    if (rsiVal < 35) { score += 2; reasons.push(`RSI oversold (${rsiVal.toFixed(0)})`); }
+    else if (rsiVal < 50) { score += 1; reasons.push(`RSI neutral-low (${rsiVal.toFixed(0)})`); }
+    else if (rsiVal > 70) { score -= 2; reasons.push(`RSI overbought (${rsiVal.toFixed(0)})`); }
+    else if (rsiVal > 60) score -= 1;
+  }
+  if (ma50 && ma200 && price) {
+    if (price > ma50 && price > ma200) { score += 1; reasons.push('Above 50 & 200-day MA'); }
+    else if (price < ma50 && price < ma200) { score -= 1; reasons.push('Below both MAs'); }
+  }
+  if (rangePos !== null) {
+    if (rangePos < 0.35) { score += 2; reasons.push(`Lower 52W range (${(rangePos*100).toFixed(0)}%)`); }
+    else if (rangePos < 0.55) score += 1;
+    else if (rangePos > 0.85) { score -= 1; reasons.push(`Upper 52W range (${(rangePos*100).toFixed(0)}%)`); }
+  }
+  if (earningsDate) {
+    const ed = new Date(earningsDate);
+    const days = Math.round((ed - today) / 86400000);
+    if (days >= 0 && days < 35) { score -= 2; reasons.push(`Earnings in ${days}d`); }
+  }
+  const signal = score >= 3 ? 'high' : score >= 1 ? 'medium' : 'low';
+  return { score, signal, factors: reasons.slice(0,2).join(', ') || 'Insufficient data' };
+}
+
+function scoreCalls({ price, rsiVal, ma50, ma200, rangePos, earningsDate }) {
+  let score = 0; const reasons = [];
+  const today = new Date();
+  if (rsiVal !== null) {
+    if (rsiVal > 70) { score += 2; reasons.push(`RSI overbought (${rsiVal.toFixed(0)})`); }
+    else if (rsiVal > 60) { score += 1; reasons.push(`RSI elevated (${rsiVal.toFixed(0)})`); }
+    else if (rsiVal < 35) { score -= 2; reasons.push(`RSI oversold (${rsiVal.toFixed(0)})`); }
+    else if (rsiVal < 50) score -= 1;
+  }
+  if (ma50 && ma200 && price) {
+    if (price > ma50 && price > ma200) { score += 1; reasons.push('Above 50 & 200-day MA'); }
+    else if (price < ma50 && price < ma200) { score -= 1; reasons.push('Below both MAs'); }
+  }
+  if (rangePos !== null) {
+    if (rangePos > 0.80) { score += 2; reasons.push(`Upper 52W range (${(rangePos*100).toFixed(0)}%)`); }
+    else if (rangePos > 0.60) { score += 1; reasons.push(`Upper half 52W (${(rangePos*100).toFixed(0)}%)`); }
+    else if (rangePos < 0.30) { score -= 2; reasons.push(`Near 52W low (${(rangePos*100).toFixed(0)}%)`); }
+    else if (rangePos < 0.50) score -= 1;
+  }
+  if (earningsDate) {
+    const ed = new Date(earningsDate);
+    const days = Math.round((ed - today) / 86400000);
+    if (days >= 0 && days < 35) { score -= 2; reasons.push(`Earnings in ${days}d`); }
+  }
+  const signal = score >= 3 ? 'high' : score >= 1 ? 'medium' : 'low';
+  return { score, signal, factors: reasons.slice(0,2).join(', ') || 'Insufficient data' };
+}
+
+function renderDashTable(elId, results, ts, isLive) {
+  const el = document.getElementById(elId);
+  if (!results.length) { el.innerHTML = '<div class="empty">No data</div>'; return; }
+  el.innerHTML = `
+    <div style="overflow-x:auto">
+      <table class="dash-table">
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Signal</th>
+            <th>Price</th>
+            <th>IVR</th>
+            <th>Key Factors</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${results.filter(r => r.signal !== 'error').map(r => `
+            <tr class="${r.signal}">
+              <td style="font-weight:500;color:var(--accent)">${r.ticker}${r.earningsDate ? '<br><span style="color:var(--warn);font-size:9px">⚠ ' + r.earningsDate + '</span>' : ''}</td>
+              <td><span class="signal signal-${r.signal}">${r.signal === 'high' ? '🟢' : r.signal === 'medium' ? '🟡' : '🔴'} ${r.signal}</span></td>
+              <td>${r.price ? '$' + r.price.toFixed(2) : 'N/A'}</td>
+              <td>${r.ivrBadge || '--'}</td>
+              <td style="font-size:10px;color:var(--text2)">${r.factors}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════
+// PREFETCH ALL
+// ═══════════════════════════════════════════
+async function prefetchAll() {
+  if (!FINNHUB_KEY) { toast('⚠ Add Finnhub key in Settings'); return; }
+  const btn = document.getElementById('prefetch-btn');
+  btn.disabled = true;
+  document.getElementById('prefetch-progress').style.display = 'block';
+
+  for (let i = 0; i < watchlist.length; i++) {
+    const t = watchlist[i];
+    const pct = Math.round((i / watchlist.length) * 100);
+    document.getElementById('prefetch-progress-bar').style.width = pct + '%';
+    document.getElementById('prefetch-label').textContent = `Fetching ${t} (${i+1}/${watchlist.length})...`;
+
+    try {
+      const [quote, profile, metrics, earnings] = await Promise.all([
+        fh(`/quote?symbol=${t}`),
+        fh(`/stock/profile2?symbol=${t}`),
+        fh(`/stock/metric?symbol=${t}&metric=all`),
+        fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),90))}`)
+      ]);
+      const snap = {
+        ticker: t, name: profile.name || t,
+        price: quote.c, prevClose: quote.pc,
+        change: quote.c - quote.pc, changePct: ((quote.c - quote.pc) / quote.pc * 100),
+        high: quote.h, low: quote.l,
+        week52High: metrics.metric?.['52WeekHigh'] || null,
+        week52Low: metrics.metric?.['52WeekLow'] || null,
+        marketCap: profile.marketCapitalization ? profile.marketCapitalization * 1e6 : null,
+        beta: metrics.metric?.beta || null,
+        peRatio: metrics.metric?.peBasicExclExtraTTM || null,
+        dividendYield: metrics.metric?.dividendYieldIndicatedAnnual || null,
+        earningsDate: earnings?.earningsCalendar?.[0]?.date || null,
+        ts: nowPT(), isLive: true
+      };
+      S.set('snap_' + t, snap);
+    } catch {}
+
+    try {
+      const hist = await yahooHistory(t, '6mo', '1d');
+      S.set('hist_' + t, { timestamps: hist.timestamps.map(d => d.toISOString()), closes: hist.closes, volumes: hist.volumes, ts: nowPT() });
+    } catch {}
+
+    try {
+      const opts = await cboeOptions(t);
+      S.set('options_' + t, { data: opts, ts: nowPT() });
+    } catch {}
+
+    if (i < watchlist.length - 1) await sleep(1000);
+  }
+
+  // Also fetch VIX
+  try {
+    const [vixH, vix3mH] = await Promise.all([yahooHistory('^VIX','1y','1d'), yahooHistory('^VIX3M','1y','1d')]);
+    S.set('vix_hist', { timestamps: vixH.timestamps.map(d => d.toISOString()), closes: vixH.closes, ts: nowPT() });
+    S.set('vix3m_hist', { timestamps: vix3mH.timestamps.map(d => d.toISOString()), closes: vix3mH.closes, ts: nowPT() });
+  } catch {}
+
+  document.getElementById('prefetch-progress-bar').style.width = '100%';
+  document.getElementById('prefetch-label').textContent = 'Prefetch complete!';
+  setTimeout(() => { document.getElementById('prefetch-progress').style.display = 'none'; }, 2000);
+  btn.disabled = false;
+  renderWatchlist();
+  toast('✅ All data cached for offline use');
+}
+
+// ═══════════════════════════════════════════
+// MATH HELPERS
+// ═══════════════════════════════════════════
+function avg(arr) {
+  const valid = arr.filter(v => v !== null && v !== undefined && !isNaN(v));
+  if (!valid.length) return null;
+  return valid.reduce((a,b) => a+b, 0) / valid.length;
+}
+
+function stdDev(arr) {
+  const a = avg(arr);
+  if (a === null) return null;
+  const valid = arr.filter(v => v !== null && !isNaN(v));
+  return Math.sqrt(valid.reduce((s,v) => s + (v-a)**2, 0) / valid.length);
+}
+
+function computeRSI(closes, period=14) {
+  const result = [];
+  for (let i = 0; i < closes.length; i++) {
+    if (i < period) { result.push(null); continue; }
+    const slice = closes.slice(i - period, i + 1);
+    let gains = 0, losses = 0;
+    for (let j = 1; j < slice.length; j++) {
+      const d = slice[j] - slice[j-1];
+      if (d > 0) gains += d; else losses -= d;
+    }
+    const avgGain = gains / period;
+    const avgLoss = losses / period;
+    if (avgLoss === 0) { result.push(100); continue; }
+    const rs = avgGain / avgLoss;
+    result.push(100 - 100 / (1 + rs));
+  }
+  return result.filter(v => v !== null);
+}
+
+// ═══════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════
+function init() {
+  // Load cached dashboards on startup
+  const cachedPuts = S.get('conviction_puts');
+  const cachedCC = S.get('conviction_cc');
+  if (cachedPuts) {
+    renderDashTable('put-dashboard-content', cachedPuts.results, cachedPuts.ts, false);
+    document.getElementById('put-dash-ts').innerHTML = tsChip(cachedPuts.ts, false);
+  }
+  if (cachedCC) {
+    renderDashTable('cc-dashboard-content', cachedCC.results, cachedCC.ts, false);
+    document.getElementById('cc-dash-ts').innerHTML = tsChip(cachedCC.ts, false);
+  }
+
+  renderWatchlist();
+  populateSelects();
+
+  // Prompt for API key if missing
+  if (!FINNHUB_KEY) {
+    setTimeout(() => {
+      toast('⚠ Add your Finnhub API key in ⚙ Settings to get started', 4000);
+    }, 500);
+  }
+}
+
+init();
+</script>
+
+<script>
+// Register service worker for offline capability
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => console.log('SW registered:', reg.scope))
+      .catch(err => console.warn('SW registration failed:', err));
+  });
+}
+</script>
+
+</body>
+</html>

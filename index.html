@@ -608,7 +608,7 @@
   <div class="header">
     <div>
       <div class="header-title">PutSeller Pro</div>
-      <div class="header-sub">Options Income Strategy</div>
+      <div class="header-sub">Options Income Strategy · v1.2</div>
     </div>
     <button class="settings-btn" onclick="openSettings()">⚙ Settings</button>
   </div>
@@ -857,6 +857,35 @@ Built for iPhone 13 mini / 15 Pro</div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--danger)"></span>Danger Zone</div>
     <button class="btn btn-danger" onclick="clearAllData()">Clear All Cached Data</button>
+
+    <hr class="divider">
+    <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
+    <div class="commentary" style="font-size:13px">
+<strong>v1.2 -- 2026-04-28</strong>
+- Price history and VIX data now routed through Cloudflare Worker proxy to fix Yahoo Finance CORS block
+- Bollinger Bands and RSI charts now load correctly on Ticker tab
+- VIX Refresh button now returns data
+- Worker updated to handle both history and options chain requests
+
+<strong>v1.1 -- 2026-04-28</strong>
+- OI chart: current price blue dashed reference line added
+- OI chart: canned analysis text below chart with strike guidance
+- Bollinger/RSI: explanatory caption added
+- Conviction dashboard: added Rec Strike, Expiration, Est APY columns
+- Conviction dashboard: enriched narrative analysis per ticker
+- IVR scoring incorporated into conviction narrative
+- Font size increased to 16px for iPhone readability
+- Options chain routed through Cloudflare Worker (Yahoo proxy)
+
+<strong>v1.0 -- 2026-04-27</strong>
+- Initial release on GitHub Pages
+- Finnhub integration for quotes, fundamentals, earnings
+- Cboe options chain (later replaced by Yahoo via Worker)
+- VIX panel with Bollinger Bands and term structure
+- Dual conviction dashboards (puts and covered calls)
+- Offline caching via localStorage and service worker
+- Prefetch All button for offline planning
+    </div>
   </div>
 </div>
 
@@ -980,13 +1009,17 @@ async function fh(path) {
   return r.json();
 }
 
-// Yahoo Finance chart (CORS works for history)
+// Yahoo Finance chart history via Cloudflare Worker proxy
+// Routes through Worker to handle Yahoo cookie+crumb auth server-side
 async function yahooHistory(symbol, range='6mo', interval='1d') {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}&includePrePost=false`;
+  const encodedSymbol = encodeURIComponent(symbol);
+  const url = `${WORKER_URL}/?ticker=${encodedSymbol}&type=history&range=${range}&interval=${interval}`;
   const r = await fetch(url);
-  if (!r.ok) throw new Error(`Yahoo ${r.status}`);
+  if (!r.ok) throw new Error(`History proxy ${r.status}`);
   const d = await r.json();
-  const result = d.chart.result[0];
+  if (d.error) throw new Error(d.error);
+  const result = d.chart?.result?.[0];
+  if (!result) throw new Error('No history data returned');
   const ts = result.timestamp.map(t => new Date(t * 1000));
   const closes = result.indicators.quote[0].close;
   const volumes = result.indicators.quote[0].volume || [];

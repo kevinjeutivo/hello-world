@@ -40,7 +40,7 @@
     background: var(--bg);
     color: var(--text);
     font-family: var(--sans);
-    font-size: 16px;
+    font-size: 14px;
     min-height: 100vh;
     overscroll-behavior: none;
   }
@@ -992,11 +992,15 @@ async function yahooHistory(symbol, range='6mo', interval='1d') {
   return { timestamps: ts, closes, volumes };
 }
 
-// Cboe options chain (no auth needed)
-async function cboeOptions(symbol) {
-  const url = `https://cdn.cboe.com/api/global/delayed_quotes/options/${symbol.replace('^','%5E')}.json`;
+// Yahoo Finance options chain via Cloudflare Worker proxy
+// The Worker handles cookie+crumb auth server-side, bypassing browser CORS
+const WORKER_URL = 'https://wheel.kevinjeu.workers.dev';
+
+async function yahooOptionsViaProxy(symbol, expiration) {
+  let url = `${WORKER_URL}/?ticker=${symbol}`;
+  if (expiration) url += `&expiration=${expiration}`;
   const r = await fetch(url);
-  if (!r.ok) throw new Error(`Cboe ${r.status}`);
+  if (!r.ok) throw new Error(`Proxy ${r.status}`);
   return r.json();
 }
 
@@ -1293,7 +1297,8 @@ async function loadOptionsForTicker() {
   try {
     let data, isLive = true;
     try {
-      data = await cboeOptions(t);
+      // Fetch via Cloudflare Worker proxy which handles Yahoo cookie+crumb auth
+      data = await yahooOptionsViaProxy(t);
       S.set('options_' + t, { data, ts: nowPT() });
     } catch {
       const cached = S.get('options_' + t);
@@ -1303,21 +1308,32 @@ async function loadOptionsForTicker() {
 
     currentOptionsData = data;
 
-    // Parse expirations
-    const exps = new Set();
-    (data.data?.options || []).forEach(o => {
-      const exp = o.option?.slice(t.length, t.length + 6);
-      if (exp) exps.add('20' + exp.slice(0,2) + '-' + exp.slice(2,4) + '-' + exp.slice(4,6));
+    // Parse expirations from Yahoo Finance format
+    // Yahoo returns expirationDates as Unix timestamps
+    const yahooResult = data?.optionChain?.result?.[0];
+    const expirationTimestamps = yahooResult?.expirationDates || [];
+    const allExpirationDates = expirationTimestamps.map(ts => {
+      const d = new Date(ts * 1000);
+      return d.toISOString().split('T')[0];
     });
 
     // Filter to monthly (3rd Friday or Thursday)
-    const monthly = [...exps].filter(e => {
-      const d = new Date(e);
-      return (d.getDay() === 5 || d.getDay() === 4) && d.getDate() >= 15 && d.getDate() <= 21;
+    const monthly = allExpirationDates.filter(e => {
+      const d = new Date(e + 'T12:00:00Z');
+      return (d.getUTCDay() === 5 || d.getUTCDay() === 4) && d.getUTCDate() >= 15 && d.getUTCDate() <= 21;
     }).sort().slice(0, 3);
 
     currentExpirations = monthly;
     selectedExpirations = [...monthly];
+
+    // Pre-fetch each monthly expiration via proxy and cache individually
+    // This lets us show all expirations in the table simultaneously
+    for (const exp of monthly) {
+      try {
+        const expData = await yahooOptionsViaProxy(t, exp);
+        S.set('options_exp_' + t + '_' + exp, expData);
+      } catch {}
+    }
 
     // Render exp chips
     const chipsEl = document.getElementById('exp-chips');
@@ -1377,45 +1393,64 @@ function buildOptionsTable() {
   const hlApy = parseFloat(document.getElementById('highlight-apy').value) || 12;
   const today = new Date();
 
-  // Parse all options from Cboe data
-  const allOptions = currentOptionsData.data?.options || [];
+  // Parse options from Yahoo Finance format
+  // Yahoo returns separate puts and calls arrays per expiration
+  const yahooResult = currentOptionsData?.optionChain?.result?.[0];
   const rows = [];
 
-  allOptions.forEach(o => {
-    const sym = o.option || '';
-    const tickerLen = t.length;
-    if (!sym.startsWith(t)) return;
+  if (yahooResult) {
+    // Fetch each selected expiration separately via proxy
+    // Yahoo returns one expiration at a time; we already have the default loaded
+    // Use the contracts from the current data plus fetch others as needed
+    const processContracts = (contracts, optType, expDate) => {
+      if (!contracts) return;
+      const expD = new Date(expDate + 'T12:00:00Z');
+      const dte = Math.max(Math.round((expD - today) / 86400000), 1);
+      contracts.forEach(o => {
+        const strikeRaw = o.strike || 0;
+        if (strikeRaw < lowerBound || strikeRaw > upperBound) return;
+        const bid = o.bid || 0;
+        const ask = o.ask || 0;
+        const last = o.lastPrice || 0;
+        const oi = o.openInterest || 0;
+        const vol = o.volume || 0;
+        const iv = o.impliedVolatility || 0;
+        const premium = (bid > 0 ? bid : last) * 100;
+        let apy;
+        if (currentMode === 'calls') {
+          apy = premium / (currentPrice * 100) * (365 / dte) * 100;
+        } else {
+          apy = premium / (strikeRaw * 100) * (365 / dte) * 100;
+        }
+        rows.push({ expDate, strike: strikeRaw, bid, ask, last, premium, apy, oi, vol, iv, dte });
+      });
+    };
 
-    const dateStr = sym.slice(tickerLen, tickerLen + 6);
-    const optType = sym[tickerLen + 6]; // C or P
-    const strikeRaw = parseInt(sym.slice(tickerLen + 7, tickerLen + 12)) / 1000;
-
-    if (currentMode === 'puts' && optType !== 'P') return;
-    if (currentMode === 'calls' && optType !== 'C') return;
-    if (strikeRaw < lowerBound || strikeRaw > upperBound) return;
-
-    const expDate = '20' + dateStr.slice(0,2) + '-' + dateStr.slice(2,4) + '-' + dateStr.slice(4,6);
-    if (!selectedExpirations.includes(expDate)) return;
-
-    const expD = new Date(expDate);
-    const dte = Math.max(Math.round((expD - today) / 86400000), 1);
-    const bid = o.bid || 0;
-    const ask = o.ask || 0;
-    const last = o.last_sale_price || 0;
-    const oi = o.open_interest || 0;
-    const vol = o.volume || 0;
-    const iv = o.iv || 0;
-    const premium = (bid > 0 ? bid : last) * 100;
-
-    let apy;
-    if (currentMode === 'calls') {
-      apy = premium / (currentPrice * 100) * (365 / dte) * 100;
-    } else {
-      apy = premium / (strikeRaw * 100) * (365 / dte) * 100;
+    // Process options from all cached expiration data
+    for (const exp of selectedExpirations) {
+      const cachedExp = S.get('options_exp_' + t + '_' + exp);
+      if (cachedExp) {
+        const result = cachedExp?.optionChain?.result?.[0];
+        if (result) {
+          if (currentMode === 'puts') processContracts(result.options?.[0]?.puts, 'P', exp);
+          else processContracts(result.options?.[0]?.calls, 'C', exp);
+        }
+      } else {
+        // Use data already loaded for default expiration
+        const result = currentOptionsData?.optionChain?.result?.[0];
+        if (result) {
+          const expTs = result.expirationDates?.find(ts => {
+            const d = new Date(ts * 1000).toISOString().split('T')[0];
+            return d === exp;
+          });
+          if (expTs !== undefined || result.options?.[0]) {
+            if (currentMode === 'puts') processContracts(result.options?.[0]?.puts, 'P', exp);
+            else processContracts(result.options?.[0]?.calls, 'C', exp);
+          }
+        }
+      }
     }
-
-    rows.push({ expDate, strike: strikeRaw, bid, ask, last, premium, apy, oi, vol, iv, dte });
-  });
+  }
 
   // Sort by expiration then strike
   rows.sort((a,b) => a.expDate.localeCompare(b.expDate) || a.strike - b.strike);
@@ -1922,7 +1957,7 @@ async function prefetchAll() {
     } catch {}
 
     try {
-      const opts = await cboeOptions(t);
+      const opts = await yahooOptionsViaProxy(t);
       S.set('options_' + t, { data: opts, ts: nowPT() });
     } catch {}
 

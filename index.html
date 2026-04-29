@@ -171,7 +171,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro</div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v1.7.4</span>
+      <span>Options Income Strategy v1.7.5</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -371,7 +371,12 @@ Version: 1.7</div>
     <button class="btn btn-danger" onclick="clearAllDataWithGuard()">Clear All Cached Data</button>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v1.7.4 -- 2026-04-29
+    <div class="commentary" style="font-size:12px">v1.7.5 -- 2026-04-29
+- Options sliders: loadOptionsPrefs() now called whenever a new ticker is loaded in Options tab, so slider positions always reflect saved values rather than drifting
+- Volume Profile: both panels now share the same Y-axis min/max so price levels align horizontally across the price chart and volume bar chart
+- Volume Profile: chart container is now a horizontal scroll wrapper -- swipe left to see full volume bar panel on narrow screens
+
+v1.7.4 -- 2026-04-29
 - Market banner: fixed incorrect open/closed determination by using Intl.DateTimeFormat.formatToParts() instead of unreliable locale string parsing (Safari iOS incompatibility)
 - Market banner: close/open times now displayed in your selected timezone (PT/local/UTC) instead of hardcoded ET
 - Market banner: countdown shows "closes in 2h 30m (at 1:00 PM PT)" format
@@ -976,7 +981,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,isLive){
   ${hist?`<div class="card"><div class="card-title"><span class="dot"></span>Bollinger Bands + RSI (6mo)</div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility.
 
 RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red shading) = overbought, favorable for covered calls.</div></div>`:''}
-  ${hist1y?`<div class="card"><div class="card-title"><span class="dot" style="background:teal"></span>Volume Profile -- Support / Resistance (1Y)</div><div style="display:flex;gap:4px"><div style="flex:3;position:relative;height:280px"><canvas id="vp-chart"></canvas></div><div style="flex:1;position:relative;height:280px"><canvas id="vp-vol-chart"></canvas></div></div><div id="vp-analysis"></div></div>`:''}
+  ${hist1y?`<div class="card"><div class="card-title"><span class="dot" style="background:teal"></span>Volume Profile -- Support / Resistance (1Y)</div><div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><div style="display:flex;gap:0;min-width:420px"><div style="flex:0 0 300px;position:relative;height:280px"><canvas id="vp-chart"></canvas></div><div style="flex:0 0 120px;position:relative;height:280px"><canvas id="vp-vol-chart"></canvas></div></div></div><div id="vp-analysis"></div></div>`:''}
   <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Recent News (7 days)</div><div id="news-section">${renderNewsItems(news)}</div></div>`;
   if(bbData)renderBBChart(bbData,hist);
   if(hist1y)renderVPChart(hist1y,snap.price,snap.week52High,snap.week52Low);
@@ -1002,10 +1007,46 @@ function renderVPChart(hist1y,currentPrice,w52h,w52l){
   const ma200=closes.map((_,i)=>i<199?null:avg(closes.slice(i-199,i+1)));
   const labels=hist1y.timestamps.map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});});
   const topVpIdxs=new Set(vpLevels.map(l=>centers.reduce((bi,c,i)=>Math.abs(c-l)<Math.abs(centers[bi]-l)?i:bi,0)));
+  // Compute shared Y-axis range so both panels align vertically
+  const allPrices=closes.filter(c=>c!==null);
+  const priceMin=Math.min(...allPrices);
+  const priceMax=Math.max(...allPrices);
+  const pricePad=(priceMax-priceMin)*0.05;
+  const yMin=priceMin-pricePad;
+  const yMax=priceMax+pricePad;
+
   const ctx=document.getElementById('vp-chart')?.getContext('2d');
-  if(ctx){if(window._vpChart)window._vpChart.destroy();window._vpChart=new Chart(ctx,{type:'line',data:{labels,datasets:[{data:closes,borderColor:'#4fc3f7',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},{data:ma50,borderColor:'#ff9800',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false},{data:ma200,borderColor:'#7c6af7',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false}]},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:14,right:80}},plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}},plugins:[{id:'vpOverlay',afterDraw(chart){const c=chart.ctx,xA=chart.scales.x,yA=chart.scales.y;const xL=xA.left,xR=xA.right,yT=yA.top,yB=yA.bottom;function clampY(y,pad=9){return Math.max(yT+pad,Math.min(yB-pad,y));}c.save();c.font='bold 9px DM Mono,monospace';c.textAlign='left';vpLevels.forEach(lvl=>{if(lvl<yA.min||lvl>yA.max)return;const y=yA.getPixelForValue(lvl);c.setLineDash([4,4]);c.lineWidth=1.5;c.strokeStyle='rgba(0,212,170,0.8)';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.setLineDash([]);c.fillStyle='rgba(0,212,170,0.9)';c.fillText('VP $'+lvl.toFixed(0),xR+4,clampY(y+3));});if(w52h&&w52h>=yA.min&&w52h<=yA.max){const y=yA.getPixelForValue(w52h);c.setLineDash([6,3]);c.lineWidth=1.2;c.strokeStyle='rgba(255,71,87,0.7)';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.setLineDash([]);c.fillStyle='rgba(255,71,87,0.9)';c.fillText('52H $'+w52h.toFixed(0),xR+4,clampY(y-2));}if(w52l&&w52l>=yA.min&&w52l<=yA.max){const y=yA.getPixelForValue(w52l);c.setLineDash([6,3]);c.lineWidth=1.2;c.strokeStyle='rgba(0,200,150,0.7)';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.setLineDash([]);c.fillStyle='rgba(0,200,150,0.9)';c.fillText('52L $'+w52l.toFixed(0),xR+4,clampY(y+10));}c.setLineDash([2,4]);c.lineWidth=0.8;c.strokeStyle='rgba(100,100,120,0.4)';roundNums.forEach(rn=>{if(rn<yA.min||rn>yA.max)return;const y=yA.getPixelForValue(rn);c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();});c.setLineDash([]);if(currentPrice>=yA.min&&currentPrice<=yA.max){const y=yA.getPixelForValue(currentPrice);c.lineWidth=2;c.strokeStyle='#4fc3f7';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.fillStyle='#4fc3f7';c.fillText('Now $'+currentPrice.toFixed(0),xR+4,clampY(y+4));}c.restore();}}]});}
+  if(ctx){if(window._vpChart)window._vpChart.destroy();window._vpChart=new Chart(ctx,{type:'line',data:{labels,datasets:[{data:closes,borderColor:'#4fc3f7',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},{data:ma50,borderColor:'#ff9800',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false},{data:ma200,borderColor:'#7c6af7',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false}]},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:14,right:80}},plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{min:yMin,max:yMax,ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}},plugins:[{id:'vpOverlay',afterDraw(chart){const c=chart.ctx,xA=chart.scales.x,yA=chart.scales.y;const xL=xA.left,xR=xA.right,yT=yA.top,yB=yA.bottom;function clampY(y,pad=9){return Math.max(yT+pad,Math.min(yB-pad,y));}c.save();c.font='bold 9px DM Mono,monospace';c.textAlign='left';vpLevels.forEach(lvl=>{if(lvl<yA.min||lvl>yA.max)return;const y=yA.getPixelForValue(lvl);c.setLineDash([4,4]);c.lineWidth=1.5;c.strokeStyle='rgba(0,212,170,0.8)';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.setLineDash([]);c.fillStyle='rgba(0,212,170,0.9)';c.fillText('VP $'+lvl.toFixed(0),xR+4,clampY(y+3));});if(w52h&&w52h>=yA.min&&w52h<=yA.max){const y=yA.getPixelForValue(w52h);c.setLineDash([6,3]);c.lineWidth=1.2;c.strokeStyle='rgba(255,71,87,0.7)';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.setLineDash([]);c.fillStyle='rgba(255,71,87,0.9)';c.fillText('52H $'+w52h.toFixed(0),xR+4,clampY(y-2));}if(w52l&&w52l>=yA.min&&w52l<=yA.max){const y=yA.getPixelForValue(w52l);c.setLineDash([6,3]);c.lineWidth=1.2;c.strokeStyle='rgba(0,200,150,0.7)';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.setLineDash([]);c.fillStyle='rgba(0,200,150,0.9)';c.fillText('52L $'+w52l.toFixed(0),xR+4,clampY(y+10));}c.setLineDash([2,4]);c.lineWidth=0.8;c.strokeStyle='rgba(100,100,120,0.4)';roundNums.forEach(rn=>{if(rn<yA.min||rn>yA.max)return;const y=yA.getPixelForValue(rn);c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();});c.setLineDash([]);if(currentPrice>=yA.min&&currentPrice<=yA.max){const y=yA.getPixelForValue(currentPrice);c.lineWidth=2;c.strokeStyle='#4fc3f7';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.fillStyle='#4fc3f7';c.fillText('Now $'+currentPrice.toFixed(0),xR+4,clampY(y+4));}c.restore();}}]});}
+
+  // Right panel: horizontal volume bars aligned to same price range as left panel
+  // Y-axis uses the same yMin/yMax so bars sit at exactly the correct price positions
   const volCtx=document.getElementById('vp-vol-chart')?.getContext('2d');
-  if(volCtx){if(window._vpVolChart)window._vpVolChart.destroy();const barColors=centers.map((_,i)=>topVpIdxs.has(i)?'rgba(0,212,170,0.75)':'rgba(42,70,80,0.6)');window._vpVolChart=new Chart(volCtx,{type:'bar',data:{labels:centers.map(c=>'$'+c.toFixed(0)),datasets:[{data:bucketVols.map(v=>v/1e6),backgroundColor:barColors,borderRadius:1}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`Vol: ${ctx.parsed.x.toFixed(1)}M`}}},scales:{x:{ticks:{color:'#555870',font:{size:8}},grid:{color:'#2a2e38'},title:{display:true,text:'Vol(M)',color:'#555870',font:{size:8}}},y:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:8},grid:{color:'#2a2e38'}}}}});}
+  if(volCtx){
+    if(window._vpVolChart)window._vpVolChart.destroy();
+    const barColors=centers.map((_,i)=>topVpIdxs.has(i)?'rgba(0,212,170,0.75)':'rgba(42,70,80,0.6)');
+    // Use numeric center prices as y-axis values (not string labels) so they align with left chart
+    window._vpVolChart=new Chart(volCtx,{
+      type:'bar',
+      data:{
+        labels:centers.map(c=>c.toFixed(1)),
+        datasets:[{data:bucketVols.map(v=>v/1e6),backgroundColor:barColors,borderRadius:1,barThickness:'flex'}]
+      },
+      options:{
+        indexAxis:'y',
+        responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`Vol: ${ctx.parsed.x.toFixed(1)}M`}}},
+        scales:{
+          x:{ticks:{color:'#555870',font:{size:8}},grid:{color:'#2a2e38'},title:{display:true,text:'Vol(M)',color:'#555870',font:{size:8}}},
+          y:{
+            min:yMin,max:yMax,
+            type:'linear',
+            ticks:{color:'#555870',font:{size:8},maxTicksLimit:8,callback:v=>`$${Number(v).toFixed(0)}`},
+            grid:{color:'#2a2e38'}
+          }
+        }
+      }
+    });
+  }
   const vpBelow=vpLevels.filter(l=>l<=currentPrice);const vpAbove=vpLevels.filter(l=>l>currentPrice);
   const ns=vpBelow.length?Math.max(...vpBelow):null;const nr=vpAbove.length?Math.min(...vpAbove):null;
   let analysis='Volume Profile shows where the most shares traded over the past year. High-volume zones act as support (from above) and resistance (from below).\n';
@@ -1058,6 +1099,7 @@ async function loadOptionsForTicker(){
     const chipsEl=document.getElementById('exp-chips');
     chipsEl.innerHTML=monthly.map(e=>`<div class="exp-chip selected" id="chip-${e}" onclick="toggleExp('${e}')">${e}</div>`).join('');
     document.getElementById('exp-section').style.display='block';
+    loadOptionsPrefs();
     // Check for OI data availability -- show amber box if missing
     const hasOI=yr?.options?.[0]?.puts?.some(p=>(p.openInterest||0)>0)||yr?.options?.[0]?.calls?.some(c=>(c.openInterest||0)>0);
     if(!hasOI){

@@ -21,30 +21,40 @@
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:18px;min-height:100vh;overscroll-behavior:none}
 #app{display:flex;flex-direction:column;min-height:100vh}
-.header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 16px 10px;position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between}
+/* Market status banner */
+#market-status-banner{font-family:var(--mono);font-size:12px;font-weight:600;padding:6px 16px;text-align:center;position:sticky;top:0;z-index:200;transition:background 0.5s}
+.mkt-open{background:rgba(0,200,150,0.9);color:#000}
+.mkt-prepost{background:rgba(255,165,2,0.9);color:#000}
+.mkt-closed{background:rgba(255,71,87,0.85);color:#fff}
+/* Header */
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px 8px;position:sticky;top:36px;z-index:100;display:flex;align-items:center;justify-content:space-between}
 .header-left{display:flex;flex-direction:column;gap:2px}
 .header-title{font-family:var(--sans);font-size:18px;font-weight:800;letter-spacing:-0.5px;color:var(--accent)}
-.header-sub{font-family:var(--mono);font-size:10px;color:var(--text3)}
+.header-sub{font-family:var(--mono);font-size:10px;color:var(--text3);display:flex;align-items:center;gap:6px}
+.online-dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex-shrink:0}
+.online-dot-on{background:var(--green)}
+.online-dot-off{background:var(--red)}
 .settings-btn{background:var(--surface3);border:1px solid var(--border);color:var(--text2);border-radius:8px;padding:7px 11px;font-size:13px;cursor:pointer;font-family:var(--mono)}
 /* VIX status banner in header */
-#vix-status-banner{display:none;font-family:var(--mono);font-size:11px;font-weight:600;padding:4px 10px;border-radius:6px;margin-top:4px;width:fit-content}
+#vix-status-banner{display:none;font-family:var(--mono);font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;margin-top:3px;width:fit-content}
 .vix-status-elevated{background:rgba(255,165,2,0.2);color:var(--warn);border:1px solid rgba(255,165,2,0.4)}
 .vix-status-high{background:rgba(255,71,87,0.2);color:var(--red);border:1px solid rgba(255,71,87,0.4)}
 .vix-status-extreme{background:rgba(124,106,247,0.2);color:#b39ddb;border:1px solid rgba(124,106,247,0.4)}
 /* Nav tabs */
-.nav-tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.nav-tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;position:sticky;top:94px;z-index:99}
 .nav-tabs::-webkit-scrollbar{display:none}
-.nav-tab{flex:0 0 auto;padding:11px 13px;font-family:var(--mono);font-size:11px;color:var(--text3);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all 0.2s;position:relative}
+.nav-tab{flex:0 0 auto;padding:10px 13px;font-family:var(--mono);font-size:11px;color:var(--text3);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all 0.2s}
 .nav-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
-/* VIX dot on nav tab */
 .vix-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:4px;vertical-align:middle;position:relative;top:-1px}
 .vix-dot-elevated{background:var(--warn)}
 .vix-dot-high{background:var(--red)}
 .vix-dot-extreme{background:#b39ddb;animation:vixpulse 1.4s ease-in-out infinite}
 @keyframes vixpulse{0%,100%{opacity:1}50%{opacity:0.3}}
-/* Offline toast overlay */
+/* Offline banner */
 .offline-banner{position:fixed;top:0;left:0;right:0;background:rgba(255,165,2,0.95);color:#000;font-family:var(--mono);font-size:12px;padding:10px 16px;text-align:center;z-index:500;transform:translateY(-100%);transition:transform 0.3s;font-weight:600}
 .offline-banner.show{transform:translateY(0)}
+/* Offline mode overlay */
+#offline-mode-bar{display:none;background:rgba(124,106,247,0.15);border-bottom:1px solid rgba(124,106,247,0.3);font-family:var(--mono);font-size:10px;color:#b39ddb;padding:4px 16px;text-align:center}
 /* Layout */
 .main{flex:1;padding:14px}
 .tab-panel{display:none}
@@ -54,10 +64,8 @@ html,body{background:var(--bg);color:var(--text);font-family:var(--sans);font-si
 .card-title .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:var(--radius);padding:11px 16px;font-family:var(--mono);font-size:12px;font-weight:500;cursor:pointer;transition:all 0.15s;width:100%;margin-bottom:8px}
 .btn-primary{background:var(--accent);color:#000}
-.btn-primary:active{opacity:0.8}
 .btn-success{background:#00897b;color:#fff}
 .btn-secondary{background:var(--surface3);color:var(--text);border:1px solid var(--border)}
-.btn-secondary:active{opacity:0.8}
 .btn-danger{background:var(--danger);color:#fff}
 .btn-sm{padding:7px 12px;font-size:11px;width:auto;margin-bottom:0}
 .btn:disabled{opacity:0.4;cursor:not-allowed}
@@ -65,6 +73,7 @@ html,body{background:var(--bg);color:var(--text);font-family:var(--sans);font-si
 .input-label{font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:5px;display:block}
 .input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:13px;padding:10px 12px;outline:none;transition:border-color 0.2s;-webkit-appearance:none}
 .input:focus{border-color:var(--accent)}
+select.input{cursor:pointer}
 .metrics-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
 .metric-tile{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px}
 .metric-label{font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:3px}
@@ -101,11 +110,17 @@ html,body{background:var(--bg);color:var(--text);font-family:var(--sans);font-si
 .progress-bar{height:100%;background:var(--accent);border-radius:2px;transition:width 0.3s}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:10px 16px;border-radius:var(--radius);z-index:999;opacity:0;transition:opacity 0.3s;white-space:nowrap;pointer-events:none;max-width:90vw;text-align:center}
 .toast.show{opacity:1}
-.settings-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;backdrop-filter:blur(4px)}
+.settings-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:300;backdrop-filter:blur(4px)}
 .settings-overlay.open{display:flex;align-items:flex-end}
 .settings-sheet{background:var(--surface);border-top:1px solid var(--border);border-radius:20px 20px 0 0;padding:20px 16px 40px;width:100%;max-height:85vh;overflow-y:auto}
 .settings-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 18px}
 .settings-title{font-family:var(--sans);font-size:16px;font-weight:700;margin-bottom:16px}
+/* Offline confirm modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:400;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex}
+.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;max-width:340px;width:100%}
+.modal-title{font-family:var(--sans);font-size:16px;font-weight:700;color:var(--danger);margin-bottom:12px}
+.modal-body{font-family:var(--mono);font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:16px}
 .exp-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
 .exp-chip{font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer;transition:all 0.15s}
 .exp-chip.selected{background:rgba(0,212,170,0.15);border-color:var(--accent);color:var(--accent)}
@@ -125,6 +140,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .row{display:flex;gap:8px;align-items:center}
 .row .input{flex:1}
 .earnings-warn{background:rgba(255,165,2,0.1);border:1px solid rgba(255,165,2,0.3);border-radius:var(--radius);padding:10px 12px;font-family:var(--mono);font-size:11px;color:var(--warn);margin-bottom:10px;line-height:1.5}
+.oi-empty-box{background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.3);border-radius:var(--radius);padding:12px;font-family:var(--mono);font-size:11px;color:var(--warn);line-height:1.6;margin-top:8px}
 .vix-banner{border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
 .vix-banner-label{font-family:var(--sans);font-size:13px;font-weight:700}
 .vix-banner-value{font-family:var(--mono);font-size:22px;font-weight:500}
@@ -142,17 +158,21 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .earnings-card-urgent{background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.3);border-left:4px solid rgba(255,71,87,0.7)}
 .earnings-card-soon{background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.3);border-left:4px solid rgba(255,165,2,0.7)}
 .earnings-card-normal{background:rgba(0,212,170,0.05);border:1px solid var(--border);border-left:4px solid rgba(0,212,170,0.4)}
-.etf-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px;margin-bottom:12px}
 a{color:inherit}
 </style>
 </head>
 <body>
 <div class="offline-banner" id="offline-banner">No network -- showing cached data</div>
+<div id="offline-mode-bar">OFFLINE MODE -- all data served from cache</div>
 <div id="app">
+<div id="market-status-banner" class="mkt-closed">Loading market status...</div>
 <div class="header">
   <div class="header-left">
     <div class="header-title">PutSeller Pro</div>
-    <div class="header-sub">Options Income Strategy v1.6</div>
+    <div class="header-sub">
+      <span class="online-dot online-dot-on" id="online-dot"></span>
+      <span>Options Income Strategy v1.7</span>
+    </div>
     <div id="vix-status-banner"></div>
   </div>
   <button class="settings-btn" onclick="openSettings()">Settings</button>
@@ -174,7 +194,7 @@ a{color:inherit}
 <div id="tab-dashboard" class="tab-panel active">
   <div class="card">
     <div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Full Refresh Everything</div>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Fetches all data for every watchlist ticker, runs conviction dashboards, loads earnings and VIX. One button -- walk away and come back.</div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Fetches all data, runs conviction dashboards, loads earnings and VIX. One tap -- walk away and come back.</div>
     <button class="btn btn-success" id="full-refresh-btn" onclick="fullRefreshEverything()">Refresh All Data + Dashboards</button>
     <div id="full-refresh-progress" style="display:none">
       <div class="progress-bar-wrap"><div class="progress-bar" id="full-refresh-bar" style="width:0%"></div></div>
@@ -183,10 +203,7 @@ a{color:inherit}
   </div>
   <div class="card">
     <div class="card-title"><span class="dot"></span>Conviction Dashboards</div>
-    <div class="input-group">
-      <label class="input-label">Target APY %</label>
-      <input class="input" type="number" id="target-apy" value="12" min="5" max="50">
-    </div>
+    <div class="input-group"><label class="input-label">Target APY %</label><input class="input" type="number" id="target-apy" value="12" min="5" max="50"></div>
     <button class="btn btn-primary" id="run-dashboard-btn" onclick="runDashboards()">Run Both Conviction Dashboards</button>
     <div id="dashboard-progress" style="display:none">
       <div class="progress-bar-wrap"><div class="progress-bar" id="dash-progress-bar" style="width:0%"></div></div>
@@ -209,28 +226,19 @@ a{color:inherit}
 <div id="tab-watchlist" class="tab-panel">
   <div class="card">
     <div class="card-title"><span class="dot"></span>Manage Watchlist</div>
-    <div class="row">
-      <input class="input" type="text" id="new-ticker-input" placeholder="e.g. AAPL" style="text-transform:uppercase">
-      <button class="btn btn-secondary btn-sm" onclick="addTicker()">Add</button>
-    </div>
+    <div class="row"><input class="input" type="text" id="new-ticker-input" placeholder="e.g. AAPL" style="text-transform:uppercase"><button class="btn btn-secondary btn-sm" onclick="addTicker()">Add</button></div>
     <button class="btn btn-secondary" id="prefetch-btn" onclick="prefetchAll()">Prefetch All Ticker Data</button>
     <div id="prefetch-progress" style="display:none">
       <div class="progress-bar-wrap"><div class="progress-bar" id="prefetch-progress-bar" style="width:0%"></div></div>
       <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-align:center" id="prefetch-label">Fetching...</div>
     </div>
   </div>
-  <div class="card">
-    <div class="card-title"><span class="dot"></span>Watchlist</div>
-    <div id="watchlist-items"></div>
-  </div>
+  <div class="card"><div class="card-title"><span class="dot"></span>Watchlist</div><div id="watchlist-items"></div></div>
 </div>
 
 <!-- TICKER TAB -->
 <div id="tab-ticker" class="tab-panel">
-  <div class="card">
-    <div class="card-title"><span class="dot"></span>Select Ticker</div>
-    <select class="input" id="ticker-select" onchange="loadTicker()"><option value="">-- Select --</option></select>
-  </div>
+  <div class="card"><div class="card-title"><span class="dot"></span>Select Ticker</div><select class="input" id="ticker-select" onchange="loadTicker()"><option value="">-- Select --</option></select></div>
   <div id="ticker-content"><div class="empty"><div class="empty-icon">&#x1F4C8;</div>Select a ticker above</div></div>
 </div>
 
@@ -244,20 +252,11 @@ a{color:inherit}
       <button class="mode-btn" id="mode-calls" onclick="setMode('calls')">Sell Calls</button>
     </div>
     <div id="exp-section" style="display:none">
-      <label class="input-label">Expirations (tap to toggle -- chart updates live)</label>
+      <label class="input-label">Expirations (tap to toggle)</label>
       <div class="exp-chips" id="exp-chips"></div>
-      <div class="slider-wrap">
-        <div class="slider-row"><span class="slider-label">% Below Price</span><span class="slider-val" id="pct-below-val">20%</span></div>
-        <input type="range" id="pct-below" min="1" max="50" value="20" oninput="updateSlider('pct-below')">
-      </div>
-      <div class="slider-wrap">
-        <div class="slider-row"><span class="slider-label">% Above Price</span><span class="slider-val" id="pct-above-val">5%</span></div>
-        <input type="range" id="pct-above" min="1" max="50" value="5" oninput="updateSlider('pct-above')">
-      </div>
-      <div class="input-group">
-        <label class="input-label">Highlight APY %</label>
-        <input class="input" type="number" id="highlight-apy" value="12" oninput="saveOptionsPrefs()">
-      </div>
+      <div class="slider-wrap"><div class="slider-row"><span class="slider-label">% Below Price</span><span class="slider-val" id="pct-below-val">20%</span></div><input type="range" id="pct-below" min="1" max="50" value="20" oninput="updateSlider('pct-below')"></div>
+      <div class="slider-wrap"><div class="slider-row"><span class="slider-label">% Above Price</span><span class="slider-val" id="pct-above-val">5%</span></div><input type="range" id="pct-above" min="1" max="50" value="5" oninput="updateSlider('pct-above')"></div>
+      <div class="input-group"><label class="input-label">Highlight APY %</label><input class="input" type="number" id="highlight-apy" value="12" oninput="saveOptionsPrefs()"></div>
       <button class="btn btn-primary" onclick="buildOptionsTable()">Load Options Chain</button>
     </div>
   </div>
@@ -276,10 +275,7 @@ a{color:inherit}
 
 <!-- VIX TAB -->
 <div id="tab-vix" class="tab-panel">
-  <div class="card">
-    <div class="card-title"><span class="dot" style="background:var(--accent3)"></span>VIX Market Environment</div>
-    <button class="btn btn-secondary" onclick="loadVIX()">Refresh VIX Data</button>
-  </div>
+  <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent3)"></span>VIX Market Environment</div><button class="btn btn-secondary" onclick="loadVIX()">Refresh VIX Data</button></div>
   <div id="vix-content"><div class="empty"><div class="empty-icon">&#x1F321;&#xFE0F;</div>Press Refresh to load VIX</div></div>
 </div>
 
@@ -288,11 +284,7 @@ a{color:inherit}
   <div class="card">
     <div class="card-title"><span class="dot" style="background:var(--warn)"></span>Earnings Calendar</div>
     <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Sorted by upcoming earnings date. Tap any card to analyze.</div>
-    <div class="exp-chips" id="earnings-filter-chips">
-      <div class="exp-chip selected" onclick="filterEarnings(30,this)">Next 30d</div>
-      <div class="exp-chip" onclick="filterEarnings(60,this)">Next 60d</div>
-      <div class="exp-chip" onclick="filterEarnings(999,this)">All</div>
-    </div>
+    <div class="exp-chips" id="earnings-filter-chips"><div class="exp-chip selected" onclick="filterEarnings(30,this)">Next 30d</div><div class="exp-chip" onclick="filterEarnings(60,this)">Next 60d</div><div class="exp-chip" onclick="filterEarnings(999,this)">All</div></div>
     <button class="btn btn-secondary" onclick="loadEarningsTab()">Refresh Earnings Data</button>
   </div>
   <div id="earnings-content"><div class="empty"><div class="empty-icon">&#x1F4C5;</div>Press Refresh or run Full Refresh to load</div></div>
@@ -300,27 +292,33 @@ a{color:inherit}
 
 <!-- ETF TAB -->
 <div id="tab-etf" class="tab-panel">
-  <div class="card">
-    <div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Options Income ETFs</div>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">SPYI (NEOS S&amp;P 500 High Income ETF -- covered calls) and NBOS (Roundhill put-writing strategy). Monthly distributions tracked with trailing 12-month yield.</div>
-    <button class="btn btn-secondary" onclick="loadETFTab()">Refresh ETF Data</button>
-  </div>
+  <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Options Income ETFs</div><div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">SPYI (covered calls on S&amp;P 500) and NBOS (put-writing strategy). Monthly distributions tracked.</div><button class="btn btn-secondary" onclick="loadETFTab()">Refresh ETF Data</button></div>
   <div id="etf-content"><div class="empty"><div class="empty-icon">&#x1F4B0;</div>Press Refresh to load ETF data</div></div>
 </div>
 
 <!-- MARKET TAB -->
 <div id="tab-market" class="tab-panel">
-  <div class="card">
-    <div class="card-title"><span class="dot" style="background:var(--accent3)"></span>Market Overview</div>
-    <button class="btn btn-secondary" onclick="loadMarketTab()">Refresh Market Data</button>
-  </div>
+  <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent3)"></span>Market Overview</div><button class="btn btn-secondary" onclick="loadMarketTab()">Refresh Market Data</button></div>
   <div id="market-content"><div class="empty"><div class="empty-icon">&#x1F30E;</div>Press Refresh to load market data</div></div>
 </div>
 
 <!-- GUIDE TAB -->
 <div id="tab-guide" class="tab-panel">
-  <div class="card">
-    <div class="card-title"><span class="dot"></span>Support / Resistance Guide</div>
+  <div class="card"><div class="card-title"><span class="dot"></span>Income Engine Framework</div>
+    <div class="commentary">LAYER 1 -- RISK-FREE BASELINE: 3-month and 6-month T-bills
+  Current yield sets your opportunity cost floor. All other layers should earn a meaningful risk premium above this.
+
+LAYER 2 -- OPTIONS INCOME ETFs: SPYI + NBOS
+  SPYI: covered calls on S&amp;P 500 components -- equity upside participation + call premium income
+  NBOS: put-writing strategy with defined buffers -- premium income with downside protection
+  Target: track trailing 12-month yield vs T-bill spread
+
+LAYER 3 -- ACTIVE WHEEL STRATEGY: Put selling + Covered calls
+  Target: 12% annualized APY per transaction
+  Tools: conviction dashboards, VP support/resistance, OI analysis, RSI, earnings calendar
+  Risk management: 5-12% OTM buffer, no earnings straddle, beta-aware sizing</div>
+  </div>
+  <div class="card"><div class="card-title"><span class="dot"></span>Support / Resistance Guide</div>
     <div class="commentary">VP levels: price zones where most shares traded -- support from above, resistance from below
 52W Low / High: major annual support and resistance
 50/200-day MA: dynamic support/resistance
@@ -328,38 +326,18 @@ Round numbers: psychological S/R
 High put OI: gravitational support via market maker hedging
 High call OI: resistance ceiling via market maker hedging
 VIX below 15: thin premiums
-VIX 15-20: normal conditions
-VIX 20-30: elevated, favorable for put selling
-VIX above 30: fear spike, exceptional premium, higher risk
+VIX 15-20: normal -- standard conditions
+VIX 20-30: elevated -- favorable for put selling
+VIX above 30: fear spike -- exceptional premium, higher risk
 VIX backwardation (VIX above VIX3M): historically strong time to sell puts</div>
   </div>
-  <div class="card">
-    <div class="card-title"><span class="dot"></span>Income Strategy</div>
-    <div class="commentary">TARGET YIELD: 12% annualized per transaction
-HORIZON: 1.5 to 3 months out
-OTM BUFFER: 5-12% preferred
-LIQUIDITY: monthly OI above 1000 contracts
-
-PUTS: sell when RSI oversold, lower 52W range, near VP support, no near-term earnings
-CALLS: sell when RSI overbought, upper 52W range, near VP resistance, own the shares
-
-APY puts: premium / (strike x 100) x (365/DTE) x 100
-APY calls: premium / (price x 100) x (365/DTE) x 100
-
-IVR above 60: elevated IV, good time to sell options
-IVR below 30: compressed IV, wait for better conditions
-Implied Move: ATM straddle / price -- markets expected earnings move
-
-SIZING: look-through strike value aligned with portfolio
-CASH: park premiums in SGOV pending redeployment</div>
-  </div>
-  <div class="card">
-    <div class="card-title"><span class="dot"></span>About</div>
-    <div class="commentary">Data: Finnhub (quotes, fundamentals, earnings, news)
-     Yahoo Finance via Cloudflare Worker (history, options, VIX)
+  <div class="card"><div class="card-title"><span class="dot"></span>About</div>
+    <div class="commentary">Data: Finnhub (quotes, fundamentals, earnings, news, analyst ratings)
+     Yahoo Finance via Cloudflare Worker (history, options, VIX, indices)
+     FRED API (T-bill yields -- no key required)
      Worker: wheel.kevinjeu.workers.dev
 Offline: all data cached to localStorage
-Version: 1.6</div>
+Version: 1.7</div>
   </div>
 </div>
 
@@ -371,19 +349,17 @@ Version: 1.6</div>
   <div class="settings-sheet">
     <div class="settings-handle"></div>
     <div class="settings-title">Settings</div>
-    <div class="input-group">
-      <label class="input-label">Finnhub API Key</label>
-      <input class="input" type="password" id="finnhub-key-input" placeholder="Paste your Finnhub API key">
-    </div>
+    <div class="input-group"><label class="input-label">Finnhub API Key</label><input class="input" type="password" id="finnhub-key-input" placeholder="Paste your Finnhub API key"></div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Key stored locally on your device only. Get a free key at finnhub.io.</div>
-    <div class="input-group">
-      <label class="input-label">Default Watchlist (comma separated)</label>
-      <input class="input" type="text" id="default-watchlist-input" value="NVDA,AMZN,GOOGL,GLW,MS,PANW,NET,NFLX,SHOP,ORCL,TSLA">
+    <div class="input-group"><label class="input-label">Default Watchlist (comma separated)</label><input class="input" type="text" id="default-watchlist-input" value="NVDA,AMZN,GOOGL,GLW,MS,PANW,NET,NFLX,SHOP,ORCL,TSLA"></div>
+    <div class="input-group"><label class="input-label">VIX Alert Threshold (shows indicator above this level)</label><input class="input" type="number" id="vix-threshold-input" value="20" min="10" max="50"></div>
+    <div class="input-group"><label class="input-label">Timestamp Display</label><select class="input" id="tz-pref-input"><option value="PT">Pacific Time (PT) -- home timezone</option><option value="local">Local Device Time</option><option value="UTC">UTC / GMT</option></select></div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">All timestamps throughout the app will use this timezone. Relative age (e.g. "3h ago") is always shown alongside.</div>
+    <div class="input-group" style="display:flex;align-items:center;justify-content:space-between">
+      <label class="input-label" style="margin-bottom:0">Offline Mode (skip all network fetches, serve from cache only)</label>
+      <input type="checkbox" id="offline-mode-input" style="width:20px;height:20px;accent-color:var(--accent3)">
     </div>
-    <div class="input-group">
-      <label class="input-label">VIX Alert Threshold (tab indicator shows above this level)</label>
-      <input class="input" type="number" id="vix-threshold-input" value="20" min="10" max="50">
-    </div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Enable before flights. Disables all API calls -- everything served from localStorage cache.</div>
     <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
     <button class="btn btn-secondary" onclick="closeSettings()">Cancel</button>
     <hr class="divider">
@@ -392,28 +368,34 @@ Version: 1.6</div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Clears page cache, reloads latest version from GitHub. Your data is preserved.</div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--danger)"></span>Danger Zone</div>
-    <button class="btn btn-danger" onclick="clearAllData()">Clear All Cached Data</button>
+    <button class="btn btn-danger" onclick="clearAllDataWithGuard()">Clear All Cached Data</button>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v1.6 -- 2026-04-29
-- Full Refresh Everything button on Dashboard -- one tap fetches all data, runs dashboards, loads earnings and VIX
-- OI chart: stacked bars color-coded by expiration month, dynamically redraws when expiration chips toggled
-- OI chart: redraws on app wake from cached data (no button tap needed)
-- Volume Profile: dual-panel chart with horizontal volume bars on right side (matching Python app)
-- Slider and APY threshold persist across sessions and ticker changes
-- VIX tab indicator: colored dot on nav tab shows zone (orange/red/pulsing purple above threshold)
-- VIX status banner in header shows current level when elevated
-- VIX alert threshold configurable in Settings (default 20)
-- Offline detection: fleeting banner when network fails and cached data is used
-- Timestamp accuracy: cached data shows original fetch time, not display time
-- ETF tab: SPYI and NBOS with price, distribution history, trailing 12-month yield, price chart
-- Market tab: S&amp;P 500, Nasdaq, Dow, VIX quick-reference, top market news from Finnhub
-- S&amp;P 500 3-month chart on Market tab
-
-v1.5 -- 2026-04-29
-- Volume Profile chart, Earnings tab, News headlines, IVR tile, Implied move, Auto-restore, Earnings timing</div>
+    <div class="commentary" style="font-size:12px">v1.7 -- 2026-04-29
+- Live market status banner: green (open with countdown), red (closed), amber (pre/post market). Second-level precision in final 10 minutes. NYSE holiday aware.
+- Timezone preference in Settings: Pacific / Local Device / UTC. All timestamps use selected zone plus relative age (e.g. "3h ago")
+- Mode-specific slider persistence: puts and calls each remember their own OTM range and APY threshold settings
+- OI empty state: amber info box when OI data unavailable (typical overnight condition) with explanation and last-known-good timestamp
+- Analyst coverage on Ticker tab: analyst count, consensus label, recommendation mean, buy/hold/sell breakdown with visual bar
+- Treasury bill yields on Market tab: 3-month and 6-month T-bill yield history from FRED API, 1-year chart, spread analysis, income engine summary panel
+- ETF and Market tabs: auto-restore from cache on app wake, timestamps throughout
+- Online/offline indicator dot in header
+- Offline Mode toggle in Settings: skips all network fetches when enabled (for flights)
+- Clear All safety guard: strong warning with offline detection prevents accidental data loss on airplane
+- Offline detection: fleeting banner when network fails, persists as indicator dot</div>
   </div>
 </div>
+
+<!-- OFFLINE CONFIRM MODAL -->
+<div class="modal-overlay" id="offline-confirm-modal">
+  <div class="modal-box">
+    <div class="modal-title">You are currently offline</div>
+    <div class="modal-body" id="offline-modal-body">Clearing all cached data while offline will erase all your stored prices, options data, conviction dashboards, and news. You will not be able to restore this data until you have an internet connection. This action cannot be undone.</div>
+    <button class="btn btn-secondary" onclick="closeOfflineModal()" style="margin-bottom:8px">Cancel (recommended)</button>
+    <button class="btn" style="background:var(--danger);color:#fff;font-size:11px" onclick="clearAllDataConfirmed()">Clear Anyway -- I understand I cannot restore this data</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 <script>
 // ═══ STORAGE ═══
@@ -428,60 +410,185 @@ let lastOptionsTickerLoaded='';
 let earningsDaysFilter=30;
 let earningsAllData=[];
 let vixThreshold=parseInt(S.get('vix_threshold')||'20');
+let tzPref=S.get('tz_pref')||'PT';
+let offlineMode=S.get('offline_mode')==='true';
 const DEFAULT_WATCHLIST=['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
 const WORKER_URL='https://wheel.kevinjeu.workers.dev';
 const EXP_COLORS=['#00d4aa','#ff6b35','#7c6af7','#ffa502'];
+let cachedOIRows=null;
 
-// ═══ TIME HELPERS ═══
-function nowPT(){return new Date().toLocaleString('en-US',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+' PT';}
-function tsChip(ts,isLive){const cls=isLive?'live':'stale';return `<div class="ts-chip ${cls}">${isLive?'live':'cached'} ${ts||'unknown'}</div>`;}
-function relTime(ts){try{const d=new Date(typeof ts==='number'?ts*1000:ts);const diff=(Date.now()-d)/1000;if(diff<3600)return Math.round(diff/60)+'m ago';if(diff<86400)return Math.round(diff/3600)+'h ago';return Math.round(diff/86400)+'d ago';}catch{return String(ts);}}
+// NYSE holidays 2025-2026 (hardcoded, update annually)
+const NYSE_HOLIDAYS=new Set([
+  '2025-01-01','2025-01-20','2025-02-17','2025-04-18','2025-05-26',
+  '2025-06-19','2025-07-04','2025-09-01','2025-11-27','2025-12-25',
+  '2026-01-01','2026-01-19','2026-02-16','2026-04-03','2026-05-25',
+  '2026-06-19','2026-07-03','2026-09-07','2026-11-26','2026-12-25'
+]);
+
+// ═══ TIMESTAMP HELPERS ═══
+function nowInTZ(){
+  const opts={timeZone:tzPref==='PT'?'America/Los_Angeles':tzPref==='UTC'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false};
+  const s=new Date().toLocaleString('en-US',opts);
+  const tzLabel=tzPref==='PT'?'PT':tzPref==='UTC'?'UTC':'local';
+  return s+' '+tzLabel;
+}
+function nowPT(){return nowInTZ();}// alias kept for compatibility
+
+function relAge(tsStr){
+  if(!tsStr)return'';
+  try{
+    // Parse the stored timestamp -- try to extract date/time
+    const clean=tsStr.replace(/ PT$| UTC$| local$/,'').trim();
+    const d=new Date(clean);
+    if(isNaN(d.getTime()))return'';
+    const diff=(Date.now()-d.getTime())/1000;
+    if(diff<60)return'just now';
+    if(diff<3600)return Math.round(diff/60)+'m ago';
+    if(diff<86400)return Math.round(diff/3600)+'h ago';
+    return Math.round(diff/86400)+'d ago';
+  }catch{return'';}
+}
+
+function tsChip(ts,isLive){
+  const cls=isLive?'live':'stale';
+  const age=relAge(ts);
+  const ageStr=age?` (${age})`:'';
+  return `<div class="ts-chip ${cls}">${isLive?'live':'cached'} ${ts||'unknown'}${ageStr}</div>`;
+}
+
+function fmtTS(ts){
+  // Re-format a stored timestamp string in current tz preference
+  if(!ts)return'unknown';
+  const age=relAge(ts);
+  const ageStr=age?` (${age})`:'';
+  return ts.replace(/ PT$| UTC$| local$/,'')+' '+ageLabel()+ageStr;
+}
+function tzLabel(){return tzPref==='PT'?'PT':tzPref==='UTC'?'UTC':'local';}
+function ageLabel(){return tzPref==='PT'?'PT':tzPref==='UTC'?'UTC':'local';}
+
+function relTime(ts){
+  try{const d=new Date(typeof ts==='number'?ts*1000:ts);const diff=(Date.now()-d)/1000;if(diff<3600)return Math.round(diff/60)+'m ago';if(diff<86400)return Math.round(diff/3600)+'h ago';return Math.round(diff/86400)+'d ago';}catch{return String(ts);}
+}
 function fmtDate(d){return d.toISOString().split('T')[0];}
 function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
 function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 
+// ═══ MARKET STATUS BANNER ═══
+function isNYSEHoliday(date){
+  const d=new Date(date);
+  const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return NYSE_HOLIDAYS.has(key);
+}
+function getMarketState(){
+  // All times in ET
+  const now=new Date();
+  const etStr=now.toLocaleString('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+  const parts=etStr.split(/[\s,\/]+/);
+  // parts: [month, day, year, hour, minute, second]
+  const hour=parseInt(parts[3]);const min=parseInt(parts[4]);const sec=parseInt(parts[5]);
+  const dow=new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'})).getDay();
+  const dateKey=`${parts[2]}-${parts[0].padStart(2,'0')}-${parts[1].padStart(2,'0')}`;
+  const totalMins=hour*60+min;
+  const isWeekend=dow===0||dow===6;
+  const isHoliday=isNYSEHoliday(new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'})));
+  if(isWeekend||isHoliday)return{state:'closed',reason:isWeekend?'weekend':'holiday'};
+  if(totalMins>=570&&totalMins<960)return{state:'open',hour,min,sec,totalMins};// 9:30-16:00 ET
+  if(totalMins>=240&&totalMins<570)return{state:'premarket',totalMins};// 4:00-9:30 ET
+  if(totalMins>=960&&totalMins<1200)return{state:'afterhours',totalMins};// 16:00-20:00 ET
+  return{state:'closed',reason:'overnight'};
+}
+function minsToHHMM(totalMins){
+  const h=Math.floor(totalMins/60);const m=totalMins%60;
+  return h>0?`${h}h ${m}m`:`${m}m`;
+}
+function secsToMMSS(secs){
+  const m=Math.floor(secs/60);const s=secs%60;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+function updateMarketBanner(){
+  const banner=document.getElementById('market-status-banner');
+  const ms=getMarketState();
+  if(ms.state==='open'){
+    const minsLeft=(960-ms.totalMins);// 16:00 ET = 960 mins
+    const secsLeft=minsLeft*60-ms.sec;
+    const inFinal10=minsLeft<=10;
+    banner.className='mkt-open';
+    if(inFinal10){
+      banner.textContent=`MARKET OPEN -- closes in ${secsToMMSS(secsLeft)} PT`;
+    }else{
+      banner.textContent=`MARKET OPEN -- ${minsToHHMM(minsLeft)} remaining (PT: market closes ${minsLeft>=60?Math.floor(minsLeft/60)+'h '+minsLeft%60+'m':'in '+minsLeft+'m'})`;
+    }
+  }else if(ms.state==='premarket'){
+    const minsUntilOpen=570-ms.totalMins;
+    banner.className='mkt-prepost';
+    banner.textContent=`Pre-market -- regular session opens in ${minsToHHMM(minsUntilOpen)} (9:30 AM ET)`;
+  }else if(ms.state==='afterhours'){
+    const minsUntilClose=1200-ms.totalMins;
+    banner.className='mkt-prepost';
+    banner.textContent=`After-hours trading -- regular session closed. Extended hours end in ${minsToHHMM(minsUntilClose)}`;
+  }else{
+    // Calculate next open
+    const now=new Date();
+    let nextOpen=new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
+    nextOpen.setHours(9,30,0,0);
+    if(nextOpen<=now)nextOpen.setDate(nextOpen.getDate()+1);
+    // Skip weekends and holidays
+    let safety=0;
+    while((nextOpen.getDay()===0||nextOpen.getDay()===6||isNYSEHoliday(nextOpen))&&safety<10){
+      nextOpen.setDate(nextOpen.getDate()+1);safety++;
+    }
+    const diffMs=nextOpen-now;
+    const diffH=Math.floor(diffMs/3600000);
+    const diffM=Math.floor((diffMs%3600000)/60000);
+    banner.className='mkt-closed';
+    banner.textContent=`Market closed -- opens in ${diffH}h ${diffM}m (next: ${nextOpen.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'America/New_York'})} 9:30 AM ET)`;
+  }
+}
+
+// ═══ ONLINE/OFFLINE DETECTION ═══
+function updateOnlineIndicator(){
+  const dot=document.getElementById('online-dot');
+  if(!dot)return;
+  dot.className=navigator.onLine?'online-dot online-dot-on':'online-dot online-dot-off';
+}
+window.addEventListener('online',()=>{updateOnlineIndicator();toast('Back online');});
+window.addEventListener('offline',()=>{updateOnlineIndicator();toast('Offline -- using cached data',3000);});
+
 // ═══ OFFLINE BANNER ═══
 function showOfflineBanner(fetchTs){
   const b=document.getElementById('offline-banner');
-  b.textContent=`No network -- showing cached data from ${fetchTs||'unknown'}`;
+  const age=relAge(fetchTs);
+  b.textContent=`No network -- showing cached data${fetchTs?` from ${fetchTs}${age?' ('+age+')':''}`:''}.`;
   b.classList.add('show');
-  setTimeout(()=>b.classList.remove('show'),4000);
+  setTimeout(()=>b.classList.remove('show'),4500);
 }
-
-// ═══ TOAST ═══
-function toast(msg,dur=2500){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),dur);}
 
 // ═══ VIX TAB INDICATOR ═══
 function updateVIXIndicator(vixValue){
   const tabBtn=document.getElementById('vix-tab-btn');
   const banner=document.getElementById('vix-status-banner');
-  // Remove existing dot
-  const existing=tabBtn.querySelector('.vix-dot');
+  const existing=tabBtn?.querySelector('.vix-dot');
   if(existing)existing.remove();
-  banner.style.display='none';
-  banner.className='';
-
+  if(banner){banner.style.display='none';banner.className='';}
   if(!vixValue||vixValue<vixThreshold)return;
-
   let dotClass,bannerClass,label;
-  if(vixValue>=40){dotClass='vix-dot vix-dot-extreme';bannerClass='vix-status-extreme';label=`VIX ${vixValue.toFixed(1)} -- EXTREME`;}
-  else if(vixValue>=30){dotClass='vix-dot vix-dot-high';bannerClass='vix-status-high';label=`VIX ${vixValue.toFixed(1)} -- FEAR SPIKE`;}
-  else{dotClass='vix-dot vix-dot-elevated';bannerClass='vix-status-elevated';label=`VIX ${vixValue.toFixed(1)} -- ELEVATED`;}
-
-  const dot=document.createElement('span');
-  dot.className=dotClass;
-  tabBtn.appendChild(dot);
-
-  banner.textContent=label;
-  banner.className=bannerClass;
-  banner.style.display='block';
+  if(vixValue>=40){dotClass='vix-dot vix-dot-extreme';bannerClass='vix-status-extreme';label=`VIX ${vixValue.toFixed(1)} EXTREME`;}
+  else if(vixValue>=30){dotClass='vix-dot vix-dot-high';bannerClass='vix-status-high';label=`VIX ${vixValue.toFixed(1)} FEAR SPIKE`;}
+  else{dotClass='vix-dot vix-dot-elevated';bannerClass='vix-status-elevated';label=`VIX ${vixValue.toFixed(1)} ELEVATED`;}
+  if(tabBtn){const dot=document.createElement('span');dot.className=dotClass;tabBtn.appendChild(dot);}
+  if(banner){banner.textContent=label;banner.className=bannerClass;banner.style.display='block';}
 }
+
+// ═══ TOAST ═══
+function toast(msg,dur=2500){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),dur);}
 
 // ═══ SETTINGS ═══
 function openSettings(){
   document.getElementById('finnhub-key-input').value=FINNHUB_KEY;
   document.getElementById('default-watchlist-input').value=watchlist.join(',');
   document.getElementById('vix-threshold-input').value=vixThreshold;
+  document.getElementById('tz-pref-input').value=tzPref;
+  document.getElementById('offline-mode-input').checked=offlineMode;
   document.getElementById('settings-overlay').classList.add('open');
 }
 function closeSettings(){document.getElementById('settings-overlay').classList.remove('open');}
@@ -493,38 +600,58 @@ function saveSettings(){
   if(wl.length>0){watchlist=wl;S.set('watchlist',wl);}
   vixThreshold=parseInt(document.getElementById('vix-threshold-input').value)||20;
   S.set('vix_threshold',String(vixThreshold));
-  // Re-evaluate VIX indicator with new threshold
+  tzPref=document.getElementById('tz-pref-input').value;
+  S.set('tz_pref',tzPref);
+  offlineMode=document.getElementById('offline-mode-input').checked;
+  S.set('offline_mode',String(offlineMode));
+  updateOfflineModeBar();
   const cv=S.get('vix_hist');
-  if(cv&&cv.closes){const closes=cv.closes.filter(c=>c!==null);if(closes.length)updateVIXIndicator(closes[closes.length-1]);}
+  if(cv?.closes){const c=cv.closes.filter(x=>x!==null);if(c.length)updateVIXIndicator(c[c.length-1]);}
   closeSettings();renderWatchlist();populateSelects();toast('Settings saved');
 }
-function clearAllData(){
-  if(!confirm('Clear all cached data?'))return;
-  localStorage.clear();FINNHUB_KEY='';watchlist=[...DEFAULT_WATCHLIST];currentTicker='';
-  toast('All data cleared');closeSettings();renderWatchlist();
-  updateVIXIndicator(null);
+function updateOfflineModeBar(){
+  const bar=document.getElementById('offline-mode-bar');
+  if(bar)bar.style.display=offlineMode?'block':'none';
+}
+function clearAllDataWithGuard(){
+  if(!navigator.onLine){
+    document.getElementById('offline-confirm-modal').classList.add('open');
+    closeSettings();
+  }else{
+    if(confirm('Clear all cached data? This cannot be undone.'))clearAllDataConfirmed();
+  }
+}
+function closeOfflineModal(){document.getElementById('offline-confirm-modal').classList.remove('open');}
+function clearAllDataConfirmed(){
+  closeOfflineModal();
+  localStorage.clear();FINNHUB_KEY='';watchlist=[...DEFAULT_WATCHLIST];currentTicker='';offlineMode=false;
+  toast('All data cleared');renderWatchlist();updateVIXIndicator(null);updateOfflineModeBar();
 }
 function forceAppRefresh(){
   if('caches'in window){caches.keys().then(keys=>{Promise.all(keys.map(k=>caches.delete(k))).then(()=>{toast('Cache cleared -- reloading...',2500);setTimeout(()=>window.location.reload(true),2500);});});}
   else{window.location.reload(true);}
 }
 
-// ═══ OPTIONS PREFS PERSISTENCE ═══
+// ═══ OPTIONS PREFS -- mode-specific persistence ═══
 function saveOptionsPrefs(){
-  S.set('opts_pct_below',document.getElementById('pct-below').value);
-  S.set('opts_pct_above',document.getElementById('pct-above').value);
-  S.set('opts_hl_apy',document.getElementById('highlight-apy').value);
+  S.set(`opts_pct_below_${currentMode}`,document.getElementById('pct-below').value);
+  S.set(`opts_pct_above_${currentMode}`,document.getElementById('pct-above').value);
+  S.set(`opts_hl_apy_${currentMode}`,document.getElementById('highlight-apy').value);
 }
 function loadOptionsPrefs(){
-  const pb=S.get('opts_pct_below'),pa=S.get('opts_pct_above'),ha=S.get('opts_hl_apy');
-  if(pb){document.getElementById('pct-below').value=pb;document.getElementById('pct-below-val').textContent=pb+'%';}
-  if(pa){document.getElementById('pct-above').value=pa;document.getElementById('pct-above-val').textContent=pa+'%';}
-  if(ha){document.getElementById('highlight-apy').value=ha;}
+  // Load for current mode, with sensible defaults per mode
+  const defBelow=currentMode==='puts'?'20':'5';
+  const defAbove=currentMode==='puts'?'5':'20';
+  const pb=S.get(`opts_pct_below_${currentMode}`)||defBelow;
+  const pa=S.get(`opts_pct_above_${currentMode}`)||defAbove;
+  const ha=S.get(`opts_hl_apy_${currentMode}`)||'12';
+  document.getElementById('pct-below').value=pb;
+  document.getElementById('pct-below-val').textContent=pb+'%';
+  document.getElementById('pct-above').value=pa;
+  document.getElementById('pct-above-val').textContent=pa+'%';
+  document.getElementById('highlight-apy').value=ha;
 }
-function updateSlider(id){
-  document.getElementById(id+'-val').textContent=document.getElementById(id).value+'%';
-  saveOptionsPrefs();
-}
+function updateSlider(id){document.getElementById(id+'-val').textContent=document.getElementById(id).value+'%';saveOptionsPrefs();}
 
 // ═══ NAV TABS ═══
 function showTab(name){
@@ -544,32 +671,22 @@ function showTab(name){
     if(currentTicker!==lastOptionsTickerLoaded)loadOptionsForTicker();
     else restoreOIChartFromCache();
   }
-  if(name==='vix'){
-    const vc=document.getElementById('vix-content');
-    if(!vc||vc.querySelector('.empty'))restoreVIXFromCache();
-  }
-  if(name==='earnings'){
-    const ec=document.getElementById('earnings-content');
-    if(!ec||ec.querySelector('.empty'))renderEarningsCards();
-  }
-  if(name==='etf'){
-    const etc=document.getElementById('etf-content');
-    if(!etc||etc.querySelector('.empty'))loadETFTab();
-  }
-  if(name==='market'){
-    const mc=document.getElementById('market-content');
-    if(!mc||mc.querySelector('.empty'))loadMarketTab();
-  }
+  if(name==='vix'){const vc=document.getElementById('vix-content');if(!vc||vc.querySelector('.empty'))restoreVIXFromCache();}
+  if(name==='earnings'){const ec=document.getElementById('earnings-content');if(!ec||ec.querySelector('.empty'))renderEarningsCards();}
+  if(name==='etf'){const etc=document.getElementById('etf-content');if(!etc||etc.querySelector('.empty'))restoreETFFromCache();}
+  if(name==='market'){const mc=document.getElementById('market-content');if(!mc||mc.querySelector('.empty'))restoreMarketFromCache();}
 }
 
 // ═══ API HELPERS ═══
 async function fh(path){
+  if(offlineMode)throw new Error('offline mode');
   if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');throw new Error('No API key');}
   const r=await fetch(`https://finnhub.io/api/v1${path}&token=${FINNHUB_KEY}`);
   if(!r.ok)throw new Error(`Finnhub ${r.status}`);
   return r.json();
 }
 async function yahooHistory(symbol,range='6mo',interval='1d'){
+  if(offlineMode)throw new Error('offline mode');
   const url=`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=history&range=${range}&interval=${interval}`;
   const r=await fetch(url);if(!r.ok)throw new Error(`History proxy ${r.status}`);
   const d=await r.json();if(d.error)throw new Error(d.error);
@@ -577,61 +694,43 @@ async function yahooHistory(symbol,range='6mo',interval='1d'){
   return{timestamps:result.timestamp.map(t=>new Date(t*1000)),closes:result.indicators.quote[0].close,volumes:result.indicators.quote[0].volume||[]};
 }
 async function yahooOptionsViaProxy(symbol,expiration){
+  if(offlineMode)throw new Error('offline mode');
   let url=`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=options`;
   if(expiration)url+=`&expiration=${expiration}`;
   const r=await fetch(url);if(!r.ok)throw new Error(`Options proxy ${r.status}`);
   return r.json();
 }
 async function fetchAfterHoursPrice(symbol){
+  if(offlineMode)return null;
   try{const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=history&range=1d&interval=1m`);if(!r.ok)return null;const d=await r.json();const meta=d.chart?.result?.[0]?.meta;return meta?{postMarketPrice:meta.postMarketPrice||null,marketState:meta.marketState||null}:null;}catch{return null;}
 }
-async function fetchNews(ticker){const to=fmtDate(new Date());const from=fmtDate(addDays(new Date(),-7));return fh(`/company-news?symbol=${ticker}&from=${from}&to=${to}`);}
+async function fetchNews(ticker){
+  const to=fmtDate(new Date());const from=fmtDate(addDays(new Date(),-7));
+  return fh(`/company-news?symbol=${ticker}&from=${from}&to=${to}`);
+}
+async function fetchFRED(seriesId){
+  // FRED public API -- no key required for basic series
+  const url=`https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&limit=260&sort_order=desc&file_type=json&api_key=df8f93b9de6b4a3480c28b92eaa00c10`;
+  const r=await fetch(url);if(!r.ok)throw new Error(`FRED ${r.status}`);
+  const d=await r.json();
+  return (d.observations||[]).filter(o=>o.value!=='.').map(o=>({date:o.date,value:parseFloat(o.value)})).reverse();
+}
 
 // ═══ MATH HELPERS ═══
 function avg(arr){const v=arr.filter(x=>x!==null&&!isNaN(x));return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;}
 function stdDev(arr){const a=avg(arr);if(a===null)return null;const v=arr.filter(x=>x!==null&&!isNaN(x));return Math.sqrt(v.reduce((s,x)=>s+(x-a)**2,0)/v.length);}
 function computeRSI(closes,period=14){const result=[];for(let i=0;i<closes.length;i++){if(i<period){result.push(null);continue;}const sl=closes.slice(i-period,i+1);let g=0,l=0;for(let j=1;j<sl.length;j++){const d=sl[j]-sl[j-1];if(d>0)g+=d;else l-=d;}const ag=g/period,al=l/period;if(al===0){result.push(100);continue;}result.push(100-100/(1+ag/al));}return result.filter(v=>v!==null);}
 function formatStrike(x){return x===Math.floor(x)?x.toString():x.toFixed(2);}
-function fmtCap(v){if(!v)return 'N/A';if(v>=1e12)return `$${(v/1e12).toFixed(2)}T`;if(v>=1e9)return `$${(v/1e9).toFixed(2)}B`;if(v>=1e6)return `$${(v/1e6).toFixed(2)}M`;return `$${v}`;}
-function computeVolumeProfile(closes,volumes,nBuckets=40,topN=5){
-  const pairs=closes.map((c,i)=>[c,volumes[i]]).filter(([c,v])=>c&&v);
-  if(!pairs.length)return{levels:[],centers:[],vols:[]};
-  const allC=pairs.map(p=>p[0]);const mn=Math.min(...allC),mx=Math.max(...allC);
-  const edges=Array.from({length:nBuckets+1},(_,i)=>mn+(mx-mn)*i/nBuckets);
-  const centers=edges.slice(0,-1).map((e,i)=>(e+edges[i+1])/2);
-  const bvols=new Array(nBuckets).fill(0);
-  pairs.forEach(([price,vol])=>{let idx=edges.slice(1).findIndex(e=>price<=e);if(idx<0)idx=nBuckets-1;bvols[idx]+=vol;});
-  const topIdxs=[...bvols.entries()].sort((a,b)=>b[1]-a[1]).slice(0,topN).map(e=>e[0]);
-  return{levels:topIdxs.map(i=>centers[i]).sort((a,b)=>a-b),centers,vols:bvols};
-}
-function getRoundNumbers(price,w=0.25){
-  const low=price*(1-w),high=price*(1+w);
-  const step=price>=500?50:price>=100?25:price>=50?10:5;
-  const rounds=[];let v=Math.floor(low/step)*step;
-  while(v<=high){if(v>=low&&v<=high)rounds.push(v);v+=step;}return rounds;
-}
-function computeIVR(ticker,w52h,w52l,price){
-  try{const cached=S.get('options_'+ticker);const res=cached?.data?.optionChain?.result?.[0];if(!res)return null;const opts=res.options?.[0];if(!opts)return null;const atm=[...(opts.puts||[]),...(opts.calls||[])].filter(o=>Math.abs(o.strike-price)/price<0.05&&o.impliedVolatility>0);if(!atm.length)return null;const currentIV=avg(atm.map(o=>o.impliedVolatility));if(!w52h||!w52l||w52h<=w52l)return null;const rangeVol=(w52h-w52l)/w52l;return Math.min(100,Math.max(0,(currentIV/(rangeVol*0.6))*50));}catch{return null;}
-}
-function ivrInfo(val){
-  if(val===null)return{badge:'',guidance:'IV rank not available -- fetch options data to compute.'};
-  if(val<30)return{badge:`<span class="ivr-badge ivr-low">Low IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: Options historically cheap. Premiums thin -- consider waiting for a volatility uptick.`};
-  if(val<60)return{badge:`<span class="ivr-badge ivr-normal">Normal IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: Normal historical IV. Standard conditions for premium collection.`};
-  if(val<80)return{badge:`<span class="ivr-badge ivr-elevated">Elevated IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: IV elevated relative to recent history -- above-average premium opportunity. Good time to sell options.`};
-  return{badge:`<span class="ivr-badge ivr-high">High IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: IV very high. Exceptional premiums -- likely driven by recent volatility or upcoming event.`};
-}
+function fmtCap(v){if(!v)return'N/A';if(v>=1e12)return`$${(v/1e12).toFixed(2)}T`;if(v>=1e9)return`$${(v/1e9).toFixed(2)}B`;if(v>=1e6)return`$${(v/1e6).toFixed(2)}M`;return`$${v}`;}
+function computeVolumeProfile(closes,volumes,nBuckets=40,topN=5){const pairs=closes.map((c,i)=>[c,volumes[i]]).filter(([c,v])=>c&&v);if(!pairs.length)return{levels:[],centers:[],vols:[]};const allC=pairs.map(p=>p[0]);const mn=Math.min(...allC),mx=Math.max(...allC);const edges=Array.from({length:nBuckets+1},(_,i)=>mn+(mx-mn)*i/nBuckets);const centers=edges.slice(0,-1).map((e,i)=>(e+edges[i+1])/2);const bvols=new Array(nBuckets).fill(0);pairs.forEach(([price,vol])=>{let idx=edges.slice(1).findIndex(e=>price<=e);if(idx<0)idx=nBuckets-1;bvols[idx]+=vol;});const topIdxs=[...bvols.entries()].sort((a,b)=>b[1]-a[1]).slice(0,topN).map(e=>e[0]);return{levels:topIdxs.map(i=>centers[i]).sort((a,b)=>a-b),centers,vols:bvols};}
+function getRoundNumbers(price,w=0.25){const low=price*(1-w),high=price*(1+w);const step=price>=500?50:price>=100?25:price>=50?10:5;const rounds=[];let v=Math.floor(low/step)*step;while(v<=high){if(v>=low&&v<=high)rounds.push(v);v+=step;}return rounds;}
+function computeIVR(ticker,w52h,w52l,price){try{const cached=S.get('options_'+ticker);const res=cached?.data?.optionChain?.result?.[0];if(!res)return null;const opts=res.options?.[0];if(!opts)return null;const atm=[...(opts.puts||[]),...(opts.calls||[])].filter(o=>Math.abs(o.strike-price)/price<0.05&&o.impliedVolatility>0);if(!atm.length)return null;const currentIV=avg(atm.map(o=>o.impliedVolatility));if(!w52h||!w52l||w52h<=w52l)return null;const rangeVol=(w52h-w52l)/w52l;return Math.min(100,Math.max(0,(currentIV/(rangeVol*0.6))*50));}catch{return null;}}
+function ivrInfo(val){if(val===null)return{badge:'',guidance:'IV rank not available -- fetch options data to compute.'};if(val<30)return{badge:`<span class="ivr-badge ivr-low">Low IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: Options historically cheap. Premiums thin -- consider waiting for a volatility uptick.`};if(val<60)return{badge:`<span class="ivr-badge ivr-normal">Normal IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: Normal historical IV. Standard conditions for premium collection.`};if(val<80)return{badge:`<span class="ivr-badge ivr-elevated">Elevated IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: IV elevated -- above-average premium opportunity. Good time to sell options.`};return{badge:`<span class="ivr-badge ivr-high">High IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: IV very high. Exceptional premiums -- driven by recent volatility or upcoming event.`};}
 const POS_WORDS=['beat','beats','surge','surges','upgrade','upgrades','raises','record','strong','soar','gain','rally','top'];
 const NEG_WORDS=['miss','misses','cut','cuts','downgrade','downgrades','warning','weak','fall','drop','investigation','recall','decline','loss'];
-function newsSentiment(h){const l=h.toLowerCase();if(POS_WORDS.some(w=>l.includes(w)))return{dot:'pos',cls:'color:var(--green)'};if(NEG_WORDS.some(w=>l.includes(w)))return{dot:'neg',cls:'color:var(--red)'};return{dot:'neu',cls:'color:var(--text3)'};}
+function newsSentiment(h){const l=h.toLowerCase();if(POS_WORDS.some(w=>l.includes(w)))return{dot:'pos',css:'color:var(--green)'};if(NEG_WORDS.some(w=>l.includes(w)))return{dot:'neg',css:'color:var(--red)'};return{dot:'neu',css:'color:var(--text3)'};}
 function sentDot(s){return s.dot==='pos'?'&#x1F7E2;':s.dot==='neg'?'&#x1F534;':'&#x26AA;';}
-function renderNewsItems(newsArr,maxItems=5){
-  if(!newsArr||!newsArr.length)return '<div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:8px 0">No recent news available</div>';
-  const items=newsArr.slice(0,maxItems);
-  const pos=items.filter(n=>newsSentiment(n.headline).dot==='pos').length;
-  const neg=items.filter(n=>newsSentiment(n.headline).dot==='neg').length;
-  return `<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">${items.length} articles -- ${pos} positive, ${neg} negative</div>`+
-    items.map(n=>{const s=newsSentiment(n.headline);return `<div class="news-item"><div class="news-headline"><span style="${s.cls}">${sentDot(s)}</span> <a href="${n.url}" target="_blank" rel="noopener">${n.headline}</a></div><div class="news-meta">${n.source} -- ${relTime(n.datetime)}</div>${n.summary?`<div class="news-summary">${n.summary.slice(0,120)}...</div>`:''}</div>`;}).join('');
-}
+function renderNewsItems(newsArr,maxItems=5){if(!newsArr||!newsArr.length)return'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:8px 0">No recent news available</div>';const items=newsArr.slice(0,maxItems);const pos=items.filter(n=>newsSentiment(n.headline).dot==='pos').length;const neg=items.filter(n=>newsSentiment(n.headline).dot==='neg').length;return`<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">${items.length} articles -- ${pos} positive, ${neg} negative</div>`+items.map(n=>{const s=newsSentiment(n.headline);return`<div class="news-item"><div class="news-headline"><span style="${s.css}">${sentDot(s)}</span> <a href="${n.url}" target="_blank" rel="noopener">${n.headline}</a></div><div class="news-meta">${n.source} -- ${relTime(n.datetime)}</div>${n.summary?`<div class="news-summary">${n.summary.slice(0,120)}...</div>`:''}</div>`;}).join('');}
 </script>
 <script>
 // ═══ WATCHLIST ═══
@@ -639,16 +738,12 @@ function renderWatchlist(){
   const el=document.getElementById('watchlist-items');
   if(!watchlist.length){el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CB;</div>Watchlist is empty</div>';return;}
   el.innerHTML=watchlist.map(t=>{
-    const c=S.get('snap_'+t);
-    const price=c?`$${c.price.toFixed(2)}`:'--';
-    const chg=c?c.change:0,chgPct=c?c.changePct:0;
-    const cc=chg>=0?'var(--green)':'var(--red)';
+    const c=S.get('snap_'+t);const price=c?`$${c.price.toFixed(2)}`:'--';
+    const chg=c?c.change:0,chgPct=c?c.changePct:0;const cc=chg>=0?'var(--green)':'var(--red)';
+    const age=c?relAge(c.ts):'';
     return `<div class="watchlist-item" onclick="selectTickerFromWatchlist('${t}')">
-      <div><div class="watchlist-ticker">${t}</div>${c?`<div class="watchlist-ts">${c.ts}</div>`:''}</div>
-      <div style="text-align:right">
-        <div class="watchlist-price">${price}</div>
-        ${c?`<div class="watchlist-change" style="color:${cc}">${chg>=0?'+':''}${chg.toFixed(2)} (${chgPct>=0?'+':''}${chgPct.toFixed(2)}%)</div>`:''}
-      </div>
+      <div><div class="watchlist-ticker">${t}</div>${c?`<div class="watchlist-ts">${c.ts}${age?' ('+age+')':''}</div>`:''}</div>
+      <div style="text-align:right"><div class="watchlist-price">${price}</div>${c?`<div class="watchlist-change" style="color:${cc}">${chg>=0?'+':''}${chg.toFixed(2)} (${chgPct>=0?'+':''}${chgPct.toFixed(2)}%)</div>`:''}</div>
       <button class="watchlist-remove" onclick="removeTicker(event,'${t}')">x</button>
     </div>`;
   }).join('');
@@ -664,16 +759,21 @@ async function loadTicker(){
   if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('options-ticker-select').value=t;clearOptionsState();}
   document.getElementById('ticker-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading ${t}...</div></div>`;
   try{
-    let snap,hist6mo,hist1y,news,isLive=true;
+    let snap,hist6mo,hist1y,news,recData,isLive=true;
     try{
-      const[quote,profile,metrics,earnings]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),90))}`)]);
+      const[quote,profile,metrics,earnings,rec]=await Promise.all([
+        fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),
+        fh(`/stock/metric?symbol=${t}&metric=all`),
+        fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),90))}`),
+        fh(`/stock/recommendation?symbol=${t}`)
+      ]);
       snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:earnings?.earningsCalendar?.[0]?.date||null,earningsHour:earnings?.earningsCalendar?.[0]?.hour||null,ts:nowPT(),isLive:true};
+      recData=rec&&rec.length?rec[0]:null;
+      S.set('snap_'+t,snap);S.set('rec_'+t,{data:recData,ts:nowPT()});
       try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.marketState=ah.marketState;}}catch{}
-      S.set('snap_'+t,snap);
     }catch{
-      const cached=S.get('snap_'+t);
-      if(cached){snap=cached;isLive=false;showOfflineBanner(cached.ts);}
-      else throw new Error('No data available');
+      const cached=S.get('snap_'+t);if(cached){snap=cached;isLive=false;showOfflineBanner(cached.ts);}else throw new Error('No data available');
+      const cr=S.get('rec_'+t);if(cr)recData=cr.data;
     }
     try{hist6mo=await yahooHistory(t,'6mo','1d');S.set('hist_'+t,{timestamps:hist6mo.timestamps.map(d=>d.toISOString()),closes:hist6mo.closes,volumes:hist6mo.volumes,ts:nowPT()});}
     catch{const ch=S.get('hist_'+t);if(ch){hist6mo={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes};if(!isLive)showOfflineBanner(ch.ts);}}
@@ -681,31 +781,26 @@ async function loadTicker(){
     catch{const ch=S.get('hist1y_'+t);if(ch)hist1y={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes};}
     try{news=await fetchNews(t);S.set('news_'+t,{items:news,ts:nowPT()});}
     catch{const cn=S.get('news_'+t);if(cn)news=cn.items;}
-    renderTickerContent(snap,hist6mo,hist1y,news,isLive);
-    renderWatchlist();
+    renderTickerContent(snap,hist6mo,hist1y,news,recData,isLive);renderWatchlist();
   }catch(err){document.getElementById('ticker-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
 }
 function restoreTickerFromCache(t){
-  if(!t)return;
-  const snap=S.get('snap_'+t);if(!snap)return;
+  if(!t)return;const snap=S.get('snap_'+t);if(!snap)return;
   const ch=S.get('hist_'+t);const hist6mo=ch?{timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes}:null;
   const ch1=S.get('hist1y_'+t);const hist1y=ch1?{timestamps:ch1.timestamps.map(d=>new Date(d)),closes:ch1.closes,volumes:ch1.volumes}:null;
-  const cn=S.get('news_'+t);
-  renderTickerContent(snap,hist6mo,hist1y,cn?cn.items:null,false);
+  const cn=S.get('news_'+t);const cr=S.get('rec_'+t);
+  renderTickerContent(snap,hist6mo,hist1y,cn?cn.items:null,cr?cr.data:null,false);
 }
-function renderTickerContent(snap,hist,hist1y,news,isLive){
+function renderTickerContent(snap,hist,hist1y,news,recData,isLive){
   const el=document.getElementById('ticker-content');
-  const chgColor=snap.change>=0?'var(--green)':'var(--red)';
-  const chgSign=snap.change>=0?'+':'';
+  const chgColor=snap.change>=0?'var(--green)':'var(--red)';const chgSign=snap.change>=0?'+':'';
   let rsiStr='N/A',bbStr='',bbData=null;
   if(hist&&hist.closes&&hist.closes.length>20){
-    const closes=hist.closes.filter(c=>c!==null);
-    const rsi=computeRSI(closes);
+    const closes=hist.closes.filter(c=>c!==null);const rsi=computeRSI(closes);
     rsiStr=rsi.length?rsi[rsi.length-1].toFixed(1):'N/A';
     const sma20=closes.map((_,i)=>i<19?null:avg(closes.slice(i-19,i+1)));
     const std20=closes.map((_,i)=>i<19?null:stdDev(closes.slice(i-19,i+1)));
-    const upper=sma20.map((s,i)=>s?s+2*std20[i]:null);
-    const lower=sma20.map((s,i)=>s?s-2*std20[i]:null);
+    const upper=sma20.map((s,i)=>s?s+2*std20[i]:null);const lower=sma20.map((s,i)=>s?s-2*std20[i]:null);
     const last=closes.length-1;
     bbStr=`SMA20 $${sma20[last]?.toFixed(2)} | Upper $${upper[last]?.toFixed(2)} | Lower $${lower[last]?.toFixed(2)}`;
     bbData={timestamps:hist.timestamps,closes,sma20,upper,lower};
@@ -713,13 +808,37 @@ function renderTickerContent(snap,hist,hist1y,news,isLive){
   const rsiVal=parseFloat(rsiStr);
   const rsiColor=rsiVal>=70?'var(--red)':rsiVal<=30?'var(--green)':'var(--text)';
   const rsiLabel=rsiVal>=70?'Overbought -- consider covered calls':rsiVal<=30?'Oversold -- favorable for put selling':'Neutral';
-  const earningsTiming=snap.earningsHour==='bmo'?' (before open)':snap.earningsHour==='amc'?' (after close)':snap.earningsHour==='dmh'?' (during hours)':'';
+  const earningsTiming=snap.earningsHour==='bmo'?' (before open)':snap.earningsHour==='amc'?' (after close)':'';
   const earningsStr=snap.earningsDate?`<div class="earnings-warn" style="margin-top:10px">Earnings: ${snap.earningsDate}${earningsTiming}</div>`:'';
   const ivrVal=computeIVR(snap.ticker,snap.week52High,snap.week52Low,snap.price);
   const ivr=ivrInfo(ivrVal);
   let impliedMoveStr='N/A';
   try{const oc=S.get('options_'+snap.ticker);const res=oc?.data?.optionChain?.result?.[0];if(res&&snap.price){const opts=res.options?.[0];if(opts){const atmP=(opts.puts||[]).filter(p=>Math.abs(p.strike-snap.price)/snap.price<0.03);const atmC=(opts.calls||[]).filter(c=>Math.abs(c.strike-snap.price)/snap.price<0.03);if(atmP.length&&atmC.length){const straddle=((atmP[0].bid+atmP[0].ask)/2)+((atmC[0].bid+atmC[0].ask)/2);impliedMoveStr=`+/-${(straddle/snap.price*100).toFixed(1)}% ($${straddle.toFixed(2)} straddle)`;}}}}catch{}
   const shortStr=snap.shortInterest?`${(snap.shortInterest/1e6).toFixed(1)}M shares (ratio: ${snap.shortRatio?.toFixed(1)||'N/A'}d)`:'N/A';
+  // Analyst recommendation display
+  let analystHtml='';
+  if(recData){
+    const total=(recData.strongBuy||0)+(recData.buy||0)+(recData.hold||0)+(recData.sell||0)+(recData.strongSell||0);
+    const bullPct=total>0?Math.round(((recData.strongBuy||0)+(recData.buy||0))/total*100):0;
+    const bearPct=total>0?Math.round(((recData.sell||0)+(recData.strongSell||0))/total*100):0;
+    const holdPct=100-bullPct-bearPct;
+    analystHtml=`<div class="metric-tile" style="grid-column:span 2">
+      <div class="metric-label">Analyst Coverage</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+        <div style="font-family:var(--mono);font-size:15px;font-weight:600;color:var(--accent)">${recData.strongBuy+recData.buy>recData.sell+recData.strongSell?'BUY':'HOLD'}</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--text3)">${total} analysts</div>
+      </div>
+      <div style="display:flex;height:6px;border-radius:3px;overflow:hidden;margin:6px 0;gap:1px">
+        <div style="width:${bullPct}%;background:var(--green);border-radius:3px 0 0 3px"></div>
+        <div style="width:${holdPct}%;background:var(--warn)"></div>
+        <div style="width:${bearPct}%;background:var(--red);border-radius:0 3px 3px 0"></div>
+      </div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text3)">
+        Buy ${(recData.strongBuy||0)+(recData.buy||0)} &nbsp;|&nbsp; Hold ${recData.hold||0} &nbsp;|&nbsp; Sell ${(recData.sell||0)+(recData.strongSell||0)}
+        (Strong Buy: ${recData.strongBuy||0}, Strong Sell: ${recData.strongSell||0})
+      </div>
+    </div>`;
+  }
   el.innerHTML=`<div class="card">
     <div class="card-title"><span class="dot"></span>${snap.ticker} -- ${snap.name}</div>
     ${tsChip(snap.ts,isLive)}
@@ -735,14 +854,15 @@ function renderTickerContent(snap,hist,hist1y,news,isLive){
       <div class="metric-tile"><div class="metric-label">Div Yield</div><div class="metric-value">${snap.dividendYield?snap.dividendYield.toFixed(2)+'%':'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">RSI (14)</div><div class="metric-value" style="color:${rsiColor}">${rsiStr}</div><div class="metric-sub">${rsiLabel}</div></div>
       <div class="metric-tile"><div class="metric-label">Short Interest</div><div class="metric-value" style="font-size:11px">${shortStr}</div></div>
+      ${analystHtml}
       <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">IV Rank (approx)</div><div style="margin-top:4px">${ivr.badge||'N/A'}</div><div class="metric-sub" style="margin-top:4px;font-size:10px;line-height:1.4">${ivr.guidance}</div></div>
-      ${impliedMoveStr!=='N/A'?`<div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Implied Move (from options)</div><div class="metric-value" style="font-size:13px">${impliedMoveStr}</div><div class="metric-sub">ATM straddle-implied move. Use to gauge how far OTM your strike should be to stay outside the expected range.</div></div>`:''}
+      ${impliedMoveStr!=='N/A'?`<div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Implied Move (from options)</div><div class="metric-value" style="font-size:13px">${impliedMoveStr}</div><div class="metric-sub">ATM straddle-implied move. Use to gauge how far OTM your strike should be.</div></div>`:''}
     </div>
     ${earningsStr}
   </div>
-  ${hist?`<div class="card"><div class="card-title"><span class="dot"></span>Bollinger Bands + RSI (6mo)</div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility often preceding a breakout.
+  ${hist?`<div class="card"><div class="card-title"><span class="dot"></span>Bollinger Bands + RSI (6mo)</div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility.
 
-RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red shading) = overbought, favorable for covered calls. Combined signal with Bollinger Bands is strongest.</div></div>`:''}
+RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red shading) = overbought, favorable for covered calls.</div></div>`:''}
   ${hist1y?`<div class="card"><div class="card-title"><span class="dot" style="background:teal"></span>Volume Profile -- Support / Resistance (1Y)</div><div style="display:flex;gap:4px"><div style="flex:3;position:relative;height:280px"><canvas id="vp-chart"></canvas></div><div style="flex:1;position:relative;height:280px"><canvas id="vp-vol-chart"></canvas></div></div><div id="vp-analysis"></div></div>`:''}
   <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Recent News (7 days)</div><div id="news-section">${renderNewsItems(news)}</div></div>`;
   if(bbData)renderBBChart(bbData,hist);
@@ -761,129 +881,51 @@ function renderBBChart(bbData,hist){
     window._rsiChart=new Chart(rsiCtx,{type:'line',data:{labels:rsiLabels,datasets:[{data:ob,borderColor:'transparent',backgroundColor:'rgba(255,71,87,0.25)',fill:{target:{value:70},above:'rgba(255,71,87,0.25)',below:'transparent'},pointRadius:0,tension:0.2,spanGaps:false},{data:os,borderColor:'transparent',backgroundColor:'rgba(0,200,150,0.25)',fill:{target:{value:30},above:'transparent',below:'rgba(0,200,150,0.25)'},pointRadius:0,tension:0.2,spanGaps:false},{label:'RSI',data:rsiVals,borderColor:'#7c6af7',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{display:false},grid:{color:'#2a2e38'}},y:{min:0,max:100,ticks:{color:'#555870',font:{size:9},stepSize:30},grid:{color:'#2a2e38'}}}},plugins:[{id:'rsiLines',afterDraw(chart){const c=chart.ctx,x=chart.scales.x,y=chart.scales.y;const y70=y.getPixelForValue(70),y30=y.getPixelForValue(30);c.save();c.setLineDash([4,3]);c.lineWidth=1;c.strokeStyle='rgba(255,71,87,0.7)';c.beginPath();c.moveTo(x.left,y70);c.lineTo(x.right,y70);c.stroke();c.strokeStyle='rgba(0,200,150,0.7)';c.beginPath();c.moveTo(x.left,y30);c.lineTo(x.right,y30);c.stroke();c.setLineDash([]);c.font='9px DM Mono,monospace';c.fillStyle='rgba(255,71,87,0.9)';c.fillText('70',x.right+3,y70+3);c.fillStyle='rgba(0,200,150,0.9)';c.fillText('30',x.right+3,y30+3);c.restore();}}]});
   }
 }
-</script>
-<script>
-// ═══ VOLUME PROFILE CHART -- dual panel with horizontal volume bars ═══
 function renderVPChart(hist1y,currentPrice,w52h,w52l){
-  const closes=hist1y.closes.filter(c=>c!==null);
-  const volumes=hist1y.volumes.filter((_,i)=>hist1y.closes[i]!==null);
+  const closes=hist1y.closes.filter(c=>c!==null);const volumes=hist1y.volumes.filter((_,i)=>hist1y.closes[i]!==null);
   const{levels:vpLevels,centers,vols:bucketVols}=computeVolumeProfile(closes,volumes,40,5);
   const roundNums=getRoundNumbers(currentPrice);
   const ma50=closes.map((_,i)=>i<49?null:avg(closes.slice(i-49,i+1)));
   const ma200=closes.map((_,i)=>i<199?null:avg(closes.slice(i-199,i+1)));
   const labels=hist1y.timestamps.map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});});
   const topVpIdxs=new Set(vpLevels.map(l=>centers.reduce((bi,c,i)=>Math.abs(c-l)<Math.abs(centers[bi]-l)?i:bi,0)));
-
-  // LEFT PANEL: price history with VP overlays
   const ctx=document.getElementById('vp-chart')?.getContext('2d');
-  if(ctx){
-    if(window._vpChart)window._vpChart.destroy();
-    window._vpChart=new Chart(ctx,{
-      type:'line',
-      data:{labels,datasets:[
-        {data:closes,borderColor:'#4fc3f7',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},
-        {data:ma50,borderColor:'#ff9800',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false},
-        {data:ma200,borderColor:'#7c6af7',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false}
-      ]},
-      options:{
-        responsive:true,maintainAspectRatio:false,
-        layout:{padding:{top:14,right:80}},
-        plugins:{legend:{display:false}},
-        scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}
-      },
-      plugins:[{id:'vpOverlay',afterDraw(chart){
-        const c=chart.ctx,xA=chart.scales.x,yA=chart.scales.y;
-        const xL=xA.left,xR=xA.right,yT=yA.top,yB=yA.bottom;
-        function clampY(y,pad=9){return Math.max(yT+pad,Math.min(yB-pad,y));}
-        c.save();c.font='bold 9px DM Mono,monospace';c.textAlign='left';
-        // VP levels (teal)
-        vpLevels.forEach(lvl=>{
-          if(lvl<yA.min||lvl>yA.max)return;
-          const y=yA.getPixelForValue(lvl);
-          c.setLineDash([4,4]);c.lineWidth=1.5;c.strokeStyle='rgba(0,212,170,0.8)';
-          c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.setLineDash([]);
-          c.fillStyle='rgba(0,212,170,0.9)';c.fillText('VP $'+lvl.toFixed(0),xR+4,clampY(y+3));
-        });
-        // 52W lines
-        if(w52h&&w52h>=yA.min&&w52h<=yA.max){const y=yA.getPixelForValue(w52h);c.setLineDash([6,3]);c.lineWidth=1.2;c.strokeStyle='rgba(255,71,87,0.7)';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.setLineDash([]);c.fillStyle='rgba(255,71,87,0.9)';c.fillText('52H $'+w52h.toFixed(0),xR+4,clampY(y-2));}
-        if(w52l&&w52l>=yA.min&&w52l<=yA.max){const y=yA.getPixelForValue(w52l);c.setLineDash([6,3]);c.lineWidth=1.2;c.strokeStyle='rgba(0,200,150,0.7)';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.setLineDash([]);c.fillStyle='rgba(0,200,150,0.9)';c.fillText('52L $'+w52l.toFixed(0),xR+4,clampY(y+10));}
-        // Round numbers (gray subtle)
-        c.setLineDash([2,4]);c.lineWidth=0.8;c.strokeStyle='rgba(100,100,120,0.4)';
-        roundNums.forEach(rn=>{if(rn<yA.min||rn>yA.max)return;const y=yA.getPixelForValue(rn);c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();});
-        c.setLineDash([]);
-        // Current price (solid blue, clamped label)
-        if(currentPrice>=yA.min&&currentPrice<=yA.max){const y=yA.getPixelForValue(currentPrice);c.lineWidth=2;c.strokeStyle='#4fc3f7';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.fillStyle='#4fc3f7';c.fillText('Now $'+currentPrice.toFixed(0),xR+4,clampY(y+4));}
-        c.restore();
-      }}]
-    });
-  }
-
-  // RIGHT PANEL: horizontal volume profile bars
-  // Bars align with price axis, highest-volume buckets highlighted teal
+  if(ctx){if(window._vpChart)window._vpChart.destroy();window._vpChart=new Chart(ctx,{type:'line',data:{labels,datasets:[{data:closes,borderColor:'#4fc3f7',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},{data:ma50,borderColor:'#ff9800',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false},{data:ma200,borderColor:'#7c6af7',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false}]},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:14,right:80}},plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}},plugins:[{id:'vpOverlay',afterDraw(chart){const c=chart.ctx,xA=chart.scales.x,yA=chart.scales.y;const xL=xA.left,xR=xA.right,yT=yA.top,yB=yA.bottom;function clampY(y,pad=9){return Math.max(yT+pad,Math.min(yB-pad,y));}c.save();c.font='bold 9px DM Mono,monospace';c.textAlign='left';vpLevels.forEach(lvl=>{if(lvl<yA.min||lvl>yA.max)return;const y=yA.getPixelForValue(lvl);c.setLineDash([4,4]);c.lineWidth=1.5;c.strokeStyle='rgba(0,212,170,0.8)';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.setLineDash([]);c.fillStyle='rgba(0,212,170,0.9)';c.fillText('VP $'+lvl.toFixed(0),xR+4,clampY(y+3));});if(w52h&&w52h>=yA.min&&w52h<=yA.max){const y=yA.getPixelForValue(w52h);c.setLineDash([6,3]);c.lineWidth=1.2;c.strokeStyle='rgba(255,71,87,0.7)';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.setLineDash([]);c.fillStyle='rgba(255,71,87,0.9)';c.fillText('52H $'+w52h.toFixed(0),xR+4,clampY(y-2));}if(w52l&&w52l>=yA.min&&w52l<=yA.max){const y=yA.getPixelForValue(w52l);c.setLineDash([6,3]);c.lineWidth=1.2;c.strokeStyle='rgba(0,200,150,0.7)';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.setLineDash([]);c.fillStyle='rgba(0,200,150,0.9)';c.fillText('52L $'+w52l.toFixed(0),xR+4,clampY(y+10));}c.setLineDash([2,4]);c.lineWidth=0.8;c.strokeStyle='rgba(100,100,120,0.4)';roundNums.forEach(rn=>{if(rn<yA.min||rn>yA.max)return;const y=yA.getPixelForValue(rn);c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();});c.setLineDash([]);if(currentPrice>=yA.min&&currentPrice<=yA.max){const y=yA.getPixelForValue(currentPrice);c.lineWidth=2;c.strokeStyle='#4fc3f7';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.fillStyle='#4fc3f7';c.fillText('Now $'+currentPrice.toFixed(0),xR+4,clampY(y+4));}c.restore();}}]});}
   const volCtx=document.getElementById('vp-vol-chart')?.getContext('2d');
-  if(volCtx){
-    if(window._vpVolChart)window._vpVolChart.destroy();
-    const barColors=centers.map((_,i)=>topVpIdxs.has(i)?'rgba(0,212,170,0.75)':'rgba(42,70,80,0.6)');
-    // Use centers as y-axis labels, volumes as x-axis data
-    window._vpVolChart=new Chart(volCtx,{
-      type:'bar',
-      data:{
-        labels:centers.map(c=>'$'+c.toFixed(0)),
-        datasets:[{data:bucketVols.map(v=>v/1e6),backgroundColor:barColors,borderRadius:1}]
-      },
-      options:{
-        indexAxis:'y', // horizontal bars
-        responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`Vol: ${ctx.parsed.x.toFixed(1)}M`}}},
-        scales:{
-          x:{ticks:{color:'#555870',font:{size:8}},grid:{color:'#2a2e38'},title:{display:true,text:'Vol (M)',color:'#555870',font:{size:8}}},
-          y:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:8},grid:{color:'#2a2e38'}}
-        }
-      }
-    });
-  }
-
-  // Canned analysis
-  const vpBelow=vpLevels.filter(l=>l<=currentPrice);
-  const vpAbove=vpLevels.filter(l=>l>currentPrice);
-  const ns=vpBelow.length?Math.max(...vpBelow):null;
-  const nr=vpAbove.length?Math.min(...vpAbove):null;
-  let analysis='Volume Profile shows where the most shares traded over the past year (teal = highest volume). These price zones act as support when approached from above and resistance from below.\n';
-  if(ns){const pct=((currentPrice-ns)/currentPrice*100).toFixed(1);analysis+=`\nNearest VP support: $${ns.toFixed(0)} (${pct}% below). Selling puts above this level aligns with natural market maker buying activity.\n`;}
-  if(nr){const pct=((nr-currentPrice)/currentPrice*100).toFixed(1);analysis+=`\nNearest VP resistance: $${nr.toFixed(0)} (${pct}% above). For covered calls, selling just below this level uses natural resistance as a buffer.\n`;}
-  analysis+='\nBlue line = current price. Teal dotted = VP levels. Orange dashed = 50-day MA. Purple dashed = 200-day MA.\nRight panel: horizontal volume bars. Teal = highest-volume price zones (strongest S/R).';
-  const el=document.getElementById('vp-analysis');
-  if(el)el.innerHTML=`<div class="commentary" style="margin-top:8px">${analysis}</div>`;
+  if(volCtx){if(window._vpVolChart)window._vpVolChart.destroy();const barColors=centers.map((_,i)=>topVpIdxs.has(i)?'rgba(0,212,170,0.75)':'rgba(42,70,80,0.6)');window._vpVolChart=new Chart(volCtx,{type:'bar',data:{labels:centers.map(c=>'$'+c.toFixed(0)),datasets:[{data:bucketVols.map(v=>v/1e6),backgroundColor:barColors,borderRadius:1}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`Vol: ${ctx.parsed.x.toFixed(1)}M`}}},scales:{x:{ticks:{color:'#555870',font:{size:8}},grid:{color:'#2a2e38'},title:{display:true,text:'Vol(M)',color:'#555870',font:{size:8}}},y:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:8},grid:{color:'#2a2e38'}}}}});}
+  const vpBelow=vpLevels.filter(l=>l<=currentPrice);const vpAbove=vpLevels.filter(l=>l>currentPrice);
+  const ns=vpBelow.length?Math.max(...vpBelow):null;const nr=vpAbove.length?Math.min(...vpAbove):null;
+  let analysis='Volume Profile shows where the most shares traded over the past year. High-volume zones act as support (from above) and resistance (from below).\n';
+  if(ns){const pct=((currentPrice-ns)/currentPrice*100).toFixed(1);analysis+=`\nNearest VP support: $${ns.toFixed(0)} (${pct}% below). Selling puts above this level aligns with natural market maker buying.\n`;}
+  if(nr){const pct=((nr-currentPrice)/currentPrice*100).toFixed(1);analysis+=`\nNearest VP resistance: $${nr.toFixed(0)} (${pct}% above). For covered calls, selling just below this uses natural resistance as a buffer.\n`;}
+  analysis+='\nBlue line = current price. Teal = VP levels. Orange dashed = 50d MA. Purple dashed = 200d MA.\nRight panel: horizontal volume bars. Teal = highest-volume zones (strongest S/R).';
+  const vpEl=document.getElementById('vp-analysis');if(vpEl)vpEl.innerHTML=`<div class="commentary" style="margin-top:8px">${analysis}</div>`;
 }
 </script>
 <script>
 // ═══ OPTIONS TAB ═══
 let currentExpirations=[],selectedExpirations=[],currentOptionsData=null;
-let cachedOIRows=null; // for restoring OI chart on wake
-
 function clearOptionsState(){
   document.getElementById('exp-section').style.display='none';
   document.getElementById('options-content').innerHTML='';
   document.getElementById('options-earnings-warn').innerHTML='';
   document.getElementById('oi-chart-section').style.display='none';
   const oia=document.getElementById('oi-analysis');if(oia)oia.innerHTML='';
-  currentExpirations=[];selectedExpirations=[];currentOptionsData=null;
-  lastOptionsTickerLoaded='';cachedOIRows=null;
+  currentExpirations=[];selectedExpirations=[];currentOptionsData=null;lastOptionsTickerLoaded='';cachedOIRows=null;
   if(window._oiChart){window._oiChart.destroy();window._oiChart=null;}
 }
-function setMode(mode){currentMode=mode;document.getElementById('mode-puts').classList.toggle('active',mode==='puts');document.getElementById('mode-calls').classList.toggle('active',mode==='calls');}
+function setMode(mode){
+  currentMode=mode;
+  document.getElementById('mode-puts').classList.toggle('active',mode==='puts');
+  document.getElementById('mode-calls').classList.toggle('active',mode==='calls');
+  loadOptionsPrefs(); // swap sliders to mode-specific saved values
+}
 function toggleExp(e){
   if(selectedExpirations.includes(e)){selectedExpirations=selectedExpirations.filter(x=>x!==e);document.getElementById('chip-'+e)?.classList.remove('selected');}
   else{selectedExpirations.push(e);document.getElementById('chip-'+e)?.classList.add('selected');}
-  // Dynamically redraw OI chart when expiration toggled
-  if(cachedOIRows){
-    const t=document.getElementById('options-ticker-select').value;
-    const snap=S.get('snap_'+t);
-    if(snap?.price)renderOIChart(cachedOIRows,snap.price,t);
-  }
+  if(cachedOIRows){const t=document.getElementById('options-ticker-select').value;const snap=S.get('snap_'+t);if(snap?.price)renderOIChart(cachedOIRows,snap.price,t);}
 }
 function updateSlider(id){document.getElementById(id+'-val').textContent=document.getElementById(id).value+'%';saveOptionsPrefs();}
-
 async function loadOptionsForTicker(){
   const t=document.getElementById('options-ticker-select').value;if(!t){clearOptionsState();return;}
   if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('ticker-select').value=t;document.getElementById('ticker-content').innerHTML='<div class="empty"><div class="empty-icon">&#x1F4C8;</div>Ticker changed -- visit Ticker tab to reload</div>';}
@@ -891,9 +933,9 @@ async function loadOptionsForTicker(){
   document.getElementById('exp-section').style.display='none';
   document.getElementById('options-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading options for ${t}...</div></div>`;
   try{
-    let data,isLive=true;
-    try{data=await yahooOptionsViaProxy(t);S.set('options_'+t,{data,ts:nowPT()});}
-    catch{const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;showOfflineBanner(cached.ts);}else throw new Error('No options data available');}
+    let data,isLive=true,fetchTs=nowPT();
+    try{data=await yahooOptionsViaProxy(t);S.set('options_'+t,{data,ts:fetchTs});}
+    catch{const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;showOfflineBanner(cached.ts);}else throw new Error('No options data available');}
     currentOptionsData=data;
     const yr=data?.optionChain?.result?.[0];
     const allExpDates=(yr?.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]);
@@ -903,28 +945,20 @@ async function loadOptionsForTicker(){
     const chipsEl=document.getElementById('exp-chips');
     chipsEl.innerHTML=monthly.map(e=>`<div class="exp-chip selected" id="chip-${e}" onclick="toggleExp('${e}')">${e}</div>`).join('');
     document.getElementById('exp-section').style.display='block';
-    document.getElementById('options-content').innerHTML='';
-    const snap=S.get('snap_'+t);
-    if(snap?.earningsDate){
-      const today=new Date(),earningsD=new Date(snap.earningsDate);
-      const warns=monthly.filter(e=>{const ed=new Date(e);return today<earningsD&&earningsD<=ed;});
-      const timing=snap.earningsHour==='bmo'?' (before open)':snap.earningsHour==='amc'?' (after close)':'';
-      const warnEl=document.getElementById('options-earnings-warn');
-      warnEl.innerHTML=warns.length?`<div class="earnings-warn">Earnings on ${snap.earningsDate}${timing} falls within ${warns.join(', ')} window. Elevated assignment risk.</div>`:'';
+    // Check for OI data availability -- show amber box if missing
+    const hasOI=yr?.options?.[0]?.puts?.some(p=>(p.openInterest||0)>0)||yr?.options?.[0]?.calls?.some(c=>(c.openInterest||0)>0);
+    if(!hasOI){
+      const lastGood=S.get('options_'+t);
+      document.getElementById('options-content').innerHTML=`<div class="oi-empty-box">Open Interest data is currently unavailable. This is normal when markets are closed -- OI data typically refreshes when the market opens the following business day.${lastGood?.ts?` Last known data: ${lastGood.ts} (${relAge(lastGood.ts)}).`:''} Load the options chain and the table will still show strikes and premiums; OI will appear as 0 until data refreshes.</div>`;
+    }else{
+      document.getElementById('options-content').innerHTML='';
     }
-    if(!isLive){const cached=S.get('options_'+t);document.getElementById('options-content').innerHTML=`<div style="font-family:var(--mono);font-size:10px;color:var(--warn);margin-bottom:8px">Cached options from ${cached?.ts||'unknown'}</div>`;}
+    if(!isLive){document.getElementById('options-content').innerHTML+=`<div style="font-family:var(--mono);font-size:10px;color:var(--warn);margin-bottom:8px">Cached options from ${fetchTs}${relAge(fetchTs)?' ('+relAge(fetchTs)+')':''}</div>`;}
+    const snap=S.get('snap_'+t);
+    if(snap?.earningsDate){const today=new Date(),earningsD=new Date(snap.earningsDate);const warns=monthly.filter(e=>{const ed=new Date(e);return today<earningsD&&earningsD<=ed;});const timing=snap.earningsHour==='bmo'?' (before open)':snap.earningsHour==='amc'?' (after close)':'';const warnEl=document.getElementById('options-earnings-warn');warnEl.innerHTML=warns.length?`<div class="earnings-warn">Earnings on ${snap.earningsDate}${timing} falls within ${warns.join(', ')} window. Elevated assignment risk.</div>`:'';}
   }catch(err){document.getElementById('options-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
 }
-
-function restoreOIChartFromCache(){
-  if(!cachedOIRows||!lastOptionsTickerLoaded)return;
-  const snap=S.get('snap_'+lastOptionsTickerLoaded);
-  if(snap?.price){
-    document.getElementById('oi-chart-section').style.display='block';
-    renderOIChart(cachedOIRows,snap.price,lastOptionsTickerLoaded);
-  }
-}
-
+function restoreOIChartFromCache(){if(!cachedOIRows||!lastOptionsTickerLoaded)return;const snap=S.get('snap_'+lastOptionsTickerLoaded);if(snap?.price){document.getElementById('oi-chart-section').style.display='block';renderOIChart(cachedOIRows,snap.price,lastOptionsTickerLoaded);}}
 function buildOptionsTable(){
   const t=document.getElementById('options-ticker-select').value;if(!t||!currentOptionsData)return;
   const snap=S.get('snap_'+t);const currentPrice=snap?.price;if(!currentPrice){toast('Load ticker snapshot first');return;}
@@ -934,120 +968,50 @@ function buildOptionsTable(){
   const hlApy=parseFloat(document.getElementById('highlight-apy').value)||12;
   const today=new Date();const rows=[];
   for(const exp of selectedExpirations){
-    const expCached=S.get('options_exp_'+t+'_'+exp);
-    const res=expCached?.optionChain?.result?.[0];if(!res)continue;
-    const expD=new Date(exp+'T12:00:00Z');
-    const dte=Math.max(Math.round((expD-today)/86400000),1);
+    const expCached=S.get('options_exp_'+t+'_'+exp);const res=expCached?.optionChain?.result?.[0];if(!res)continue;
+    const expD=new Date(exp+'T12:00:00Z');const dte=Math.max(Math.round((expD-today)/86400000),1);
     const proc=(contracts,isCall)=>{if(!contracts)return;contracts.forEach(o=>{const s=o.strike||0;if(s<lowerBound||s>upperBound)return;const bid=o.bid||0,ask=o.ask||0,last=o.lastPrice||0,oi=o.openInterest||0,vol=o.volume||0,iv=o.impliedVolatility||0;const premium=(bid>0?bid:last)*100;const apy=isCall?premium/(currentPrice*100)*(365/dte)*100:premium/(s*100)*(365/dte)*100;const pctOTM=isCall?(s-currentPrice)/currentPrice*100:(currentPrice-s)/currentPrice*100;rows.push({expDate:exp,strike:s,bid,ask,last,premium,apy,oi,vol,iv,dte,pctOTM});});};
     if(currentMode==='puts')proc(res.options?.[0]?.puts,false);else proc(res.options?.[0]?.calls,true);
   }
   rows.sort((a,b)=>a.expDate.localeCompare(b.expDate)||a.strike-b.strike);
   if(!rows.length){document.getElementById('options-content').innerHTML='<div class="card"><div class="empty"><div class="empty-icon">&#x1F50D;</div>No options found in selected range</div></div>';document.getElementById('oi-chart-section').style.display='none';return;}
-  cachedOIRows=rows; // cache for redraw on wake and chip toggle
-  const tableHTML=`<div class="card"><div class="card-title"><span class="dot"></span>${currentMode==='puts'?'Put':'Call'} Options -- ${t} @ $${currentPrice.toFixed(2)}</div><div style="font-family:var(--mono);font-size:9px;color:var(--green);margin-bottom:8px">Live ${nowPT()}</div><div class="options-table-wrap"><table class="options-table"><thead><tr><th>Exp / Strike</th><th>% OTM</th><th>Bid</th><th>Ask</th><th>Premium</th><th>APY</th><th>OI</th><th>IV</th></tr></thead><tbody>${rows.map(r=>{const hl=r.apy>=hlApy;const apyCls=r.apy>=hlApy*1.5?'apy-cell great':r.apy>=hlApy?'apy-cell':'';return `<tr class="${hl?'highlighted':''}"><td>${r.expDate}<br><span style="color:var(--accent);font-size:12px">$${formatStrike(r.strike)}</span></td><td style="color:var(--text2)">${r.pctOTM.toFixed(1)}%</td><td>$${r.bid.toFixed(2)}</td><td>$${r.ask.toFixed(2)}</td><td>$${r.premium.toFixed(0)}</td><td class="${apyCls}">${r.apy.toFixed(1)}%</td><td>${r.oi.toLocaleString()}</td><td>${(r.iv*100).toFixed(1)}%</td></tr>`;}).join('')}</tbody></table></div></div>`;
-  document.getElementById('options-content').innerHTML=tableHTML;
-  renderOIChart(rows,currentPrice,t);
+  cachedOIRows=rows;
+  const tableHTML=`<div class="card"><div class="card-title"><span class="dot"></span>${currentMode==='puts'?'Put':'Call'} Options -- ${t} @ $${currentPrice.toFixed(2)}</div><div style="font-family:var(--mono);font-size:9px;color:var(--green);margin-bottom:8px">Live ${nowPT()}</div><div class="options-table-wrap"><table class="options-table"><thead><tr><th>Exp / Strike</th><th>% OTM</th><th>Bid</th><th>Ask</th><th>Premium</th><th>APY</th><th>OI</th><th>IV</th></tr></thead><tbody>${rows.map(r=>{const hl=r.apy>=hlApy;const apyCls=r.apy>=hlApy*1.5?'apy-cell great':r.apy>=hlApy?'apy-cell':'';return`<tr class="${hl?'highlighted':''}"><td>${r.expDate}<br><span style="color:var(--accent);font-size:12px">$${formatStrike(r.strike)}</span></td><td style="color:var(--text2)">${r.pctOTM.toFixed(1)}%</td><td>$${r.bid.toFixed(2)}</td><td>$${r.ask.toFixed(2)}</td><td>$${r.premium.toFixed(0)}</td><td class="${apyCls}">${r.apy.toFixed(1)}%</td><td>${r.oi.toLocaleString()}</td><td>${(r.iv*100).toFixed(1)}%</td></tr>`;}).join('')}</tbody></table></div></div>`;
+  document.getElementById('options-content').innerHTML=tableHTML;renderOIChart(rows,currentPrice,t);
 }
-
-// ═══ OI CHART -- stacked bars by expiration, dynamically redraws ═══
 function renderOIChart(rows,currentPrice,t){
   const section=document.getElementById('oi-chart-section');section.style.display='block';
-  // Group by strike and expiration for stacking
   const strikes=[...new Set(rows.map(r=>r.strike))].sort((a,b)=>a-b);
   const exps=[...new Set(rows.map(r=>r.expDate))].filter(e=>selectedExpirations.includes(e)).sort();
   const labels=strikes.map(s=>'$'+formatStrike(s));
   const nearestIdx=strikes.reduce((bi,s,i)=>Math.abs(s-currentPrice)<Math.abs(strikes[bi]-currentPrice)?i:bi,0);
-
-  // Build one dataset per expiration (stacked)
-  const datasets=exps.map((exp,ei)=>{
-    const color=EXP_COLORS[ei%EXP_COLORS.length];
-    const data=strikes.map(s=>{
-      const row=rows.find(r=>r.strike===s&&r.expDate===exp);
-      return row?row.oi:0;
-    });
-    return{label:exp,data,backgroundColor:strikes.map(s=>{
-      if(currentMode==='puts')return s<=currentPrice?color.replace(')',',0.7)').replace('rgb','rgba'):color.replace(')',',0.3)').replace('rgb','rgba');
-      return s>currentPrice?color.replace(')',',0.7)').replace('rgb','rgba'):color.replace(')',',0.3)').replace('rgb','rgba');
-    }),borderRadius:2,stack:'oi'};
-  });
-
-  // Fix colors for hex values
-  const hexDatasets=exps.map((exp,ei)=>{
-    const hex=EXP_COLORS[ei%EXP_COLORS.length];
-    const data=strikes.map(s=>{const row=rows.find(r=>r.strike===s&&r.expDate===exp);return row?row.oi:0;});
-    return{label:exp,data,backgroundColor:strikes.map(s=>{
-      const otm=currentMode==='puts'?s<=currentPrice:s>currentPrice;
-      return otm?hex+'bb':hex+'44';
-    }),borderRadius:2,stack:'oi'};
-  });
-
+  const hexDatasets=exps.map((exp,ei)=>{const hex=EXP_COLORS[ei%EXP_COLORS.length];const data=strikes.map(s=>{const row=rows.find(r=>r.strike===s&&r.expDate===exp);return row?row.oi:0;});return{label:exp,data,backgroundColor:strikes.map(s=>{const otm=currentMode==='puts'?s<=currentPrice:s>currentPrice;return otm?hex+'bb':hex+'44';}),borderRadius:2,stack:'oi'};});
   const cached=S.get('options_'+t);
-  document.getElementById('oi-ts').innerHTML=`<div class="ts-chip ${cached?.ts?'stale':'live'}">${cached?.ts||'live'}</div>`;
-
-  // Render legend
-  const legendEl=document.getElementById('oi-legend');
-  if(legendEl){legendEl.innerHTML=exps.map((exp,ei)=>`<div style="display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10px;color:var(--text2)"><div style="width:10px;height:10px;border-radius:2px;background:${EXP_COLORS[ei%EXP_COLORS.length]}"></div>${exp}</div>`).join('');}
-
+  document.getElementById('oi-ts').innerHTML=tsChip(cached?.ts||nowPT(),!!cached?.ts);
+  const legendEl=document.getElementById('oi-legend');if(legendEl){legendEl.innerHTML=exps.map((exp,ei)=>`<div style="display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10px;color:var(--text2)"><div style="width:10px;height:10px;border-radius:2px;background:${EXP_COLORS[ei%EXP_COLORS.length]}"></div>${exp}</div>`).join('');}
   const ctx=document.getElementById('oi-chart').getContext('2d');
   if(window._oiChart)window._oiChart.destroy();
-  window._oiChart=new Chart(ctx,{
-    type:'bar',
-    data:{labels,datasets:hexDatasets},
-    options:{
-      responsive:true,maintainAspectRatio:false,
-      layout:{padding:{top:20}},
-      plugins:{
-        legend:{display:false},
-        tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()} OI`,afterLabel:ctx=>{const s=strikes[ctx.dataIndex];const pct=currentMode==='puts'?((currentPrice-s)/currentPrice*100).toFixed(1):((s-currentPrice)/currentPrice*100).toFixed(1);return `${pct}% OTM`;}}}
-      },
-      scales:{
-        x:{stacked:true,ticks:{color:'#555870',font:{size:9},maxRotation:45},grid:{color:'#2a2e38'}},
-        y:{stacked:true,ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}
-      }
-    },
-    plugins:[{id:'currentPriceLine',afterDraw(chart){
-      const c=chart.ctx,xA=chart.scales.x,yA=chart.scales.y;
-      const x=xA.getPixelForValue(nearestIdx);
-      c.save();c.beginPath();c.moveTo(x,yA.top+18);c.lineTo(x,yA.bottom);c.lineWidth=2;c.strokeStyle='#4fc3f7';c.setLineDash([5,4]);c.stroke();c.setLineDash([]);
-      c.fillStyle='#4fc3f7';c.font='bold 10px DM Mono,monospace';c.textAlign='center';c.fillText('$'+currentPrice.toFixed(0),x,yA.top+14);
-      c.restore();
-    }}]
-  });
-
-  // Canned OI analysis
+  window._oiChart=new Chart(ctx,{type:'bar',data:{labels,datasets:hexDatasets},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:20}},plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()} OI`,afterLabel:ctx=>{const s=strikes[ctx.dataIndex];const pct=currentMode==='puts'?((currentPrice-s)/currentPrice*100).toFixed(1):((s-currentPrice)/currentPrice*100).toFixed(1);return`${pct}% OTM`;}}}},scales:{x:{stacked:true,ticks:{color:'#555870',font:{size:9},maxRotation:45},grid:{color:'#2a2e38'}},y:{stacked:true,ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}},plugins:[{id:'currentPriceLine',afterDraw(chart){const c=chart.ctx,xA=chart.scales.x,yA=chart.scales.y;const x=xA.getPixelForValue(nearestIdx);c.save();c.beginPath();c.moveTo(x,yA.top+18);c.lineTo(x,yA.bottom);c.lineWidth=2;c.strokeStyle='#4fc3f7';c.setLineDash([5,4]);c.stroke();c.setLineDash([]);c.fillStyle='#4fc3f7';c.font='bold 10px DM Mono,monospace';c.textAlign='center';c.fillText('$'+currentPrice.toFixed(0),x,yA.top+14);c.restore();}}]});
   const byS=strikes.map((s,i)=>({strike:s,oi:hexDatasets.reduce((sum,ds)=>sum+(ds.data[i]||0),0)}));
   const oiEl=document.getElementById('oi-analysis');
-  if(oiEl){
-    let html='';
-    if(currentMode==='puts'){
-      const below=byS.filter(x=>x.strike<=currentPrice);
-      if(below.length){const max=below.reduce((b,x)=>x.oi>b.oi?x:b,below[0]);const pct=((currentPrice-max.strike)/currentPrice*100).toFixed(1);const guide=pct<5?'Very close to price -- high assignment risk. Consider a wider strike.':pct<=12?'In the ideal 5-12% OTM zone -- good balance of premium and safety.':'Deep OTM -- premium thin. Consider a closer strike.';html=`<div class="commentary" style="margin-top:10px">Put OI Analysis:
-Highest OI below current price: $${formatStrike(max.strike)} (${pct}% OTM) with ${max.oi.toLocaleString()} contracts.
-Market makers must buy shares if price falls to this strike -- natural support floor.
-Target your put at or just above $${formatStrike(max.strike)}.
+  if(oiEl){let html='';
+    if(currentMode==='puts'){const below=byS.filter(x=>x.strike<=currentPrice);if(below.length){const max=below.reduce((b,x)=>x.oi>b.oi?x:b,below[0]);const pct=((currentPrice-max.strike)/currentPrice*100).toFixed(1);const guide=pct<5?'Very close -- high assignment risk. Consider a wider strike.':pct<=12?'Ideal 5-12% OTM zone -- good balance of premium and safety.':'Deep OTM -- premium thin. Consider a closer strike.';html=`<div class="commentary" style="margin-top:10px">Put OI Analysis:
+Highest OI below price: $${formatStrike(max.strike)} (${pct}% OTM) with ${max.oi.toLocaleString()} contracts.
+Market makers must buy shares if price falls here -- natural support floor. Target your put at or just above $${formatStrike(max.strike)}.
 ${guide}
-Bars stacked by expiration (see legend). Blue line = current price $${currentPrice.toFixed(2)}.</div>`;}
-    }else{
-      const above=byS.filter(x=>x.strike>currentPrice);
-      if(above.length){const max=above.reduce((b,x)=>x.oi>b.oi?x:b,above[0]);const pct=((max.strike-currentPrice)/currentPrice*100).toFixed(1);const guide=pct<5?'Very close to price -- high early assignment risk. Consider wider.':pct<=12?'In the ideal 5-12% OTM zone -- good buffer before assignment.':'Deep OTM -- premium thin. Consider a closer strike.';html=`<div class="commentary" style="margin-top:10px">Call OI Analysis:
-Highest OI above current price: $${formatStrike(max.strike)} (${pct}% OTM) with ${max.oi.toLocaleString()} contracts.
-Market makers must sell shares if price rises to this strike -- natural resistance ceiling.
-Target your covered call at or just below $${formatStrike(max.strike)}.
+Bars stacked by expiration (see legend). Blue dashed line = current price $${currentPrice.toFixed(2)}.</div>`;}}
+    else{const above=byS.filter(x=>x.strike>currentPrice);if(above.length){const max=above.reduce((b,x)=>x.oi>b.oi?x:b,above[0]);const pct=((max.strike-currentPrice)/currentPrice*100).toFixed(1);const guide=pct<5?'Very close -- high early assignment risk. Consider wider.':pct<=12?'Ideal 5-12% OTM zone -- good buffer before assignment.':'Deep OTM -- premium thin. Consider a closer strike.';html=`<div class="commentary" style="margin-top:10px">Call OI Analysis:
+Highest OI above price: $${formatStrike(max.strike)} (${pct}% OTM) with ${max.oi.toLocaleString()} contracts.
+Market makers must sell shares if price rises here -- natural resistance ceiling. Target your covered call at or just below $${formatStrike(max.strike)}.
 ${guide}
-Bars stacked by expiration (see legend). Blue line = current price $${currentPrice.toFixed(2)}.</div>`;}
-    }
+Bars stacked by expiration (see legend). Blue dashed line = current price $${currentPrice.toFixed(2)}.</div>`;}}
     oiEl.innerHTML=html;
   }
 }
 </script>
 <script>
 // ═══ VIX TAB ═══
-function restoreVIXFromCache(){
-  const cv=S.get('vix_hist'),cv3=S.get('vix3m_hist');if(!cv)return;
-  const vixH={timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes};
-  const vix3H=cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null;
-  renderVIXContent(vixH,vix3H,false,cv.ts);
-}
+function restoreVIXFromCache(){const cv=S.get('vix_hist'),cv3=S.get('vix3m_hist');if(!cv)return;renderVIXContent({timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes},cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null,false,cv.ts);}
 async function loadVIX(){
   const el=document.getElementById('vix-content');
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading VIX...</div></div>';
@@ -1055,40 +1019,28 @@ async function loadVIX(){
     let vixH,vix3H,isLive=true;
     try{[vixH,vix3H]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT()});}
     catch{const cv=S.get('vix_hist'),cv3=S.get('vix3m_hist');if(cv){vixH={timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes};vix3H=cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null;isLive=false;showOfflineBanner(cv.ts);}else throw new Error('No VIX data available');}
-    const ts=isLive?nowPT():(S.get('vix_hist')?.ts||'');
-    renderVIXContent(vixH,vix3H,isLive,ts);
+    renderVIXContent(vixH,vix3H,isLive,isLive?nowPT():(S.get('vix_hist')?.ts||''));
   }catch(err){document.getElementById('vix-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
 }
 function renderVIXContent(vixH,vix3H,isLive,ts){
   const el=document.getElementById('vix-content');
-  const closes=vixH.closes.filter(c=>c!==null);
-  const vixCurrent=closes[closes.length-1];
+  const closes=vixH.closes.filter(c=>c!==null);const vixCurrent=closes[closes.length-1];
   const pct1y=closes.filter(c=>c<vixCurrent).length/closes.length*100;
-  const vix3mCloses=vix3H?.closes?.filter(c=>c!==null)||[];
-  const vix3mCurrent=vix3mCloses.length?vix3mCloses[vix3mCloses.length-1]:null;
+  const vix3mCloses=vix3H?.closes?.filter(c=>c!==null)||[];const vix3mCurrent=vix3mCloses.length?vix3mCloses[vix3mCloses.length-1]:null;
   const tsRatio=vix3mCurrent?vixCurrent/vix3mCurrent:null;
-  // Update VIX tab indicator
   updateVIXIndicator(vixCurrent);
   let zoneClass,zoneLabel,zoneGuide;
-  if(vixCurrent<15){zoneClass='vix-low';zoneLabel='LOW -- Thin Premiums';zoneGuide='Premiums are compressed. Do not chase yield by going too close to current price. Wait for a VIX uptick before adding new positions.';}
+  if(vixCurrent<15){zoneClass='vix-low';zoneLabel='LOW -- Thin Premiums';zoneGuide='Premiums compressed. Do not chase yield by going too close to current price. Wait for a VIX uptick before adding positions.';}
   else if(vixCurrent<20){zoneClass='vix-normal';zoneLabel='NORMAL -- Standard';zoneGuide='Standard put-selling conditions. Stick to your 12% target and 5-10% OTM buffer.';}
-  else if(vixCurrent<30){zoneClass='vix-elevated';zoneLabel='ELEVATED -- Favorable';zoneGuide='Sweet spot for premium collection. IV elevated for good premiums without extreme stress. Consider widening OTM buffer slightly.';}
+  else if(vixCurrent<30){zoneClass='vix-elevated';zoneLabel='ELEVATED -- Favorable';zoneGuide='Sweet spot for premium collection. IV elevated enough for good premiums without extreme stress. Consider widening OTM buffer slightly.';}
   else if(vixCurrent<40){zoneClass='vix-high';zoneLabel='HIGH -- Fear Spike';zoneGuide='Exceptional premium opportunity but elevated risk. VIX spikes above 30 are historically near peak fear. Use smaller sizes on highest-conviction names.';}
   else{zoneClass='vix-extreme';zoneLabel='EXTREME -- Crisis';zoneGuide='Extraordinary premiums. Sell puts only on strongest names at wider OTM. These conditions always normalize.';}
   let tsLabel='',tsGuide='';
-  if(tsRatio!==null){if(tsRatio>1.05){tsLabel='BACKWARDATION';tsGuide='VIX above VIX3M: acute near-term fear, market expects vol to subside. Historically strong time to sell puts on quality names.';}else if(tsRatio>0.95){tsLabel='FLAT';tsGuide='Near-term and medium-term vol expectations similar. Neutral signal.';}else{tsLabel='CONTANGO (normal)';tsGuide='VIX below VIX3M: normal structure. Standard conditions for put selling.';}}
-  const vix6mo=closes.slice(-126);
-  const sma20=vix6mo.map((_,i)=>i<19?null:avg(vix6mo.slice(i-19,i+1)));
-  const std20=vix6mo.map((_,i)=>i<19?null:stdDev(vix6mo.slice(i-19,i+1)));
-  const upper=sma20.map((s,i)=>s?s+2*std20[i]:null);
-  const lower=sma20.map((s,i)=>s?s-2*std20[i]:null);
-  const vix3m6mo=vix3mCloses.slice(-126);
-  const ts6mo=vixH.timestamps.slice(-126);
+  if(tsRatio!==null){if(tsRatio>1.05){tsLabel='BACKWARDATION';tsGuide='VIX above VIX3M: acute near-term fear, market expects vol to subside. Historically strong time to sell puts.';}else if(tsRatio>0.95){tsLabel='FLAT';tsGuide='Near-term and medium-term vol similar. Neutral signal.';}else{tsLabel='CONTANGO (normal)';tsGuide='VIX below VIX3M: normal structure. Standard conditions for put selling.';}}
+  const vix6mo=closes.slice(-126);const sma20=vix6mo.map((_,i)=>i<19?null:avg(vix6mo.slice(i-19,i+1)));const std20=vix6mo.map((_,i)=>i<19?null:stdDev(vix6mo.slice(i-19,i+1)));const upper=sma20.map((s,i)=>s?s+2*std20[i]:null);const lower=sma20.map((s,i)=>s?s-2*std20[i]:null);const vix3m6mo=vix3mCloses.slice(-126);const ts6mo=vixH.timestamps.slice(-126);
   const bbUpper=upper[upper.length-1],bbLower=lower[lower.length-1],bbSMA=sma20[sma20.length-1];
-  let bbComment='';
-  if(bbUpper&&vixCurrent>=bbUpper*0.97)bbComment='VIX near upper Bollinger Band -- mean reversion likely. Good time to sell puts before premiums compress.';
-  else if(bbLower&&vixCurrent<=bbLower*1.03)bbComment='VIX near lower Bollinger Band -- premiums compressed. Volatility expansion may be approaching.';
-  else bbComment=`VIX within normal range (${bbLower?.toFixed(1)} - ${bbUpper?.toFixed(1)}, SMA ${bbSMA?.toFixed(1)}).`;
+  let bbComment='';if(bbUpper&&vixCurrent>=bbUpper*0.97)bbComment='VIX near upper Bollinger Band -- mean reversion likely. Good time to sell puts before premiums compress.';else if(bbLower&&vixCurrent<=bbLower*1.03)bbComment='VIX near lower Bollinger Band -- premiums compressed. Volatility expansion may be approaching.';else bbComment=`VIX within normal range (${bbLower?.toFixed(1)} - ${bbUpper?.toFixed(1)}, SMA ${bbSMA?.toFixed(1)}).`;
+  const ageStr=relAge(ts);
   el.innerHTML=`<div class="${zoneClass} vix-banner"><div><div class="vix-banner-label">${zoneLabel}</div><div style="font-family:var(--mono);font-size:10px;opacity:0.7;margin-top:2px">${pct1y.toFixed(0)}th percentile (1Y) -- alert threshold: ${vixThreshold}</div></div><div class="vix-banner-value">${vixCurrent.toFixed(2)}</div></div>
     ${tsChip(ts,isLive)}
     <div class="metrics-grid">
@@ -1106,9 +1058,9 @@ ${tsGuide}
 
 `:''}Bollinger: ${bbComment}
 
-VIX alert threshold set to ${vixThreshold} (configurable in Settings). The colored dot on the VIX nav tab and the header banner appear whenever VIX is at or above this level, visible from any tab.
+VIX alert threshold: ${vixThreshold} (configure in Settings). The colored dot on the VIX nav tab and the header banner appear whenever VIX is at or above this level.
 
-Note: VIX reflects S&P 500 implied vol. Individual stock IV (NVDA, TSLA etc.) can differ substantially -- high-beta tech often carries IV well above VIX even in calm markets.</div></div>`;
+Note: VIX reflects S&P 500 implied vol. Individual stock IV can differ substantially -- high-beta tech often carries IV well above VIX.</div></div>`;
   const labels6mo=ts6mo.map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});});
   const vixCtx=document.getElementById('vix-bb-chart')?.getContext('2d');
   if(vixCtx){if(window._vixBBChart)window._vixBBChart.destroy();window._vixBBChart=new Chart(vixCtx,{type:'line',data:{labels:labels6mo,datasets:[{data:vix6mo,borderColor:'#e8eaf0',borderWidth:2,pointRadius:0,tension:0.2,fill:false},{data:sma20,borderColor:'#7c6af7',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false},{data:upper,borderColor:'#ff4757',borderWidth:1,pointRadius:0,borderDash:[2,3],fill:false},{data:lower,borderColor:'#00c896',borderWidth:1,pointRadius:0,borderDash:[2,3],fill:false},...(vix3m6mo.length?[{data:vix3m6mo,borderColor:'#7c6af7',borderWidth:1,pointRadius:0,borderDash:[6,3],fill:false}]:[])],},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});}
@@ -1123,13 +1075,11 @@ async function loadEarningsTab(){
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];
     try{
-      const snap=S.get('snap_'+t);if(!snap?.earningsDate)continue;
-      const today=new Date(),ed=new Date(snap.earningsDate);if(ed<today)continue;
+      const snap=S.get('snap_'+t);if(!snap?.earningsDate)continue;const today=new Date(),ed=new Date(snap.earningsDate);if(ed<today)continue;
       let epsEst=null,epsActualPrev=null,surprisePrev=null,beatStreak=0;
       try{const est=await fh(`/stock/earnings?symbol=${t}&limit=4`);if(est&&est.length){const upcoming=est.find(e=>!e.actual&&e.estimate);if(upcoming)epsEst=upcoming.estimate;const prev=est.find(e=>e.actual!==null&&e.actual!==undefined);if(prev){epsActualPrev=prev.actual;if(prev.estimate)surprisePrev=((prev.actual-prev.estimate)/Math.abs(prev.estimate)*100);}const actuals=est.filter(e=>e.actual!==null&&e.estimate!==null);for(const q of actuals){if(q.actual>q.estimate)beatStreak++;else break;}}}catch{}
       let news=[];try{const cn=S.get('news_'+t);if(cn)news=cn.items;else{news=await fetchNews(t);S.set('news_'+t,{items:news,ts:nowPT()});}}catch{}
-      const ivrVal=computeIVR(t,snap.week52High,snap.week52Low,snap.price);
-      const ivr=ivrInfo(ivrVal);
+      const ivrVal=computeIVR(t,snap.week52High,snap.week52Low,snap.price);const ivr=ivrInfo(ivrVal);
       let impliedMove=null;try{const oc=S.get('options_'+t);const res=oc?.data?.optionChain?.result?.[0];if(res&&snap.price){const opts=res.options?.[0];const atmP=(opts?.puts||[]).filter(p=>Math.abs(p.strike-snap.price)/snap.price<0.03);const atmC=(opts?.calls||[]).filter(c=>Math.abs(c.strike-snap.price)/snap.price<0.03);if(atmP.length&&atmC.length){const straddle=((atmP[0].bid+atmP[0].ask)/2)+((atmC[0].bid+atmC[0].ask)/2);impliedMove=(straddle/snap.price*100).toFixed(1);}}}catch{}
       const daysUntil=Math.round((ed-new Date())/86400000);
       earningsAllData.push({ticker:t,snap,earningsDate:snap.earningsDate,earningsHour:snap.earningsHour,daysUntil,epsEst,epsActualPrev,surprisePrev,beatStreak,ivrVal,ivrBadge:ivr.badge,impliedMove,news:news.slice(0,3)});
@@ -1137,14 +1087,12 @@ async function loadEarningsTab(){
     if(i<watchlist.length-1)await sleep(400);
   }
   earningsAllData.sort((a,b)=>a.daysUntil-b.daysUntil);
-  S.set('earnings_data',{data:earningsAllData,ts:nowPT()});
-  renderEarningsCards();
+  S.set('earnings_data',{data:earningsAllData,ts:nowPT()});renderEarningsCards();
 }
 function renderEarningsCards(){
-  const el=document.getElementById('earnings-content');
-  const today=new Date();
+  const el=document.getElementById('earnings-content');const today=new Date();
   let data=earningsAllData;
-  if(!data.length){const cached=S.get('earnings_data');if(cached&&cached.data){data=cached.data.map(e=>({...e,daysUntil:Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);earningsAllData=data;}}
+  if(!data.length){const cached=S.get('earnings_data');if(cached?.data){data=cached.data.map(e=>({...e,daysUntil:Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);earningsAllData=data;}}
   const filtered=data.filter(e=>e.daysUntil<=earningsDaysFilter);
   if(!filtered.length){el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4C5;</div>No upcoming earnings in this window. Press Refresh or run Full Refresh.</div>';return;}
   const ts=S.get('earnings_data')?.ts||nowPT();
@@ -1153,20 +1101,16 @@ function renderEarningsCards(){
     const timing=e.earningsHour==='bmo'?' (before open)':e.earningsHour==='amc'?' (after close)':'';
     const urgency=e.daysUntil===0?'TODAY':e.daysUntil===1?'TOMORROW':`In ${e.daysUntil} days`;
     let guidance='';
-    if(e.daysUntil<=14){guidance='Earnings within 2 weeks -- avoid options expirations that straddle this date. ';if(e.ivrVal&&e.ivrVal>60)guidance+='IV elevated ahead of earnings -- if you must sell, go wider OTM. ';guidance+='Consider waiting until after the announcement when IV crush removes the event risk premium.';}
+    if(e.daysUntil<=14){guidance='Earnings within 2 weeks -- avoid options expirations that straddle this date. ';if(e.ivrVal&&e.ivrVal>60)guidance+='IV elevated ahead of earnings -- go wider OTM if selling options. ';guidance+='Consider waiting until after the announcement for IV crush to remove event risk.';}
     else if(e.daysUntil<=35){guidance='Earnings in 2-5 weeks. Confirm your expirations do not straddle this date. ';if(e.beatStreak>=3)guidance+='Strong beat streak -- put selling may be favorable on post-announcement pullbacks. ';}
     else{guidance='Earnings far enough out that near-term options are generally safe. ';if(e.impliedMove)guidance+=`Market implies +/-${e.impliedMove}% move on earnings day.`;}
-    const newsHtml=e.news&&e.news.length?e.news.map(n=>{const s=newsSentiment(n.headline);return `<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:3px"><span style="${s.cls}">${sentDot(s)}</span> ${n.headline.slice(0,80)}...</div>`;}).join(''):'';
-    return `<div class="${cardCls}" onclick="selectTickerFromWatchlist('${e.ticker}')">
+    const newsHtml=e.news?.length?e.news.map(n=>{const s=newsSentiment(n.headline);return`<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:3px"><span style="${s.css}">${sentDot(s)}</span> ${n.headline.slice(0,80)}...</div>`;}).join(''):'';
+    return`<div class="${cardCls}" onclick="selectTickerFromWatchlist('${e.ticker}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
         <div><span style="font-family:var(--sans);font-size:20px;font-weight:700;color:var(--accent)">${e.ticker}</span>${e.snap.price?`<span style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-left:8px">$${e.snap.price.toFixed(2)}</span>`:''}</div>
         <div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--warn)">${urgency}</div><div style="font-family:var(--mono);font-size:11px;color:var(--text2)">${e.earningsDate}${timing}</div></div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
-        ${e.ivrBadge||''}
-        ${e.impliedMove?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(124,106,247,0.2);color:#b39ddb">Implied +/-${e.impliedMove}%</span>`:''}
-        ${e.beatStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(0,200,150,0.2);color:var(--green)">Beat ${e.beatStreak}Q</span>`:''}
-      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">${e.ivrBadge||''}${e.impliedMove?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(124,106,247,0.2);color:#b39ddb">Implied +/-${e.impliedMove}%</span>`:''}${e.beatStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(0,200,150,0.2);color:var(--green)">Beat ${e.beatStreak}Q</span>`:''}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;font-family:var(--mono);font-size:11px">
         <div><span style="color:var(--text3);font-size:9px;display:block">EPS ESTIMATE</span>${e.epsEst!==null?`$${e.epsEst.toFixed(2)}`:'N/A'}</div>
         <div><span style="color:var(--text3);font-size:9px;display:block">PRIOR ACTUAL</span>${e.epsActualPrev!==null?`$${e.epsActualPrev.toFixed(2)}`:'N/A'}</div>
@@ -1182,144 +1126,142 @@ function renderEarningsCards(){
 }
 </script>
 <script>
-// ═══ ETF TAB -- SPYI and NBOS ═══
+// ═══ ETF TAB ═══
 async function loadETFTab(){
   const el=document.getElementById('etf-content');
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading ETF data...</div></div>';
   const etfs=[
-    {ticker:'SPYI',name:'NEOS S&P 500 High Income ETF',strategy:'Covered calls on S&P 500 components. Targets high monthly income with equity-like upside participation.',color:'#00d4aa'},
-    {ticker:'NBOS',name:'Roundhill N-Buffer Outcome Strategy',strategy:'Put-writing strategy providing income with defined downside buffers. Monthly distributions.',color:'#ff6b35'}
+    {ticker:'SPYI',name:'NEOS S&P 500 High Income ETF',strategy:'Covered calls on S&P 500 components. Targets high monthly income while maintaining equity-like upside participation. Monthly distributions.',color:'#00d4aa'},
+    {ticker:'NBOS',name:'Roundhill N-Buffer Outcome Strategy',strategy:'Put-writing strategy providing monthly income with defined downside buffers on the S&P 500. Monthly distributions.',color:'#ff6b35'}
   ];
   let html='';
   for(const etf of etfs){
     try{
-      let snap,hist6mo,divHistory,isLive=true;
+      let snap,hist6mo,distributions=[],trailingYield=null,isLive=true;
+      const snapKey='snap_etf_'+etf.ticker;const histKey='hist_etf_'+etf.ticker;const divKey='div_etf_'+etf.ticker;
       try{
-        const[quote,profile,metrics]=await Promise.all([fh(`/quote?symbol=${etf.ticker}`),fh(`/stock/profile2?symbol=${etf.ticker}`),fh(`/stock/metric?symbol=${etf.ticker}&metric=all`)]);
+        const[quote,metrics]=await Promise.all([fh(`/quote?symbol=${etf.ticker}`),fh(`/stock/metric?symbol=${etf.ticker}&metric=all`)]);
         snap={ticker:etf.ticker,price:quote.c,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,ts:nowPT()};
-        S.set('snap_etf_'+etf.ticker,snap);
-      }catch{const c=S.get('snap_etf_'+etf.ticker);if(c){snap=c;isLive=false;showOfflineBanner(c.ts);}else snap=null;}
-
-      // Fetch distribution history from Yahoo via Worker (1y daily data includes dividends)
-      try{
-        hist6mo=await yahooHistory(etf.ticker,'1y','1d');
-        S.set('hist_etf_'+etf.ticker,{timestamps:hist6mo.timestamps.map(d=>d.toISOString()),closes:hist6mo.closes,ts:nowPT()});
-      }catch{const ch=S.get('hist_etf_'+etf.ticker);if(ch)hist6mo={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes};}
-
-      // Fetch dividend data from Finnhub
-      let trailingYield=null,distributions=[];
+        S.set(snapKey,snap);
+      }catch{const c=S.get(snapKey);if(c){snap=c;isLive=false;showOfflineBanner(c.ts);}else snap=null;}
+      try{hist6mo=await yahooHistory(etf.ticker,'1y','1d');S.set(histKey,{timestamps:hist6mo.timestamps.map(d=>d.toISOString()),closes:hist6mo.closes,ts:nowPT()});}
+      catch{const ch=S.get(histKey);if(ch)hist6mo={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes};}
       try{
         const to=fmtDate(new Date());const from=fmtDate(addDays(new Date(),-400));
         const divData=await fh(`/stock/dividend2?symbol=${etf.ticker}&from=${from}&to=${to}`);
-        if(divData&&divData.data&&divData.data.length){
-          distributions=divData.data.slice(0,12).map(d=>({date:d.date,amount:d.amount}));
-          const last12=distributions.slice(0,12);
-          const totalDist=last12.reduce((s,d)=>s+(d.amount||0),0);
-          if(snap?.price&&totalDist>0)trailingYield=(totalDist/snap.price*100).toFixed(2);
-        }
-      }catch{}
-
-      // Compute chart data for 6mo
+        if(divData?.data?.length){distributions=divData.data.slice(0,12).map(d=>({date:d.date,amount:d.amount}));S.set(divKey,{distributions,ts:nowPT()});const total=distributions.slice(0,12).reduce((s,d)=>s+(d.amount||0),0);if(snap?.price&&total>0)trailingYield=(total/snap.price*100).toFixed(2);}
+      }catch{const cd=S.get(divKey);if(cd){distributions=cd.distributions||[];const total=distributions.reduce((s,d)=>s+(d.amount||0),0);if(snap?.price&&total>0)trailingYield=(total/snap.price*100).toFixed(2);}}
       const chartLabels=hist6mo?hist6mo.timestamps.slice(-126).map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});}):[];
       const chartData=hist6mo?hist6mo.closes.slice(-126):[];
-
       const chgColor=snap?(snap.change>=0?'var(--green)':'var(--red)'):'var(--text2)';
       const chgSign=snap?(snap.change>=0?'+':''):'';
-
-      html+=`<div class="etf-card" style="border-left:4px solid ${etf.color}">
+      html+=`<div class="card" style="border-left:4px solid ${etf.color}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
-          <div>
-            <div style="font-family:var(--sans);font-size:20px;font-weight:700;color:${etf.color}">${etf.ticker}</div>
-            <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px">${etf.name}</div>
-          </div>
-          <div style="text-align:right">
-            ${snap?`<div style="font-family:var(--mono);font-size:18px;font-weight:500">$${snap.price.toFixed(2)}</div>
-            <div style="font-family:var(--mono);font-size:11px;color:${chgColor}">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>`:'<div style="font-family:var(--mono);color:var(--text3)">No data</div>'}
-          </div>
+          <div><div style="font-family:var(--sans);font-size:20px;font-weight:700;color:${etf.color}">${etf.ticker}</div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px">${etf.name}</div></div>
+          <div style="text-align:right">${snap?`<div style="font-family:var(--mono);font-size:18px;font-weight:500">$${snap.price.toFixed(2)}</div><div style="font-family:var(--mono);font-size:11px;color:${chgColor}">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>`:'<div style="font-family:var(--mono);color:var(--text3)">No data</div>'}</div>
         </div>
+        ${tsChip(snap?.ts||'',isLive)}
         <div class="metrics-grid" style="margin-bottom:10px">
-          <div class="metric-tile"><div class="metric-label">Trailing 12M Yield</div><div class="metric-value" style="color:${etf.color}">${trailingYield?trailingYield+'%':'N/A'}</div><div class="metric-sub">${trailingYield?`Sum of last ${Math.min(12,distributions.length)} distributions / current price`:'Load options data to compute'}</div></div>
-          <div class="metric-tile"><div class="metric-label">Div Yield (Annualized)</div><div class="metric-value" style="font-size:13px">${snap?.dividendYield?snap.dividendYield.toFixed(2)+'%':'N/A'}</div></div>
-          <div class="metric-tile"><div class="metric-label">52W High</div><div class="metric-value" style="font-size:13px">$${snap?.week52High?.toFixed(2)||'N/A'}</div></div>
-          <div class="metric-tile"><div class="metric-label">52W Low</div><div class="metric-value" style="font-size:13px">$${snap?.week52Low?.toFixed(2)||'N/A'}</div></div>
+          <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Trailing 12-Month Distribution Yield</div><div class="metric-value" style="color:${etf.color};font-size:20px">${trailingYield?trailingYield+'%':'N/A'}</div><div class="metric-sub">${trailingYield?`Sum of last ${Math.min(12,distributions.length)} distributions / current price. Compare to your T-bill yield for risk premium context.`:'Fetch live data to compute distribution yield.'}</div></div>
+          <div class="metric-tile"><div class="metric-label">Annualized Yield (indicated)</div><div class="metric-value" style="font-size:13px">${snap?.dividendYield?snap.dividendYield.toFixed(2)+'%':'N/A'}</div></div>
+          <div class="metric-tile"><div class="metric-label">52W High / Low</div><div class="metric-value" style="font-size:11px">$${snap?.week52High?.toFixed(2)||'N/A'} / $${snap?.week52Low?.toFixed(2)||'N/A'}</div></div>
         </div>
         <div class="commentary" style="margin-bottom:10px;font-size:11px">${etf.strategy}</div>
-        ${distributions.length?`<div style="margin-bottom:10px">
-          <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px">Recent Distributions (most recent first)</div>
-          ${distributions.slice(0,6).map(d=>`<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">${d.date}</span><span style="color:${etf.color}">$${d.amount?.toFixed(4)||'N/A'}</span></div>`).join('')}
-        </div>`:'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Distribution history not available from data provider. Check fund website for latest distributions.</div>'}
+        ${distributions.length?`<div style="margin-bottom:10px"><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px">Recent Distributions</div>${distributions.slice(0,6).map(d=>`<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">${d.date}</span><span style="color:${etf.color}">$${d.amount?.toFixed(4)||'N/A'}</span></div>`).join('')}</div>`:'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Distribution history not available from data provider. Check fund website for latest distributions.</div>'}
         ${chartLabels.length?`<div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:${etf.color}"></span>6-Month Price</div><div class="chart-wrap" style="height:140px"><canvas id="etf-chart-${etf.ticker}"></canvas></div>`:''}
-        ${isLive?'':tsChip(snap?.ts,false)}
       </div>`;
-
-      // Render chart after HTML is injected
-      setTimeout(()=>{
-        const ctx=document.getElementById(`etf-chart-${etf.ticker}`)?.getContext('2d');
-        if(ctx&&chartLabels.length){
-          new Chart(ctx,{type:'line',data:{labels:chartLabels,datasets:[{data:chartData,borderColor:etf.color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});
-        }
-      },100);
-    }catch(err){html+=`<div class="etf-card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">${etf.ticker}: ${err.message}</div></div>`;}
+      setTimeout(()=>{const ctx=document.getElementById(`etf-chart-${etf.ticker}`)?.getContext('2d');if(ctx&&chartLabels.length){new Chart(ctx,{type:'line',data:{labels:chartLabels,datasets:[{data:chartData,borderColor:etf.color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});}},100);
+    }catch(err){html+=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">${etf.ticker}: ${err.message}</div></div>`;}
   }
   el.innerHTML=html;
+  S.set('etf_rendered',{html,ts:nowPT()});
+}
+function restoreETFFromCache(){
+  const cached=S.get('etf_rendered');
+  if(cached?.html){document.getElementById('etf-content').innerHTML=cached.html;setTimeout(()=>{['SPYI','NBOS'].forEach(ticker=>{const key='hist_etf_'+ticker;const ch=S.get(key);if(!ch)return;const color=ticker==='SPYI'?'#00d4aa':'#ff6b35';const labels=ch.timestamps.slice(-126).map(d=>{const dd=new Date(d);return dd.toLocaleDateString('en-US',{month:'short',day:'numeric'});});const data=ch.closes.slice(-126);const ctx=document.getElementById(`etf-chart-${ticker}`)?.getContext('2d');if(ctx){new Chart(ctx,{type:'line',data:{labels,datasets:[{data,borderColor:color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});}});},100);}
 }
 
-// ═══ MARKET TAB ═══
+// ═══ MARKET TAB with T-BILL YIELDS ═══
 async function loadMarketTab(){
   const el=document.getElementById('market-content');
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading market data...</div></div>';
   try{
-    // Fetch indices via Worker
-    let sp500,nasdaq,dow,isLive=true;
-    try{
-      [sp500,nasdaq,dow]=await Promise.all([yahooHistory('^GSPC','3mo','1d'),yahooHistory('^IXIC','3mo','1d'),yahooHistory('^DJI','1d','1d')]);
-      S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:nowPT()});
-      S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:nowPT()});
-    }catch{
-      const cs=S.get('mkt_sp500'),cn=S.get('mkt_nasdaq');
-      if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(d)),closes:cs.closes};isLive=false;showOfflineBanner(cs.ts);}
-      if(cn)nasdaq={timestamps:cn.timestamps.map(d=>new Date(d)),closes:cn.closes};
-    }
+    let sp500,nasdaq,isLive=true,mktTs=nowPT();
+    try{[sp500,nasdaq]=await Promise.all([yahooHistory('^GSPC','3mo','1d'),yahooHistory('^IXIC','3mo','1d')]);S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs});}
+    catch{const cs=S.get('mkt_sp500'),cn=S.get('mkt_nasdaq');if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(d)),closes:cs.closes};isLive=false;mktTs=cs.ts;showOfflineBanner(cs.ts);}if(cn&&!nasdaq)nasdaq={timestamps:cn.timestamps.map(d=>new Date(d)),closes:cn.closes};}
 
-    // VIX quick ref from cache
-    const cv=S.get('vix_hist');
-    const vixCurrent=cv?.closes?.filter(c=>c!==null).slice(-1)[0]||null;
+    // T-bill yields from FRED
+    let tbill3m=[],tbill6m=[],fredTs=nowPT();
+    try{[tbill3m,tbill6m]=await Promise.all([fetchFRED('DTB3'),fetchFRED('DTB6')]);S.set('fred_dtb3',{data:tbill3m,ts:fredTs});S.set('fred_dtb6',{data:tbill6m,ts:fredTs});}
+    catch{const cd3=S.get('fred_dtb3'),cd6=S.get('fred_dtb6');if(cd3){tbill3m=cd3.data;fredTs=cd3.ts;}if(cd6)tbill6m=cd6.data;}
 
-    // Market news from Finnhub general news endpoint
-    let marketNews=[];
-    try{
-      const news=await fh('/news?category=general');
-      marketNews=news.slice(0,10);
-      S.set('market_news',{items:marketNews,ts:nowPT()});
-    }catch{const cn=S.get('market_news');if(cn)marketNews=cn.items||[];}
+    const tb3Current=tbill3m.length?tbill3m[tbill3m.length-1].value:null;
+    const tb6Current=tbill6m.length?tbill6m[tbill6m.length-1].value:null;
+    const tb3Yr=tbill3m.length>=252?tbill3m[tbill3m.length-252].value:tbill3m[0]?.value;
+    const tb6Yr=tbill6m.length>=252?tbill6m[tbill6m.length-252].value:tbill6m[0]?.value;
+    const spread=tb3Current&&tb6Current?tb6Current-tb3Current:null;
+    const spreadStr=spread!==null?(spread>=0?`6M yields ${spread.toFixed(2)}bp above 3M (normal)`:`3M yields ${Math.abs(spread).toFixed(2)}bp above 6M (inverted -- market expects rate cuts)`):'';
 
-    // Compute index values
+    // Income engine summary -- compare all three layers
+    const spyi_snap=S.get('snap_etf_SPYI');const nbos_snap=S.get('snap_etf_NBOS');
+    const spyi_div=S.get('div_etf_SPYI');const nbos_div=S.get('div_etf_NBOS');
+    let spyiYield=null,nbosYield=null;
+    if(spyi_snap?.price&&spyi_div?.distributions){const tot=spyi_div.distributions.slice(0,12).reduce((s,d)=>s+(d.amount||0),0);spyiYield=(tot/spyi_snap.price*100).toFixed(2);}
+    if(nbos_snap?.price&&nbos_div?.distributions){const tot=nbos_div.distributions.slice(0,12).reduce((s,d)=>s+(d.amount||0),0);nbosYield=(tot/nbos_snap.price*100).toFixed(2);}
+
+    const cv=S.get('vix_hist');const vixCurrent=cv?.closes?.filter(c=>c!==null).slice(-1)[0]||null;
     const spCurrent=sp500?.closes?.filter(c=>c!==null).slice(-1)[0]||null;
     const spPrev=sp500?.closes?.filter(c=>c!==null).slice(-2)[0]||null;
-    const spChg=spCurrent&&spPrev?spCurrent-spPrev:null;
-    const spChgPct=spChg&&spPrev?(spChg/spPrev*100):null;
-
+    const spChg=spCurrent&&spPrev?spCurrent-spPrev:null;const spChgPct=spChg&&spPrev?spChg/spPrev*100:null;
     const nqCurrent=nasdaq?.closes?.filter(c=>c!==null).slice(-1)[0]||null;
     const nqPrev=nasdaq?.closes?.filter(c=>c!==null).slice(-2)[0]||null;
-    const nqChg=nqCurrent&&nqPrev?nqCurrent-nqPrev:null;
-    const nqChgPct=nqChg&&nqPrev?(nqChg/nqPrev*100):null;
+    const nqChg=nqCurrent&&nqPrev?nqCurrent-nqPrev:null;const nqChgPct=nqChg&&nqPrev?nqChg/nqPrev*100:null;
+    function fmtChg(val,chg,chgPct){if(!val)return'N/A';const color=chg>=0?'var(--green)':'var(--red)';const sign=chg>=0?'+':'';return`${val.toFixed(2)} <span style="color:${color};font-size:11px">${sign}${chg?.toFixed(2)} (${sign}${chgPct?.toFixed(2)}%)</span>`;}
 
-    function fmtIdx(val,chg,chgPct){
-      if(!val)return'N/A';
-      const color=chg>=0?'var(--green)':'var(--red)';
-      const sign=chg>=0?'+':'';
-      return `${val.toFixed(2)} <span style="color:${color};font-size:11px">${sign}${chg?.toFixed(2)} (${sign}${chgPct?.toFixed(2)}%)</span>`;
-    }
+    // 1Y T-bill chart data
+    const tbill3mLast252=tbill3m.slice(-252);const tbill6mLast252=tbill6m.slice(-252);
 
-    // S&P 500 chart data
-    const spLabels=sp500?.timestamps?.slice(-63).map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});})??[];
-    const spData=sp500?.closes?.slice(-63)??[];
+    let marketNews=[];try{const news=await fh('/news?category=general');marketNews=news.slice(0,10);S.set('market_news',{items:marketNews,ts:nowPT()});}catch{const cn=S.get('market_news');if(cn)marketNews=cn.items||[];}
+
+    const spLabels=sp500?.timestamps?.slice(-63).map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});})||[];
+    const spData=sp500?.closes?.slice(-63)||[];
 
     el.innerHTML=`
-      ${tsChip(S.get('mkt_sp500')?.ts||nowPT(),isLive)}
+      ${tsChip(mktTs,isLive)}
+      <!-- Income Engine Summary -->
+      <div class="card" style="border-left:4px solid var(--accent3)">
+        <div class="card-title"><span class="dot" style="background:var(--accent3)"></span>Income Engine Summary</div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Your three-layer income strategy -- risk premium above risk-free rate at each layer</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(33,150,243,0.1);border-radius:8px;border:1px solid rgba(33,150,243,0.3)">
+            <div><div style="font-family:var(--mono);font-size:10px;color:var(--text3)">LAYER 1 -- T-BILLS</div><div style="font-family:var(--mono);font-size:12px;color:var(--text2)">3-month Treasury</div></div>
+            <div style="font-family:var(--mono);font-size:20px;font-weight:600;color:#64b5f6">${tb3Current?tb3Current.toFixed(2)+'%':'N/A'}</div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(255,107,53,0.1);border-radius:8px;border:1px solid rgba(255,107,53,0.3)">
+            <div><div style="font-family:var(--mono);font-size:10px;color:var(--text3)">LAYER 2 -- ETFs</div><div style="font-family:var(--mono);font-size:12px;color:var(--text2)">SPYI / NBOS trailing yield</div></div>
+            <div style="text-align:right"><div style="font-family:var(--mono);font-size:16px;font-weight:600;color:var(--accent2)">${spyiYield?spyiYield+'%':'--'} / ${nbosYield?nbosYield+'%':'--'}</div><div style="font-family:var(--mono);font-size:9px;color:var(--text3)">${tb3Current&&spyiYield?`+${(parseFloat(spyiYield)-tb3Current).toFixed(2)}% risk premium`:'load ETF data'}</div></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(0,212,170,0.1);border-radius:8px;border:1px solid rgba(0,212,170,0.3)">
+            <div><div style="font-family:var(--mono);font-size:10px;color:var(--text3)">LAYER 3 -- WHEEL</div><div style="font-family:var(--mono);font-size:12px;color:var(--text2)">Active put/call selling target</div></div>
+            <div style="text-align:right"><div style="font-family:var(--mono);font-size:20px;font-weight:600;color:var(--accent)">12.0%</div><div style="font-family:var(--mono);font-size:9px;color:var(--text3)">${tb3Current?`+${(12-tb3Current).toFixed(2)}% risk premium`:'target APY'}</div></div>
+          </div>
+        </div>
+      </div>
+      <!-- T-bill yields -->
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:#64b5f6"></span>T-Bill Yields (FRED)</div>
+        ${tsChip(fredTs,isLive)}
+        <div class="metrics-grid">
+          <div class="metric-tile"><div class="metric-label">3-Month T-Bill</div><div class="metric-value" style="color:#64b5f6">${tb3Current?tb3Current.toFixed(3)+'%':'N/A'}</div><div class="metric-sub">${tb3Yr?`1Y ago: ${tb3Yr.toFixed(3)}% (${(tb3Current-tb3Yr)>=0?'+':''}${(tb3Current-tb3Yr).toFixed(3)}%)`:''}</div></div>
+          <div class="metric-tile"><div class="metric-label">6-Month T-Bill</div><div class="metric-value" style="color:#64b5f6">${tb6Current?tb6Current.toFixed(3)+'%':'N/A'}</div><div class="metric-sub">${tb6Yr?`1Y ago: ${tb6Yr.toFixed(3)}% (${(tb6Current-tb6Yr)>=0?'+':''}${(tb6Current-tb6Yr).toFixed(3)}%)`:''}</div></div>
+          ${spread!==null?`<div class="metric-tile" style="grid-column:span 2"><div class="metric-label">3M / 6M Spread</div><div class="metric-value" style="font-size:13px">${Math.abs(spread).toFixed(2)}bp ${spread>=0?'(6M > 3M)':'(3M > 6M -- inverted)'}</div><div class="metric-sub">${spreadStr}</div></div>`:''}
+        </div>
+        ${tbill3mLast252.length?`<div class="chart-wrap" style="height:160px"><canvas id="tbill-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px">1-year history of 3-month (blue) and 6-month (orange) T-bill yields. When the lines converge or cross (inversion), the market is pricing in Federal Reserve rate cuts ahead.</div>`:''}
+      </div>
+      <!-- Market indices -->
       <div class="metrics-grid">
-        <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">S&P 500</div><div class="metric-value" style="font-size:15px">${fmtIdx(spCurrent,spChg,spChgPct)}</div></div>
-        <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Nasdaq Composite</div><div class="metric-value" style="font-size:15px">${fmtIdx(nqCurrent,nqChg,nqChgPct)}</div></div>
+        <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">S&P 500</div><div class="metric-value" style="font-size:15px">${fmtChg(spCurrent,spChg,spChgPct)}</div></div>
+        <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Nasdaq Composite</div><div class="metric-value" style="font-size:15px">${fmtChg(nqCurrent,nqChg,nqChgPct)}</div></div>
         ${vixCurrent?`<div class="metric-tile" style="grid-column:span 2;background:${vixCurrent>=30?'rgba(255,71,87,0.1)':vixCurrent>=20?'rgba(255,165,2,0.1)':'var(--surface2)'}"><div class="metric-label">VIX (from cache)</div><div class="metric-value" style="color:${vixCurrent>=30?'var(--red)':vixCurrent>=20?'var(--warn)':'var(--text)'}">${vixCurrent.toFixed(2)}</div><div class="metric-sub">${vixCurrent>=30?'FEAR SPIKE -- exceptional premium':vixCurrent>=20?'ELEVATED -- favorable for selling':'Normal conditions'}</div></div>`:''}
       </div>
       ${spLabels.length?`<div class="card"><div class="card-title"><span class="dot" style="background:#4fc3f7"></span>S&P 500 (3 months)</div><div class="chart-wrap" style="height:180px"><canvas id="sp500-chart"></canvas></div></div>`:''}
@@ -1328,11 +1270,26 @@ async function loadMarketTab(){
     // Render S&P 500 chart
     setTimeout(()=>{
       const ctx=document.getElementById('sp500-chart')?.getContext('2d');
-      if(ctx&&spLabels.length){
-        new Chart(ctx,{type:'line',data:{labels:spLabels,datasets:[{data:spData,borderColor:'#4fc3f7',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false,backgroundColor:'rgba(79,195,247,0.05)'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});
+      if(ctx&&spLabels.length){new Chart(ctx,{type:'line',data:{labels:spLabels,datasets:[{data:spData,borderColor:'#4fc3f7',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});}
+      // T-bill chart
+      const tbCtx=document.getElementById('tbill-chart')?.getContext('2d');
+      if(tbCtx&&tbill3mLast252.length){
+        const tb3Labels=tbill3mLast252.map(d=>d.date);
+        const tb3Data=tbill3mLast252.map(d=>d.value);
+        const tb6Data=tbill6mLast252.map(d=>{const match=tbill3mLast252.find((x,i)=>tbill6mLast252[i]?.date===x.date);return tbill6mLast252.find(x=>x.date===tbill3mLast252[tbill3mLast252.indexOf(tbill3mLast252.find(y=>y.date===tbill3mLast252[tbill3mLast252.map(z=>z.date).indexOf(d.date)]?.date))]?.date)?.value||null;});
+        // Simpler: just use both arrays directly, align by index
+        const len=Math.min(tbill3mLast252.length,tbill6mLast252.length);
+        const labels252=tbill3mLast252.slice(0,len).map(d=>d.date);
+        new Chart(tbCtx,{type:'line',data:{labels:labels252,datasets:[{label:'3M T-bill',data:tbill3mLast252.slice(0,len).map(d=>d.value),borderColor:'#64b5f6',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},{label:'6M T-bill',data:tbill6mLast252.slice(0,len).map(d=>d.value),borderColor:'#ff9800',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b8fa8',font:{size:9}}}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:8},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9},callback:v=>v+'%'},grid:{color:'#2a2e38'}}}}});
       }
     },100);
+
+    S.set('market_ts',{ts:nowPT()});
   }catch(err){el.innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
+}
+function restoreMarketFromCache(){
+  // For market tab, just trigger a fresh load attempt -- cached data will be used if offline
+  loadMarketTab();
 }
 </script>
 <script>
@@ -1340,7 +1297,7 @@ async function loadMarketTab(){
 function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expiration,estApy,ivrVal}){
   let score=0;const reasons=[],details=[];const today=new Date();
   if(rsiVal!==null&&!isNaN(rsiVal)){if(rsiVal<35){score+=2;reasons.push(`RSI oversold (${rsiVal.toFixed(0)})`);details.push(`RSI ${rsiVal.toFixed(0)} -- oversold`);}else if(rsiVal<50){score+=1;details.push(`RSI ${rsiVal.toFixed(0)} -- neutral-low`);}else if(rsiVal>70){score-=2;reasons.push(`RSI overbought (${rsiVal.toFixed(0)})`);details.push(`RSI ${rsiVal.toFixed(0)} -- overbought, caution`);}else if(rsiVal>60){score-=1;details.push(`RSI ${rsiVal.toFixed(0)} -- elevated`);}else{details.push(`RSI ${rsiVal.toFixed(0)} -- neutral`);}}
-  if(ma50&&ma200&&price){if(price>ma50&&price>ma200){score+=1;reasons.push('Above 50 and 200-day MA');details.push('Above both MAs');}else if(price<ma50&&price<ma200){score-=1;details.push('Below both MAs -- caution');}else{details.push('Mixed vs MAs');}}
+  if(ma50&&ma200&&price){if(price>ma50&&price>ma200){score+=1;reasons.push('Above 50 & 200-day MA');details.push('Above both MAs');}else if(price<ma50&&price<ma200){score-=1;details.push('Below both MAs -- caution');}else{details.push('Mixed vs MAs');}}
   if(rangePos!==null){const pct=(rangePos*100).toFixed(0);if(rangePos<0.35){score+=2;reasons.push(`Lower 52W range (${pct}%)`);details.push(`${pct}% of 52W range -- near lows, favorable`);}else if(rangePos<0.55){score+=1;details.push(`${pct}% of 52W range -- lower half`);}else if(rangePos>0.85){score-=1;details.push(`${pct}% of 52W range -- near highs, caution`);}else{details.push(`${pct}% of 52W range`);}}
   if(earningsDate){const ed=new Date(earningsDate.split(' ')[0]);const days=Math.round((ed-today)/86400000);if(days>=0&&days<35){score-=2;reasons.push(`Earnings in ${days}d`);details.push(`Earnings in ${days} days -- avoid straddling`);}else if(days>=35&&days<60){details.push(`Earnings in ${days} days -- monitor`);}}
   if(ivrVal!==null&&!isNaN(ivrVal)){if(ivrVal>=60){score+=1;details.push(`IV ${ivrVal.toFixed(0)}th pct -- elevated premium`);}else if(ivrVal<30){details.push(`IV ${ivrVal.toFixed(0)}th pct -- thin premiums`);}else{details.push(`IV ${ivrVal.toFixed(0)}th pct -- normal`);}}
@@ -1351,7 +1308,7 @@ function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expi
 function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expiration,estApy,ivrVal}){
   let score=0;const reasons=[],details=[];const today=new Date();
   if(rsiVal!==null&&!isNaN(rsiVal)){if(rsiVal>70){score+=2;reasons.push(`RSI overbought (${rsiVal.toFixed(0)})`);details.push(`RSI ${rsiVal.toFixed(0)} -- overbought, ideal for calls`);}else if(rsiVal>60){score+=1;details.push(`RSI ${rsiVal.toFixed(0)} -- elevated`);}else if(rsiVal<35){score-=2;reasons.push(`RSI oversold (${rsiVal.toFixed(0)})`);details.push(`RSI ${rsiVal.toFixed(0)} -- oversold, do not cap upside`);}else if(rsiVal<50){score-=1;details.push(`RSI ${rsiVal.toFixed(0)} -- neutral-low`);}else{details.push(`RSI ${rsiVal.toFixed(0)} -- neutral`);}}
-  if(ma50&&ma200&&price){if(price>ma50&&price>ma200){score+=1;reasons.push('Above 50 and 200-day MA');details.push('Above both MAs -- momentum');}else if(price<ma50&&price<ma200){score-=1;details.push('Below both MAs -- avoid capping upside');}else{details.push('Mixed vs MAs');}}
+  if(ma50&&ma200&&price){if(price>ma50&&price>ma200){score+=1;reasons.push('Above 50 & 200-day MA');details.push('Above both MAs -- momentum');}else if(price<ma50&&price<ma200){score-=1;details.push('Below both MAs -- avoid capping upside');}else{details.push('Mixed vs MAs');}}
   if(rangePos!==null){const pct=(rangePos*100).toFixed(0);if(rangePos>0.80){score+=2;reasons.push(`Upper 52W range (${pct}%)`);details.push(`${pct}% of 52W range -- near highs, favorable for calls`);}else if(rangePos>0.60){score+=1;details.push(`${pct}% of 52W range -- upper half`);}else if(rangePos<0.30){score-=2;details.push(`${pct}% of 52W range -- near lows, avoid calls`);}else if(rangePos<0.50){score-=1;details.push(`${pct}% of 52W range -- lower half`);}else{details.push(`${pct}% of 52W range`);}}
   if(earningsDate){const ed=new Date(earningsDate.split(' ')[0]);const days=Math.round((ed-today)/86400000);if(days>=0&&days<35){score-=2;reasons.push(`Earnings in ${days}d`);details.push(`Earnings in ${days} days -- gap-up risk`);}else if(days>=35&&days<60){details.push(`Earnings in ${days} days -- monitor`);}}
   if(ivrVal!==null&&!isNaN(ivrVal)){if(ivrVal>=60){score+=1;details.push(`IV ${ivrVal.toFixed(0)}th pct -- elevated premium`);}else if(ivrVal<30){details.push(`IV ${ivrVal.toFixed(0)}th pct -- thin premiums`);}else{details.push(`IV ${ivrVal.toFixed(0)}th pct -- normal`);}}
@@ -1368,40 +1325,24 @@ async function runDashboards(){
   const putResults=[],ccResults=[];
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];
-    const pct=Math.round((i/watchlist.length)*100);
-    document.getElementById('dash-progress-bar').style.width=pct+'%';
+    document.getElementById('dash-progress-bar').style.width=Math.round((i/watchlist.length)*100)+'%';
     document.getElementById('dash-progress-label').textContent=`Scoring ${t} (${i+1}/${watchlist.length})...`;
     try{
       const[quote,metrics,earnings]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),90))}`)]);
       const price=quote.c,w52h=metrics.metric?.['52WeekHigh'],w52l=metrics.metric?.['52WeekLow'];
-      const earningsDate=earnings?.earningsCalendar?.[0]?.date||null;
-      const earningsHour=earnings?.earningsCalendar?.[0]?.hour||null;
+      const earningsDate=earnings?.earningsCalendar?.[0]?.date||null;const earningsHour=earnings?.earningsCalendar?.[0]?.hour||null;
       let rsiVal=null,ma50=null,ma200=null,rangePos=null;
       try{const hist=await yahooHistory(t,'1y','1d');const closes=hist.closes.filter(c=>c!==null);const rsi=computeRSI(closes);rsiVal=rsi[rsi.length-1];ma50=avg(closes.slice(-50));ma200=avg(closes.slice(-200));if(w52h&&w52l&&w52h>w52l)rangePos=(price-w52l)/(w52h-w52l);}catch{}
       const ivrVal=computeIVR(t,w52h,w52l,price);const ivr=ivrInfo(ivrVal);
-      let putRecStrike=null,putExpiration=null,putEstApy=null,callRecStrike=null,callExpiration=null,callEstApy=null;
-      try{
-        const today=new Date();const oc=S.get('options_'+t);const yr=oc?.data?.optionChain?.result?.[0];
-        if(yr&&price){const expDates=(yr.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]);
-          for(const exp of expDates.slice(0,3)){
-            const ec=S.get('options_exp_'+t+'_'+exp);const res=ec?.optionChain?.result?.[0];if(!res)continue;
-            const expD=new Date(exp+'T12:00:00Z');const dte=Math.max(Math.round((expD-today)/86400000),1);if(dte<25||dte>100)continue;
-            if(!putRecStrike&&res.options?.[0]?.puts){const puts=res.options[0].puts.filter(p=>{const s=p.strike,bid=p.bid||0,last=p.lastPrice||0,prem=(bid>0?bid:last)*100,apy=prem/(s*100)*(365/dte)*100,pct=(price-s)/price*100;return s<price&&pct>=4&&pct<=18&&apy>=targetAPY*0.7&&(p.openInterest||0)>=50;});if(puts.length){const best=puts.reduce((b,p)=>{const ab=p.bid||0,al=p.lastPrice||0,pa=(ab>0?ab:al)*100,apyA=pa/(p.strike*100)*(365/dte)*100;const bb=b.bid||0,bl=b.lastPrice||0,pb=(bb>0?bb:bl)*100,apyB=pb/(b.strike*100)*(365/dte)*100;return Math.abs(apyA-targetAPY)<Math.abs(apyB-targetAPY)?p:b;});const bid=best.bid||0,last=best.lastPrice||0,prem=(bid>0?bid:last)*100;putRecStrike='$'+formatStrike(best.strike);putExpiration=exp;putEstApy=(prem/(best.strike*100)*(365/dte)*100).toFixed(1)+'%';}}
-            if(!callRecStrike&&res.options?.[0]?.calls){const calls=res.options[0].calls.filter(c=>{const s=c.strike,bid=c.bid||0,last=c.lastPrice||0,prem=(bid>0?bid:last)*100,apy=prem/(price*100)*(365/dte)*100,pct=(s-price)/price*100;return s>price&&pct>=4&&pct<=18&&apy>=targetAPY*0.7&&(c.openInterest||0)>=50;});if(calls.length){const best=calls.reduce((b,c)=>{const ab=c.bid||0,al=c.lastPrice||0,pa=(ab>0?ab:al)*100,apyA=pa/(price*100)*(365/dte)*100;const bb=b.bid||0,bl=b.lastPrice||0,pb=(bb>0?bb:bl)*100,apyB=pb/(price*100)*(365/dte)*100;return Math.abs(apyA-targetAPY)<Math.abs(apyB-targetAPY)?c:b;});const bid=best.bid||0,last=best.lastPrice||0,prem=(bid>0?bid:last)*100;callRecStrike='$'+formatStrike(best.strike);callExpiration=exp;callEstApy=(prem/(price*100)*(365/dte)*100).toFixed(1)+'%';}}
-            if(putRecStrike&&callRecStrike)break;
-          }
-        }
-      }catch{}
+      let pRS=null,pExp=null,pApy=null,cRS=null,cExp=null,cApy=null;
+      try{const today=new Date();const oc=S.get('options_'+t);const yr=oc?.data?.optionChain?.result?.[0];if(yr&&price){const expDates=(yr.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]);for(const exp of expDates.slice(0,3)){const ec=S.get('options_exp_'+t+'_'+exp);const res=ec?.optionChain?.result?.[0];if(!res)continue;const expD=new Date(exp+'T12:00:00Z');const dte=Math.max(Math.round((expD-today)/86400000),1);if(dte<25||dte>100)continue;if(!pRS&&res.options?.[0]?.puts){const puts=res.options[0].puts.filter(p=>{const s=p.strike,bid=p.bid||0,last=p.lastPrice||0,prem=(bid>0?bid:last)*100,apy=prem/(s*100)*(365/dte)*100,pct=(price-s)/price*100;return s<price&&pct>=4&&pct<=18&&apy>=targetAPY*0.7&&(p.openInterest||0)>=50;});if(puts.length){const best=puts.reduce((b,p)=>{const apyA=((p.bid||0)>0?p.bid:p.lastPrice||0)*100/(p.strike*100)*(365/dte)*100;const apyB=((b.bid||0)>0?b.bid:b.lastPrice||0)*100/(b.strike*100)*(365/dte)*100;return Math.abs(apyA-targetAPY)<Math.abs(apyB-targetAPY)?p:b;});const prem=((best.bid||0)>0?best.bid:best.lastPrice||0)*100;pRS='$'+formatStrike(best.strike);pExp=exp;pApy=(prem/(best.strike*100)*(365/dte)*100).toFixed(1)+'%';}}if(!cRS&&res.options?.[0]?.calls){const calls=res.options[0].calls.filter(c=>{const s=c.strike,bid=c.bid||0,last=c.lastPrice||0,prem=(bid>0?bid:last)*100,apy=prem/(price*100)*(365/dte)*100,pct=(s-price)/price*100;return s>price&&pct>=4&&pct<=18&&apy>=targetAPY*0.7&&(c.openInterest||0)>=50;});if(calls.length){const best=calls.reduce((b,c)=>{const apyA=((c.bid||0)>0?c.bid:c.lastPrice||0)*100/(price*100)*(365/dte)*100;const apyB=((b.bid||0)>0?b.bid:b.lastPrice||0)*100/(price*100)*(365/dte)*100;return Math.abs(apyA-targetAPY)<Math.abs(apyB-targetAPY)?c:b;});const prem=((best.bid||0)>0?best.bid:best.lastPrice||0)*100;cRS='$'+formatStrike(best.strike);cExp=exp;cApy=(prem/(price*100)*(365/dte)*100).toFixed(1)+'%';}}if(pRS&&cRS)break;}}}catch{}
       const earningsTiming=earningsHour==='bmo'?' (before open)':earningsHour==='amc'?' (after close)':'';
       const earningsDisplay=earningsDate?earningsDate+earningsTiming:null;
-      const ps=scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:putRecStrike,expiration:putExpiration,estApy:putEstApy,ivrVal});
-      const cs=scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:callRecStrike,expiration:callExpiration,estApy:callEstApy,ivrVal});
+      const ps=scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:pRS,expiration:pExp,estApy:pApy,ivrVal});
+      const cs=scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:cRS,expiration:cExp,estApy:cApy,ivrVal});
       const common={ticker:t,price,ivrBadge:ivr.badge,ivrVal,earningsDate:earningsDisplay};
       putResults.push({...common,...ps});ccResults.push({...common,...cs});
-    }catch{
-      const empty={ticker:t,price:null,score:-99,signal:'error',factors:'Data unavailable',narrative:'',ivrBadge:'',earningsDate:null,recStrike:'--',expiration:'--',estApy:'--'};
-      putResults.push({...empty});ccResults.push({...empty});
-    }
+    }catch{const e={ticker:t,price:null,score:-99,signal:'error',factors:'Data unavailable',narrative:'',ivrBadge:'',earningsDate:null,recStrike:'--',expiration:'--',estApy:'--'};putResults.push({...e});ccResults.push({...e});}
     if(i<watchlist.length-1)await sleep(800);
   }
   document.getElementById('dash-progress-bar').style.width='100%';
@@ -1409,23 +1350,20 @@ async function runDashboards(){
   setTimeout(()=>{document.getElementById('dashboard-progress').style.display='none';},1500);
   btn.disabled=false;
   putResults.sort((a,b)=>b.score-a.score);ccResults.sort((a,b)=>b.score-a.score);
-  const ts=nowPT();
-  S.set('conviction_puts',{results:putResults,ts});S.set('conviction_cc',{results:ccResults,ts});
+  const ts=nowPT();S.set('conviction_puts',{results:putResults,ts});S.set('conviction_cc',{results:ccResults,ts});
   renderDashTable('put-dashboard-content',putResults,ts,true);renderDashTable('cc-dashboard-content',ccResults,ts,true);
-  document.getElementById('put-dash-ts').innerHTML=tsChip(ts,true);
-  document.getElementById('cc-dash-ts').innerHTML=tsChip(ts,true);
+  document.getElementById('put-dash-ts').innerHTML=tsChip(ts,true);document.getElementById('cc-dash-ts').innerHTML=tsChip(ts,true);
   toast('Both dashboards updated',3000);
 }
-
 function renderDashTable(elId,results,ts,isLive){
   const el=document.getElementById(elId);if(!results.length){el.innerHTML='<div class="empty">No data</div>';return;}
-  const cards=results.filter(r=>r.signal!=='error').map(r=>{
+  el.innerHTML=results.filter(r=>r.signal!=='error').map(r=>{
     const bc=r.signal==='high'?'rgba(0,200,150,0.7)':r.signal==='medium'?'rgba(255,193,7,0.7)':'rgba(255,71,87,0.6)';
     const bg=r.signal==='high'?'rgba(0,200,150,0.12)':r.signal==='medium'?'rgba(255,193,7,0.12)':'rgba(255,71,87,0.10)';
     const rs=r.recStrike&&r.recStrike!=='--'?r.recStrike:null;
     const exp=r.expiration&&r.expiration!=='--'?r.expiration:null;
     const apy=r.estApy&&r.estApy!=='--'?r.estApy:null;
-    return `<div style="background:${bg};border:1px solid ${bc};border-left:4px solid ${bc};border-radius:10px;padding:12px;margin-bottom:10px;cursor:pointer" onclick="selectTickerFromWatchlist('${r.ticker}')">
+    return`<div style="background:${bg};border:1px solid ${bc};border-left:4px solid ${bc};border-radius:10px;padding:12px;margin-bottom:10px;cursor:pointer" onclick="selectTickerFromWatchlist('${r.ticker}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
         <div><span style="font-family:var(--sans);font-size:18px;font-weight:700;color:var(--accent)">${r.ticker}</span>${r.price?`<span style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-left:8px">$${r.price.toFixed(2)}</span>`:''}</div>
         <div style="text-align:right"><div style="font-family:var(--mono);font-size:12px;font-weight:600">${r.signal.toUpperCase()}</div>${r.ivrBadge||''}</div>
@@ -1436,35 +1374,27 @@ function renderDashTable(elId,results,ts,isLive){
       <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px;text-align:right">Tap to analyze</div>
     </div>`;
   }).join('');
-  el.innerHTML=cards;
 }
-</script>
-<script>
+
 // ═══ PREFETCH ALL ═══
-async function prefetchAll(progressEl,barEl,labelEl){
-  // Can be called standalone or from fullRefreshEverything
-  const standalone=!progressEl;
-  if(standalone){
-    const btn=document.getElementById('prefetch-btn');if(btn)btn.disabled=true;
-    progressEl=document.getElementById('prefetch-progress');
-    barEl=document.getElementById('prefetch-progress-bar');
-    labelEl=document.getElementById('prefetch-label');
-    if(progressEl)progressEl.style.display='block';
-  }
+async function prefetchAll(){
+  if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');return;}
+  const btn=document.getElementById('prefetch-btn');if(btn)btn.disabled=true;
+  const progressEl=document.getElementById('prefetch-progress');const barEl=document.getElementById('prefetch-progress-bar');const labelEl=document.getElementById('prefetch-label');
+  if(progressEl)progressEl.style.display='block';
   for(let i=0;i<watchlist.length;i++){
-    const t=watchlist[i];const pct=Math.round((i/watchlist.length)*100);
-    if(barEl)barEl.style.width=pct+'%';
-    if(labelEl)labelEl.textContent=`Fetching ${t} (${i+1}/${watchlist.length})...`;
+    const t=watchlist[i];if(barEl)barEl.style.width=Math.round((i/watchlist.length)*100)+'%';if(labelEl)labelEl.textContent=`Fetching ${t} (${i+1}/${watchlist.length})...`;
     try{const[quote,profile,metrics,earnings]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),90))}`)]);S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:earnings?.earningsCalendar?.[0]?.date||null,earningsHour:earnings?.earningsCalendar?.[0]?.hour||null,ts:nowPT(),isLive:true});}catch{}
     try{const h6=await yahooHistory(t,'6mo','1d');S.set('hist_'+t,{timestamps:h6.timestamps.map(d=>d.toISOString()),closes:h6.closes,volumes:h6.volumes,ts:nowPT()});}catch{}
     try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>d.toISOString()),closes:h1.closes,volumes:h1.volumes,ts:nowPT()});}catch{}
-    try{const opts=await yahooOptionsViaProxy(t);S.set('options_'+t,{data:opts,ts:nowPT()});const yr=opts?.optionChain?.result?.[0];const expDates=(yr?.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]);const monthly=expDates.filter(e=>{const d=new Date(e+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).slice(0,2);for(const exp of monthly){try{S.set('options_exp_'+t+'_'+exp,await yahooOptionsViaProxy(t,exp));}catch{}}}catch{}
+    try{const opts=await yahooOptionsViaProxy(t);S.set('options_'+t,{data:opts,ts:nowPT()});const yr=opts?.optionChain?.result?.[0];const monthly=(yr?.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]).filter(e=>{const d=new Date(e+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).slice(0,2);for(const exp of monthly){try{S.set('options_exp_'+t+'_'+exp,await yahooOptionsViaProxy(t,exp));}catch{}}}catch{}
     try{const news=await fetchNews(t);S.set('news_'+t,{items:news,ts:nowPT()});}catch{}
     if(i<watchlist.length-1)await sleep(1000);
   }
   try{const[vh,v3h]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vh.timestamps.map(d=>d.toISOString()),closes:vh.closes,ts:nowPT()});S.set('vix3m_hist',{timestamps:v3h.timestamps.map(d=>d.toISOString()),closes:v3h.closes,ts:nowPT()});const vc=vh.closes.filter(c=>c!==null);updateVIXIndicator(vc[vc.length-1]);}catch{}
-  if(barEl)barEl.style.width='100%';
-  if(standalone){if(labelEl)labelEl.textContent='Prefetch complete!';setTimeout(()=>{const p=document.getElementById('prefetch-progress');if(p)p.style.display='none';},2000);const btn=document.getElementById('prefetch-btn');if(btn)btn.disabled=false;renderWatchlist();toast('All data cached for offline use');}
+  if(barEl)barEl.style.width='100%';if(labelEl)labelEl.textContent='Prefetch complete!';
+  setTimeout(()=>{if(progressEl)progressEl.style.display='none';},2000);
+  if(btn)btn.disabled=false;renderWatchlist();toast('All data cached for offline use');
 }
 
 // ═══ FULL REFRESH EVERYTHING ═══
@@ -1472,54 +1402,37 @@ async function fullRefreshEverything(){
   if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');return;}
   const btn=document.getElementById('full-refresh-btn');btn.disabled=true;
   document.getElementById('full-refresh-progress').style.display='block';
-  const bar=document.getElementById('full-refresh-bar');
-  const label=document.getElementById('full-refresh-label');
-
-  // Step 1: Prefetch all ticker data (0-60%)
-  label.textContent='Step 1/4: Fetching ticker data...';
-  const stepBar=document.createElement('div');
-  const stepLabel=document.createElement('div');
-  await prefetchAll(null,{style:{}},{textContent:''});
-  bar.style.width='60%';
-
-  // Step 2: Run conviction dashboards (60-80%)
+  const bar=document.getElementById('full-refresh-bar'),label=document.getElementById('full-refresh-label');
+  label.textContent='Step 1/4: Fetching all ticker data...';
+  await prefetchAll();bar.style.width='60%';
   label.textContent='Step 2/4: Running conviction dashboards...';
-  try{await runDashboards();}catch{}
-  bar.style.width='80%';
-
-  // Step 3: Load earnings data (80-92%)
+  try{await runDashboards();}catch{}bar.style.width='80%';
   label.textContent='Step 3/4: Loading earnings calendar...';
-  try{await loadEarningsTab();}catch{}
-  bar.style.width='92%';
-
-  // Step 4: Refresh VIX (92-100%)
+  try{await loadEarningsTab();}catch{}bar.style.width='92%';
   label.textContent='Step 4/4: Refreshing VIX...';
-  try{await loadVIX();}catch{}
-  bar.style.width='100%';
-
+  try{await loadVIX();}catch{}bar.style.width='100%';
   label.textContent='All done!';
   setTimeout(()=>{document.getElementById('full-refresh-progress').style.display='none';},2000);
-  btn.disabled=false;
-  renderWatchlist();
-  toast('Full refresh complete',3000);
+  btn.disabled=false;renderWatchlist();toast('Full refresh complete',3000);
 }
 
 // ═══ INIT ═══
 function init(){
   loadOptionsPrefs();
+  updateOfflineModeBar();
   const cp=S.get('conviction_puts'),cc=S.get('conviction_cc');
   if(cp){renderDashTable('put-dashboard-content',cp.results,cp.ts,false);document.getElementById('put-dash-ts').innerHTML=tsChip(cp.ts,false);}
   if(cc){renderDashTable('cc-dashboard-content',cc.results,cc.ts,false);document.getElementById('cc-dash-ts').innerHTML=tsChip(cc.ts,false);}
   renderWatchlist();populateSelects();
   const lt=S.get('last_ticker');
   if(lt){currentTicker=lt;document.getElementById('ticker-select').value=lt;document.getElementById('options-ticker-select').value=lt;restoreTickerFromCache(lt);}
-  // Restore VIX and update indicator
   restoreVIXFromCache();
-  const cv=S.get('vix_hist');
-  if(cv&&cv.closes){const closes=cv.closes.filter(c=>c!==null);if(closes.length)updateVIXIndicator(closes[closes.length-1]);}
-  // Restore earnings
-  const ce=S.get('earnings_data');
-  if(ce&&ce.data){const today=new Date();earningsAllData=ce.data.map(e=>({...e,daysUntil:Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);}
+  const cv=S.get('vix_hist');if(cv?.closes){const c=cv.closes.filter(x=>x!==null);if(c.length)updateVIXIndicator(c[c.length-1]);}
+  const ce=S.get('earnings_data');if(ce?.data){const today=new Date();earningsAllData=ce.data.map(e=>({...e,daysUntil:Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);}
+  updateOnlineIndicator();
+  // Start market status banner ticker -- every second
+  updateMarketBanner();
+  setInterval(updateMarketBanner,1000);
   if(!FINNHUB_KEY)setTimeout(()=>toast('Add your Finnhub API key in Settings to get started',4000),500);
 }
 init();

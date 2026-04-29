@@ -171,7 +171,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro</div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v1.7</span>
+      <span>Options Income Strategy v1.7.3</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -371,7 +371,20 @@ Version: 1.7</div>
     <button class="btn btn-danger" onclick="clearAllDataWithGuard()">Clear All Cached Data</button>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v1.7 -- 2026-04-29
+    <div class="commentary" style="font-size:12px">v1.7.3 -- 2026-04-29
+- T-bill yields: switched to Yahoo Finance ^IRX (3-month) and ^FVX (5-year) via existing Worker history proxy. Avoids Treasury FiscalData SSL failures on Cloudflare Workers and FRED key requirement.
+
+v1.7.2 -- 2026-04-29
+- T-bill yields: switched from FRED API (requires key -- 400 error) to US Treasury FiscalData API (fully public, no key needed, routed via Worker)
+- ETF distributions and T-bill data now route correctly through Cloudflare Worker
+
+v1.7.1 -- 2026-04-29
+- Market banner timezone fix: respects PT/local/UTC setting from Settings
+- T-bill yields now routed through Cloudflare Worker (fixes N/A -- FRED CORS issue)
+- ETF distributions now fetched from Yahoo Finance via Worker (fixes N/A -- wrong Finnhub endpoint)
+- ETF trailing yield now computed correctly from Yahoo dividend event data
+
+v1.7 -- 2026-04-29
 - Live market status banner: green (open with countdown), red (closed), amber (pre/post market). Second-level precision in final 10 minutes. NYSE holiday aware.
 - Timezone preference in Settings: Pacific / Local Device / UTC. All timestamps use selected zone plus relative age (e.g. "3h ago")
 - Mode-specific slider persistence: puts and calls each remember their own OTM range and APY threshold settings
@@ -513,10 +526,11 @@ function updateMarketBanner(){
     const secsLeft=minsLeft*60-ms.sec;
     const inFinal10=minsLeft<=10;
     banner.className='mkt-open';
+    const tzLbl=typeof tzPref!=='undefined'?(tzPref==='UTC'?'UTC':tzPref==='local'?'local time':'PT'):'PT';
     if(inFinal10){
-      banner.textContent=`MARKET OPEN -- closes in ${secsToMMSS(secsLeft)} PT`;
+      banner.textContent=`MARKET OPEN -- closes in ${secsToMMSS(secsLeft)} (${tzLbl})`;
     }else{
-      banner.textContent=`MARKET OPEN -- ${minsToHHMM(minsLeft)} remaining (PT: market closes ${minsLeft>=60?Math.floor(minsLeft/60)+'h '+minsLeft%60+'m':'in '+minsLeft+'m'})`;
+      banner.textContent=`MARKET OPEN -- ${minsToHHMM(minsLeft)} remaining. Closes 1:00 PM ${tzLbl} today.`;
     }
   }else if(ms.state==='premarket'){
     const minsUntilOpen=570-ms.totalMins;
@@ -708,12 +722,36 @@ async function fetchNews(ticker){
   const to=fmtDate(new Date());const from=fmtDate(addDays(new Date(),-7));
   return fh(`/company-news?symbol=${ticker}&from=${from}&to=${to}`);
 }
-async function fetchFRED(seriesId){
-  // FRED public API -- no key required for basic series
-  const url=`https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&limit=260&sort_order=desc&file_type=json&api_key=df8f93b9de6b4a3480c28b92eaa00c10`;
-  const r=await fetch(url);if(!r.ok)throw new Error(`FRED ${r.status}`);
-  const d=await r.json();
-  return (d.observations||[]).filter(o=>o.value!=='.').map(o=>({date:o.date,value:parseFloat(o.value)})).reverse();
+async function fetchTBills(){
+  // Yahoo Finance T-bill index tickers via existing Worker history proxy:
+  //   ^IRX = 13-week (3-month) T-bill yield index -- daily closing rate
+  //   ^FVX = 5-year Treasury yield (closest Yahoo has to 6-month for context)
+  // Yahoo expresses these as percentage points (e.g. 4.82 = 4.82%).
+  // We divide by 10 because Yahoo stores them as tenths of a percent internally
+  // -- actually Yahoo ^IRX returns the annualized discount rate directly as a %
+  // so no division needed. Check: if value ~480, divide by 100. If ~4.8, use as-is.
+  const [hist3m, hist5y] = await Promise.all([
+    yahooHistory('^IRX', '1y', '1d'),
+    yahooHistory('^FVX', '1y', '1d')
+  ]);
+  // ^IRX values from Yahoo are in percent (e.g. 4.82 means 4.82%)
+  // but sometimes returned as tenths (48.2). Normalize: if median > 20, divide by 10.
+  function normalizeYield(closes) {
+    const valid = closes.filter(c => c !== null && c > 0);
+    if (!valid.length) return closes;
+    const median = valid.sort((a,b)=>a-b)[Math.floor(valid.length/2)];
+    const factor = median > 20 ? 10 : 1;
+    return closes.map(c => c !== null ? c / factor : null);
+  }
+  const norm3m = normalizeYield(hist3m.closes);
+  const norm5y = normalizeYield(hist5y.closes);
+  const tbill3m = hist3m.timestamps
+    .map((ts, i) => ({date: ts.toISOString().split('T')[0], value: norm3m[i]}))
+    .filter(d => d.value !== null);
+  const tbill6m = hist5y.timestamps
+    .map((ts, i) => ({date: ts.toISOString().split('T')[0], value: norm5y[i]}))
+    .filter(d => d.value !== null);
+  return {tbill3m, tbill6m, label3m:'3-Month T-Bill (^IRX)', label6m:'5-Year Treasury (^FVX)'};
 }
 
 // ═══ MATH HELPERS ═══
@@ -1147,10 +1185,31 @@ async function loadETFTab(){
       try{hist6mo=await yahooHistory(etf.ticker,'1y','1d');S.set(histKey,{timestamps:hist6mo.timestamps.map(d=>d.toISOString()),closes:hist6mo.closes,ts:nowPT()});}
       catch{const ch=S.get(histKey);if(ch)hist6mo={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes};}
       try{
-        const to=fmtDate(new Date());const from=fmtDate(addDays(new Date(),-400));
-        const divData=await fh(`/stock/dividend2?symbol=${etf.ticker}&from=${from}&to=${to}`);
-        if(divData?.data?.length){distributions=divData.data.slice(0,12).map(d=>({date:d.date,amount:d.amount}));S.set(divKey,{distributions,ts:nowPT()});const total=distributions.slice(0,12).reduce((s,d)=>s+(d.amount||0),0);if(snap?.price&&total>0)trailingYield=(total/snap.price*100).toFixed(2);}
-      }catch{const cd=S.get(divKey);if(cd){distributions=cd.distributions||[];const total=distributions.reduce((s,d)=>s+(d.amount||0),0);if(snap?.price&&total>0)trailingYield=(total/snap.price*100).toFixed(2);}}
+        // Fetch ETF distribution history from Yahoo Finance via Worker
+        // Yahoo returns dividend events in chart response events.dividends field
+        const divResponse=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(etf.ticker)}&type=dividends&range=3y`);
+        if(divResponse.ok){
+          const divData=await divResponse.json();
+          const events=divData.chart?.result?.[0]?.events?.dividends;
+          if(events){
+            // events is an object keyed by unix timestamp
+            const divList=Object.values(events)
+              .sort((a,b)=>b.date-a.date)
+              .slice(0,24)
+              .map(d=>({
+                date:new Date(d.date*1000).toISOString().split('T')[0],
+                amount:d.amount
+              }));
+            distributions=divList;
+            S.set(divKey,{distributions,ts:nowPT()});
+            // Trailing 12-month yield: sum last 12 distributions / current price
+            const last12=divList.slice(0,12);
+            const total=last12.reduce((s,d)=>s+(d.amount||0),0);
+            if(snap?.price&&total>0)trailingYield=(total/snap.price*100).toFixed(2);
+          }
+        }
+        if(!distributions.length)throw new Error('no div data');
+      }catch{const cd=S.get(divKey);if(cd){distributions=cd.distributions||[];const total=distributions.slice(0,12).reduce((s,d)=>s+(d.amount||0),0);if(snap?.price&&total>0)trailingYield=(total/snap.price*100).toFixed(2);}}
       const chartLabels=hist6mo?hist6mo.timestamps.slice(-126).map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});}):[];
       const chartData=hist6mo?hist6mo.closes.slice(-126):[];
       const chgColor=snap?(snap.change>=0?'var(--green)':'var(--red)'):'var(--text2)';
@@ -1190,10 +1249,17 @@ async function loadMarketTab(){
     try{[sp500,nasdaq]=await Promise.all([yahooHistory('^GSPC','3mo','1d'),yahooHistory('^IXIC','3mo','1d')]);S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs});}
     catch{const cs=S.get('mkt_sp500'),cn=S.get('mkt_nasdaq');if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(d)),closes:cs.closes};isLive=false;mktTs=cs.ts;showOfflineBanner(cs.ts);}if(cn&&!nasdaq)nasdaq={timestamps:cn.timestamps.map(d=>new Date(d)),closes:cn.closes};}
 
-    // T-bill yields from FRED
+    // T-bill yields from US Treasury FiscalData API (via Worker, no key needed)
     let tbill3m=[],tbill6m=[],fredTs=nowPT();
-    try{[tbill3m,tbill6m]=await Promise.all([fetchFRED('DTB3'),fetchFRED('DTB6')]);S.set('fred_dtb3',{data:tbill3m,ts:fredTs});S.set('fred_dtb6',{data:tbill6m,ts:fredTs});}
-    catch{const cd3=S.get('fred_dtb3'),cd6=S.get('fred_dtb6');if(cd3){tbill3m=cd3.data;fredTs=cd3.ts;}if(cd6)tbill6m=cd6.data;}
+    try{
+      const tbills=await fetchTBills();
+      tbill3m=tbills.tbill3m;tbill6m=tbills.tbill6m;
+      fredTs=nowPT();
+      S.set('tbills_cache',{tbill3m,tbill6m,ts:fredTs});
+    }catch{
+      const cd=S.get('tbills_cache');
+      if(cd){tbill3m=cd.tbill3m||[];tbill6m=cd.tbill6m||[];fredTs=cd.ts||'';}
+    }
 
     const tb3Current=tbill3m.length?tbill3m[tbill3m.length-1].value:null;
     const tb6Current=tbill6m.length?tbill6m[tbill6m.length-1].value:null;
@@ -1219,7 +1285,7 @@ async function loadMarketTab(){
     function fmtChg(val,chg,chgPct){if(!val)return'N/A';const color=chg>=0?'var(--green)':'var(--red)';const sign=chg>=0?'+':'';return`${val.toFixed(2)} <span style="color:${color};font-size:11px">${sign}${chg?.toFixed(2)} (${sign}${chgPct?.toFixed(2)}%)</span>`;}
 
     // 1Y T-bill chart data
-    const tbill3mLast252=tbill3m.slice(-252);const tbill6mLast252=tbill6m.slice(-252);
+    // tbill3m and tbill6m arrays contain ~52 weekly auctions each
 
     let marketNews=[];try{const news=await fh('/news?category=general');marketNews=news.slice(0,10);S.set('market_news',{items:marketNews,ts:nowPT()});}catch{const cn=S.get('market_news');if(cn)marketNews=cn.items||[];}
 
@@ -1252,11 +1318,11 @@ async function loadMarketTab(){
         <div class="card-title"><span class="dot" style="background:#64b5f6"></span>T-Bill Yields (FRED)</div>
         ${tsChip(fredTs,isLive)}
         <div class="metrics-grid">
-          <div class="metric-tile"><div class="metric-label">3-Month T-Bill</div><div class="metric-value" style="color:#64b5f6">${tb3Current?tb3Current.toFixed(3)+'%':'N/A'}</div><div class="metric-sub">${tb3Yr?`1Y ago: ${tb3Yr.toFixed(3)}% (${(tb3Current-tb3Yr)>=0?'+':''}${(tb3Current-tb3Yr).toFixed(3)}%)`:''}</div></div>
-          <div class="metric-tile"><div class="metric-label">6-Month T-Bill</div><div class="metric-value" style="color:#64b5f6">${tb6Current?tb6Current.toFixed(3)+'%':'N/A'}</div><div class="metric-sub">${tb6Yr?`1Y ago: ${tb6Yr.toFixed(3)}% (${(tb6Current-tb6Yr)>=0?'+':''}${(tb6Current-tb6Yr).toFixed(3)}%)`:''}</div></div>
+          <div class="metric-tile"><div class="metric-label">3-Month T-Bill (^IRX)</div><div class="metric-value" style="color:#64b5f6">${tb3Current?tb3Current.toFixed(3)+'%':'N/A'}</div><div class="metric-sub">${tb3Yr?`1Y ago: ${tb3Yr.toFixed(3)}% (${(tb3Current-tb3Yr)>=0?'+':''}${(tb3Current-tb3Yr).toFixed(3)}%)`:''}</div></div>
+          <div class="metric-tile"><div class="metric-label">5-Year Treasury (^FVX)</div><div class="metric-value" style="color:#64b5f6">${tb6Current?tb6Current.toFixed(3)+'%':'N/A'}</div><div class="metric-sub">${tb6Yr?`1Y ago: ${tb6Yr.toFixed(3)}% (${(tb6Current-tb6Yr)>=0?'+':''}${(tb6Current-tb6Yr).toFixed(3)}%)`:''}</div></div>
           ${spread!==null?`<div class="metric-tile" style="grid-column:span 2"><div class="metric-label">3M / 6M Spread</div><div class="metric-value" style="font-size:13px">${Math.abs(spread).toFixed(2)}bp ${spread>=0?'(6M > 3M)':'(3M > 6M -- inverted)'}</div><div class="metric-sub">${spreadStr}</div></div>`:''}
         </div>
-        ${tbill3mLast252.length?`<div class="chart-wrap" style="height:160px"><canvas id="tbill-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px">1-year history of 3-month (blue) and 6-month (orange) T-bill yields. When the lines converge or cross (inversion), the market is pricing in Federal Reserve rate cuts ahead.</div>`:''}
+        ${tbill3m&&tbill3m.length?`<div class="chart-wrap" style="height:160px"><canvas id="tbill-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px">52-week history of 3-month (blue) and 6-month (orange) T-bill auction rates. Source: Yahoo Finance (^IRX, ^FVX) via Cloudflare Worker. When lines converge or cross (inversion), market is pricing in Federal Reserve rate cuts ahead.</div>`:''}
       </div>
       <!-- Market indices -->
       <div class="metrics-grid">
@@ -1271,16 +1337,21 @@ async function loadMarketTab(){
     setTimeout(()=>{
       const ctx=document.getElementById('sp500-chart')?.getContext('2d');
       if(ctx&&spLabels.length){new Chart(ctx,{type:'line',data:{labels:spLabels,datasets:[{data:spData,borderColor:'#4fc3f7',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});}
-      // T-bill chart
+      // T-bill chart -- Treasury auction data, weekly frequency
       const tbCtx=document.getElementById('tbill-chart')?.getContext('2d');
-      if(tbCtx&&tbill3mLast252.length){
-        const tb3Labels=tbill3mLast252.map(d=>d.date);
-        const tb3Data=tbill3mLast252.map(d=>d.value);
-        const tb6Data=tbill6mLast252.map(d=>{const match=tbill3mLast252.find((x,i)=>tbill6mLast252[i]?.date===x.date);return tbill6mLast252.find(x=>x.date===tbill3mLast252[tbill3mLast252.indexOf(tbill3mLast252.find(y=>y.date===tbill3mLast252[tbill3mLast252.map(z=>z.date).indexOf(d.date)]?.date))]?.date)?.value||null;});
-        // Simpler: just use both arrays directly, align by index
-        const len=Math.min(tbill3mLast252.length,tbill6mLast252.length);
-        const labels252=tbill3mLast252.slice(0,len).map(d=>d.date);
-        new Chart(tbCtx,{type:'line',data:{labels:labels252,datasets:[{label:'3M T-bill',data:tbill3mLast252.slice(0,len).map(d=>d.value),borderColor:'#64b5f6',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},{label:'6M T-bill',data:tbill6mLast252.slice(0,len).map(d=>d.value),borderColor:'#ff9800',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b8fa8',font:{size:9}}}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:8},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9},callback:v=>v+'%'},grid:{color:'#2a2e38'}}}}});
+      if(tbCtx&&tbill3m.length){
+        // Use last 52 weekly auctions (~1 year) for chart
+        const last52_3m=tbill3m.slice(-52);
+        const last52_6m=tbill6m.slice(-52);
+        // Build unified label set from 3M dates (auctions every week)
+        const chartLabels=last52_3m.map(d=>d.date.slice(5)); // MM-DD
+        // Align 6M data to same date range (6M auctions are also weekly)
+        const len52=last52_3m.length;
+        const aligned6m=last52_6m.slice(-len52).map(d=>d.value);
+        new Chart(tbCtx,{type:'line',data:{labels:chartLabels,datasets:[
+          {label:'3-Month T-bill',data:last52_3m.map(d=>d.value),borderColor:'#64b5f6',borderWidth:1.5,pointRadius:0,tension:0.3,fill:false},
+          {label:'6-Month T-bill',data:aligned6m,borderColor:'#ff9800',borderWidth:1.5,pointRadius:0,tension:0.3,fill:false}
+        ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b8fa8',font:{size:9}}}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:8},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9},callback:v=>v.toFixed(2)+'%'},grid:{color:'#2a2e38'}}}}});
       }
     },100);
 

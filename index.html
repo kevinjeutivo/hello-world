@@ -171,7 +171,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro</div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v1.7.3</span>
+      <span>Options Income Strategy v1.7.4</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -371,7 +371,12 @@ Version: 1.7</div>
     <button class="btn btn-danger" onclick="clearAllDataWithGuard()">Clear All Cached Data</button>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v1.7.3 -- 2026-04-29
+    <div class="commentary" style="font-size:12px">v1.7.4 -- 2026-04-29
+- Market banner: fixed incorrect open/closed determination by using Intl.DateTimeFormat.formatToParts() instead of unreliable locale string parsing (Safari iOS incompatibility)
+- Market banner: close/open times now displayed in your selected timezone (PT/local/UTC) instead of hardcoded ET
+- Market banner: countdown shows "closes in 2h 30m (at 1:00 PM PT)" format
+
+v1.7.3 -- 2026-04-29
 - T-bill yields: switched to Yahoo Finance ^IRX (3-month) and ^FVX (5-year) via existing Worker history proxy. Avoids Treasury FiscalData SSL failures on Cloudflare Workers and FRED key requirement.
 
 v1.7.2 -- 2026-04-29
@@ -487,75 +492,145 @@ function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
 function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 
 // ═══ MARKET STATUS BANNER ═══
-function isNYSEHoliday(date){
-  const d=new Date(date);
-  const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  return NYSE_HOLIDAYS.has(key);
+function isNYSEHoliday(etDateObj){
+  // Takes a Date object, checks holiday in ET
+  const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'});
+  const parts=fmt.formatToParts(etDateObj);
+  const y=parts.find(p=>p.type==='year').value;
+  const mo=parts.find(p=>p.type==='month').value;
+  const da=parts.find(p=>p.type==='day').value;
+  return NYSE_HOLIDAYS.has(`${y}-${mo}-${da}`);
 }
-function getMarketState(){
-  // All times in ET
+
+function getETComponents(){
+  // Use Intl.DateTimeFormat to reliably extract ET time components on all browsers
   const now=new Date();
-  const etStr=now.toLocaleString('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
-  const parts=etStr.split(/[\s,\/]+/);
-  // parts: [month, day, year, hour, minute, second]
-  const hour=parseInt(parts[3]);const min=parseInt(parts[4]);const sec=parseInt(parts[5]);
-  const dow=new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'})).getDay();
-  const dateKey=`${parts[2]}-${parts[0].padStart(2,'0')}-${parts[1].padStart(2,'0')}`;
-  const totalMins=hour*60+min;
-  const isWeekend=dow===0||dow===6;
-  const isHoliday=isNYSEHoliday(new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'})));
-  if(isWeekend||isHoliday)return{state:'closed',reason:isWeekend?'weekend':'holiday'};
-  if(totalMins>=570&&totalMins<960)return{state:'open',hour,min,sec,totalMins};// 9:30-16:00 ET
-  if(totalMins>=240&&totalMins<570)return{state:'premarket',totalMins};// 4:00-9:30 ET
-  if(totalMins>=960&&totalMins<1200)return{state:'afterhours',totalMins};// 16:00-20:00 ET
-  return{state:'closed',reason:'overnight'};
+  const fmt=new Intl.DateTimeFormat('en-US',{
+    timeZone:'America/New_York',
+    hour:'2-digit',minute:'2-digit',second:'2-digit',
+    weekday:'short',year:'numeric',month:'2-digit',day:'2-digit',
+    hour12:false
+  });
+  const parts=fmt.formatToParts(now);
+  const get=type=>parseInt(parts.find(p=>p.type===type)?.value||'0');
+  const getStr=type=>parts.find(p=>p.type===type)?.value||'';
+  let hour=get('hour');
+  // Intl hour12:false returns 24 for midnight on some platforms -- normalize
+  if(hour===24)hour=0;
+  const min=get('minute');
+  const sec=get('second');
+  const weekday=getStr('weekday'); // 'Sun','Mon',...
+  const isWeekend=(weekday==='Sun'||weekday==='Sat');
+  return{now,hour,min,sec,isWeekend,totalMins:hour*60+min};
 }
-function minsToHHMM(totalMins){
-  const h=Math.floor(totalMins/60);const m=totalMins%60;
-  return h>0?`${h}h ${m}m`:`${m}m`;
+
+function getMarketState(){
+  const et=getETComponents();
+  const{now,hour,min,sec,isWeekend,totalMins}=et;
+  if(isWeekend)return{state:'closed',reason:'weekend',now,sec};
+  if(isNYSEHoliday(now))return{state:'closed',reason:'holiday',now,sec};
+  // Market hours ET: open 9:30 (570 mins) to 16:00 (960 mins)
+  if(totalMins>=570&&totalMins<960)return{state:'open',totalMins,sec,now};
+  if(totalMins>=240&&totalMins<570)return{state:'premarket',totalMins,sec,now};
+  if(totalMins>=960&&totalMins<1200)return{state:'afterhours',totalMins,sec,now};
+  return{state:'closed',reason:'overnight',now,sec};
 }
-function secsToMMSS(secs){
-  const m=Math.floor(secs/60);const s=secs%60;
-  return `${m}:${String(s).padStart(2,'0')}`;
+
+function minsToHHMM(m){const h=Math.floor(m/60);const mm=m%60;return h>0?`${h}h ${mm}m`:`${mm}m`;}
+function secsToMMSS(s){return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;}
+
+// Convert a fixed ET time (hour, min) to selected display timezone label
+function etTimeToDisplay(etHour,etMin){
+  // Build a Date object for today at the given ET hour:min
+  const now=new Date();
+  // Get today's date in ET
+  const etFmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'});
+  const etParts=etFmt.formatToParts(now);
+  const etY=etParts.find(p=>p.type==='year').value;
+  const etMo=etParts.find(p=>p.type==='month').value;
+  const etDa=etParts.find(p=>p.type==='day').value;
+  // Create a UTC date for this ET time today
+  // ET is UTC-4 (EDT) or UTC-5 (EST). Use Intl to get the offset indirectly.
+  const etMidnight=new Date(`${etY}-${etMo}-${etDa}T${String(etHour).padStart(2,'0')}:${String(etMin).padStart(2,'0')}:00`);
+  // Display in chosen timezone
+  const tz=tzPref==='PT'?'America/Los_Angeles':tzPref==='UTC'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const displayFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',minute:'2-digit',hour12:true});
+  const tzLabel=tzPref==='PT'?'PT':tzPref==='UTC'?'UTC':'local';
+  // The etMidnight date was created in LOCAL time, not ET. We need proper ET->display conversion.
+  // Better: use the actual now moment and compute the close time as now + minsLeft
+  return null; // signal to use minsLeft instead
 }
+
 function updateMarketBanner(){
   const banner=document.getElementById('market-status-banner');
   const ms=getMarketState();
+  const tz=typeof tzPref!=='undefined'?(tzPref==='PT'?'America/Los_Angeles':tzPref==='UTC'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone):'America/Los_Angeles';
+  const tzLabel=typeof tzPref!=='undefined'?(tzPref==='UTC'?'UTC':tzPref==='local'?'local':'PT'):'PT';
+
   if(ms.state==='open'){
-    const minsLeft=(960-ms.totalMins);// 16:00 ET = 960 mins
+    const minsLeft=960-ms.totalMins;
     const secsLeft=minsLeft*60-ms.sec;
     const inFinal10=minsLeft<=10;
     banner.className='mkt-open';
-    const tzLbl=typeof tzPref!=='undefined'?(tzPref==='UTC'?'UTC':tzPref==='local'?'local time':'PT'):'PT';
+    // Show close time in selected timezone
+    const closeTime=new Date(ms.now.getTime()+secsLeft*1000);
+    const closeFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',minute:'2-digit',hour12:true});
+    const closeStr=closeFmt.format(closeTime);
     if(inFinal10){
-      banner.textContent=`MARKET OPEN -- closes in ${secsToMMSS(secsLeft)} (${tzLbl})`;
+      banner.textContent=`MARKET OPEN -- closes in ${secsToMMSS(secsLeft)} (at ${closeStr} ${tzLabel})`;
     }else{
-      banner.textContent=`MARKET OPEN -- ${minsToHHMM(minsLeft)} remaining. Closes 1:00 PM ${tzLbl} today.`;
+      banner.textContent=`MARKET OPEN -- closes in ${minsToHHMM(minsLeft)} (at ${closeStr} ${tzLabel})`;
     }
   }else if(ms.state==='premarket'){
     const minsUntilOpen=570-ms.totalMins;
+    const openTime=new Date(ms.now.getTime()+minsUntilOpen*60000);
+    const openFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',minute:'2-digit',hour12:true});
     banner.className='mkt-prepost';
-    banner.textContent=`Pre-market -- regular session opens in ${minsToHHMM(minsUntilOpen)} (9:30 AM ET)`;
+    banner.textContent=`Pre-market -- opens in ${minsToHHMM(minsUntilOpen)} (at ${openFmt.format(openTime)} ${tzLabel})`;
   }else if(ms.state==='afterhours'){
-    const minsUntilClose=1200-ms.totalMins;
+    const minsLeft=1200-ms.totalMins;
     banner.className='mkt-prepost';
-    banner.textContent=`After-hours trading -- regular session closed. Extended hours end in ${minsToHHMM(minsUntilClose)}`;
+    banner.textContent=`After-hours -- extended session ends in ${minsToHHMM(minsLeft)}`;
   }else{
-    // Calculate next open
-    const now=new Date();
-    let nextOpen=new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
-    nextOpen.setHours(9,30,0,0);
-    if(nextOpen<=now)nextOpen.setDate(nextOpen.getDate()+1);
+    // Find next market open: advance day by day until a non-weekend non-holiday
+    const now=ms.now;
+    // Start from tomorrow 9:30 AM ET if market is closed for today
+    // Build next open as a real Date by going through days
+    let candidate=new Date(now);
+    // Move to 9:30 AM ET today first, then advance if past
+    // Use the ET date components to construct a proper candidate
+    const etFmt2=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'});
+    const ep=etFmt2.formatToParts(now);
+    const etY=ep.find(p=>p.type==='year').value;
+    const etMo=ep.find(p=>p.type==='month').value;
+    const etDa=ep.find(p=>p.type==='day').value;
+    // 9:30 AM ET = 13:30 UTC during EDT (UTC-4), 14:30 UTC during EST (UTC-5)
+    // Use a trick: format a known ET time and compute the offset
+    const testDate=new Date(`${etY}-${etMo}-${etDa}T00:00:00Z`);
+    // Get what ET hour this UTC midnight corresponds to
+    const etHourCheck=parseInt(new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'2-digit',hour12:false}).format(testDate));
+    // ET offset from UTC: if etHour at UTC midnight is 20 (yesterday 8pm ET) then offset is -4 (EDT)
+    const etOffsetHours= etHourCheck <= 6 ? -etHourCheck : 24 - etHourCheck;
+    // 9:30 AM ET in UTC
+    const openUTCHour = 9 - etOffsetHours; // e.g. 9 - (-4) = 13 for EDT
+    let nextOpenUTC=new Date(`${etY}-${etMo}-${etDa}T${String(openUTCHour).padStart(2,'0')}:30:00Z`);
+    // If that time is in the past, advance to next day
+    if(nextOpenUTC<=now)nextOpenUTC=new Date(nextOpenUTC.getTime()+86400000);
     // Skip weekends and holidays
     let safety=0;
-    while((nextOpen.getDay()===0||nextOpen.getDay()===6||isNYSEHoliday(nextOpen))&&safety<10){
-      nextOpen.setDate(nextOpen.getDate()+1);safety++;
+    while(safety<10){
+      const wd=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short'}).format(nextOpenUTC);
+      if(wd==='Sat'){nextOpenUTC=new Date(nextOpenUTC.getTime()+86400000);safety++;continue;}
+      if(wd==='Sun'){nextOpenUTC=new Date(nextOpenUTC.getTime()+86400000);safety++;continue;}
+      if(isNYSEHoliday(nextOpenUTC)){nextOpenUTC=new Date(nextOpenUTC.getTime()+86400000);safety++;continue;}
+      break;
     }
-    const diffMs=nextOpen-now;
+    const diffMs=nextOpenUTC-now;
     const diffH=Math.floor(diffMs/3600000);
     const diffM=Math.floor((diffMs%3600000)/60000);
+    const openDisplayFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true});
     banner.className='mkt-closed';
-    banner.textContent=`Market closed -- opens in ${diffH}h ${diffM}m (next: ${nextOpen.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'America/New_York'})} 9:30 AM ET)`;
+    banner.textContent=`Market closed -- opens in ${diffH}h ${diffM}m (${openDisplayFmt.format(nextOpenUTC)} ${tzLabel})`;
   }
 }
 

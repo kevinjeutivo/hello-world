@@ -173,7 +173,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro</div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v1.7.9</span>
+      <span>Options Income Strategy v1.8.0</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -258,7 +258,7 @@ a{color:inherit}
       <div class="exp-chips" id="exp-chips"></div>
       <div class="slider-wrap"><div class="slider-row"><span class="slider-label">% Below Price</span><span class="slider-val" id="pct-below-val">20%</span></div><input type="range" id="pct-below" min="1" max="50" value="20" oninput="updateSlider('pct-below')"></div>
       <div class="slider-wrap"><div class="slider-row"><span class="slider-label">% Above Price</span><span class="slider-val" id="pct-above-val">5%</span></div><input type="range" id="pct-above" min="1" max="50" value="5" oninput="updateSlider('pct-above')"></div>
-      <div class="input-group"><label class="input-label">Highlight APY %</label><input class="input" type="number" id="highlight-apy" value="12" oninput="saveOptionsPrefs()"></div>
+      <div class="input-group"><label class="input-label">Highlight APY %</label><input class="input" type="number" id="highlight-apy" value="12" oninput="saveOptionsPrefs();if(currentOptionsData&&lastOptionsTickerLoaded)buildOptionsTable();"></div>
       <button class="btn btn-primary" onclick="buildOptionsTable()">Load / Refresh Options Chain</button>
     </div>
   </div>
@@ -373,7 +373,10 @@ Version: 1.7</div>
     <button class="btn btn-danger" onclick="clearAllDataWithGuard()">Clear All Cached Data</button>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v1.7.9 -- 2026-04-29
+    <div class="commentary" style="font-size:12px">v1.8.0 -- 2026-04-29
+- Options tab live controls: expiration chips, OTM sliders, and APY threshold now all instantly redraw the options table and OI chart when a chain is already loaded. No need to press Load/Refresh again after adjusting any control.
+
+v1.7.9 -- 2026-04-29
 - Timestamp chips: refreshTsChipAges() now flips chip from green (live) to amber (cached) when data is older than 15 minutes. Fixes contradiction where ETF tab showed green "live" for hour-old data.
 - Options separator: completely rewritten with correct unified logic. In ascending strike order, the separator always appears before the first strike above the current price -- identical for both puts and calls mode. Previous version had swapped conditions causing puts separator to appear at top.
 
@@ -797,7 +800,12 @@ function loadOptionsPrefs(){
   document.getElementById('pct-above-val').textContent=pa+'%';
   document.getElementById('highlight-apy').value=ha;
 }
-function updateSlider(id){document.getElementById(id+'-val').textContent=document.getElementById(id).value+'%';saveOptionsPrefs();}
+function updateSlider(id){
+  document.getElementById(id+'-val').textContent=document.getElementById(id).value+'%';
+  saveOptionsPrefs();
+  // Instantly rebuild table and OI chart when chain already loaded
+  if(currentOptionsData&&lastOptionsTickerLoaded)buildOptionsTable();
+}
 
 // ═══ NAV TABS ═══
 function refreshTsChipAges(){
@@ -1273,9 +1281,15 @@ function setMode(mode){
 function toggleExp(e){
   if(selectedExpirations.includes(e)){selectedExpirations=selectedExpirations.filter(x=>x!==e);document.getElementById('chip-'+e)?.classList.remove('selected');}
   else{selectedExpirations.push(e);document.getElementById('chip-'+e)?.classList.add('selected');}
-  if(cachedOIRows){const t=document.getElementById('options-ticker-select').value;const snap=S.get('snap_'+t);if(snap?.price)renderOIChart(cachedOIRows,snap.price,t);}
+  // Instantly rebuild table and OI chart when chain already loaded
+  if(currentOptionsData&&lastOptionsTickerLoaded)buildOptionsTable();
 }
-function updateSlider(id){document.getElementById(id+'-val').textContent=document.getElementById(id).value+'%';saveOptionsPrefs();}
+function updateSlider(id){
+  document.getElementById(id+'-val').textContent=document.getElementById(id).value+'%';
+  saveOptionsPrefs();
+  // Instantly rebuild table and OI chart when chain already loaded
+  if(currentOptionsData&&lastOptionsTickerLoaded)buildOptionsTable();
+}
 async function loadOptionsForTicker(){
   const t=document.getElementById('options-ticker-select').value;if(!t){clearOptionsState();return;}
   if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('ticker-select').value=t;document.getElementById('ticker-content').innerHTML='<div class="empty"><div class="empty-icon">&#x1F4C8;</div>Ticker changed -- visit Ticker tab to reload</div>';}

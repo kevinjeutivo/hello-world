@@ -1425,16 +1425,16 @@ function buildOptionsTable(){
   const priceSepRow=`<tr><td colspan="8" style="padding:0;border:none">
     <div style="background:rgba(79,195,247,0.12);border-top:2px solid #4fc3f7;border-bottom:2px solid #4fc3f7;
     padding:4px 8px;font-family:var(--mono);font-size:10px;color:#4fc3f7;font-weight:600;text-align:center;letter-spacing:0.5px">
-    NOW &#36;${currentPrice.toFixed(2)}</div></td></tr>`;
+    NOW $${currentPrice.toFixed(2)}</div></td></tr>`;
 
   function rowHTML(r){
     const hl=r.apy>=hlApy;
     const apyCls=r.apy>=hlApy*1.5?'apy-cell great':r.apy>=hlApy?'apy-cell':'';
     return `<tr class="${hl?'highlighted':''}">
-      <td>${r.expDate}<br><span style="color:var(--accent);font-size:12px">&#36;${formatStrike(r.strike)}</span></td>
+      <td>${r.expDate}<br><span style="color:var(--accent);font-size:12px">$${formatStrike(r.strike)}</span></td>
       <td style="color:var(--text2)">${r.pctOTM.toFixed(1)}%</td>
-      <td>&#36;${r.bid.toFixed(2)}</td><td>&#36;${r.ask.toFixed(2)}</td>
-      <td>&#36;${r.premium.toFixed(0)}</td>
+      <td>$${r.bid.toFixed(2)}</td><td>$${r.ask.toFixed(2)}</td>
+      <td>$${r.premium.toFixed(0)}</td>
       <td class="${apyCls}">${r.apy.toFixed(1)}%</td>
       <td>${r.oi.toLocaleString()}</td>
       <td>${(r.iv*100).toFixed(1)}%</td></tr>`;

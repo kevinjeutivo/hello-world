@@ -1449,8 +1449,12 @@ function buildOptionsTable(){
       tableBodyHTML+=earningsBanner();
     }
 
-    // Expiration group header row
-    tableBodyHTML+=`<tr><td colspan="8" style="padding:0;border:none"><div style="background:rgba(${expColor.slice(1).match(/.{2}/g).map(h=>parseInt(h,16)).join(',')},0.12);border-left:4px solid ${expColor};border-top:1px solid ${expColor}44;padding:6px 10px;font-family:var(--mono);font-size:11px;color:${expColor};font-weight:600;display:flex;justify-content:space-between;align-items:center"><span>${expLabel}</span><span style="font-size:13px;letter-spacing:0.5px">DTE: ${dte}</span></div></td></tr>`;
+    // Expiration group header row -- pre-compute RGB to avoid regex inside template literal
+    const hx=expColor.replace('#','');
+    const er=parseInt(hx.substring(0,2),16);
+    const eg=parseInt(hx.substring(2,4),16);
+    const eb=parseInt(hx.substring(4,6),16);
+    tableBodyHTML+='<tr><td colspan="8" style="padding:0;border:none"><div style="background:rgba('+er+','+eg+','+eb+',0.12);border-left:4px solid '+expColor+';border-top:1px solid '+expColor+'44;padding:6px 10px;font-family:var(--mono);font-size:11px;color:'+expColor+';font-weight:600;display:flex;justify-content:space-between;align-items:center"><span>'+expLabel+'</span><span style="font-size:13px;letter-spacing:0.5px">DTE: '+dte+'</span></div></td></tr>';
 
     // Insert earnings banner INSIDE this group if earnings falls within this expiry window
     // (after prev expiry and before this expiry -- already checked above for between-group case)

@@ -173,7 +173,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro</div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v1.8.0</span>
+      <span>Options Income Strategy v1.8.1</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -373,7 +373,11 @@ Version: 1.7</div>
     <button class="btn btn-danger" onclick="clearAllDataWithGuard()">Clear All Cached Data</button>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v1.8.0 -- 2026-04-29
+    <div class="commentary" style="font-size:12px">v1.8.1 -- 2026-04-29
+- Settings save: ticker dropdown selection now restored after saving settings. Previously populateSelects() rebuilt the option elements and the browser reset the dropdown to blank.
+- Settings save: refreshTsChipAges() now called immediately after saving so timezone change is reflected in all visible timestamp chips without needing to switch tabs.
+
+v1.8.0 -- 2026-04-29
 - Options tab live controls: expiration chips, OTM sliders, and APY threshold now all instantly redraw the options table and OI chart when a chain is already loaded. No need to press Load/Refresh again after adjusting any control.
 
 v1.7.9 -- 2026-04-29
@@ -756,7 +760,17 @@ function saveSettings(){
   updateOfflineModeBar();
   const cv=S.get('vix_hist');
   if(cv?.closes){const c=cv.closes.filter(x=>x!==null);if(c.length)updateVIXIndicator(c[c.length-1]);}
-  closeSettings();renderWatchlist();populateSelects();toast('Settings saved');
+  closeSettings();
+  renderWatchlist();
+  populateSelects();
+  // Restore selected ticker in dropdowns after rebuilding option elements
+  if(currentTicker){
+    document.getElementById('ticker-select').value=currentTicker;
+    document.getElementById('options-ticker-select').value=currentTicker;
+  }
+  // Immediately re-format all timestamp chips in the newly selected timezone
+  refreshTsChipAges();
+  toast('Settings saved');
 }
 function updateOfflineModeBar(){
   const bar=document.getElementById('offline-mode-bar');

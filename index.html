@@ -1050,6 +1050,28 @@ function restoreTickerFromCache(t){
   renderTickerContent(snap,hist6mo,hist1y,cn?cn.items:null,cr?cr.data:null,false);
   setTimeout(refreshTsChipAges,50);
 }
+function buildR40Tile(snap){
+  const revGrowth=snap.revenueGrowthTTM;
+  const margin=snap.fcfMargin||snap.operatingMargin;
+  if(revGrowth===null||revGrowth===undefined||margin===null||margin===undefined)return'';
+  const growthPct=(revGrowth*100).toFixed(1);
+  const marginPct=(margin*100).toFixed(1);
+  const score=parseFloat(growthPct)+parseFloat(marginPct);
+  const scoreStr=score.toFixed(1);
+  const scoreColor=score>=40?'var(--green)':score>=20?'var(--warn)':'var(--red)';
+  const scoreLabel=score>=40?'Healthy (above 40)':score>=20?'Below threshold (20-40)':'Weak (below 20)';
+  const marginLabel=snap.fcfMargin?'FCF':'Operating';
+  return '<div class="metric-tile" style="grid-column:span 2">'
+    +'<div class="metric-label">Rule of 40 (software/SaaS)</div>'
+    +'<div style="display:flex;align-items:baseline;gap:8px;margin-top:4px">'
+    +'<div style="font-family:var(--mono);font-size:22px;font-weight:600;color:'+scoreColor+'">'+scoreStr+'</div>'
+    +'<div style="font-family:var(--mono);font-size:11px;color:'+scoreColor+'">'+scoreLabel+'</div>'
+    +'</div>'
+    +'<div class="metric-sub" style="margin-top:4px">Revenue growth '+growthPct+'% + '+marginLabel+' margin '+marginPct+'% = '+scoreStr+'.'
+    +' Applies primarily to software and SaaS companies. Score above 40 indicates healthy growth-profitability balance.</div>'
+    +'</div>';
+}
+
 function renderTickerContent(snap,hist,hist1y,news,recData,isLive){
   const el=document.getElementById('ticker-content');
   const chgColor=snap.change>=0?'var(--green)':'var(--red)';const chgSign=snap.change>=0?'+':'';
@@ -1122,24 +1144,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,isLive){
       <div class="metric-tile"><div class="metric-label">Div Yield</div><div class="metric-value">${snap.dividendYield?snap.dividendYield.toFixed(2)+'%':'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">RSI (14)</div><div class="metric-value" style="color:${rsiColor}">${rsiStr}</div><div class="metric-sub">${rsiLabel}</div></div>
       <div class="metric-tile"><div class="metric-label">Short Interest</div><div class="metric-value" style="font-size:11px">${shortStr}</div></div>
-      ${(()=>{
-        const revGrowth=snap.revenueGrowthTTM;
-        const margin=snap.fcfMargin||snap.operatingMargin;
-        if(revGrowth===null||revGrowth===undefined||margin===null||margin===undefined)return'';
-        const growthPct=revGrowth*100;const marginPct=margin*100;
-        const score=growthPct+marginPct;
-        const scoreColor=score>=40?'var(--green)':score>=20?'var(--warn)':'var(--red)';
-        const scoreLabel=score>=40?'Healthy (above 40)':score>=20?'Below threshold (20-40)':'Weak (below 20)';
-        const marginLabel=snap.fcfMargin?'FCF':'Operating';
-        return\`<div class="metric-tile" style="grid-column:span 2">
-          <div class="metric-label">Rule of 40 (software/SaaS)</div>
-          <div style="display:flex;align-items:baseline;gap:8px;margin-top:4px">
-            <div style="font-family:var(--mono);font-size:22px;font-weight:600;color:\${scoreColor}">\${score.toFixed(1)}</div>
-            <div style="font-family:var(--mono);font-size:11px;color:\${scoreColor}">\${scoreLabel}</div>
-          </div>
-          <div class="metric-sub" style="margin-top:4px">Revenue growth \${growthPct.toFixed(1)}% + \${marginLabel} margin \${marginPct.toFixed(1)}% = \${score.toFixed(1)}. Applies to software and SaaS companies. Score above 40 indicates healthy growth-profitability balance.</div>
-        </div>\`;
-      })()}
+      ${buildR40Tile(snap)}
       ${analystHtml}
       <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">IV Rank (approx)</div><div style="margin-top:4px">${ivr.badge||'N/A'}</div><div class="metric-sub" style="margin-top:4px;font-size:10px;line-height:1.4">${ivr.guidance}</div></div>
       ${impliedMoveStr!=='N/A'?`<div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Implied Move (from options)</div><div class="metric-value" style="font-size:13px">${impliedMoveStr}</div><div class="metric-sub">ATM straddle-implied move. Use to gauge how far OTM your strike should be.</div></div>`:''}

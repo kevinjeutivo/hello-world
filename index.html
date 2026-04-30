@@ -1405,7 +1405,7 @@ function buildOptionsTable(){
   //   3. Current-price separator within each group
   const expirations=[...new Set(rows.map(r=>r.expDate))].sort();
   let tableBodyHTML='';
-  const today=new Date();
+  // today is already declared above in buildOptionsTable scope
 
   // Earnings info for banner
   const snap_for_opts=S.get('snap_'+t);

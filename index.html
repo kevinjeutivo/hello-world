@@ -173,7 +173,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro</div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v1.8.1</span>
+      <span>Options Income Strategy v1.9.0</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -373,7 +373,21 @@ Version: 1.7</div>
     <button class="btn btn-danger" onclick="clearAllDataWithGuard()">Clear All Cached Data</button>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v1.8.1 -- 2026-04-29
+    <div class="commentary" style="font-size:12px">v1.9.0 -- 2026-04-29
+- Forward P/E added to Ticker tab metrics grid with direction indicator
+- Rule of 40 added to Ticker tab (revenue growth % + FCF/operating margin %). Color-coded score with context note that it applies to software/SaaS companies
+- Earnings date: now filters to earliest future date from Finnhub array. Window extended to 180 days. Prevents showing past earnings or far-future date when near-term date was in the array
+- Options table: expiration group header row at top of each month with date, DTE, and color matching OI chart stacked bars
+- Options table: earnings banner inserted at the correct position relative to expirations (between groups or inside group if earnings falls within that window). Shows date and BMO/AMC timing
+- Options table: dollar signs use HTML entity to avoid template literal conflicts
+- OI chart: now cleared immediately when ticker changes before new data loads
+- runDashboards: accepts skipOnlineCheck=true parameter for programmatic calls
+- fullRefreshEverything: now 6 steps including ETF and Market tab refresh. Passes skipOnlineCheck=true to runDashboards
+- Income engine summary: Layer 3 APY reads from target-apy setting on Dashboard tab
+- T-bill card title: FRED reference removed, now shows ^IRX / ^FVX
+- refreshTsChipAges: called in restoreVIXFromCache, restoreTickerFromCache, restoreETFFromCache so chips show correct stale state on first tab visit
+
+v1.8.1 -- 2026-04-29
 - Settings save: ticker dropdown selection now restored after saving settings. Previously populateSelects() rebuilt the option elements and the browser reset the dropdown to blank.
 - Settings save: refreshTsChipAges() now called immediately after saving so timezone change is reflected in all visible timestamp chips without needing to switch tabs.
 
@@ -1008,10 +1022,10 @@ async function loadTicker(){
       const[quote,profile,metrics,earnings,rec]=await Promise.all([
         fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),
         fh(`/stock/metric?symbol=${t}&metric=all`),
-        fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),90))}`),
+        fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`),
         fh(`/stock/recommendation?symbol=${t}`)
       ]);
-      snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,shortInterestPct:metrics.metric?.shortInterestPercentage||metrics.metric?.shortInterestPercent||null,earningsDate:earnings?.earningsCalendar?.[0]?.date||null,earningsHour:earnings?.earningsCalendar?.[0]?.hour||null,ts:nowPT(),isLive:true};
+      snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,peForward:metrics.metric?.peForwardAnnual||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,shortInterestPct:metrics.metric?.shortInterestPercentage||metrics.metric?.shortInterestPercent||null,revenueGrowthTTM:metrics.metric?.revenueGrowthTTMYoy||null,fcfMargin:metrics.metric?.freeCashFlowMarginAnnual||null,operatingMargin:metrics.metric?.operatingMarginAnnual||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true};
       recData=rec&&rec.length?rec[0]:null;
       S.set('snap_'+t,snap);S.set('rec_'+t,{data:recData,ts:nowPT()});
       try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;}}catch{}
@@ -1034,7 +1048,30 @@ function restoreTickerFromCache(t){
   const ch1=S.get('hist1y_'+t);const hist1y=ch1?{timestamps:ch1.timestamps.map(d=>new Date(d)),closes:ch1.closes,volumes:ch1.volumes}:null;
   const cn=S.get('news_'+t);const cr=S.get('rec_'+t);
   renderTickerContent(snap,hist6mo,hist1y,cn?cn.items:null,cr?cr.data:null,false);
+  setTimeout(refreshTsChipAges,50);
 }
+function buildR40Tile(snap){
+  const revGrowth=snap.revenueGrowthTTM;
+  const margin=snap.fcfMargin||snap.operatingMargin;
+  if(revGrowth===null||revGrowth===undefined||margin===null||margin===undefined)return'';
+  const growthPct=(revGrowth*100).toFixed(1);
+  const marginPct=(margin*100).toFixed(1);
+  const score=parseFloat(growthPct)+parseFloat(marginPct);
+  const scoreStr=score.toFixed(1);
+  const scoreColor=score>=40?'var(--green)':score>=20?'var(--warn)':'var(--red)';
+  const scoreLabel=score>=40?'Healthy (above 40)':score>=20?'Below threshold (20-40)':'Weak (below 20)';
+  const marginLabel=snap.fcfMargin?'FCF':'Operating';
+  return '<div class="metric-tile" style="grid-column:span 2">'
+    +'<div class="metric-label">Rule of 40 (software/SaaS)</div>'
+    +'<div style="display:flex;align-items:baseline;gap:8px;margin-top:4px">'
+    +'<div style="font-family:var(--mono);font-size:22px;font-weight:600;color:'+scoreColor+'">'+scoreStr+'</div>'
+    +'<div style="font-family:var(--mono);font-size:11px;color:'+scoreColor+'">'+scoreLabel+'</div>'
+    +'</div>'
+    +'<div class="metric-sub" style="margin-top:4px">Revenue growth '+growthPct+'% + '+marginLabel+' margin '+marginPct+'% = '+scoreStr+'.'
+    +' Applies primarily to software and SaaS companies. Score above 40 indicates healthy growth-profitability balance.</div>'
+    +'</div>';
+}
+
 function renderTickerContent(snap,hist,hist1y,news,recData,isLive){
   const el=document.getElementById('ticker-content');
   const chgColor=snap.change>=0?'var(--green)':'var(--red)';const chgSign=snap.change>=0?'+':'';
@@ -1103,9 +1140,11 @@ function renderTickerContent(snap,hist,hist1y,news,recData,isLive){
       <div class="metric-tile"><div class="metric-label">Market Cap</div><div class="metric-value" style="font-size:12px">${fmtCap(snap.marketCap)}</div></div>
       <div class="metric-tile"><div class="metric-label">Beta</div><div class="metric-value">${snap.beta?.toFixed(2)||'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">P/E (TTM)</div><div class="metric-value">${snap.peRatio?.toFixed(1)||'N/A'}</div></div>
+      <div class="metric-tile"><div class="metric-label">P/E (Forward)</div><div class="metric-value">${snap.peForward?.toFixed(1)||'N/A'}</div><div class="metric-sub">${snap.peRatio&&snap.peForward?(snap.peForward<snap.peRatio?'Earnings growth expected':'Earnings shrinkage expected'):'Estimated next 12m earnings'}</div></div>
       <div class="metric-tile"><div class="metric-label">Div Yield</div><div class="metric-value">${snap.dividendYield?snap.dividendYield.toFixed(2)+'%':'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">RSI (14)</div><div class="metric-value" style="color:${rsiColor}">${rsiStr}</div><div class="metric-sub">${rsiLabel}</div></div>
       <div class="metric-tile"><div class="metric-label">Short Interest</div><div class="metric-value" style="font-size:11px">${shortStr}</div></div>
+      ${buildR40Tile(snap)}
       ${analystHtml}
       <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">IV Rank (approx)</div><div style="margin-top:4px">${ivr.badge||'N/A'}</div><div class="metric-sub" style="margin-top:4px;font-size:10px;line-height:1.4">${ivr.guidance}</div></div>
       ${impliedMoveStr!=='N/A'?`<div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Implied Move (from options)</div><div class="metric-value" style="font-size:13px">${impliedMoveStr}</div><div class="metric-sub">ATM straddle-implied move. Use to gauge how far OTM your strike should be.</div></div>`:''}
@@ -1307,6 +1346,11 @@ function updateSlider(id){
 async function loadOptionsForTicker(){
   const t=document.getElementById('options-ticker-select').value;if(!t){clearOptionsState();return;}
   if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('ticker-select').value=t;document.getElementById('ticker-content').innerHTML='<div class="empty"><div class="empty-icon">&#x1F4C8;</div>Ticker changed -- visit Ticker tab to reload</div>';}
+  // Always clear stale OI chart and cached rows before fetching new ticker data
+  // This prevents the previous ticker's OI chart from showing while new data loads
+  cachedOIRows=null;
+  document.getElementById('oi-chart-section').style.display='none';
+  if(window._oiChart){window._oiChart.destroy();window._oiChart=null;}
   lastOptionsTickerLoaded=t;
   document.getElementById('exp-section').style.display='none';
   document.getElementById('options-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading options for ${t}...</div></div>`;
@@ -1355,60 +1399,93 @@ function buildOptionsTable(){
   rows.sort((a,b)=>a.expDate.localeCompare(b.expDate)||a.strike-b.strike);
   if(!rows.length){document.getElementById('options-content').innerHTML='<div class="card"><div class="empty"><div class="empty-icon">&#x1F50D;</div>No options found in selected range</div></div>';document.getElementById('oi-chart-section').style.display='none';return;}
   cachedOIRows=rows;
-  // Build rows HTML with current-price separator injected per expiration group.
-  // Rows are sorted ascending by strike within each expiration group.
-  // Puts:  ITM puts have strike > currentPrice (top of table, ascending)
-  //        OTM puts have strike <= currentPrice (below separator)
-  //        Separator = before first row where strike <= currentPrice
-  // Calls: ITM calls have strike < currentPrice (top of table, ascending)
-  //        OTM calls have strike >= currentPrice (above separator in ascending order)
-  //        Separator = before first row where strike > currentPrice
+  // Build rows HTML with:
+  //   1. Colored expiration group header (date, DTE, color matches OI chart)
+  //   2. Earnings banner inserted where earnings date falls relative to expirations
+  //   3. Current-price separator within each group
   const expirations=[...new Set(rows.map(r=>r.expDate))].sort();
   let tableBodyHTML='';
-  const sepRow=`<tr><td colspan="8" style="padding:0;border:none">
+  const today=new Date();
+
+  // Earnings info for banner
+  const snap_for_opts=S.get('snap_'+t);
+  const earningsDateStr=snap_for_opts?.earningsDate||null;
+  const earningsHourStr=snap_for_opts?.earningsHour||null;
+  const earningsTiming=earningsHourStr==='bmo'?' BMO':earningsHourStr==='amc'?' AMC':'';
+  const earningsD=earningsDateStr?new Date(earningsDateStr+'T12:00:00Z'):null;
+  let earningsBannerInserted=false;
+
+  function earningsBanner(){
+    if(!earningsDateStr||earningsBannerInserted)return'';
+    earningsBannerInserted=true;
+    const daysAway=Math.round((earningsD-today)/86400000);
+    return `<tr><td colspan="8" style="padding:0;border:none"><div style="background:rgba(255,165,2,0.1);border-left:3px solid rgba(255,165,2,0.7);padding:5px 10px;font-family:var(--mono);font-size:10px;color:var(--warn);font-weight:600">&#x1F4C5; Earnings ${earningsDateStr}${earningsTiming} &middot; ${daysAway}d away</div></td></tr>`;
+  }
+
+  const priceSepRow=`<tr><td colspan="8" style="padding:0;border:none">
     <div style="background:rgba(79,195,247,0.12);border-top:2px solid #4fc3f7;border-bottom:2px solid #4fc3f7;
     padding:4px 8px;font-family:var(--mono);font-size:10px;color:#4fc3f7;font-weight:600;text-align:center;letter-spacing:0.5px">
-    NOW $${currentPrice.toFixed(2)}</div></td></tr>`;
+    NOW &#36;${currentPrice.toFixed(2)}</div></td></tr>`;
 
   function rowHTML(r){
     const hl=r.apy>=hlApy;
     const apyCls=r.apy>=hlApy*1.5?'apy-cell great':r.apy>=hlApy?'apy-cell':'';
     return `<tr class="${hl?'highlighted':''}">
-      <td>${r.expDate}<br><span style="color:var(--accent);font-size:12px">$${formatStrike(r.strike)}</span></td>
+      <td>${r.expDate}<br><span style="color:var(--accent);font-size:12px">&#36;${formatStrike(r.strike)}</span></td>
       <td style="color:var(--text2)">${r.pctOTM.toFixed(1)}%</td>
-      <td>$${r.bid.toFixed(2)}</td><td>$${r.ask.toFixed(2)}</td>
-      <td>$${r.premium.toFixed(0)}</td>
+      <td>&#36;${r.bid.toFixed(2)}</td><td>&#36;${r.ask.toFixed(2)}</td>
+      <td>&#36;${r.premium.toFixed(0)}</td>
       <td class="${apyCls}">${r.apy.toFixed(1)}%</td>
       <td>${r.oi.toLocaleString()}</td>
       <td>${(r.iv*100).toFixed(1)}%</td></tr>`;
   }
 
-  expirations.forEach(exp=>{
+  expirations.forEach((exp,ei)=>{
     const expRows=rows.filter(r=>r.expDate===exp).sort((a,b)=>a.strike-b.strike);
-    // In ascending strike order for BOTH puts and calls:
-    //   strikes below currentPrice come first (OTM puts / ITM calls)
-    //   strikes above currentPrice come after (ITM puts / OTM calls)
-    // The separator always goes before the first strike > currentPrice.
-    // This visually separates the "below price" zone from the "above price" zone.
+    const expD=new Date(exp+'T12:00:00Z');
+    const dte=Math.max(Math.round((expD-today)/86400000),0);
+    const expColor=EXP_COLORS[ei%EXP_COLORS.length];
+    // Format expiration date for display
+    const expLabel=expD.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
+
+    // Insert earnings banner BEFORE this expiration header if earnings falls before this expiry
+    // and has not been inserted yet
+    if(earningsD&&!earningsBannerInserted&&earningsD<expD){
+      tableBodyHTML+=earningsBanner();
+    }
+
+    // Expiration group header row -- pre-compute RGB to avoid regex inside template literal
+    const hx=expColor.replace('#','');
+    const er=parseInt(hx.substring(0,2),16);
+    const eg=parseInt(hx.substring(2,4),16);
+    const eb=parseInt(hx.substring(4,6),16);
+    tableBodyHTML+='<tr><td colspan="8" style="padding:0;border:none"><div style="background:rgba('+er+','+eg+','+eb+',0.12);border-left:4px solid '+expColor+';border-top:1px solid '+expColor+'44;padding:6px 10px;font-family:var(--mono);font-size:11px;color:'+expColor+';font-weight:600;display:flex;justify-content:space-between;align-items:center"><span>'+expLabel+'</span><span style="font-size:13px;letter-spacing:0.5px">DTE: '+dte+'</span></div></td></tr>';
+
+    // Insert earnings banner INSIDE this group if earnings falls within this expiry window
+    // (after prev expiry and before this expiry -- already checked above for between-group case)
+    // Here check if earnings is AFTER prev expiry but this is first group (no prev expiry)
+    if(earningsD&&!earningsBannerInserted&&earningsD<=expD){
+      tableBodyHTML+=earningsBanner();
+    }
+
+    // Current price separator
     const sepIdx=expRows.findIndex(r=>r.strike>currentPrice);
     if(sepIdx===-1){
-      // All displayed strikes are at or below current price
-      // Separator at the bottom -- price is above the entire visible range
       expRows.forEach(r=>{tableBodyHTML+=rowHTML(r);});
-      tableBodyHTML+=sepRow;
+      tableBodyHTML+=priceSepRow;
     }else if(sepIdx===0){
-      // All displayed strikes are above current price
-      // Separator at the top -- price is below the entire visible range
-      tableBodyHTML+=sepRow;
+      tableBodyHTML+=priceSepRow;
       expRows.forEach(r=>{tableBodyHTML+=rowHTML(r);});
     }else{
-      // Normal case: separator splits the rows at the price crossing
       expRows.forEach((r,i)=>{
-        if(i===sepIdx)tableBodyHTML+=sepRow;
+        if(i===sepIdx)tableBodyHTML+=priceSepRow;
         tableBodyHTML+=rowHTML(r);
       });
     }
   });
+
+  // Earnings banner after all expirations if not yet inserted
+  if(earningsD&&!earningsBannerInserted){tableBodyHTML+=earningsBanner();}
   const tableHTML=`<div class="card"><div class="card-title"><span class="dot"></span>${currentMode==='puts'?'Put':'Call'} Options -- ${t} @ $${currentPrice.toFixed(2)}</div><div style="font-family:var(--mono);font-size:9px;color:var(--green);margin-bottom:8px">Live ${nowPT()}</div><div class="options-table-wrap"><table class="options-table"><thead><tr><th>Exp / Strike</th><th>% OTM</th><th>Bid</th><th>Ask</th><th>Premium</th><th>APY</th><th>OI</th><th>IV</th></tr></thead><tbody>${tableBodyHTML}</tbody></table></div></div>`;
   document.getElementById('options-content').innerHTML=tableHTML;renderOIChart(rows,currentPrice,t);
 }
@@ -1444,7 +1521,7 @@ Bars stacked by expiration (see legend). Blue dashed line = current price $${cur
 </script>
 <script>
 // ═══ VIX TAB ═══
-function restoreVIXFromCache(){const cv=S.get('vix_hist'),cv3=S.get('vix3m_hist');if(!cv)return;renderVIXContent({timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes},cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null,false,cv.ts);}
+function restoreVIXFromCache(){const cv=S.get('vix_hist'),cv3=S.get('vix3m_hist');if(!cv)return;renderVIXContent({timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes},cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null,false,cv.ts);refreshTsChipAges();}
 async function loadVIX(){
   if(!navigator.onLine&&!offlineMode){toast('Offline -- showing cached VIX',2500);restoreVIXFromCache();return;}
   if(offlineMode){restoreVIXFromCache();return;}
@@ -1653,7 +1730,7 @@ async function loadETFTab(){
 }
 function restoreETFFromCache(){
   const cached=S.get('etf_rendered');
-  if(cached?.html){document.getElementById('etf-content').innerHTML=cached.html;setTimeout(()=>{['SPYI','NBOS'].forEach(ticker=>{const key='hist_etf_'+ticker;const ch=S.get(key);if(!ch)return;const color=ticker==='SPYI'?'#00d4aa':'#ff6b35';const labels=ch.timestamps.slice(-126).map(d=>{const dd=new Date(d);return dd.toLocaleDateString('en-US',{month:'short',day:'numeric'});});const data=ch.closes.slice(-126);const ctx=document.getElementById(`etf-chart-${ticker}`)?.getContext('2d');if(ctx){new Chart(ctx,{type:'line',data:{labels,datasets:[{data,borderColor:color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});}});},100);}
+  if(cached?.html){document.getElementById('etf-content').innerHTML=cached.html;setTimeout(refreshTsChipAges,200);setTimeout(()=>{['SPYI','NBOS'].forEach(ticker=>{const key='hist_etf_'+ticker;const ch=S.get(key);if(!ch)return;const color=ticker==='SPYI'?'#00d4aa':'#ff6b35';const labels=ch.timestamps.slice(-126).map(d=>{const dd=new Date(d);return dd.toLocaleDateString('en-US',{month:'short',day:'numeric'});});const data=ch.closes.slice(-126);const ctx=document.getElementById(`etf-chart-${ticker}`)?.getContext('2d');if(ctx){new Chart(ctx,{type:'line',data:{labels,datasets:[{data,borderColor:color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});}});},100);}
 }
 
 // ═══ MARKET TAB with T-BILL YIELDS ═══
@@ -1726,13 +1803,13 @@ async function loadMarketTab(){
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(0,212,170,0.1);border-radius:8px;border:1px solid rgba(0,212,170,0.3)">
             <div><div style="font-family:var(--mono);font-size:10px;color:var(--text3)">LAYER 3 -- WHEEL</div><div style="font-family:var(--mono);font-size:12px;color:var(--text2)">Active put/call selling target</div></div>
-            <div style="text-align:right"><div style="font-family:var(--mono);font-size:20px;font-weight:600;color:var(--accent)">12.0%</div><div style="font-family:var(--mono);font-size:9px;color:var(--text3)">${tb3Current?`+${(12-tb3Current).toFixed(2)}% risk premium`:'target APY'}</div></div>
+            <div style="text-align:right"><div style="font-family:var(--mono);font-size:20px;font-weight:600;color:var(--accent)">${(parseFloat(document.getElementById('target-apy')?.value)||12).toFixed(1)}%</div><div style="font-family:var(--mono);font-size:9px;color:var(--text3)">${tb3Current?`+${((parseFloat(document.getElementById('target-apy')?.value)||12)-tb3Current).toFixed(2)}% risk premium`:'target APY (set on Dashboard tab)'}</div></div>
           </div>
         </div>
       </div>
       <!-- T-bill yields -->
       <div class="card">
-        <div class="card-title"><span class="dot" style="background:#64b5f6"></span>T-Bill Yields (FRED)</div>
+        <div class="card-title"><span class="dot" style="background:#64b5f6"></span>T-Bill Yields (^IRX / ^FVX)</div>
         ${tsChip(fredTs,isLive)}
         <div class="metrics-grid">
           <div class="metric-tile"><div class="metric-label">3-Month T-Bill (^IRX)</div><div class="metric-value" style="color:#64b5f6">${tb3Current?tb3Current.toFixed(3)+'%':'N/A'}</div><div class="metric-sub">${tb3Yr?`1Y ago: ${tb3Yr.toFixed(3)}% (${(tb3Current-tb3Yr)>=0?'+':''}${(tb3Current-tb3Yr).toFixed(3)}%)`:''}</div></div>
@@ -1805,12 +1882,12 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
   return{score,signal,factors:reasons.slice(0,2).join(', ')||'Insufficient data',narrative:details.join('. '),recStrike:recStrike||'--',expiration:expiration||'--',estApy:estApy||'--'};
 }
 
-async function runDashboards(){
+async function runDashboards(skipOnlineCheck=false){
   if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');return;}
-  if(!navigator.onLine&&!offlineMode){
-    toast('Offline -- conviction data unchanged',3000);return;
+  if(!skipOnlineCheck){
+    if(!navigator.onLine&&!offlineMode){toast('Offline -- conviction data unchanged',3000);return;}
+    if(offlineMode){toast('Offline mode -- disable in Settings to fetch live data',3000);return;}
   }
-  if(offlineMode){toast('Offline mode -- disable in Settings to fetch live data',3000);return;}
   const btn=document.getElementById('run-dashboard-btn');btn.disabled=true;
   document.getElementById('dashboard-progress').style.display='block';
   const targetAPY=parseFloat(document.getElementById('target-apy').value)||12;
@@ -1820,7 +1897,7 @@ async function runDashboards(){
     document.getElementById('dash-progress-bar').style.width=Math.round((i/watchlist.length)*100)+'%';
     document.getElementById('dash-progress-label').textContent=`Scoring ${t} (${i+1}/${watchlist.length})...`;
     try{
-      const[quote,metrics,earnings]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),90))}`)]);
+      const[quote,metrics,earnings]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)]);
       const price=quote.c,w52h=metrics.metric?.['52WeekHigh'],w52l=metrics.metric?.['52WeekLow'];
       const earningsDate=earnings?.earningsCalendar?.[0]?.date||null;const earningsHour=earnings?.earningsCalendar?.[0]?.hour||null;
       let rsiVal=null,ma50=null,ma200=null,rangePos=null;
@@ -1878,7 +1955,7 @@ async function prefetchAll(){
   if(progressEl)progressEl.style.display='block';
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];if(barEl)barEl.style.width=Math.round((i/watchlist.length)*100)+'%';if(labelEl)labelEl.textContent=`Fetching ${t} (${i+1}/${watchlist.length})...`;
-    try{const[quote,profile,metrics,earnings]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),90))}`)]);S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:earnings?.earningsCalendar?.[0]?.date||null,earningsHour:earnings?.earningsCalendar?.[0]?.hour||null,ts:nowPT(),isLive:true});}catch{}
+    try{const[quote,profile,metrics,earnings]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)]);S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});}catch{}
     try{const h6=await yahooHistory(t,'6mo','1d');S.set('hist_'+t,{timestamps:h6.timestamps.map(d=>d.toISOString()),closes:h6.closes,volumes:h6.volumes,ts:nowPT()});}catch{}
     try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>d.toISOString()),closes:h1.closes,volumes:h1.volumes,ts:nowPT()});}catch{}
     try{const opts=await yahooOptionsViaProxy(t);S.set('options_'+t,{data:opts,ts:nowPT()});const yr=opts?.optionChain?.result?.[0];const monthly=(yr?.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]).filter(e=>{const d=new Date(e+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).slice(0,2);for(const exp of monthly){try{S.set('options_exp_'+t+'_'+exp,await yahooOptionsViaProxy(t,exp));}catch{}}}catch{}
@@ -1897,14 +1974,18 @@ async function fullRefreshEverything(){
   const btn=document.getElementById('full-refresh-btn');btn.disabled=true;
   document.getElementById('full-refresh-progress').style.display='block';
   const bar=document.getElementById('full-refresh-bar'),label=document.getElementById('full-refresh-label');
-  label.textContent='Step 1/4: Fetching all ticker data...';
-  await prefetchAll();bar.style.width='60%';
-  label.textContent='Step 2/4: Running conviction dashboards...';
-  try{await runDashboards();}catch{}bar.style.width='80%';
-  label.textContent='Step 3/4: Loading earnings calendar...';
-  try{await loadEarningsTab();}catch{}bar.style.width='92%';
-  label.textContent='Step 4/4: Refreshing VIX...';
-  try{await loadVIX();}catch{}bar.style.width='100%';
+  label.textContent='Step 1/6: Fetching all ticker data...';
+  await prefetchAll();bar.style.width='50%';
+  label.textContent='Step 2/6: Running conviction dashboards...';
+  try{await runDashboards(true);}catch{}bar.style.width='65%';
+  label.textContent='Step 3/6: Loading earnings calendar...';
+  try{await loadEarningsTab();}catch{}bar.style.width='75%';
+  label.textContent='Step 4/6: Refreshing VIX...';
+  try{await loadVIX();}catch{}bar.style.width='85%';
+  label.textContent='Step 5/6: Refreshing ETF data...';
+  try{await loadETFTab();}catch{}bar.style.width='93%';
+  label.textContent='Step 6/6: Refreshing market data...';
+  try{await loadMarketTab();}catch{}bar.style.width='100%';
   label.textContent='All done!';
   setTimeout(()=>{document.getElementById('full-refresh-progress').style.display='none';},2000);
   btn.disabled=false;renderWatchlist();toast('Full refresh complete',3000);

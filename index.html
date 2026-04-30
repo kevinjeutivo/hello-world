@@ -171,7 +171,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro</div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v1.7.6</span>
+      <span>Options Income Strategy v1.7.7</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -371,7 +371,10 @@ Version: 1.7</div>
     <button class="btn btn-danger" onclick="clearAllDataWithGuard()">Clear All Cached Data</button>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v1.7.6 -- 2026-04-29
+    <div class="commentary" style="font-size:12px">v1.7.7 -- 2026-04-29
+- Market banner: fixed next-open time calculation. Previous version constructed 9:30 AM ET incorrectly by guessing UTC offset from midnight -- which gave wrong results depending on DST. New approach uses make930ET() which tries both EDT (UTC-4) and EST (UTC-5), then verifies with Intl.DateTimeFormat that the resulting UTC timestamp actually corresponds to 9:30 AM ET before using it.
+
+v1.7.6 -- 2026-04-29
 - Volume Profile: VP bars now drawn as overlay on price chart using yAxis.getPixelForValue() -- guarantees pixel-perfect alignment with price axis. No more separate panel.
 - Volume Profile: removed separate horizontal bar chart panel. VP bars integrated into right margin of price chart, color-coded by volume magnitude.
 - Options table: current price separator row injected at the strike crossing point within each expiration group.
@@ -607,45 +610,72 @@ function updateMarketBanner(){
     banner.className='mkt-prepost';
     banner.textContent=`After-hours -- extended session ends in ${minsToHHMM(minsLeft)}`;
   }else{
-    // Find next market open: advance day by day until a non-weekend non-holiday
+    // Find next NYSE open: scan forward day by day from current ET date
+    // Strategy: for each candidate day, construct 9:30 AM ET as a real UTC Date
+    // by binary-searching the offset. We do this by checking what UTC time
+    // corresponds to 9:30 AM on that ET calendar date.
     const now=ms.now;
-    // Start from tomorrow 9:30 AM ET if market is closed for today
-    // Build next open as a real Date by going through days
-    let candidate=new Date(now);
-    // Move to 9:30 AM ET today first, then advance if past
-    // Use the ET date components to construct a proper candidate
-    const etFmt2=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'});
-    const ep=etFmt2.formatToParts(now);
-    const etY=ep.find(p=>p.type==='year').value;
-    const etMo=ep.find(p=>p.type==='month').value;
-    const etDa=ep.find(p=>p.type==='day').value;
-    // 9:30 AM ET = 13:30 UTC during EDT (UTC-4), 14:30 UTC during EST (UTC-5)
-    // Use a trick: format a known ET time and compute the offset
-    const testDate=new Date(`${etY}-${etMo}-${etDa}T00:00:00Z`);
-    // Get what ET hour this UTC midnight corresponds to
-    const etHourCheck=parseInt(new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'2-digit',hour12:false}).format(testDate));
-    // ET offset from UTC: if etHour at UTC midnight is 20 (yesterday 8pm ET) then offset is -4 (EDT)
-    const etOffsetHours= etHourCheck <= 6 ? -etHourCheck : 24 - etHourCheck;
-    // 9:30 AM ET in UTC
-    const openUTCHour = 9 - etOffsetHours; // e.g. 9 - (-4) = 13 for EDT
-    let nextOpenUTC=new Date(`${etY}-${etMo}-${etDa}T${String(openUTCHour).padStart(2,'0')}:30:00Z`);
-    // If that time is in the past, advance to next day
-    if(nextOpenUTC<=now)nextOpenUTC=new Date(nextOpenUTC.getTime()+86400000);
+    // Get current ET date components
+    const etFmt2=new Intl.DateTimeFormat('en-US',{
+      timeZone:'America/New_York',
+      year:'numeric',month:'2-digit',day:'2-digit'
+    });
+    // Build a candidate 9:30 AM ET time for a given calendar date string 'YYYY-MM-DD'
+    // by trying UTC offsets until Intl confirms it's 9:30 in ET
+    function make930ET(etDateStr){
+      // Try UTC offsets -5 (EST) and -4 (EDT)
+      for(const offsetH of [4,5]){
+        // 9:30 AM ET = 9:30 + offsetH in UTC
+        const utcH=9+offsetH;
+        const candidate=new Date(`${etDateStr}T${String(utcH).padStart(2,'0')}:30:00Z`);
+        // Verify this is actually 9:30 AM ET using Intl
+        const parts=new Intl.DateTimeFormat('en-US',{
+          timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false
+        }).formatToParts(candidate);
+        const h=parseInt(parts.find(p=>p.type==='hour').value);
+        const m=parseInt(parts.find(p=>p.type==='minute').value);
+        if(h===9&&m===30)return candidate;
+      }
+      // Fallback: assume EDT (UTC-4)
+      return new Date(`${etDateStr}T13:30:00Z`);
+    }
+
+    // Start with today's ET date
+    const todayParts=etFmt2.formatToParts(now);
+    const etY=todayParts.find(p=>p.type==='year').value;
+    const etMo=todayParts.find(p=>p.type==='month').value;
+    const etDa=todayParts.find(p=>p.type==='day').value;
+    let etDateStr=`${etY}-${etMo}-${etDa}`;
+
+    let nextOpen=make930ET(etDateStr);
+    // If 9:30 AM ET today is already past, move to next day
+    if(nextOpen<=now){
+      const d=new Date(nextOpen.getTime()+86400000);
+      const p=etFmt2.formatToParts(d);
+      etDateStr=`${p.find(q=>q.type==='year').value}-${p.find(q=>q.type==='month').value}-${p.find(q=>q.type==='day').value}`;
+      nextOpen=make930ET(etDateStr);
+    }
     // Skip weekends and holidays
     let safety=0;
     while(safety<10){
-      const wd=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short'}).format(nextOpenUTC);
-      if(wd==='Sat'){nextOpenUTC=new Date(nextOpenUTC.getTime()+86400000);safety++;continue;}
-      if(wd==='Sun'){nextOpenUTC=new Date(nextOpenUTC.getTime()+86400000);safety++;continue;}
-      if(isNYSEHoliday(nextOpenUTC)){nextOpenUTC=new Date(nextOpenUTC.getTime()+86400000);safety++;continue;}
-      break;
+      const wd=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short'}).format(nextOpen);
+      if(wd==='Sat'||wd==='Sun'||isNYSEHoliday(nextOpen)){
+        const d=new Date(nextOpen.getTime()+86400000);
+        const p=etFmt2.formatToParts(d);
+        etDateStr=`${p.find(q=>q.type==='year').value}-${p.find(q=>q.type==='month').value}-${p.find(q=>q.type==='day').value}`;
+        nextOpen=make930ET(etDateStr);
+        safety++;
+      }else break;
     }
-    const diffMs=nextOpenUTC-now;
+    const diffMs=nextOpen-now;
     const diffH=Math.floor(diffMs/3600000);
     const diffM=Math.floor((diffMs%3600000)/60000);
-    const openDisplayFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true});
+    const openDisplayFmt=new Intl.DateTimeFormat('en-US',{
+      timeZone:tz,weekday:'short',month:'short',day:'numeric',
+      hour:'numeric',minute:'2-digit',hour12:true
+    });
     banner.className='mkt-closed';
-    banner.textContent=`Market closed -- opens in ${diffH}h ${diffM}m (${openDisplayFmt.format(nextOpenUTC)} ${tzLabel})`;
+    banner.textContent=`Market closed -- opens in ${diffH}h ${diffM}m (${openDisplayFmt.format(nextOpen)} ${tzLabel})`;
   }
 }
 

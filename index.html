@@ -173,7 +173,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro</div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v1.7.8</span>
+      <span>Options Income Strategy v1.7.9</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -373,7 +373,11 @@ Version: 1.7</div>
     <button class="btn btn-danger" onclick="clearAllDataWithGuard()">Clear All Cached Data</button>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v1.7.8 -- 2026-04-29
+    <div class="commentary" style="font-size:12px">v1.7.9 -- 2026-04-29
+- Timestamp chips: refreshTsChipAges() now flips chip from green (live) to amber (cached) when data is older than 15 minutes. Fixes contradiction where ETF tab showed green "live" for hour-old data.
+- Options separator: completely rewritten with correct unified logic. In ascending strike order, the separator always appears before the first strike above the current price -- identical for both puts and calls mode. Previous version had swapped conditions causing puts separator to appear at top.
+
+v1.7.8 -- 2026-04-29
 - After-hours/pre-market price: now uses Yahoo Finance quote endpoint (?type=quote) via Worker -- same data source as Python yfinance stock.info. Shows change and % alongside extended price.
 - PWA icon: apple-touch-icon link tags added. Drop a 180x180 apple-touch-icon.png in the repo root whenever ready.
 - Options mode toggle: switching between Sell Puts and Sell Calls now auto-rebuilds the table and OI chart instantly without requiring a second button tap. Button renamed to "Load / Refresh Options Chain".
@@ -797,18 +801,30 @@ function updateSlider(id){document.getElementById(id+'-val').textContent=documen
 
 // ═══ NAV TABS ═══
 function refreshTsChipAges(){
-  // Re-compute relative age on all visible ts-chips so "3h ago" stays accurate
-  // Called on every tab switch -- lightweight DOM walk
+  // Re-compute relative age on all ts-chips and flip live->stale when data is old.
+  // Called on every tab switch so ages never show stale values.
+  const STALE_MINS=15; // flip green->amber after this many minutes
   document.querySelectorAll('.ts-chip').forEach(chip=>{
     const text=chip.textContent||'';
-    // Extract the timestamp portion -- everything after "live " or "cached "
-    const match=text.match(/(?:live|cached)\s+(.+?)(?:\s+\(.*\))?$/);
+    // Extract timestamp portion -- everything after "live " or "cached "
+    const match=text.match(/^(?:live|cached)\s+(.+?)(?:\s+\(.*\))?$/);
     if(!match)return;
     const tsStr=match[1].trim();
     const age=relAge(tsStr);
-    const isLiveChip=chip.classList.contains('live');
-    // Rebuild chip text
-    const prefix=isLiveChip?'live':'cached';
+    // Compute age in minutes to decide live vs stale
+    let ageMins=Infinity;
+    try{
+      const clean=tsStr.replace(/ PT$| UTC$| local$/,'').trim();
+      const d=new Date(clean);
+      if(!isNaN(d.getTime()))ageMins=(Date.now()-d.getTime())/60000;
+    }catch{}
+    // Flip to stale if older than threshold, regardless of original class
+    const shouldBeStale=ageMins>STALE_MINS;
+    if(shouldBeStale){
+      chip.classList.remove('live');
+      chip.classList.add('stale');
+    }
+    const prefix=chip.classList.contains('live')?'live':'cached';
     chip.textContent=`${prefix} ${tsStr}${age?' ('+age+')':''}`;
   });
 }
@@ -1341,33 +1357,24 @@ function buildOptionsTable(){
 
   expirations.forEach(exp=>{
     const expRows=rows.filter(r=>r.expDate===exp).sort((a,b)=>a.strike-b.strike);
-    // Find insertion index: first row that crosses into OTM territory
-    let sepIdx;
-    if(currentMode==='puts'){
-      // Ascending strikes: ITM puts (strike>price) come first, OTM puts (strike<=price) after
-      // Separator before first strike <= currentPrice
-      sepIdx=expRows.findIndex(r=>r.strike<=currentPrice);
-    }else{
-      // Ascending strikes: ITM calls (strike<price) come first, OTM calls (strike>price) after
-      // Separator before first strike > currentPrice
-      sepIdx=expRows.findIndex(r=>r.strike>currentPrice);
-    }
-    // Build this expiration's rows with separator spliced in
+    // In ascending strike order for BOTH puts and calls:
+    //   strikes below currentPrice come first (OTM puts / ITM calls)
+    //   strikes above currentPrice come after (ITM puts / OTM calls)
+    // The separator always goes before the first strike > currentPrice.
+    // This visually separates the "below price" zone from the "above price" zone.
+    const sepIdx=expRows.findIndex(r=>r.strike>currentPrice);
     if(sepIdx===-1){
-      // All strikes are on one side -- no crossing in visible range
-      // For puts all OTM: sep at top. For calls all OTM: sep at top.
-      // For puts all ITM: sep at bottom. For calls all ITM: sep at bottom.
-      const allOTM=currentMode==='puts'
-        ?expRows.every(r=>r.strike<=currentPrice)
-        :expRows.every(r=>r.strike>currentPrice);
-      if(allOTM){
-        tableBodyHTML+=sepRow; // separator before all OTM rows
-        expRows.forEach(r=>{tableBodyHTML+=rowHTML(r);});
-      }else{
-        expRows.forEach(r=>{tableBodyHTML+=rowHTML(r);});
-        tableBodyHTML+=sepRow; // separator after all ITM rows
-      }
+      // All displayed strikes are at or below current price
+      // Separator at the bottom -- price is above the entire visible range
+      expRows.forEach(r=>{tableBodyHTML+=rowHTML(r);});
+      tableBodyHTML+=sepRow;
+    }else if(sepIdx===0){
+      // All displayed strikes are above current price
+      // Separator at the top -- price is below the entire visible range
+      tableBodyHTML+=sepRow;
+      expRows.forEach(r=>{tableBodyHTML+=rowHTML(r);});
     }else{
+      // Normal case: separator splits the rows at the price crossing
       expRows.forEach((r,i)=>{
         if(i===sepIdx)tableBodyHTML+=sepRow;
         tableBodyHTML+=rowHTML(r);

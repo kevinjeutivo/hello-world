@@ -171,7 +171,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro</div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v1.7.5</span>
+      <span>Options Income Strategy v1.7.6</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -371,7 +371,17 @@ Version: 1.7</div>
     <button class="btn btn-danger" onclick="clearAllDataWithGuard()">Clear All Cached Data</button>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v1.7.5 -- 2026-04-29
+    <div class="commentary" style="font-size:12px">v1.7.6 -- 2026-04-29
+- Volume Profile: VP bars now drawn as overlay on price chart using yAxis.getPixelForValue() -- guarantees pixel-perfect alignment with price axis. No more separate panel.
+- Volume Profile: removed separate horizontal bar chart panel. VP bars integrated into right margin of price chart, color-coded by volume magnitude.
+- Options table: current price separator row injected at the strike crossing point within each expiration group.
+- After-hours price: now also shows pre-market price when available; handles all extended-hours session states.
+- Short interest: improved field detection; shows "not reported" instead of "N/A" when data is genuinely unavailable.
+- Offline guard: all refresh/run buttons (dashboards, earnings, VIX, prefetch, ETF, market) now check connectivity before attempting fetch. Cached data is preserved.
+- Timestamp chips: age ("3h ago") refreshed on every tab switch so values never show "just now" for stale data.
+- ETF charts: SPYI chart now renders reliably using sequential requestAnimationFrame instead of setTimeout.
+
+v1.7.5 -- 2026-04-29
 - Options sliders: loadOptionsPrefs() now called whenever a new ticker is loaded in Options tab, so slider positions always reflect saved values rather than drifting
 - Volume Profile: both panels now share the same Y-axis min/max so price levels align horizontally across the price chart and volume bar chart
 - Volume Profile: chart container is now a horizontal scroll wrapper -- swipe left to see full volume bar panel on narrow screens
@@ -748,12 +758,31 @@ function loadOptionsPrefs(){
 function updateSlider(id){document.getElementById(id+'-val').textContent=document.getElementById(id).value+'%';saveOptionsPrefs();}
 
 // ═══ NAV TABS ═══
+function refreshTsChipAges(){
+  // Re-compute relative age on all visible ts-chips so "3h ago" stays accurate
+  // Called on every tab switch -- lightweight DOM walk
+  document.querySelectorAll('.ts-chip').forEach(chip=>{
+    const text=chip.textContent||'';
+    // Extract the timestamp portion -- everything after "live " or "cached "
+    const match=text.match(/(?:live|cached)\s+(.+?)(?:\s+\(.*\))?$/);
+    if(!match)return;
+    const tsStr=match[1].trim();
+    const age=relAge(tsStr);
+    const isLiveChip=chip.classList.contains('live');
+    // Rebuild chip text
+    const prefix=isLiveChip?'live':'cached';
+    chip.textContent=`${prefix} ${tsStr}${age?' ('+age+')':''}`;
+  });
+}
+
 function showTab(name){
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
   const tabs=['dashboard','watchlist','ticker','options','vix','earnings','etf','market','guide'];
   document.querySelectorAll('.nav-tab')[tabs.indexOf(name)].classList.add('active');
+  // Refresh all age labels whenever user switches tabs
+  refreshTsChipAges();
   if(name==='watchlist')renderWatchlist();
   if(name==='ticker'&&currentTicker){
     document.getElementById('ticker-select').value=currentTicker;
@@ -796,7 +825,25 @@ async function yahooOptionsViaProxy(symbol,expiration){
 }
 async function fetchAfterHoursPrice(symbol){
   if(offlineMode)return null;
-  try{const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=history&range=1d&interval=1m`);if(!r.ok)return null;const d=await r.json();const meta=d.chart?.result?.[0]?.meta;return meta?{postMarketPrice:meta.postMarketPrice||null,marketState:meta.marketState||null}:null;}catch{return null;}
+  try{
+    const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=history&range=1d&interval=1m`);
+    if(!r.ok)return null;
+    const d=await r.json();
+    const meta=d.chart?.result?.[0]?.meta;
+    if(!meta)return null;
+    const marketState=meta.marketState||'';
+    // Yahoo uses different fields depending on session state
+    // postMarketPrice: available after 4pm ET
+    // preMarketPrice: available before 9:30am ET
+    // regularMarketPrice: current price during session (fallback)
+    const extPrice=meta.postMarketPrice||meta.preMarketPrice||null;
+    return{
+      postMarketPrice:extPrice,
+      marketState,
+      regularMarketPrice:meta.regularMarketPrice||null,
+      hasExtended:!!extPrice
+    };
+  }catch{return null;}
 }
 async function fetchNews(ticker){
   const to=fmtDate(new Date());const from=fmtDate(addDays(new Date(),-7));
@@ -885,7 +932,7 @@ async function loadTicker(){
         fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),90))}`),
         fh(`/stock/recommendation?symbol=${t}`)
       ]);
-      snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:earnings?.earningsCalendar?.[0]?.date||null,earningsHour:earnings?.earningsCalendar?.[0]?.hour||null,ts:nowPT(),isLive:true};
+      snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,shortInterestPct:metrics.metric?.shortInterestPercentage||metrics.metric?.shortInterestPercent||null,earningsDate:earnings?.earningsCalendar?.[0]?.date||null,earningsHour:earnings?.earningsCalendar?.[0]?.hour||null,ts:nowPT(),isLive:true};
       recData=rec&&rec.length?rec[0]:null;
       S.set('snap_'+t,snap);S.set('rec_'+t,{data:recData,ts:nowPT()});
       try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.marketState=ah.marketState;}}catch{}
@@ -932,7 +979,15 @@ function renderTickerContent(snap,hist,hist1y,news,recData,isLive){
   const ivr=ivrInfo(ivrVal);
   let impliedMoveStr='N/A';
   try{const oc=S.get('options_'+snap.ticker);const res=oc?.data?.optionChain?.result?.[0];if(res&&snap.price){const opts=res.options?.[0];if(opts){const atmP=(opts.puts||[]).filter(p=>Math.abs(p.strike-snap.price)/snap.price<0.03);const atmC=(opts.calls||[]).filter(c=>Math.abs(c.strike-snap.price)/snap.price<0.03);if(atmP.length&&atmC.length){const straddle=((atmP[0].bid+atmP[0].ask)/2)+((atmC[0].bid+atmC[0].ask)/2);impliedMoveStr=`+/-${(straddle/snap.price*100).toFixed(1)}% ($${straddle.toFixed(2)} straddle)`;}}}}catch{}
-  const shortStr=snap.shortInterest?`${(snap.shortInterest/1e6).toFixed(1)}M shares (ratio: ${snap.shortRatio?.toFixed(1)||'N/A'}d)`:'N/A';
+  // Short interest: Finnhub provides shortInterest (shares) and shortRatio (days-to-cover)
+  // Updated twice monthly; may be null on free tier for some tickers
+  let shortStr='N/A (not reported)';
+  if(snap.shortInterest&&snap.shortInterest>0){
+    shortStr=`${(snap.shortInterest/1e6).toFixed(1)}M shares`;
+    if(snap.shortRatio)shortStr+=` (${snap.shortRatio.toFixed(1)}d to cover)`;
+  }else if(snap.shortInterestPct&&snap.shortInterestPct>0){
+    shortStr=`${snap.shortInterestPct.toFixed(1)}% of float`;
+  }
   // Analyst recommendation display
   let analystHtml='';
   if(recData){
@@ -962,7 +1017,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,isLive){
     ${tsChip(snap.ts,isLive)}
     <div style="font-family:var(--mono);font-size:28px;font-weight:500;margin-bottom:4px">$${snap.price?.toFixed(2)||'N/A'}</div>
     <div style="font-family:var(--mono);font-size:13px;color:${chgColor};margin-bottom:6px">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>
-    ${snap.postMarketPrice?`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarketPrice>snap.price?'var(--green)':'var(--red)'};margin-bottom:8px">After-hours: $${snap.postMarketPrice.toFixed(2)} (${snap.marketState||''})</div>`:''}
+    ${(snap.postMarketPrice&&snap.postMarketPrice!==snap.price)?`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarketPrice>snap.price?'var(--green)':'var(--red)'};margin-bottom:8px">${snap.marketState==='PRE'?'Pre-market':'After-hours'}: $${snap.postMarketPrice.toFixed(2)} <span style="font-size:10px;color:var(--text3)">(${snap.marketState||'extended hours'})</span></div>`:''}
     <div class="metrics-grid">
       <div class="metric-tile"><div class="metric-label">52W High</div><div class="metric-value" style="font-size:13px">$${snap.week52High?.toFixed(2)||'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">52W Low</div><div class="metric-value" style="font-size:13px">$${snap.week52Low?.toFixed(2)||'N/A'}</div></div>
@@ -981,7 +1036,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,isLive){
   ${hist?`<div class="card"><div class="card-title"><span class="dot"></span>Bollinger Bands + RSI (6mo)</div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility.
 
 RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red shading) = overbought, favorable for covered calls.</div></div>`:''}
-  ${hist1y?`<div class="card"><div class="card-title"><span class="dot" style="background:teal"></span>Volume Profile -- Support / Resistance (1Y)</div><div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><div style="display:flex;gap:0;min-width:420px"><div style="flex:0 0 300px;position:relative;height:280px"><canvas id="vp-chart"></canvas></div><div style="flex:0 0 120px;position:relative;height:280px"><canvas id="vp-vol-chart"></canvas></div></div></div><div id="vp-analysis"></div></div>`:''}
+  ${hist1y?`<div class="card"><div class="card-title"><span class="dot" style="background:teal"></span>Volume Profile -- Support / Resistance (1Y)</div><div class="chart-wrap" style="height:300px"><canvas id="vp-chart"></canvas></div><div id="vp-analysis"></div></div>`:''}
   <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Recent News (7 days)</div><div id="news-section">${renderNewsItems(news)}</div></div>`;
   if(bbData)renderBBChart(bbData,hist);
   if(hist1y)renderVPChart(hist1y,snap.price,snap.week52High,snap.week52Low);
@@ -1000,53 +1055,132 @@ function renderBBChart(bbData,hist){
   }
 }
 function renderVPChart(hist1y,currentPrice,w52h,w52l){
-  const closes=hist1y.closes.filter(c=>c!==null);const volumes=hist1y.volumes.filter((_,i)=>hist1y.closes[i]!==null);
+  const closes=hist1y.closes.filter(c=>c!==null);
+  const volumes=hist1y.volumes.filter((_,i)=>hist1y.closes[i]!==null);
   const{levels:vpLevels,centers,vols:bucketVols}=computeVolumeProfile(closes,volumes,40,5);
   const roundNums=getRoundNumbers(currentPrice);
   const ma50=closes.map((_,i)=>i<49?null:avg(closes.slice(i-49,i+1)));
   const ma200=closes.map((_,i)=>i<199?null:avg(closes.slice(i-199,i+1)));
-  const labels=hist1y.timestamps.map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});});
-  const topVpIdxs=new Set(vpLevels.map(l=>centers.reduce((bi,c,i)=>Math.abs(c-l)<Math.abs(centers[bi]-l)?i:bi,0)));
-  // Compute shared Y-axis range so both panels align vertically
-  const allPrices=closes.filter(c=>c!==null);
-  const priceMin=Math.min(...allPrices);
-  const priceMax=Math.max(...allPrices);
-  const pricePad=(priceMax-priceMin)*0.05;
-  const yMin=priceMin-pricePad;
-  const yMax=priceMax+pricePad;
+  const labels=hist1y.timestamps.map(d=>{
+    if(!(d instanceof Date))d=new Date(d);
+    return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  });
+  const topVpIdxs=new Set(vpLevels.map(l=>
+    centers.reduce((bi,c,i)=>Math.abs(c-l)<Math.abs(centers[bi]-l)?i:bi,0)
+  ));
+  const maxVol=Math.max(...bucketVols);
 
   const ctx=document.getElementById('vp-chart')?.getContext('2d');
-  if(ctx){if(window._vpChart)window._vpChart.destroy();window._vpChart=new Chart(ctx,{type:'line',data:{labels,datasets:[{data:closes,borderColor:'#4fc3f7',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},{data:ma50,borderColor:'#ff9800',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false},{data:ma200,borderColor:'#7c6af7',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false}]},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:14,right:80}},plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{min:yMin,max:yMax,ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}},plugins:[{id:'vpOverlay',afterDraw(chart){const c=chart.ctx,xA=chart.scales.x,yA=chart.scales.y;const xL=xA.left,xR=xA.right,yT=yA.top,yB=yA.bottom;function clampY(y,pad=9){return Math.max(yT+pad,Math.min(yB-pad,y));}c.save();c.font='bold 9px DM Mono,monospace';c.textAlign='left';vpLevels.forEach(lvl=>{if(lvl<yA.min||lvl>yA.max)return;const y=yA.getPixelForValue(lvl);c.setLineDash([4,4]);c.lineWidth=1.5;c.strokeStyle='rgba(0,212,170,0.8)';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.setLineDash([]);c.fillStyle='rgba(0,212,170,0.9)';c.fillText('VP $'+lvl.toFixed(0),xR+4,clampY(y+3));});if(w52h&&w52h>=yA.min&&w52h<=yA.max){const y=yA.getPixelForValue(w52h);c.setLineDash([6,3]);c.lineWidth=1.2;c.strokeStyle='rgba(255,71,87,0.7)';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.setLineDash([]);c.fillStyle='rgba(255,71,87,0.9)';c.fillText('52H $'+w52h.toFixed(0),xR+4,clampY(y-2));}if(w52l&&w52l>=yA.min&&w52l<=yA.max){const y=yA.getPixelForValue(w52l);c.setLineDash([6,3]);c.lineWidth=1.2;c.strokeStyle='rgba(0,200,150,0.7)';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.setLineDash([]);c.fillStyle='rgba(0,200,150,0.9)';c.fillText('52L $'+w52l.toFixed(0),xR+4,clampY(y+10));}c.setLineDash([2,4]);c.lineWidth=0.8;c.strokeStyle='rgba(100,100,120,0.4)';roundNums.forEach(rn=>{if(rn<yA.min||rn>yA.max)return;const y=yA.getPixelForValue(rn);c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();});c.setLineDash([]);if(currentPrice>=yA.min&&currentPrice<=yA.max){const y=yA.getPixelForValue(currentPrice);c.lineWidth=2;c.strokeStyle='#4fc3f7';c.beginPath();c.moveTo(xL,y);c.lineTo(xR,y);c.stroke();c.fillStyle='#4fc3f7';c.fillText('Now $'+currentPrice.toFixed(0),xR+4,clampY(y+4));}c.restore();}}]});}
+  if(!ctx)return;
+  if(window._vpChart)window._vpChart.destroy();
+  if(window._vpVolChart){window._vpVolChart.destroy();window._vpVolChart=null;}
 
-  // Right panel: horizontal volume bars aligned to same price range as left panel
-  // Y-axis uses the same yMin/yMax so bars sit at exactly the correct price positions
-  const volCtx=document.getElementById('vp-vol-chart')?.getContext('2d');
-  if(volCtx){
-    if(window._vpVolChart)window._vpVolChart.destroy();
-    const barColors=centers.map((_,i)=>topVpIdxs.has(i)?'rgba(0,212,170,0.75)':'rgba(42,70,80,0.6)');
-    // Use numeric center prices as y-axis values (not string labels) so they align with left chart
-    window._vpVolChart=new Chart(volCtx,{
-      type:'bar',
-      data:{
-        labels:centers.map(c=>c.toFixed(1)),
-        datasets:[{data:bucketVols.map(v=>v/1e6),backgroundColor:barColors,borderRadius:1,barThickness:'flex'}]
-      },
-      options:{
-        indexAxis:'y',
-        responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`Vol: ${ctx.parsed.x.toFixed(1)}M`}}},
-        scales:{
-          x:{ticks:{color:'#555870',font:{size:8}},grid:{color:'#2a2e38'},title:{display:true,text:'Vol(M)',color:'#555870',font:{size:8}}},
-          y:{
-            min:yMin,max:yMax,
-            type:'linear',
-            ticks:{color:'#555870',font:{size:8},maxTicksLimit:8,callback:v=>`$${Number(v).toFixed(0)}`},
-            grid:{color:'#2a2e38'}
-          }
-        }
+  window._vpChart=new Chart(ctx,{
+    type:'line',
+    data:{labels,datasets:[
+      {data:closes,borderColor:'#4fc3f7',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},
+      {data:ma50,borderColor:'#ff9800',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false},
+      {data:ma200,borderColor:'#7c6af7',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false}
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      // Reserve right side for VP bar overlay + labels
+      layout:{padding:{top:14,right:10,left:0,bottom:0}},
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},
+        y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}
       }
-    });
-  }
+    },
+    plugins:[{
+      id:'vpOverlay',
+      afterDraw(chart){
+        const c=chart.ctx,xA=chart.scales.x,yA=chart.scales.y;
+        const xL=xA.left,xR=xA.right,yT=yA.top,yB=yA.bottom;
+        const chartW=xR-xL;
+        // VP bars drawn in right 22% of chart area so they don't obscure price data
+        const vpBarMaxW=chartW*0.22;
+        const vpBarX=xR-vpBarMaxW; // left edge of VP bar zone
+
+        function clampY(y,pad=9){return Math.max(yT+pad,Math.min(yB-pad,y));}
+        c.save();
+
+        // ── Draw VP volume bars (aligned to price axis) ──
+        // Each bucket is drawn as a horizontal rectangle at the exact pixel
+        // position of its center price using yA.getPixelForValue().
+        // This guarantees perfect alignment with the left price chart.
+        const nBuckets=centers.length;
+        if(nBuckets>0&&maxVol>0){
+          // Bucket pixel height: distance between adjacent centers in pixels
+          const bucketH=nBuckets>1
+            ?Math.abs(yA.getPixelForValue(centers[1])-yA.getPixelForValue(centers[0]))
+            :8;
+          centers.forEach((price,i)=>{
+            if(price<yA.min||price>yA.max)return;
+            const barW=(bucketVols[i]/maxVol)*vpBarMaxW;
+            const barY=yA.getPixelForValue(price)-bucketH/2;
+            const isTop=topVpIdxs.has(i);
+            c.fillStyle=isTop?'rgba(0,212,170,0.55)':'rgba(60,90,100,0.35)';
+            c.fillRect(vpBarX,barY,barW,Math.max(bucketH-1,1));
+          });
+          // Thin vertical separator line between price chart and VP bars
+          c.strokeStyle='rgba(42,46,56,0.8)';c.lineWidth=1;c.setLineDash([]);
+          c.beginPath();c.moveTo(vpBarX,yT);c.lineTo(vpBarX,yB);c.stroke();
+          // "VOL" label at top of VP bar zone
+          c.font='8px DM Mono,monospace';c.fillStyle='rgba(85,88,112,0.9)';
+          c.textAlign='center';c.fillText('VOL',vpBarX+vpBarMaxW/2,yT+9);
+        }
+
+        // ── VP level lines + labels ──
+        c.font='bold 9px DM Mono,monospace';c.textAlign='left';
+        vpLevels.forEach(lvl=>{
+          if(lvl<yA.min||lvl>yA.max)return;
+          const y=yA.getPixelForValue(lvl);
+          c.setLineDash([4,4]);c.lineWidth=1.5;c.strokeStyle='rgba(0,212,170,0.8)';
+          c.beginPath();c.moveTo(xL,y);c.lineTo(vpBarX-2,y);c.stroke();c.setLineDash([]);
+          c.fillStyle='rgba(0,212,170,0.9)';
+          c.fillText('S/R $'+lvl.toFixed(0),xL+2,clampY(y-3));
+        });
+
+        // ── 52W high/low ──
+        if(w52h&&w52h>=yA.min&&w52h<=yA.max){
+          const y=yA.getPixelForValue(w52h);
+          c.setLineDash([6,3]);c.lineWidth=1.2;c.strokeStyle='rgba(255,71,87,0.7)';
+          c.beginPath();c.moveTo(xL,y);c.lineTo(vpBarX-2,y);c.stroke();c.setLineDash([]);
+          c.fillStyle='rgba(255,71,87,0.9)';c.font='bold 9px DM Mono,monospace';
+          c.fillText('52H $'+w52h.toFixed(0),xL+2,clampY(y-3));
+        }
+        if(w52l&&w52l>=yA.min&&w52l<=yA.max){
+          const y=yA.getPixelForValue(w52l);
+          c.setLineDash([6,3]);c.lineWidth=1.2;c.strokeStyle='rgba(0,200,150,0.7)';
+          c.beginPath();c.moveTo(xL,y);c.lineTo(vpBarX-2,y);c.stroke();c.setLineDash([]);
+          c.fillStyle='rgba(0,200,150,0.9)';c.font='bold 9px DM Mono,monospace';
+          c.fillText('52L $'+w52l.toFixed(0),xL+2,clampY(y+10));
+        }
+
+        // ── Round numbers (subtle) ──
+        c.setLineDash([2,4]);c.lineWidth=0.8;c.strokeStyle='rgba(100,100,120,0.4)';
+        roundNums.forEach(rn=>{
+          if(rn<yA.min||rn>yA.max)return;
+          const y=yA.getPixelForValue(rn);
+          c.beginPath();c.moveTo(xL,y);c.lineTo(vpBarX-2,y);c.stroke();
+        });
+        c.setLineDash([]);
+
+        // ── Current price line (solid blue, clamped label) ──
+        if(currentPrice>=yA.min&&currentPrice<=yA.max){
+          const y=yA.getPixelForValue(currentPrice);
+          c.lineWidth=2;c.strokeStyle='#4fc3f7';
+          c.beginPath();c.moveTo(xL,y);c.lineTo(vpBarX-2,y);c.stroke();
+          // Label on left side, clamped inside chart
+          c.font='bold 9px DM Mono,monospace';c.fillStyle='#4fc3f7';c.textAlign='left';
+          c.fillText('NOW $'+currentPrice.toFixed(2),xL+2,clampY(y-3));
+        }
+
+        c.restore();
+      }
+    }]
+  });
   const vpBelow=vpLevels.filter(l=>l<=currentPrice);const vpAbove=vpLevels.filter(l=>l>currentPrice);
   const ns=vpBelow.length?Math.max(...vpBelow):null;const nr=vpAbove.length?Math.min(...vpAbove):null;
   let analysis='Volume Profile shows where the most shares traded over the past year. High-volume zones act as support (from above) and resistance (from below).\n';
@@ -1131,7 +1265,41 @@ function buildOptionsTable(){
   rows.sort((a,b)=>a.expDate.localeCompare(b.expDate)||a.strike-b.strike);
   if(!rows.length){document.getElementById('options-content').innerHTML='<div class="card"><div class="empty"><div class="empty-icon">&#x1F50D;</div>No options found in selected range</div></div>';document.getElementById('oi-chart-section').style.display='none';return;}
   cachedOIRows=rows;
-  const tableHTML=`<div class="card"><div class="card-title"><span class="dot"></span>${currentMode==='puts'?'Put':'Call'} Options -- ${t} @ $${currentPrice.toFixed(2)}</div><div style="font-family:var(--mono);font-size:9px;color:var(--green);margin-bottom:8px">Live ${nowPT()}</div><div class="options-table-wrap"><table class="options-table"><thead><tr><th>Exp / Strike</th><th>% OTM</th><th>Bid</th><th>Ask</th><th>Premium</th><th>APY</th><th>OI</th><th>IV</th></tr></thead><tbody>${rows.map(r=>{const hl=r.apy>=hlApy;const apyCls=r.apy>=hlApy*1.5?'apy-cell great':r.apy>=hlApy?'apy-cell':'';return`<tr class="${hl?'highlighted':''}"><td>${r.expDate}<br><span style="color:var(--accent);font-size:12px">$${formatStrike(r.strike)}</span></td><td style="color:var(--text2)">${r.pctOTM.toFixed(1)}%</td><td>$${r.bid.toFixed(2)}</td><td>$${r.ask.toFixed(2)}</td><td>$${r.premium.toFixed(0)}</td><td class="${apyCls}">${r.apy.toFixed(1)}%</td><td>${r.oi.toLocaleString()}</td><td>${(r.iv*100).toFixed(1)}%</td></tr>`;}).join('')}</tbody></table></div></div>`;
+  // Build rows HTML with current-price separator injected per expiration group
+  const expirations=[...new Set(rows.map(r=>r.expDate))].sort();
+  let tableBodyHTML='';
+  const sepRow=`<tr><td colspan="8" style="padding:0;border:none">
+    <div style="background:rgba(79,195,247,0.12);border-top:2px solid #4fc3f7;border-bottom:2px solid #4fc3f7;
+    padding:4px 8px;font-family:var(--mono);font-size:10px;color:#4fc3f7;font-weight:600;text-align:center;letter-spacing:0.5px">
+    ── NOW $${currentPrice.toFixed(2)} ──</div></td></tr>`;
+  expirations.forEach(exp=>{
+    const expRows=rows.filter(r=>r.expDate===exp).sort((a,b)=>a.strike-b.strike);
+    let sepInserted=false;
+    expRows.forEach(r=>{
+      // Insert separator when we cross from above-price to below-price (puts) or below to above (calls)
+      if(!sepInserted){
+        const crossesPuts=currentMode==='puts'&&r.strike<=currentPrice;
+        const crossesCalls=currentMode==='calls'&&r.strike>currentPrice;
+        if(crossesPuts||crossesCalls){sepInserted=true;tableBodyHTML+=sepRow;}
+      }
+      const hl=r.apy>=hlApy;
+      const apyCls=r.apy>=hlApy*1.5?'apy-cell great':r.apy>=hlApy?'apy-cell':'';
+      tableBodyHTML+=`<tr class="${hl?'highlighted':''}">
+        <td>${r.expDate}<br><span style="color:var(--accent);font-size:12px">$${formatStrike(r.strike)}</span></td>
+        <td style="color:var(--text2)">${r.pctOTM.toFixed(1)}%</td>
+        <td>$${r.bid.toFixed(2)}</td><td>$${r.ask.toFixed(2)}</td>
+        <td>$${r.premium.toFixed(0)}</td>
+        <td class="${apyCls}">${r.apy.toFixed(1)}%</td>
+        <td>${r.oi.toLocaleString()}</td>
+        <td>${(r.iv*100).toFixed(1)}%</td></tr>`;
+    });
+    // If separator not inserted (all strikes same side), add at end if puts or beginning if calls
+    if(!sepInserted){
+      if(currentMode==='puts')tableBodyHTML+=sepRow;
+      else tableBodyHTML=sepRow+tableBodyHTML;
+    }
+  });
+  const tableHTML=`<div class="card"><div class="card-title"><span class="dot"></span>${currentMode==='puts'?'Put':'Call'} Options -- ${t} @ $${currentPrice.toFixed(2)}</div><div style="font-family:var(--mono);font-size:9px;color:var(--green);margin-bottom:8px">Live ${nowPT()}</div><div class="options-table-wrap"><table class="options-table"><thead><tr><th>Exp / Strike</th><th>% OTM</th><th>Bid</th><th>Ask</th><th>Premium</th><th>APY</th><th>OI</th><th>IV</th></tr></thead><tbody>${tableBodyHTML}</tbody></table></div></div>`;
   document.getElementById('options-content').innerHTML=tableHTML;renderOIChart(rows,currentPrice,t);
 }
 function renderOIChart(rows,currentPrice,t){
@@ -1168,6 +1336,8 @@ Bars stacked by expiration (see legend). Blue dashed line = current price $${cur
 // ═══ VIX TAB ═══
 function restoreVIXFromCache(){const cv=S.get('vix_hist'),cv3=S.get('vix3m_hist');if(!cv)return;renderVIXContent({timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes},cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null,false,cv.ts);}
 async function loadVIX(){
+  if(!navigator.onLine&&!offlineMode){toast('Offline -- showing cached VIX',2500);restoreVIXFromCache();return;}
+  if(offlineMode){restoreVIXFromCache();return;}
   const el=document.getElementById('vix-content');
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading VIX...</div></div>';
   try{
@@ -1224,6 +1394,8 @@ Note: VIX reflects S&P 500 implied vol. Individual stock IV can differ substanti
 // ═══ EARNINGS TAB ═══
 function filterEarnings(days,chipEl){earningsDaysFilter=days;document.querySelectorAll('#earnings-filter-chips .exp-chip').forEach(c=>c.classList.remove('selected'));chipEl.classList.add('selected');renderEarningsCards();}
 async function loadEarningsTab(){
+  if(!navigator.onLine&&!offlineMode){toast('Offline -- earnings data unchanged',3000);renderEarningsCards();return;}
+  if(offlineMode){renderEarningsCards();return;}
   const el=document.getElementById('earnings-content');
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading earnings data...</div></div>';
   earningsAllData=[];
@@ -1283,8 +1455,11 @@ function renderEarningsCards(){
 <script>
 // ═══ ETF TAB ═══
 async function loadETFTab(){
+  if(!navigator.onLine&&!offlineMode){toast('Offline -- showing cached ETF data',2500);restoreETFFromCache();return;}
+  if(offlineMode){restoreETFFromCache();return;}
   const el=document.getElementById('etf-content');
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading ETF data...</div></div>';
+  const etfChartQueue=[];
   const etfs=[
     {ticker:'SPYI',name:'NEOS S&P 500 High Income ETF',strategy:'Covered calls on S&P 500 components. Targets high monthly income while maintaining equity-like upside participation. Monthly distributions.',color:'#00d4aa'},
     {ticker:'NBOS',name:'Roundhill N-Buffer Outcome Strategy',strategy:'Put-writing strategy providing monthly income with defined downside buffers on the S&P 500. Monthly distributions.',color:'#ff6b35'}
@@ -1346,11 +1521,25 @@ async function loadETFTab(){
         ${distributions.length?`<div style="margin-bottom:10px"><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px">Recent Distributions</div>${distributions.slice(0,6).map(d=>`<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">${d.date}</span><span style="color:${etf.color}">$${d.amount?.toFixed(4)||'N/A'}</span></div>`).join('')}</div>`:'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Distribution history not available from data provider. Check fund website for latest distributions.</div>'}
         ${chartLabels.length?`<div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:${etf.color}"></span>6-Month Price</div><div class="chart-wrap" style="height:140px"><canvas id="etf-chart-${etf.ticker}"></canvas></div>`:''}
       </div>`;
-      setTimeout(()=>{const ctx=document.getElementById(`etf-chart-${etf.ticker}`)?.getContext('2d');if(ctx&&chartLabels.length){new Chart(ctx,{type:'line',data:{labels:chartLabels,datasets:[{data:chartData,borderColor:etf.color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});}},100);
+      // Store chart data for rendering after all HTML is injected
+      etfChartQueue.push({ticker:etf.ticker,color:etf.color,labels:chartLabels,data:chartData});
     }catch(err){html+=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">${etf.ticker}: ${err.message}</div></div>`;}
   }
   el.innerHTML=html;
   S.set('etf_rendered',{html,ts:nowPT()});
+  // Render all ETF charts after HTML is in DOM -- use requestAnimationFrame to ensure paint
+  function renderNextEtfChart(queue,idx){
+    if(idx>=queue.length)return;
+    const{ticker,color,labels,data}=queue[idx];
+    requestAnimationFrame(()=>{
+      const ctx=document.getElementById(`etf-chart-${ticker}`)?.getContext('2d');
+      if(ctx&&labels.length){
+        new Chart(ctx,{type:'line',data:{labels,datasets:[{data,borderColor:color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});
+      }
+      renderNextEtfChart(queue,idx+1);
+    });
+  }
+  renderNextEtfChart(etfChartQueue,0);
 }
 function restoreETFFromCache(){
   const cached=S.get('etf_rendered');
@@ -1359,6 +1548,7 @@ function restoreETFFromCache(){
 
 // ═══ MARKET TAB with T-BILL YIELDS ═══
 async function loadMarketTab(){
+  if(offlineMode){restoreMarketFromCache();return;}
   const el=document.getElementById('market-content');
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading market data...</div></div>';
   try{
@@ -1507,6 +1697,10 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
 
 async function runDashboards(){
   if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');return;}
+  if(!navigator.onLine&&!offlineMode){
+    toast('Offline -- conviction data unchanged',3000);return;
+  }
+  if(offlineMode){toast('Offline mode -- disable in Settings to fetch live data',3000);return;}
   const btn=document.getElementById('run-dashboard-btn');btn.disabled=true;
   document.getElementById('dashboard-progress').style.display='block';
   const targetAPY=parseFloat(document.getElementById('target-apy').value)||12;
@@ -1567,6 +1761,8 @@ function renderDashTable(elId,results,ts,isLive){
 // ═══ PREFETCH ALL ═══
 async function prefetchAll(){
   if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');return;}
+  if(!navigator.onLine&&!offlineMode){toast('Offline -- cached data unchanged',3000);return;}
+  if(offlineMode){toast('Offline mode enabled -- disable in Settings to fetch',3000);return;}
   const btn=document.getElementById('prefetch-btn');if(btn)btn.disabled=true;
   const progressEl=document.getElementById('prefetch-progress');const barEl=document.getElementById('prefetch-progress-bar');const labelEl=document.getElementById('prefetch-label');
   if(progressEl)progressEl.style.display='block';

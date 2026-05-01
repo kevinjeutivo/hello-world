@@ -740,9 +740,13 @@ window.addEventListener('offline',()=>{updateOnlineIndicator();toast('Offline --
 
 // ═══ OFFLINE BANNER ═══
 function showOfflineBanner(fetchTs){
+  // Only show the offline banner when the device is genuinely offline.
+  // Transient fetch errors while online (rate limits, timeouts) should not
+  // trigger the banner -- they are handled silently by falling back to cache.
+  if(navigator.onLine)return;
   const b=document.getElementById('offline-banner');
   const age=relAge(fetchTs);
-  b.textContent=`No network -- showing cached data${fetchTs?` from ${fetchTs}${age?' ('+age+')':''}`:''}.`;
+  b.textContent=`Offline -- showing cached data${fetchTs?` from ${fetchTs}${age?' ('+age+')':''}`:''}.`;
   b.classList.add('show');
   setTimeout(()=>b.classList.remove('show'),4500);
 }

@@ -13,6 +13,7 @@
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap');
 :root{
+  --base-font:18px;
   --bg:#0a0c0f;--surface:#111318;--surface2:#1a1d24;--surface3:#22262f;
   --border:#2a2e38;--accent:#00d4aa;--accent2:#ff6b35;--accent3:#7c6af7;
   --danger:#ff4757;--warn:#ffa502;--text:#e8eaf0;--text2:#8b8fa8;--text3:#555870;
@@ -21,7 +22,7 @@
   --radius:10px;--radius-lg:16px;
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-html,body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:18px;min-height:100vh;overscroll-behavior:none}
+html,body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:var(--base-font);min-height:100vh;overscroll-behavior:none}
 #app{display:flex;flex-direction:column;min-height:100vh}
 /* Market status banner */
 #market-status-banner{font-family:var(--mono);font-size:12px;font-weight:600;padding:6px 16px;text-align:center;position:sticky;top:0;z-index:200;transition:background 0.5s}
@@ -173,7 +174,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro</div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v1.9.0</span>
+      <span>Options Income Strategy v2.0.0</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -355,6 +356,7 @@ Version: 1.7</div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Key stored locally on your device only. Get a free key at finnhub.io.</div>
     <div class="input-group"><label class="input-label">Default Watchlist (comma separated)</label><input class="input" type="text" id="default-watchlist-input" value="NVDA,AMZN,GOOGL,GLW,MS,PANW,NET,NFLX,SHOP,ORCL,TSLA"></div>
     <div class="input-group"><label class="input-label">VIX Alert Threshold (shows indicator above this level)</label><input class="input" type="number" id="vix-threshold-input" value="20" min="10" max="50"></div>
+    <div class="input-group"><label class="input-label">Font Size</label><select class="input" id="font-size-input"><option value="15">Small (15px)</option><option value="17">Medium (17px)</option><option value="19" selected>Default (19px)</option><option value="21">Large (21px)</option><option value="23">Extra Large (23px)</option></select></div>
     <div class="input-group"><label class="input-label">Timestamp Display</label><select class="input" id="tz-pref-input"><option value="PT">Pacific Time (PT) -- home timezone</option><option value="local">Local Device Time</option><option value="UTC">UTC / GMT</option></select></div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">All timestamps throughout the app will use this timezone. Relative age (e.g. "3h ago") is always shown alongside.</div>
     <div class="input-group" style="display:flex;align-items:center;justify-content:space-between">
@@ -373,7 +375,17 @@ Version: 1.7</div>
     <button class="btn btn-danger" onclick="clearAllDataWithGuard()">Clear All Cached Data</button>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v1.9.0 -- 2026-04-29
+    <div class="commentary" style="font-size:12px">v2.0.0 -- 2026-04-29
+- Font size setting in Settings: Small/Medium/Default/Large/Extra Large. Applied instantly via CSS variable.
+- EPS (TTM) and YoY EPS growth added to Ticker tab metrics grid. Red when negative (not profitable).
+- Analyst upgrade/downgrade history: recent 90 days from Finnhub with firm name, action, and grade transition.
+- ETF total return overlay: yellow dashed line on price chart showing price + cumulative distributions. Price return % and total return % printed as metric tiles for direct comparison.
+- Fed rate outlook card on Market tab: 2-year Treasury yield vs 3-month T-bill spread with plain-English interpretation of implied Fed rate path. Tailwind/headwind signal for equity valuations.
+- Conviction dashboard offline safety: if ALL tickers return errors (network failure), cached results are preserved and restored. No more accidental wipe in airplane mode.
+- prefetchAll: now fetches 3 monthly expirations per ticker (was 2). Also fetches Yahoo quote data to cache forwardPE and after-hours price.
+- Options tab: warning shown when options chain is freshly fetched but ticker price is stale (>30 min old).
+
+v1.9.0 -- 2026-04-29
 - Forward P/E added to Ticker tab metrics grid with direction indicator
 - Rule of 40 added to Ticker tab (revenue growth % + FCF/operating margin %). Color-coded score with context note that it applies to software/SaaS companies
 - Earnings date: now filters to earliest future date from Finnhub array. Window extended to 180 days. Prevents showing past earnings or far-future date when near-term date was in the array
@@ -481,6 +493,11 @@ let earningsAllData=[];
 let vixThreshold=parseInt(S.get('vix_threshold')||'20');
 let tzPref=S.get('tz_pref')||'PT';
 let offlineMode=S.get('offline_mode')==='true';
+let fontSize=S.get('font_size')||'19';
+
+function applyFontSize(size){
+  document.documentElement.style.setProperty('--base-font',size+'px');
+}
 const DEFAULT_WATCHLIST=['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
 const WORKER_URL='https://wheel.kevinjeu.workers.dev';
 const EXP_COLORS=['#00d4aa','#ff6b35','#7c6af7','#ffa502'];
@@ -756,6 +773,7 @@ function openSettings(){
   document.getElementById('vix-threshold-input').value=vixThreshold;
   document.getElementById('tz-pref-input').value=tzPref;
   document.getElementById('offline-mode-input').checked=offlineMode;
+  document.getElementById('font-size-input').value=fontSize;
   document.getElementById('settings-overlay').classList.add('open');
 }
 function closeSettings(){document.getElementById('settings-overlay').classList.remove('open');}
@@ -772,6 +790,9 @@ function saveSettings(){
   offlineMode=document.getElementById('offline-mode-input').checked;
   S.set('offline_mode',String(offlineMode));
   updateOfflineModeBar();
+  fontSize=document.getElementById('font-size-input').value||'19';
+  S.set('font_size',fontSize);
+  applyFontSize(fontSize);
   const cv=S.get('vix_hist');
   if(cv?.closes){const c=cv.closes.filter(x=>x!==null);if(c.length)updateVIXIndicator(c[c.length-1]);}
   closeSettings();
@@ -1020,15 +1041,17 @@ async function loadTicker(){
   try{
     let snap,hist6mo,hist1y,news,recData,isLive=true;
     try{
-      const[quote,profile,metrics,earnings,rec]=await Promise.all([
+      const[quote,profile,metrics,earnings,rec,upgrades]=await Promise.all([
         fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),
         fh(`/stock/metric?symbol=${t}&metric=all`),
         fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`),
-        fh(`/stock/recommendation?symbol=${t}`)
+        fh(`/stock/recommendation?symbol=${t}`),
+        fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`)
       ]);
-      snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,peForward:metrics.metric?.peForwardAnnual||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,shortInterestPct:metrics.metric?.shortInterestPercentage||metrics.metric?.shortInterestPercent||null,revenueGrowthTTM:metrics.metric?.revenueGrowthTTMYoy||null,fcfMargin:metrics.metric?.freeCashFlowMarginAnnual||null,operatingMargin:metrics.metric?.operatingMarginAnnual||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true};
+      snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,peForward:metrics.metric?.peForwardAnnual||null,epsTTM:metrics.metric?.epsBasicExclExtraTTM||null,epsGrowth:metrics.metric?.epsGrowthTTMYoy||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,shortInterestPct:metrics.metric?.shortInterestPercentage||metrics.metric?.shortInterestPercent||null,revenueGrowthTTM:metrics.metric?.revenueGrowthTTMYoy||null,fcfMargin:metrics.metric?.freeCashFlowMarginAnnual||null,operatingMargin:metrics.metric?.operatingMarginAnnual||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true};
       recData=rec&&rec.length?rec[0]:null;
-      S.set('snap_'+t,snap);S.set('rec_'+t,{data:recData,ts:nowPT()});
+      const upgradeData=upgrades&&upgrades.length?upgrades.slice(0,6):[];
+      S.set('snap_'+t,snap);S.set('rec_'+t,{data:recData,ts:nowPT()});S.set('upgrades_'+t,{data:upgradeData,ts:nowPT()});
       try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;}}catch{}
     }catch{
       const cached=S.get('snap_'+t);if(cached){snap=cached;isLive=false;showOfflineBanner(cached.ts);}else throw new Error('No data available');
@@ -1040,7 +1063,8 @@ async function loadTicker(){
     catch{const ch=S.get('hist1y_'+t);if(ch)hist1y={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes};}
     try{news=await fetchNews(t);S.set('news_'+t,{items:news,ts:nowPT()});}
     catch{const cn=S.get('news_'+t);if(cn)news=cn.items;}
-    renderTickerContent(snap,hist6mo,hist1y,news,recData,isLive);renderWatchlist();
+    const upgradesData=S.get('upgrades_'+t)?.data||[];
+    renderTickerContent(snap,hist6mo,hist1y,news,recData,upgradesData,isLive);renderWatchlist();
   }catch(err){document.getElementById('ticker-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
 }
 function restoreTickerFromCache(t){
@@ -1048,9 +1072,33 @@ function restoreTickerFromCache(t){
   const ch=S.get('hist_'+t);const hist6mo=ch?{timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes}:null;
   const ch1=S.get('hist1y_'+t);const hist1y=ch1?{timestamps:ch1.timestamps.map(d=>new Date(d)),closes:ch1.closes,volumes:ch1.volumes}:null;
   const cn=S.get('news_'+t);const cr=S.get('rec_'+t);
-  renderTickerContent(snap,hist6mo,hist1y,cn?cn.items:null,cr?cr.data:null,false);
+  const cu=S.get('upgrades_'+t);
+  renderTickerContent(snap,hist6mo,hist1y,cn?cn.items:null,cr?cr.data:null,cu?cu.data:[],false);
   setTimeout(refreshTsChipAges,50);
 }
+function buildUpgradeTable(upgrades){
+  if(!upgrades||!upgrades.length)return'';
+  const actionColor=a=>a==='upgrade'||a==='init'?'var(--green)':a==='downgrade'?'var(--red)':'var(--text3)';
+  const actionLabel=a=>a==='upgrade'?'Upgrade':a==='downgrade'?'Downgrade':a==='init'?'Initiate':'Reiterate';
+  const rows=upgrades.map(u=>{
+    const date=u.gradeDate?u.gradeDate.slice(0,10):'';
+    const from=u.fromGrade||'';
+    const to=u.toGrade||'';
+    const grade=from&&to?from+' → '+to:to||from;
+    const color=actionColor(u.action||'');
+    return '<tr>'
+      +'<td style="color:var(--text3)">'+date+'</td>'
+      +'<td style="color:var(--text)">'+( u.company||'')+'</td>'
+      +'<td style="color:'+color+';font-weight:500">'+actionLabel(u.action||'')+'</td>'
+      +'<td style="color:var(--text2)">'+grade+'</td>'
+      +'</tr>';
+  }).join('');
+  return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent3)"></span>Recent Analyst Actions (90 days)</div>'
+    +'<div class="options-table-wrap"><table class="options-table">'
+    +'<thead><tr><th style="text-align:left">Date</th><th style="text-align:left">Firm</th><th style="text-align:left">Action</th><th style="text-align:left">Grade</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table></div></div>';
+}
+
 function buildR40Tile(snap){
   const revGrowth=snap.revenueGrowthTTM;
   const margin=snap.fcfMargin||snap.operatingMargin;
@@ -1075,7 +1123,7 @@ function buildR40Tile(snap){
     +'</div>';
 }
 
-function renderTickerContent(snap,hist,hist1y,news,recData,isLive){
+function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive){
   const el=document.getElementById('ticker-content');
   const chgColor=snap.change>=0?'var(--green)':'var(--red)';const chgSign=snap.change>=0?'+':'';
   let rsiStr='N/A',bbStr='',bbData=null;
@@ -1144,6 +1192,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,isLive){
       <div class="metric-tile"><div class="metric-label">Beta</div><div class="metric-value">${snap.beta?.toFixed(2)||'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">P/E (TTM)</div><div class="metric-value">${snap.peRatio?.toFixed(1)||'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">P/E (Forward)</div><div class="metric-value">${snap.peForward?.toFixed(1)||'N/A'}</div><div class="metric-sub">${snap.peRatio&&snap.peForward?(snap.peForward<snap.peRatio?'Earnings growth expected':'Earnings shrinkage expected'):'Estimated next 12m earnings'}</div></div>
+      <div class="metric-tile"><div class="metric-label">EPS (TTM)</div><div class="metric-value" style="color:${snap.epsTTM>0?'var(--green)':snap.epsTTM<0?'var(--red)':'var(--text)'}">${snap.epsTTM!=null?'$'+snap.epsTTM.toFixed(2):'N/A'}</div><div class="metric-sub">${snap.epsTTM>0?'Profitable':snap.epsTTM<0?'Not profitable (TTM)':''}${snap.epsGrowth!=null?' | YoY '+(snap.epsGrowth>=0?'+':'')+(snap.epsGrowth*100).toFixed(1)+'%':''}</div></div>
       <div class="metric-tile"><div class="metric-label">Div Yield</div><div class="metric-value">${snap.dividendYield?snap.dividendYield.toFixed(2)+'%':'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">RSI (14)</div><div class="metric-value" style="color:${rsiColor}">${rsiStr}</div><div class="metric-sub">${rsiLabel}</div></div>
       <div class="metric-tile"><div class="metric-label">Short Interest</div><div class="metric-value" style="font-size:11px">${shortStr}</div></div>
@@ -1158,7 +1207,8 @@ function renderTickerContent(snap,hist,hist1y,news,recData,isLive){
 
 RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red shading) = overbought, favorable for covered calls.</div></div>`:''}
   ${hist1y?`<div class="card"><div class="card-title"><span class="dot" style="background:teal"></span>Volume Profile -- Support / Resistance (1Y)</div><div class="chart-wrap" style="height:300px"><canvas id="vp-chart"></canvas></div><div id="vp-analysis"></div></div>`:''}
-  <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Recent News (7 days)</div><div id="news-section">${renderNewsItems(news)}</div></div>`;
+  <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Recent News (7 days)</div><div id="news-section">${renderNewsItems(news)}</div></div>
+  ${upgradesData&&upgradesData.length?buildUpgradeTable(upgradesData):''}`;
   if(bbData)renderBBChart(bbData,hist);
   if(hist1y)renderVPChart(hist1y,snap.price,snap.week52High,snap.week52Low);
 }
@@ -1380,6 +1430,21 @@ async function loadOptionsForTicker(){
       document.getElementById('options-content').innerHTML='';
     }
     if(!isLive){document.getElementById('options-content').innerHTML+=`<div style="font-family:var(--mono);font-size:10px;color:var(--warn);margin-bottom:8px">Cached options from ${fetchTs}${relAge(fetchTs)?' ('+relAge(fetchTs)+')':''}</div>`;}
+    // Warn if options data is significantly newer than the ticker price snapshot
+    const snapTs=S.get('snap_'+t)?.ts||'';
+    if(isLive&&snapTs){
+      try{
+        const optAge=0;// just fetched
+        const snapD=new Date(snapTs.replace(/ PT$| UTC$| local$/,'').trim());
+        const snapAgeMins=isNaN(snapD.getTime())?0:(Date.now()-snapD.getTime())/60000;
+        if(snapAgeMins>30){
+          document.getElementById('options-content').innerHTML+=
+            '<div style="background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.3);border-radius:8px;padding:8px 12px;font-family:var(--mono);font-size:11px;color:var(--warn);margin-bottom:8px">'
+            +'Note: options chain is live but ticker price ($'+S.get('snap_'+t)?.price?.toFixed(2)+') is from '+snapTs+' ('+(Math.round(snapAgeMins/60)*1)+'h ago). APY and % OTM use the cached price. Reload the Ticker tab for the latest price.'
+            +'</div>';
+        }
+      }catch{}
+    }
     const snap=S.get('snap_'+t);
     if(snap?.earningsDate){const today=new Date(),earningsD=new Date(snap.earningsDate);const warns=monthly.filter(e=>{const ed=new Date(e);return today<earningsD&&earningsD<=ed;});const timing=snap.earningsHour==='bmo'?' (before open)':snap.earningsHour==='amc'?' (after close)':'';const warnEl=document.getElementById('options-earnings-warn');warnEl.innerHTML=warns.length?`<div class="earnings-warn">Earnings on ${snap.earningsDate}${timing} falls within ${warns.join(', ')} window. Elevated assignment risk.</div>`:'';}
   }catch(err){document.getElementById('options-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
@@ -1694,6 +1759,28 @@ async function loadETFTab(){
       }catch{const cd=S.get(divKey);if(cd){distributions=cd.distributions||[];const total=distributions.slice(0,12).reduce((s,d)=>s+(d.amount||0),0);if(snap?.price&&total>0)trailingYield=(total/snap.price*100).toFixed(2);}}
       const chartLabels=hist6mo?hist6mo.timestamps.slice(-126).map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});}):[];
       const chartData=hist6mo?hist6mo.closes.slice(-126):[];
+      // Compute total return series: price + cumulative distributions reinvested
+      // Map distribution dates to cumulative sum, then add to price on each date
+      let totalReturnData=[];
+      if(hist6mo&&hist6mo.timestamps&&distributions.length){
+        let cumDist=0;
+        const distByDate={};
+        distributions.forEach(d=>{if(d.date&&d.amount)distByDate[d.date]=(distByDate[d.date]||0)+d.amount;});
+        totalReturnData=hist6mo.timestamps.slice(-126).map((ts,i)=>{
+          if(!(ts instanceof Date))ts=new Date(ts);
+          const dateStr=ts.toISOString().split('T')[0];
+          if(distByDate[dateStr])cumDist+=distByDate[dateStr];
+          const price=chartData[i];
+          return price!=null?price+cumDist:null;
+        });
+      }
+      // Compute price return % and total return % over chart period
+      const firstPrice=chartData.find(p=>p!=null);
+      const lastPrice=[...chartData].reverse().find(p=>p!=null);
+      const priceRetPct=firstPrice&&lastPrice?((lastPrice-firstPrice)/firstPrice*100):null;
+      const firstTR=totalReturnData.find(p=>p!=null);
+      const lastTR=totalReturnData.length?[...totalReturnData].reverse().find(p=>p!=null):null;
+      const totalRetPct=firstTR&&lastTR?((lastTR-firstTR)/firstTR*100):null;
       const chgColor=snap?(snap.change>=0?'var(--green)':'var(--red)'):'var(--text2)';
       const chgSign=snap?(snap.change>=0?'+':''):'';
       html+=`<div class="card" style="border-left:4px solid ${etf.color}">
@@ -1704,6 +1791,8 @@ async function loadETFTab(){
         ${tsChip(snap?.ts||'',isLive)}
         <div class="metrics-grid" style="margin-bottom:10px">
           <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Trailing 12-Month Distribution Yield</div><div class="metric-value" style="color:${etf.color};font-size:20px">${trailingYield?trailingYield+'%':'N/A'}</div><div class="metric-sub">${trailingYield?`Sum of last ${Math.min(12,distributions.length)} distributions / current price. Compare to your T-bill yield for risk premium context.`:'Fetch live data to compute distribution yield.'}</div></div>
+          ${priceRetPct!=null?`<div class="metric-tile"><div class="metric-label">Price Return (chart period)</div><div class="metric-value" style="color:${priceRetPct>=0?'var(--green)':'var(--red)'}">${priceRetPct>=0?'+':''}${priceRetPct.toFixed(1)}%</div><div class="metric-sub">NAV change only</div></div>`:''}
+          ${totalRetPct!=null?`<div class="metric-tile"><div class="metric-label">Total Return (chart period)</div><div class="metric-value" style="color:${totalRetPct>=0?'var(--green)':'var(--red)'}">${totalRetPct>=0?'+':''}${totalRetPct.toFixed(1)}%</div><div class="metric-sub">Price + distributions. Spread vs price return = yield collected.</div></div>`:''}
           <div class="metric-tile"><div class="metric-label">Annualized Yield (indicated)</div><div class="metric-value" style="font-size:13px">${snap?.dividendYield?snap.dividendYield.toFixed(2)+'%':'N/A'}</div></div>
           <div class="metric-tile"><div class="metric-label">52W High / Low</div><div class="metric-value" style="font-size:11px">$${snap?.week52High?.toFixed(2)||'N/A'} / $${snap?.week52Low?.toFixed(2)||'N/A'}</div></div>
         </div>
@@ -1712,7 +1801,7 @@ async function loadETFTab(){
         ${chartLabels.length?`<div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:${etf.color}"></span>6-Month Price</div><div class="chart-wrap" style="height:140px"><canvas id="etf-chart-${etf.ticker}"></canvas></div>`:''}
       </div>`;
       // Store chart data for rendering after all HTML is injected
-      etfChartQueue.push({ticker:etf.ticker,color:etf.color,labels:chartLabels,data:chartData});
+      etfChartQueue.push({ticker:etf.ticker,color:etf.color,labels:chartLabels,data:chartData,totalReturn:totalReturnData});
     }catch(err){html+=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">${etf.ticker}: ${err.message}</div></div>`;}
   }
   el.innerHTML=html;
@@ -1724,7 +1813,11 @@ async function loadETFTab(){
     requestAnimationFrame(()=>{
       const ctx=document.getElementById(`etf-chart-${ticker}`)?.getContext('2d');
       if(ctx&&labels.length){
-        new Chart(ctx,{type:'line',data:{labels,datasets:[{data,borderColor:color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});
+        const datasets=[{label:'Price',data,borderColor:color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}];
+        if(totalReturn&&totalReturn.length){
+          datasets.push({label:'Total Return',data:totalReturn,borderColor:'#ffd32a',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false,borderDash:[4,3]});
+        }
+        new Chart(ctx,{type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:datasets.length>1,labels:{color:'#8b8fa8',font:{size:9},boxWidth:20}}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});
       }
       renderNextEtfChart(queue,idx+1);
     });
@@ -1742,9 +1835,9 @@ async function loadMarketTab(){
   const el=document.getElementById('market-content');
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading market data...</div></div>';
   try{
-    let sp500,nasdaq,isLive=true,mktTs=nowPT();
-    try{[sp500,nasdaq]=await Promise.all([yahooHistory('^GSPC','3mo','1d'),yahooHistory('^IXIC','3mo','1d')]);S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs});}
-    catch{const cs=S.get('mkt_sp500'),cn=S.get('mkt_nasdaq');if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(d)),closes:cs.closes};isLive=false;mktTs=cs.ts;showOfflineBanner(cs.ts);}if(cn&&!nasdaq)nasdaq={timestamps:cn.timestamps.map(d=>new Date(d)),closes:cn.closes};}
+    let sp500,nasdaq,treasury2y,isLive=true,mktTs=nowPT();
+    try{[sp500,nasdaq,treasury2y]=await Promise.all([yahooHistory('^GSPC','3mo','1d'),yahooHistory('^IXIC','3mo','1d'),yahooHistory('^USGG2YR','3mo','1d')]);S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs});S.set('mkt_2y',{timestamps:treasury2y.timestamps.map(d=>d.toISOString()),closes:treasury2y.closes,ts:mktTs});}
+    catch{const cs=S.get('mkt_sp500'),cn=S.get('mkt_nasdaq'),c2=S.get('mkt_2y');if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(d)),closes:cs.closes};isLive=false;mktTs=cs.ts;showOfflineBanner(cs.ts);}if(cn&&!nasdaq)nasdaq={timestamps:cn.timestamps.map(d=>new Date(d)),closes:cn.closes};if(c2&&!treasury2y)treasury2y={timestamps:c2.timestamps.map(d=>new Date(d)),closes:c2.closes};}
 
     // T-bill yields from US Treasury FiscalData API (via Worker, no key needed)
     let tbill3m=[],tbill6m=[],fredTs=nowPT();
@@ -1811,6 +1904,30 @@ async function loadMarketTab(){
         </div>
       </div>
       <!-- T-bill yields -->
+      ${(()=>{
+        // Fed rate outlook based on 2-year Treasury vs current ^IRX (3-month / near-term fed funds proxy)
+        const t2y=treasury2y?.closes?.filter(c=>c!=null);
+        const t2yCurrent=t2y&&t2y.length?t2y[t2y.length-1]:null;
+        const t2y1mAgo=t2y&&t2y.length>=21?t2y[t2y.length-21]:null;
+        if(!t2yCurrent||!tb3Current)return'';
+        const spread=t2yCurrent-tb3Current;
+        const t2yTrend=t2y1mAgo?(t2yCurrent-t2y1mAgo):null;
+        let spreadInterp,spreadColor;
+        if(spread<-0.5){spreadInterp='Market pricing in significant rate cuts (2Y well below Fed Funds rate). Tailwind for equity valuations and growth stocks.';spreadColor='var(--green)';}
+        else if(spread<-0.1){spreadInterp='Market expecting modest rate cuts. Mild tailwind for equities.';spreadColor='var(--green)';}
+        else if(spread<0.1){spreadInterp='Market expects rates roughly unchanged near-term.';spreadColor='var(--text2)';}
+        else if(spread<0.5){spreadInterp='Market pricing in modest rate increases. Slight headwind for growth valuations.';spreadColor='var(--warn)';}
+        else{spreadInterp='Market pricing in significant rate hikes. Headwind for equity multiples.';spreadColor='var(--red)';}
+        const trendStr=t2yTrend!=null?(t2yTrend<-0.1?' -- 2Y falling (cut expectations growing)':t2yTrend>0.1?' -- 2Y rising (fewer cuts expected)':''):'';
+        return '<div class="card">'
+          +'<div class="card-title"><span class="dot" style="background:var(--accent3)"></span>Fed Rate Outlook</div>'
+          +'<div class="metrics-grid">'
+          +'<div class="metric-tile"><div class="metric-label">2-Year Treasury (^USGG2YR)</div><div class="metric-value" style="color:var(--accent3)">'+t2yCurrent.toFixed(2)+'%</div><div class="metric-sub">Market\'s implied rate path over next 2 years</div></div>'
+          +'<div class="metric-tile"><div class="metric-label">Spread (2Y minus 3M Fed Funds)</div><div class="metric-value" style="color:'+spreadColor+'">'+(spread>=0?'+':'')+spread.toFixed(2)+'%</div><div class="metric-sub">'+(spread<0?'Inverted = cuts expected':'Normal = hikes or hold')+'</div></div>'
+          +'</div>'
+          +'<div class="commentary">'+spreadInterp+trendStr+'</div>'
+          +'</div>';
+      })()}
       <div class="card">
         <div class="card-title"><span class="dot" style="background:#64b5f6"></span>T-Bill Yields (^IRX / ^FVX)</div>
         ${tsChip(fredTs,isLive)}
@@ -1922,6 +2039,18 @@ async function runDashboards(skipOnlineCheck=false){
   setTimeout(()=>{document.getElementById('dashboard-progress').style.display='none';},1500);
   btn.disabled=false;
   putResults.sort((a,b)=>b.score-a.score);ccResults.sort((a,b)=>b.score-a.score);
+  // Safety check: if every single ticker came back as an error, network likely failed.
+  // Do NOT overwrite cached data with all-error results. Restore backup and warn.
+  const validPuts=putResults.filter(r=>r.signal!=='error');
+  const validCC=ccResults.filter(r=>r.signal!=='error');
+  if(validPuts.length===0&&validCC.length===0){
+    toast('Network error -- cached dashboards preserved',3500);
+    // Restore backup to DOM if it exists
+    const cp=S.get('conviction_puts'),cc=S.get('conviction_cc');
+    if(cp)renderDashTable('put-dashboard-content',cp.results,cp.ts,false);
+    if(cc)renderDashTable('cc-dashboard-content',cc.results,cc.ts,false);
+    return;
+  }
   const ts=nowPT();S.set('conviction_puts',{results:putResults,ts});S.set('conviction_cc',{results:ccResults,ts});
   renderDashTable('put-dashboard-content',putResults,ts,true);renderDashTable('cc-dashboard-content',ccResults,ts,true);
   document.getElementById('put-dash-ts').innerHTML=tsChip(ts,true);document.getElementById('cc-dash-ts').innerHTML=tsChip(ts,true);
@@ -1961,7 +2090,9 @@ async function prefetchAll(){
     try{const[quote,profile,metrics,earnings]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)]);S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});}catch{}
     try{const h6=await yahooHistory(t,'6mo','1d');S.set('hist_'+t,{timestamps:h6.timestamps.map(d=>d.toISOString()),closes:h6.closes,volumes:h6.volumes,ts:nowPT()});}catch{}
     try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>d.toISOString()),closes:h1.closes,volumes:h1.volumes,ts:nowPT()});}catch{}
-    try{const opts=await yahooOptionsViaProxy(t);S.set('options_'+t,{data:opts,ts:nowPT()});const yr=opts?.optionChain?.result?.[0];const monthly=(yr?.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]).filter(e=>{const d=new Date(e+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).slice(0,2);for(const exp of monthly){try{S.set('options_exp_'+t+'_'+exp,await yahooOptionsViaProxy(t,exp));}catch{}}}catch{}
+    try{const opts=await yahooOptionsViaProxy(t);S.set('options_'+t,{data:opts,ts:nowPT()});const yr=opts?.optionChain?.result?.[0];const monthly=(yr?.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]).filter(e=>{const d=new Date(e+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).slice(0,3);for(const exp of monthly){try{S.set('options_exp_'+t+'_'+exp,await yahooOptionsViaProxy(t,exp));}catch{}}}catch{}
+    // Also fetch quote data for after-hours price and forwardPE
+    try{const ah=await fetchAfterHoursPrice(t);if(ah){const snap=S.get('snap_'+t);if(snap){snap.postMarketPrice=ah.postMarketPrice||null;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState||null;snap.peForward=ah.forwardPE||null;S.set('snap_'+t,snap);}}}catch{}
     try{const news=await fetchNews(t);S.set('news_'+t,{items:news,ts:nowPT()});}catch{}
     if(i<watchlist.length-1)await sleep(1000);
   }
@@ -2011,6 +2142,7 @@ function init(){
   // Start market status banner ticker -- every second
   updateMarketBanner();
   setInterval(updateMarketBanner,1000);
+  applyFontSize(fontSize);
   if(!FINNHUB_KEY)setTimeout(()=>toast('Add your Finnhub API key in Settings to get started',4000),500);
 }
 init();

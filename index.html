@@ -934,7 +934,8 @@ async function fetchAfterHoursPrice(symbol){
       postMarketChange:marketState==='PRE'?q.preMarketChange:q.postMarketChange,
       postMarketChangePct:marketState==='PRE'?q.preMarketChangePercent:q.postMarketChangePercent,
       marketState,
-      hasExtended:!!extPrice
+      hasExtended:!!extPrice,
+      forwardPE:q.forwardPE||null
     };
   }catch{return null;}
 }
@@ -1028,7 +1029,7 @@ async function loadTicker(){
       snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,peForward:metrics.metric?.peForwardAnnual||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,shortInterestPct:metrics.metric?.shortInterestPercentage||metrics.metric?.shortInterestPercent||null,revenueGrowthTTM:metrics.metric?.revenueGrowthTTMYoy||null,fcfMargin:metrics.metric?.freeCashFlowMarginAnnual||null,operatingMargin:metrics.metric?.operatingMarginAnnual||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true};
       recData=rec&&rec.length?rec[0]:null;
       S.set('snap_'+t,snap);S.set('rec_'+t,{data:recData,ts:nowPT()});
-      try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;}}catch{}
+      try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;}}catch{}
     }catch{
       const cached=S.get('snap_'+t);if(cached){snap=cached;isLive=false;showOfflineBanner(cached.ts);}else throw new Error('No data available');
       const cr=S.get('rec_'+t);if(cr)recData=cr.data;
@@ -1054,8 +1055,10 @@ function buildR40Tile(snap){
   const revGrowth=snap.revenueGrowthTTM;
   const margin=snap.fcfMargin||snap.operatingMargin;
   if(revGrowth===null||revGrowth===undefined||margin===null||margin===undefined)return'';
+  // revenueGrowthTTMYoy is a decimal (0.25 = 25%) -- multiply by 100
+  // fcfMargin / operatingMargin are already percentages (42.3 = 42.3%) -- use directly
   const growthPct=(revGrowth*100).toFixed(1);
-  const marginPct=(margin*100).toFixed(1);
+  const marginPct=margin.toFixed(1);
   const score=parseFloat(growthPct)+parseFloat(marginPct);
   const scoreStr=score.toFixed(1);
   const scoreColor=score>=40?'var(--green)':score>=20?'var(--warn)':'var(--red)';

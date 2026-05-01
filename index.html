@@ -768,7 +768,16 @@ function updateVIXIndicator(vixValue){
 }
 
 // ═══ TOAST ═══
-function toast(msg,dur=2500){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),dur);}
+function toast(msg,dur=2500){
+  const el=document.getElementById('toast');
+  el.style.whiteSpace='normal';
+  el.style.maxWidth='92vw';
+  el.style.fontSize='11px';
+  el.textContent=msg;
+  el.classList.add('show');
+  clearTimeout(window._toastTimer);
+  window._toastTimer=setTimeout(()=>el.classList.remove('show'),dur);
+}
 
 // ═══ SETTINGS ═══
 function openSettings(){
@@ -1436,7 +1445,20 @@ async function loadOptionsForTicker(){
       if(monthly.length===0)monthly=allExpDates.sort().slice(0,3);
     }
     currentExpirations=monthly;selectedExpirations=[...monthly];
-    for(const exp of monthly){try{const ed=await yahooOptionsViaProxy(t,exp);S.set('options_exp_'+t+'_'+exp,ed);}catch{}}
+    const diagLines=[];
+    for(const exp of monthly){
+      try{
+        const ed=await yahooOptionsViaProxy(t,exp);
+        S.set('options_exp_'+t+'_'+exp,ed);
+        const r=ed?.optionChain?.result?.[0];
+        const putCount=r?.options?.[0]?.puts?.length||0;
+        const callCount=r?.options?.[0]?.calls?.length||0;
+        diagLines.push(exp+': '+putCount+'P/'+callCount+'C');
+      }catch(e){
+        diagLines.push(exp+': FETCH FAIL ('+e.message.slice(0,30)+')');
+      }
+    }
+    toast('Options diag ['+t+']: '+diagLines.join(' | '), 20000);
     const chipsEl=document.getElementById('exp-chips');
     chipsEl.innerHTML=monthly.map(e=>`<div class="exp-chip selected" id="chip-${e}" onclick="toggleExp('${e}')">${e}</div>`).join('');
     document.getElementById('exp-section').style.display='block';

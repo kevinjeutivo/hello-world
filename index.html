@@ -259,7 +259,7 @@ a{color:inherit}
       <div class="exp-chips" id="exp-chips"></div>
       <div class="slider-wrap"><div class="slider-row"><span class="slider-label">% Below Price</span><span class="slider-val" id="pct-below-val">20%</span></div><input type="range" id="pct-below" min="1" max="50" value="20" oninput="updateSlider('pct-below')"></div>
       <div class="slider-wrap"><div class="slider-row"><span class="slider-label">% Above Price</span><span class="slider-val" id="pct-above-val">5%</span></div><input type="range" id="pct-above" min="1" max="50" value="5" oninput="updateSlider('pct-above')"></div>
-      <div class="input-group"><label class="input-label">Highlight APY %</label><input class="input" type="number" id="highlight-apy" value="12" oninput="saveOptionsPrefs();if(currentOptionsData&&lastOptionsTickerLoaded)buildOptionsTable();"></div>
+      <div class="input-group"><label class="input-label">Highlight APY %</label><input class="input" type="number" id="highlight-apy" value="12" oninput="saveOptionsPrefs();(function(){const s=document.getElementById('options-ticker-select')?.value||'';if(currentOptionsData&&lastOptionsTickerLoaded&&s===lastOptionsTickerLoaded)buildOptionsTable();})();"></div>
       <button class="btn btn-primary" onclick="buildOptionsTable()">Load / Refresh Options Chain</button>
     </div>
   </div>
@@ -856,8 +856,9 @@ function loadOptionsPrefs(){
 function updateSlider(id){
   document.getElementById(id+'-val').textContent=document.getElementById(id).value+'%';
   saveOptionsPrefs();
-  // Instantly rebuild table and OI chart when chain already loaded
-  if(currentOptionsData&&lastOptionsTickerLoaded)buildOptionsTable();
+  // Instantly rebuild table and OI chart when chain already loaded for current ticker
+  const optSelT=document.getElementById('options-ticker-select')?.value||'';
+  if(currentOptionsData&&lastOptionsTickerLoaded&&optSelT===lastOptionsTickerLoaded)buildOptionsTable();
 }
 
 // ═══ NAV TABS ═══
@@ -1384,23 +1385,27 @@ function setMode(mode){
   document.getElementById('mode-puts').classList.toggle('active',mode==='puts');
   document.getElementById('mode-calls').classList.toggle('active',mode==='calls');
   loadOptionsPrefs(); // swap sliders to mode-specific saved values
-  // Auto-rebuild table and OI chart if a chain is already loaded for this ticker
-  // so switching puts/calls does not require a second button tap
-  if(currentOptionsData&&lastOptionsTickerLoaded){
+  // Auto-rebuild table and OI chart if a chain is already loaded for THIS ticker
+  // Guard also checks dropdown value matches loaded ticker to avoid rebuilding
+  // with previous ticker's data while a new ticker is still loading
+  const optSel=document.getElementById('options-ticker-select')?.value||'';
+  if(currentOptionsData&&lastOptionsTickerLoaded&&optSel===lastOptionsTickerLoaded){
     buildOptionsTable();
   }
 }
 function toggleExp(e){
   if(selectedExpirations.includes(e)){selectedExpirations=selectedExpirations.filter(x=>x!==e);document.getElementById('chip-'+e)?.classList.remove('selected');}
   else{selectedExpirations.push(e);document.getElementById('chip-'+e)?.classList.add('selected');}
-  // Instantly rebuild table and OI chart when chain already loaded
-  if(currentOptionsData&&lastOptionsTickerLoaded)buildOptionsTable();
+  // Instantly rebuild table and OI chart when chain already loaded for current ticker
+  const optSelT=document.getElementById('options-ticker-select')?.value||'';
+  if(currentOptionsData&&lastOptionsTickerLoaded&&optSelT===lastOptionsTickerLoaded)buildOptionsTable();
 }
 function updateSlider(id){
   document.getElementById(id+'-val').textContent=document.getElementById(id).value+'%';
   saveOptionsPrefs();
-  // Instantly rebuild table and OI chart when chain already loaded
-  if(currentOptionsData&&lastOptionsTickerLoaded)buildOptionsTable();
+  // Instantly rebuild table and OI chart when chain already loaded for current ticker
+  const optSelT=document.getElementById('options-ticker-select')?.value||'';
+  if(currentOptionsData&&lastOptionsTickerLoaded&&optSelT===lastOptionsTickerLoaded)buildOptionsTable();
 }
 async function loadOptionsForTicker(){
   const t=document.getElementById('options-ticker-select').value;if(!t){clearOptionsState();return;}
@@ -2025,7 +2030,8 @@ async function runDashboards(skipOnlineCheck=false){
     try{
       const[quote,metrics,earnings]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)]);
       const price=quote.c,w52h=metrics.metric?.['52WeekHigh'],w52l=metrics.metric?.['52WeekLow'];
-      const earningsDate=earnings?.earningsCalendar?.[0]?.date||null;const earningsHour=earnings?.earningsCalendar?.[0]?.hour||null;
+      const futureEarnings2=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
+      const earningsDate=futureEarnings2[0]?.date||null;const earningsHour=futureEarnings2[0]?.hour||null;
       let rsiVal=null,ma50=null,ma200=null,rangePos=null;
       try{const hist=await yahooHistory(t,'1y','1d');const closes=hist.closes.filter(c=>c!==null);const rsi=computeRSI(closes);rsiVal=rsi[rsi.length-1];ma50=avg(closes.slice(-50));ma200=avg(closes.slice(-200));if(w52h&&w52l&&w52h>w52l)rangePos=(price-w52l)/(w52h-w52l);}catch{}
       const ivrVal=computeIVR(t,w52h,w52l,price);const ivr=ivrInfo(ivrVal);

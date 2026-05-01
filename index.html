@@ -960,7 +960,9 @@ async function fetchAfterHoursPrice(symbol){
       postMarketChangePct:marketState==='PRE'?q.preMarketChangePercent:q.postMarketChangePercent,
       marketState,
       hasExtended:!!extPrice,
-      forwardPE:q.forwardPE||null
+      forwardPE:q.forwardPE||null,
+      trailingEps:q.epsTrailingTwelveMonths||q.trailingEps||null,
+      epsGrowth:null
     };
   }catch{return null;}
 }
@@ -1056,7 +1058,7 @@ async function loadTicker(){
       recData=rec&&rec.length?rec[0]:null;
       const upgradeData=upgrades&&upgrades.length?upgrades.slice(0,6):[];
       S.set('snap_'+t,snap);S.set('rec_'+t,{data:recData,ts:nowPT()});S.set('upgrades_'+t,{data:upgradeData,ts:nowPT()});
-      try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;}}catch{}
+      try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;}}catch{}
     }catch{
       const cached=S.get('snap_'+t);if(cached){snap=cached;isLive=false;showOfflineBanner(cached.ts);}else throw new Error('No data available');
       const cr=S.get('rec_'+t);if(cr)recData=cr.data;
@@ -1558,7 +1560,7 @@ function buildOptionsTable(){
 
   // Earnings banner after all expirations if not yet inserted
   if(earningsD&&!earningsBannerInserted){tableBodyHTML+=earningsBanner();}
-  const tableHTML=`<div class="card"><div class="card-title"><span class="dot"></span>${currentMode==='puts'?'Put':'Call'} Options -- ${t} @ $${currentPrice.toFixed(2)}</div><div style="font-family:var(--mono);font-size:9px;color:var(--green);margin-bottom:8px">Live ${nowPT()}</div><div class="options-table-wrap"><table class="options-table"><thead><tr><th>Exp / Strike</th><th>% OTM</th><th>Bid</th><th>Ask</th><th>Premium</th><th>APY</th><th>OI</th><th>IV</th></tr></thead><tbody>${tableBodyHTML}</tbody></table></div></div>`;
+  const tableHTML=`<div class="card"><div class="card-title"><span class="dot"></span>${currentMode==='puts'?'Put':'Call'} Options -- ${t} @ $${currentPrice.toFixed(2)}</div>${(()=>{const optCache=S.get('options_'+t);const optTs=optCache?.ts||'';const optAge=relAge(optTs);const isOptLive=optTs&&(Date.now()-new Date(optTs.replace(/ PT$| UTC$| local$/,'').trim()).getTime())<900000;return'<div class="ts-chip '+(isOptLive?'live':'stale')+'">'+(isOptLive?'live':'cached')+' '+optTs+(optAge?' ('+optAge+')':'')+'</div>';})()}<div class="options-table-wrap"><table class="options-table"><thead><tr><th>Exp / Strike</th><th>% OTM</th><th>Bid</th><th>Ask</th><th>Premium</th><th>APY</th><th>OI</th><th>IV</th></tr></thead><tbody>${tableBodyHTML}</tbody></table></div></div>`;
   document.getElementById('options-content').innerHTML=tableHTML;renderOIChart(rows,currentPrice,t);
 }
 function renderOIChart(rows,currentPrice,t){
@@ -1813,7 +1815,7 @@ async function loadETFTab(){
   // Render all ETF charts after HTML is in DOM -- use requestAnimationFrame to ensure paint
   function renderNextEtfChart(queue,idx){
     if(idx>=queue.length)return;
-    const{ticker,color,labels,data}=queue[idx];
+    const{ticker,color,labels,data,totalReturn}=queue[idx];
     requestAnimationFrame(()=>{
       const ctx=document.getElementById(`etf-chart-${ticker}`)?.getContext('2d');
       if(ctx&&labels.length){
@@ -2096,7 +2098,7 @@ async function prefetchAll(){
     try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>d.toISOString()),closes:h1.closes,volumes:h1.volumes,ts:nowPT()});}catch{}
     try{const opts=await yahooOptionsViaProxy(t);S.set('options_'+t,{data:opts,ts:nowPT()});const yr=opts?.optionChain?.result?.[0];const monthly=(yr?.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]).filter(e=>{const d=new Date(e+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).slice(0,3);for(const exp of monthly){try{S.set('options_exp_'+t+'_'+exp,await yahooOptionsViaProxy(t,exp));}catch{}}}catch{}
     // Also fetch quote data for after-hours price and forwardPE
-    try{const ah=await fetchAfterHoursPrice(t);if(ah){const snap=S.get('snap_'+t);if(snap){snap.postMarketPrice=ah.postMarketPrice||null;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState||null;snap.peForward=ah.forwardPE||null;S.set('snap_'+t,snap);}}}catch{}
+    try{const ah=await fetchAfterHoursPrice(t);if(ah){const snap=S.get('snap_'+t);if(snap){snap.postMarketPrice=ah.postMarketPrice||null;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState||null;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;S.set('snap_'+t,snap);}}}catch{}
     try{const news=await fetchNews(t);S.set('news_'+t,{items:news,ts:nowPT()});}catch{}
     if(i<watchlist.length-1)await sleep(1000);
   }

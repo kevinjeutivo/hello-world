@@ -1433,32 +1433,33 @@ async function loadOptionsForTicker(){
     catch{const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;showOfflineBanner(cached.ts);}else throw new Error('No options data available');}
     currentOptionsData=data;
     const yr=data?.optionChain?.result?.[0];
-    const allExpDates=(yr?.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]);
+    // Keep original Unix timestamps alongside date strings so we can pass
+    // the exact timestamp back to Yahoo when fetching per-expiration data.
+    // Yahoo is strict about timestamp matching -- using a converted date string
+    // causes empty options arrays to be returned.
+    const rawExpTimestamps=yr?.expirationDates||[];
+    const allExpPairs=rawExpTimestamps.map(ts=>({
+      ts,
+      date:new Date(ts*1000).toISOString().split('T')[0]
+    }));
     // Prefer standard monthly expirations (3rd Fri/Thu, 15th-21st)
-    // Fall back to nearest available expirations if no standard monthlies found
-    let monthly=allExpDates.filter(e=>{const d=new Date(e+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort().slice(0,3);
-    if(monthly.length===0){
-      // Fallback: take the nearest 3 expirations that are at least 2 weeks out
-      const twoWeeksOut=new Date(Date.now()+14*86400000);
-      monthly=allExpDates.filter(e=>new Date(e+'T12:00:00Z')>=twoWeeksOut).sort().slice(0,3);
-      // If still empty take any nearest 3
-      if(monthly.length===0)monthly=allExpDates.sort().slice(0,3);
+    let monthlyPairs=allExpPairs.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
+    if(monthlyPairs.length===0){
+      const twoWeeksOut=Date.now()+14*86400000;
+      monthlyPairs=allExpPairs.filter(p=>p.ts*1000>=twoWeeksOut).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
+      if(monthlyPairs.length===0)monthlyPairs=allExpPairs.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
     }
+    const monthly=monthlyPairs.map(p=>p.date);
     currentExpirations=monthly;selectedExpirations=[...monthly];
-    const diagLines=[];
-    for(const exp of monthly){
+    for(const pair of monthlyPairs){
       try{
-        const ed=await yahooOptionsViaProxy(t,exp);
-        S.set('options_exp_'+t+'_'+exp,ed);
-        const r=ed?.optionChain?.result?.[0];
-        const putCount=r?.options?.[0]?.puts?.length||0;
-        const callCount=r?.options?.[0]?.calls?.length||0;
-        diagLines.push(exp+': '+putCount+'P/'+callCount+'C');
+        // Pass the original Unix timestamp string -- Yahoo matches this exactly
+        const ed=await yahooOptionsViaProxy(t,String(pair.ts));
+        S.set('options_exp_'+t+'_'+pair.date,ed);
       }catch(e){
-        diagLines.push(exp+': FETCH FAIL ('+e.message.slice(0,30)+')');
+        // silently skip -- cached data preserved if any
       }
     }
-    toast('Options diag ['+t+']: '+diagLines.join(' | '), 20000);
     const chipsEl=document.getElementById('exp-chips');
     chipsEl.innerHTML=monthly.map(e=>`<div class="exp-chip selected" id="chip-${e}" onclick="toggleExp('${e}')">${e}</div>`).join('');
     document.getElementById('exp-section').style.display='block';
@@ -2133,11 +2134,12 @@ async function prefetchAll(){
     try{const[quote,profile,metrics,earnings]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)]);S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});}catch{}
     try{const h6=await yahooHistory(t,'6mo','1d');S.set('hist_'+t,{timestamps:h6.timestamps.map(d=>d.toISOString()),closes:h6.closes,volumes:h6.volumes,ts:nowPT()});}catch{}
     try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>d.toISOString()),closes:h1.closes,volumes:h1.volumes,ts:nowPT()});}catch{}
-    try{const opts=await yahooOptionsViaProxy(t);S.set('options_'+t,{data:opts,ts:nowPT()});const yr=opts?.optionChain?.result?.[0];const allExpDates2=(yr?.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]);
-      let monthly=allExpDates2.filter(e=>{const d=new Date(e+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort().slice(0,3);
-      if(monthly.length===0){const tw=new Date(Date.now()+14*86400000);monthly=allExpDates2.filter(e=>new Date(e+'T12:00:00Z')>=tw).sort().slice(0,3);}
-      if(monthly.length===0)monthly=allExpDates2.sort().slice(0,3);
-      for(const exp of monthly){try{S.set('options_exp_'+t+'_'+exp,await yahooOptionsViaProxy(t,exp));}catch{}}}catch{}
+    try{const opts=await yahooOptionsViaProxy(t);S.set('options_'+t,{data:opts,ts:nowPT()});const yr=opts?.optionChain?.result?.[0];const rawTs2=yr?.expirationDates||[];
+      const allExpPairs2=rawTs2.map(ts=>({ts,date:new Date(ts*1000).toISOString().split('T')[0]}));
+      let monthlyPairs2=allExpPairs2.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
+      if(monthlyPairs2.length===0){const tw=Date.now()+14*86400000;monthlyPairs2=allExpPairs2.filter(p=>p.ts*1000>=tw).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);}
+      if(monthlyPairs2.length===0)monthlyPairs2=allExpPairs2.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
+      for(const pair of monthlyPairs2){try{S.set('options_exp_'+t+'_'+pair.date,await yahooOptionsViaProxy(t,String(pair.ts)));}catch{}}}catch{}
     // Also fetch quote data for after-hours price and forwardPE
     try{const ah=await fetchAfterHoursPrice(t);if(ah){const snap=S.get('snap_'+t);if(snap){snap.postMarketPrice=ah.postMarketPrice||null;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState||null;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;S.set('snap_'+t,snap);}}}catch{}
     try{const news=await fetchNews(t);S.set('news_'+t,{items:news,ts:nowPT()});}catch{}

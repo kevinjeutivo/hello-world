@@ -1158,13 +1158,14 @@ async function loadTicker(){
   try{
     let snap,hist6mo,hist1y,news,recData,isLive=true;
     try{
-      const[quote,profile,metrics,earnings,rec,upgrades]=await Promise.all([
+      const[quote,profile,metrics,earnings]=await Promise.all([
         fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),
         fh(`/stock/metric?symbol=${t}&metric=all`),
-        fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`),
-        fh(`/stock/recommendation?symbol=${t}`),
-        fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`)
+        fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)
       ]);
+      let rec=null,upgrades=null;
+      try{rec=await fh(`/stock/recommendation?symbol=${t}`);}catch{}
+      try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch{}
       snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,peForward:metrics.metric?.peForwardAnnual||null,epsTTM:metrics.metric?.epsBasicExclExtraTTM||null,epsGrowth:metrics.metric?.epsGrowthTTMYoy||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,shortInterestPct:metrics.metric?.shortInterestPercentage||metrics.metric?.shortInterestPercent||null,revenueGrowthTTM:metrics.metric?.revenueGrowthTTMYoy||null,fcfMargin:metrics.metric?.freeCashFlowMarginAnnual||null,operatingMargin:metrics.metric?.operatingMarginAnnual||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true};
       recData=rec&&rec.length?rec[0]:null;
       const upgradeData=upgrades&&upgrades.length?upgrades.slice(0,6):[];
@@ -2232,7 +2233,11 @@ async function prefetchAll(){
   if(progressEl)progressEl.style.display='block';
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];if(barEl)barEl.style.width=Math.round((i/watchlist.length)*100)+'%';if(labelEl)labelEl.textContent=`Fetching ${t} (${i+1}/${watchlist.length})...`;
-    try{const[quote,profile,metrics,earnings,rec2,upgrades2]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`),fh(`/stock/recommendation?symbol=${t}`),fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`)]);S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});}catch{}
+    try{const[quote,profile,metrics,earnings]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)]);
+      // Fetch rec and upgrades sequentially to avoid rate limit (60/min on free tier)
+      let rec2=null,upgrades2=null;
+      try{rec2=await fh(`/stock/recommendation?symbol=${t}`);}catch{}
+      try{upgrades2=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch{}S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});}catch{}
     try{const h6=await yahooHistory(t,'6mo','1d');S.set('hist_'+t,{timestamps:h6.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h6.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h6.volumes.map(v=>v||0),ts:nowPT()});}catch{}
     try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});}catch{}
     try{const opts=await yahooOptionsViaProxy(t);S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT()});const yr=opts?.optionChain?.result?.[0];const rawTs2=yr?.expirationDates||[];
@@ -2268,13 +2273,14 @@ async function refreshSingleTicker(){
   try{
     // Step 1: Core ticker data
     setP(10,'Fetching '+t+' quote & metrics...');
-    const[quote,profile,metrics,earnings,rec,upgrades]=await Promise.all([
+    const[quote,profile,metrics,earnings]=await Promise.all([
       fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),
       fh(`/stock/metric?symbol=${t}&metric=all`),
-      fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`),
-      fh(`/stock/recommendation?symbol=${t}`),
-      fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`)
+      fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)
     ]);
+    let rec=null,upgrades=null;
+    try{rec=await fh(`/stock/recommendation?symbol=${t}`);}catch{}
+    try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch{}
     const futE=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
     const snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,
       change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),

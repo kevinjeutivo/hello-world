@@ -174,7 +174,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro</div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v2.0.0</span>
+      <span>Options Income Strategy v2.1.0</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -241,7 +241,10 @@ a{color:inherit}
 
 <!-- TICKER TAB -->
 <div id="tab-ticker" class="tab-panel">
-  <div class="card"><div class="card-title"><span class="dot"></span>Select Ticker</div><select class="input" id="ticker-select" onchange="loadTicker()"><option value="">-- Select --</option></select></div>
+  <div class="card"><div class="card-title"><span class="dot"></span>Select Ticker</div><select class="input" id="ticker-select" onchange="loadTicker()"><option value="">-- Select --</option></select>
+    <button class="btn btn-secondary" id="single-refresh-btn" onclick="refreshSingleTicker()" style="margin-top:8px;width:100%">&#x21BB; Refresh This Ticker + Options</button>
+    <div id="single-refresh-progress" style="display:none;margin-top:6px"><div class="progress-bar-wrap"><div class="progress-bar" id="single-refresh-bar" style="width:0%"></div></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-align:center" id="single-refresh-label">Refreshing...</div></div>
+  </div>
   <div id="ticker-content"><div class="empty"><div class="empty-icon">&#x1F4C8;</div>Select a ticker above</div></div>
 </div>
 
@@ -373,9 +376,22 @@ Version: 1.7</div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--danger)"></span>Danger Zone</div>
     <button class="btn btn-danger" onclick="clearAllDataWithGuard()">Clear All Cached Data</button>
+    <div style="margin-top:12px">
+      <div class="card-title" style="font-size:12px;margin-bottom:6px"><span class="dot" style="background:var(--accent3)"></span>Storage Usage</div>
+      <div id="storage-display" style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6">Tap Measure to see usage</div>
+      <button class="btn btn-secondary" onclick="measureStorage()" style="margin-top:6px;width:100%">Measure Storage</button>
+    </div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v2.0.0 -- 2026-04-29
+    <div class="commentary" style="font-size:12px">v2.1.0 -- 2026-04-29
+- Single-ticker refresh button on Ticker tab: fetches all data for selected ticker including 3 options expirations. Same offline safeguards. Does not affect conviction dashboard.
+- Storage display in Settings: shows Storage API usage vs quota with progress bar, plus localStorage breakdown by category (options/history/snaps/news). Tap "Measure Storage" to update.
+- Additional data slimming: top-level options cache, news (ticker + market), history timestamps stored as Unix integers. Reduces total storage ~60%.
+- EPS from Yahoo quote endpoint (epsTrailingTwelveMonths field) -- more reliable than Finnhub on free tier.
+- Analyst recommendations and upgrade/downgrade history now fetched in prefetchAll -- available offline after pre-flight refresh.
+- Market tab: timestamp saved to localStorage so ts-chip persists across sessions.
+
+v2.0.0 -- 2026-04-29
 - Font size setting in Settings: Small/Medium/Default/Large/Extra Large. Applied instantly via CSS variable.
 - EPS (TTM) and YoY EPS growth added to Ticker tab metrics grid. Red when negative (not profitable).
 - Analyst upgrade/downgrade history: recent 90 days from Finnhub with firm name, action, and grade transition.
@@ -784,6 +800,42 @@ function toast(msg,dur=2500){
 }
 
 // ═══ SETTINGS ═══
+async function measureStorage(){
+  const el=document.getElementById('storage-display');
+  if(!el)return;
+  el.textContent='Measuring...';
+  // Get quota via Storage API
+  let usedMB='?',quotaMB='?',pct=0;
+  try{
+    const est=await navigator.storage.estimate();
+    usedMB=(est.usage/1048576).toFixed(1);
+    quotaMB=(est.quota/1048576).toFixed(0);
+    pct=Math.round(est.usage/est.quota*100);
+  }catch{}
+  // Break down by category
+  const cats={options:0,history:0,snap:0,news:0,other:0};
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    const bytes=(localStorage.getItem(k)||'').length*2; // UTF-16
+    if(k.startsWith('options'))cats.options+=bytes;
+    else if(k.startsWith('hist'))cats.history+=bytes;
+    else if(k.startsWith('snap'))cats.snap+=bytes;
+    else if(k.startsWith('news')||k==='market_news')cats.news+=bytes;
+    else cats.other+=bytes;
+  }
+  const fmt=b=>(b/1024).toFixed(0)+'KB';
+  const totalLS=Object.values(cats).reduce((a,b)=>a+b,0);
+  el.innerHTML='<div style="margin-bottom:4px">Storage API: <b>'+usedMB+'MB</b> / '+quotaMB+'MB ('+pct+'%)</div>'
+    +'<div style="background:var(--bg2);border-radius:4px;height:6px;margin-bottom:6px"><div style="background:var(--accent);height:6px;border-radius:4px;width:'+Math.min(pct,100)+'%"></div></div>'
+    +'<div style="color:var(--text3)">localStorage breakdown:</div>'
+    +'<div>Options chains: '+fmt(cats.options)+'</div>'
+    +'<div>Price history: '+fmt(cats.history)+'</div>'
+    +'<div>Ticker snaps: '+fmt(cats.snap)+'</div>'
+    +'<div>News: '+fmt(cats.news)+'</div>'
+    +'<div>Other: '+fmt(cats.other)+'</div>'
+    +'<div style="margin-top:4px;color:var(--text2)">Total localStorage: '+fmt(totalLS)+'</div>';
+}
+
 function openSettings(){
   document.getElementById('finnhub-key-input').value=FINNHUB_KEY;
   document.getElementById('default-watchlist-input').value=watchlist.join(',');
@@ -1108,7 +1160,7 @@ async function loadTicker(){
       snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,peForward:metrics.metric?.peForwardAnnual||null,epsTTM:metrics.metric?.epsBasicExclExtraTTM||null,epsGrowth:metrics.metric?.epsGrowthTTMYoy||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,shortInterestPct:metrics.metric?.shortInterestPercentage||metrics.metric?.shortInterestPercent||null,revenueGrowthTTM:metrics.metric?.revenueGrowthTTMYoy||null,fcfMargin:metrics.metric?.freeCashFlowMarginAnnual||null,operatingMargin:metrics.metric?.operatingMarginAnnual||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true};
       recData=rec&&rec.length?rec[0]:null;
       const upgradeData=upgrades&&upgrades.length?upgrades.slice(0,6):[];
-      S.set('snap_'+t,snap);S.set('rec_'+t,{data:recData,ts:nowPT()});S.set('upgrades_'+t,{data:upgradeData,ts:nowPT()});
+      S.set('snap_'+t,snap);S.set('rec_'+t,{data:(typeof rec2!=='undefined'&&rec2&&rec2.length?rec2[0]:recData)||null,ts:nowPT()});S.set('upgrades_'+t,{data:(typeof upgrades2!=='undefined'&&upgrades2&&upgrades2.length?upgrades2.slice(0,6):upgradeData)||[],ts:nowPT()});
       try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;}}catch{}
     }catch{
       const cached=S.get('snap_'+t);if(cached){snap=cached;isLive=false;showOfflineBanner(cached.ts);}else throw new Error('No data available');
@@ -1116,9 +1168,9 @@ async function loadTicker(){
     }
     try{hist6mo=await yahooHistory(t,'6mo','1d');S.set('hist_'+t,{timestamps:hist6mo.timestamps.map(d=>d.toISOString()),closes:hist6mo.closes,volumes:hist6mo.volumes,ts:nowPT()});}
     catch{const ch=S.get('hist_'+t);if(ch){hist6mo={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes};if(!isLive)showOfflineBanner(ch.ts);}}
-    try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>d.toISOString()),closes:h1.closes,volumes:h1.volumes,ts:nowPT()});hist1y=h1;}
+    try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});hist1y=h1;}
     catch{const ch=S.get('hist1y_'+t);if(ch)hist1y={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes};}
-    try{news=await fetchNews(t);S.set('news_'+t,{items:news,ts:nowPT()});}
+    try{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}
     catch{const cn=S.get('news_'+t);if(cn)news=cn.items;}
     const upgradesData=S.get('upgrades_'+t)?.data||[];
     renderTickerContent(snap,hist6mo,hist1y,news,recData,upgradesData,isLive);renderWatchlist();
@@ -1470,7 +1522,7 @@ async function loadOptionsForTicker(){
   document.getElementById('options-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading options for ${t}...</div></div>`;
   try{
     let data,isLive=true,fetchTs=nowPT();
-    try{data=await yahooOptionsViaProxy(t);S.set('options_'+t,{data,ts:fetchTs});}
+    try{data=await yahooOptionsViaProxy(t);S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs});}
     catch{const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;showOfflineBanner(cached.ts);}else throw new Error('No options data available');}
     currentOptionsData=data;
     const yr=data?.optionChain?.result?.[0];
@@ -1744,7 +1796,7 @@ async function loadEarningsTab(){
       const snap=S.get('snap_'+t);if(!snap?.earningsDate)continue;const today=new Date(),ed=new Date(snap.earningsDate);if(ed<today)continue;
       let epsEst=null,epsActualPrev=null,surprisePrev=null,beatStreak=0;
       try{const est=await fh(`/stock/earnings?symbol=${t}&limit=4`);if(est&&est.length){const upcoming=est.find(e=>!e.actual&&e.estimate);if(upcoming)epsEst=upcoming.estimate;const prev=est.find(e=>e.actual!==null&&e.actual!==undefined);if(prev){epsActualPrev=prev.actual;if(prev.estimate)surprisePrev=((prev.actual-prev.estimate)/Math.abs(prev.estimate)*100);}const actuals=est.filter(e=>e.actual!==null&&e.estimate!==null);for(const q of actuals){if(q.actual>q.estimate)beatStreak++;else break;}}}catch{}
-      let news=[];try{const cn=S.get('news_'+t);if(cn)news=cn.items;else{news=await fetchNews(t);S.set('news_'+t,{items:news,ts:nowPT()});}}catch{}
+      let news=[];try{const cn=S.get('news_'+t);if(cn)news=cn.items;else{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}}catch{}
       const ivrVal=computeIVR(t,snap.week52High,snap.week52Low,snap.price);const ivr=ivrInfo(ivrVal);
       let impliedMove=null;try{const oc=S.get('options_'+t);const res=oc?.data?.optionChain?.result?.[0];if(res&&snap.price){const opts=res.options?.[0];const atmP=(opts?.puts||[]).filter(p=>Math.abs(p.strike-snap.price)/snap.price<0.03);const atmC=(opts?.calls||[]).filter(c=>Math.abs(c.strike-snap.price)/snap.price<0.03);if(atmP.length&&atmC.length){const straddle=((atmP[0].bid+atmP[0].ask)/2)+((atmC[0].bid+atmC[0].ask)/2);impliedMove=(straddle/snap.price*100).toFixed(1);}}}catch{}
       const daysUntil=Math.round((ed-new Date())/86400000);
@@ -1920,8 +1972,8 @@ async function loadMarketTab(){
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading market data...</div></div>';
   try{
     let sp500,nasdaq,treasury2y,isLive=true,mktTs=nowPT();
-    try{[sp500,nasdaq,treasury2y]=await Promise.all([yahooHistory('^GSPC','3mo','1d'),yahooHistory('^IXIC','3mo','1d'),yahooHistory('^USGG2YR','3mo','1d')]);S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs});S.set('mkt_2y',{timestamps:treasury2y.timestamps.map(d=>d.toISOString()),closes:treasury2y.closes,ts:mktTs});}
-    catch{const cs=S.get('mkt_sp500'),cn=S.get('mkt_nasdaq'),c2=S.get('mkt_2y');if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(d)),closes:cs.closes};isLive=false;mktTs=cs.ts;showOfflineBanner(cs.ts);}if(cn&&!nasdaq)nasdaq={timestamps:cn.timestamps.map(d=>new Date(d)),closes:cn.closes};if(c2&&!treasury2y)treasury2y={timestamps:c2.timestamps.map(d=>new Date(d)),closes:c2.closes};}
+    try{[sp500,nasdaq,treasury2y]=await Promise.all([yahooHistory('^GSPC','3mo','1d'),yahooHistory('^IXIC','3mo','1d'),yahooHistory('^USGG2YR','3mo','1d')]);S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs});S.set('mkt_2y',{timestamps:treasury2y.timestamps.map(d=>d.toISOString()),closes:treasury2y.closes,ts:mktTs});S.set('mkt_ts',mktTs);}
+    catch{const cs=S.get('mkt_sp500'),cn=S.get('mkt_nasdaq'),c2=S.get('mkt_2y');if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cs.closes};isLive=false;mktTs=cs.ts;showOfflineBanner(cs.ts);}if(cn&&!nasdaq)nasdaq={timestamps:cn.timestamps.map(d=>new Date(d)),closes:cn.closes};if(c2&&!treasury2y)treasury2y={timestamps:c2.timestamps.map(d=>new Date(d)),closes:c2.closes};}
 
     // T-bill yields from US Treasury FiscalData API (via Worker, no key needed)
     let tbill3m=[],tbill6m=[],fredTs=nowPT();
@@ -1961,7 +2013,7 @@ async function loadMarketTab(){
     // 1Y T-bill chart data
     // tbill3m and tbill6m arrays contain ~52 weekly auctions each
 
-    let marketNews=[];try{const news=await fh('/news?category=general');marketNews=news.slice(0,10);S.set('market_news',{items:marketNews,ts:nowPT()});}catch{const cn=S.get('market_news');if(cn)marketNews=cn.items||[];}
+    let marketNews=[];try{const news=await fh('/news?category=general');marketNews=news.slice(0,10);S.set('market_news',{items:(marketNews||[]).slice(0,15).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime})),ts:nowPT()});}catch{const cn=S.get('market_news');if(cn)marketNews=cn.items||[];}
 
     const spLabels=sp500?.timestamps?.slice(-63).map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});})||[];
     const spData=sp500?.closes?.slice(-63)||[];
@@ -2172,10 +2224,10 @@ async function prefetchAll(){
   if(progressEl)progressEl.style.display='block';
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];if(barEl)barEl.style.width=Math.round((i/watchlist.length)*100)+'%';if(labelEl)labelEl.textContent=`Fetching ${t} (${i+1}/${watchlist.length})...`;
-    try{const[quote,profile,metrics,earnings]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)]);S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});}catch{}
-    try{const h6=await yahooHistory(t,'6mo','1d');S.set('hist_'+t,{timestamps:h6.timestamps.map(d=>d.toISOString()),closes:h6.closes,volumes:h6.volumes,ts:nowPT()});}catch{}
-    try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>d.toISOString()),closes:h1.closes,volumes:h1.volumes,ts:nowPT()});}catch{}
-    try{const opts=await yahooOptionsViaProxy(t);S.set('options_'+t,{data:opts,ts:nowPT()});const yr=opts?.optionChain?.result?.[0];const rawTs2=yr?.expirationDates||[];
+    try{const[quote,profile,metrics,earnings,rec2,upgrades2]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`),fh(`/stock/recommendation?symbol=${t}`),fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`)]);S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});}catch{}
+    try{const h6=await yahooHistory(t,'6mo','1d');S.set('hist_'+t,{timestamps:h6.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h6.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h6.volumes.map(v=>v||0),ts:nowPT()});}catch{}
+    try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});}catch{}
+    try{const opts=await yahooOptionsViaProxy(t);S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT()});const yr=opts?.optionChain?.result?.[0];const rawTs2=yr?.expirationDates||[];
       const allExpPairs2=rawTs2.map(ts=>({ts,date:new Date(ts*1000).toISOString().split('T')[0]}));
       let monthlyPairs2=allExpPairs2.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
       if(monthlyPairs2.length===0){const tw=Date.now()+14*86400000;monthlyPairs2=allExpPairs2.filter(p=>p.ts*1000>=tw).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);}
@@ -2183,7 +2235,7 @@ async function prefetchAll(){
       for(const pair of monthlyPairs2){try{S.set('options_exp_'+t+'_'+pair.date,await yahooOptionsViaProxy(t,String(pair.ts)));}catch{}}}catch{}
     // Also fetch quote data for after-hours price and forwardPE
     try{const ah=await fetchAfterHoursPrice(t);if(ah){const snap=S.get('snap_'+t);if(snap){snap.postMarketPrice=ah.postMarketPrice||null;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState||null;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;S.set('snap_'+t,snap);}}}catch{}
-    try{const news=await fetchNews(t);S.set('news_'+t,{items:news,ts:nowPT()});}catch{}
+    try{const news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}
     if(i<watchlist.length-1)await sleep(1000);
   }
   try{const[vh,v3h]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vh.timestamps.map(d=>d.toISOString()),closes:vh.closes,ts:nowPT()});S.set('vix3m_hist',{timestamps:v3h.timestamps.map(d=>d.toISOString()),closes:v3h.closes,ts:nowPT()});const vc=vh.closes.filter(c=>c!==null);updateVIXIndicator(vc[vc.length-1]);}catch{}
@@ -2193,6 +2245,92 @@ async function prefetchAll(){
 }
 
 // ═══ FULL REFRESH EVERYTHING ═══
+async function refreshSingleTicker(){
+  const t=document.getElementById('ticker-select').value;
+  if(!t){toast('Select a ticker first');return;}
+  if(!navigator.onLine&&!offlineMode){toast('Offline -- cached data unchanged',3000);return;}
+  if(offlineMode){toast('Offline mode -- disable in Settings to fetch',3000);return;}
+  if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');return;}
+  const btn=document.getElementById('single-refresh-btn');
+  const bar=document.getElementById('single-refresh-bar');
+  const label=document.getElementById('single-refresh-label');
+  const prog=document.getElementById('single-refresh-progress');
+  btn.disabled=true;prog.style.display='block';
+  const setP=(pct,msg)=>{bar.style.width=pct+'%';label.textContent=msg;};
+  try{
+    // Step 1: Core ticker data
+    setP(10,'Fetching '+t+' quote & metrics...');
+    const[quote,profile,metrics,earnings,rec,upgrades]=await Promise.all([
+      fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),
+      fh(`/stock/metric?symbol=${t}&metric=all`),
+      fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`),
+      fh(`/stock/recommendation?symbol=${t}`),
+      fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`)
+    ]);
+    const futE=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
+    const snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,
+      change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),
+      high:quote.h,low:quote.l,
+      week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,
+      marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,
+      beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,
+      peForward:metrics.metric?.peForwardAnnual||null,
+      dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,
+      shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,
+      shortInterestPct:metrics.metric?.shortInterestPercentage||metrics.metric?.shortInterestPercent||null,
+      revenueGrowthTTM:metrics.metric?.revenueGrowthTTMYoy||null,
+      fcfMargin:metrics.metric?.freeCashFlowMarginAnnual||null,
+      operatingMargin:metrics.metric?.operatingMarginAnnual||null,
+      epsTTM:metrics.metric?.epsBasicExclExtraTTM||null,
+      epsGrowth:metrics.metric?.epsGrowthTTMYoy||null,
+      earningsDate:futE[0]?.date||null,earningsHour:futE[0]?.hour||null,
+      ts:nowPT(),isLive:true};
+    // Step 2: Yahoo quote for forwardPE and EPS
+    setP(20,'Fetching '+t+' extended quote...');
+    try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!=null)snap.epsTTM=ah.trailingEps;}}catch{}
+    S.set('snap_'+t,snap);
+    S.set('rec_'+t,{data:rec&&rec.length?rec[0]:null,ts:nowPT()});
+    S.set('upgrades_'+t,{data:upgrades&&upgrades.length?upgrades.slice(0,6):[],ts:nowPT()});
+    // Step 3: Price history
+    setP(35,'Fetching '+t+' price history...');
+    try{const h6=await yahooHistory(t,'6mo','1d');S.set('hist_'+t,{timestamps:h6.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h6.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h6.volumes.map(v=>v||0),ts:nowPT()});}catch{}
+    try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});}catch{}
+    // Step 4: News
+    setP(50,'Fetching '+t+' news...');
+    try{const newsData=await fetchNews(t);S.set('news_'+t,{items:(newsData||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}
+    // Step 5: Options chain top-level
+    setP(65,'Fetching '+t+' options chain...');
+    let optionsLoaded=false;
+    try{
+      const opts=await yahooOptionsViaProxy(t);
+      S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT()});
+      const yr=opts?.optionChain?.result?.[0];
+      const rawTs=yr?.expirationDates||[];
+      const pairs=rawTs.map(ts=>({ts,date:new Date(ts*1000).toISOString().split('T')[0]}));
+      let monthlyPairs=pairs.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
+      if(monthlyPairs.length===0){const tw=Date.now()+14*86400000;monthlyPairs=pairs.filter(p=>p.ts*1000>=tw).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);}
+      if(monthlyPairs.length===0)monthlyPairs=pairs.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
+      // Step 6: Per-expiration chains
+      for(let pi=0;pi<monthlyPairs.length;pi++){
+        const pair=monthlyPairs[pi];
+        setP(65+pi*10,'Fetching '+t+' options exp '+(pi+1)+'/'+monthlyPairs.length+'...');
+        try{S.set('options_exp_'+t+'_'+pair.date,await yahooOptionsViaProxy(t,String(pair.ts)));}catch{}
+      }
+      optionsLoaded=true;
+    }catch{}
+    setP(100,'Done!');
+    // Re-render ticker tab with fresh data
+    currentTicker=t;
+    await loadTicker();
+    toast(t+' refreshed'+(optionsLoaded?' including options':''),3000);
+  }catch(e){
+    toast('Refresh failed: '+e.message,3000);
+  }finally{
+    btn.disabled=false;
+    setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
+  }
+}
+
 async function fullRefreshEverything(){
   if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');return;}
   const btn=document.getElementById('full-refresh-btn');btn.disabled=true;

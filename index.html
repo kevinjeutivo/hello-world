@@ -480,7 +480,11 @@ v1.7 -- 2026-04-29
 <div class="toast" id="toast"></div>
 <script>
 // ═══ STORAGE ═══
-const S={get:k=>{try{return JSON.parse(localStorage.getItem(k));}catch{return null;}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}},del:k=>localStorage.removeItem(k)};
+const S={
+  get:k=>{try{return JSON.parse(localStorage.getItem(k));}catch{return null;}},
+  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){if(e.name==='QuotaExceededError'||e.code===22){console.warn('Storage full -- could not save',k);toast('Storage full -- clear cached data in Settings',4000);}}}  ,
+  del:k=>localStorage.removeItem(k)
+};
 
 // ═══ CONFIG ═══
 let FINNHUB_KEY=S.get('finnhub_key')||'';
@@ -941,6 +945,38 @@ async function yahooHistory(symbol,range='6mo',interval='1d'){
   const result=d.chart?.result?.[0];if(!result)throw new Error('No history data');
   return{timestamps:result.timestamp.map(t=>new Date(t*1000)),closes:result.indicators.quote[0].close,volumes:result.indicators.quote[0].volume||[]};
 }
+function slimOptionsData(json){
+  // Strip Yahoo options response to only fields needed by buildOptionsTable and renderOIChart
+  // Raw response can be 500KB+; slimmed version is ~50KB, well within localStorage limits
+  const result=json?.optionChain?.result?.[0];
+  if(!result)return json;
+  const slimContract=c=>({
+    strike:c.strike,
+    bid:c.bid,
+    ask:c.ask,
+    lastPrice:c.lastPrice,
+    openInterest:c.openInterest,
+    volume:c.volume,
+    impliedVolatility:c.impliedVolatility,
+    inTheMoney:c.inTheMoney,
+    expiration:c.expiration
+  });
+  const slimOptions=(result.options||[]).map(o=>({
+    expirationDate:o.expirationDate,
+    hasMiniOptions:o.hasMiniOptions,
+    puts:(o.puts||[]).map(slimContract),
+    calls:(o.calls||[]).map(slimContract)
+  }));
+  return{optionChain:{result:[{
+    underlyingSymbol:result.underlyingSymbol,
+    expirationDates:result.expirationDates,
+    strikes:result.strikes,
+    hasMiniOptions:result.hasMiniOptions,
+    quote:{regularMarketPrice:result.quote?.regularMarketPrice},
+    options:slimOptions
+  }],error:null}};
+}
+
 async function yahooOptionsViaProxy(symbol,expiration){
   if(offlineMode)throw new Error('offline mode');
   let url=`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=options`;
@@ -951,15 +987,7 @@ async function yahooOptionsViaProxy(symbol,expiration){
     throw new Error(`Options proxy ${r.status}: ${errText.slice(0,80)}`);
   }
   const json=await r.json();
-  if(expiration){
-    // Diagnostic for per-expiration calls
-    const res=json?.optionChain?.result?.[0];
-    const puts=res?.options?.[0]?.puts?.length||0;
-    const calls=res?.options?.[0]?.calls?.length||0;
-    const coveredExp=res?.options?.[0]?.expirationDate||'?';
-    toast('EXP['+symbol+'/'+expiration+']: '+puts+'P/'+calls+'C coveredExp:'+coveredExp,20000);
-  }
-  return json;
+  return slimOptionsData(json);
 }
 async function fetchAfterHoursPrice(symbol){
   // Use Yahoo Finance quote endpoint (same source as yfinance stock.info)
@@ -1518,14 +1546,6 @@ function buildOptionsTable(){
     const expCached=S.get('options_exp_'+t+'_'+exp);const res=expCached?.optionChain?.result?.[0];if(!res)continue;
     const expD=new Date(exp+'T12:00:00Z');const dte=Math.max(Math.round((expD-today)/86400000),1);
     const proc=(contracts,isCall)=>{if(!contracts)return;contracts.forEach(o=>{const s=o.strike||0;if(s<lowerBound||s>upperBound)return;const bid=o.bid||0,ask=o.ask||0,last=o.lastPrice||0,oi=o.openInterest||0,vol=o.volume||0,iv=o.impliedVolatility||0;const premium=(bid>0?bid:last)*100;const apy=isCall?premium/(currentPrice*100)*(365/dte)*100:premium/(s*100)*(365/dte)*100;const pctOTM=isCall?(s-currentPrice)/currentPrice*100:(currentPrice-s)/currentPrice*100;rows.push({expDate:exp,strike:s,bid,ask,last,premium,apy,oi,vol,iv,dte,pctOTM});});};
-    // DIAGNOSTIC: show first contract fields
-    const _diagContracts=currentMode==='puts'?res.options?.[0]?.puts:res.options?.[0]?.calls;
-    if(_diagContracts&&_diagContracts.length>0){
-      const _c=_diagContracts[0];
-      toast('CONTRACT['+exp+']: strike='+_c.strike+' bid='+_c.bid+' ask='+_c.ask+' lb='+lowerBound.toFixed(0)+' ub='+upperBound.toFixed(0)+' price='+currentPrice,20000);
-    }else{
-      toast('CONTRACT['+exp+']: array empty or null, opts keys='+Object.keys(res.options?.[0]||{}),15000);
-    }
     if(currentMode==='puts')proc(res.options?.[0]?.puts,false);else proc(res.options?.[0]?.calls,true);
   }
   rows.sort((a,b)=>a.expDate.localeCompare(b.expDate)||a.strike-b.strike);

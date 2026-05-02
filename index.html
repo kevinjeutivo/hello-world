@@ -951,14 +951,13 @@ async function yahooOptionsViaProxy(symbol,expiration){
     throw new Error(`Options proxy ${r.status}: ${errText.slice(0,80)}`);
   }
   const json=await r.json();
-  // Diagnostic: show what Yahoo actually returned for top-level (no expiration) calls
-  if(!expiration){
+  if(expiration){
+    // Diagnostic for per-expiration calls
     const res=json?.optionChain?.result?.[0];
-    const err=json?.optionChain?.error;
     const puts=res?.options?.[0]?.puts?.length||0;
     const calls=res?.options?.[0]?.calls?.length||0;
-    const exps=res?.expirationDates?.length||0;
-    toast('RAW ['+symbol+']: '+puts+'P/'+calls+'C '+exps+'exps err:'+JSON.stringify(err).slice(0,50),25000);
+    const coveredExp=res?.options?.[0]?.expirationDate||'?';
+    toast('EXP['+symbol+'/'+expiration+']: '+puts+'P/'+calls+'C coveredExp:'+coveredExp,20000);
   }
   return json;
 }
@@ -1446,15 +1445,7 @@ async function loadOptionsForTicker(){
     try{data=await yahooOptionsViaProxy(t);S.set('options_'+t,{data,ts:fetchTs});}
     catch{const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;showOfflineBanner(cached.ts);}else throw new Error('No options data available');}
     currentOptionsData=data;
-    // DIAGNOSTIC: show top-level options structure
-    const _diagYr=data?.optionChain?.result?.[0];
-    const _diagOpts=_diagYr?.options?.[0];
-    const _diagPuts=_diagOpts?.puts?.length||0;
-    const _diagCalls=_diagOpts?.calls?.length||0;
-    const _diagExps=(_diagYr?.expirationDates||[]).length;
-    const _diagErr=data?.optionChain?.error||data?.error||'none';
-    toast('TOP-LEVEL ['+t+']: '+_diagPuts+'P/'+_diagCalls+'C, '+_diagExps+' exps, err:'+JSON.stringify(_diagErr).slice(0,40),25000);
-    const yr=_diagYr;
+    const yr=data?.optionChain?.result?.[0];
     // Keep original Unix timestamps alongside date strings so we can pass
     // the exact timestamp back to Yahoo when fetching per-expiration data.
     // Yahoo is strict about timestamp matching -- using a converted date string

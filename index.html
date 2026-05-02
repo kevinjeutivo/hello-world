@@ -171,10 +171,10 @@ a{color:inherit}
 <div id="market-status-banner" class="mkt-closed">Loading market status...</div>
 <div class="header">
   <div class="header-left">
-    <div class="header-title">PutSeller Pro</div>
+    <div class="header-title">PutSeller Pro <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v2.1.0</span>
+      <span>Options Income Strategy v2.2.0</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -199,6 +199,7 @@ a{color:inherit}
     <div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Full Refresh Everything</div>
     <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Fetches all data, runs conviction dashboards, loads earnings and VIX. One tap -- walk away and come back.</div>
     <button class="btn btn-success" id="full-refresh-btn" onclick="fullRefreshEverything()">Refresh All Data + Dashboards</button>
+    <div id="last-full-refresh-label" style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px;text-align:center"></div>
     <div id="full-refresh-progress" style="display:none">
       <div class="progress-bar-wrap"><div class="progress-bar" id="full-refresh-bar" style="width:0%"></div></div>
       <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-align:center" id="full-refresh-label">Starting...</div>
@@ -383,7 +384,17 @@ Version: 1.7</div>
     </div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v2.1.0 -- 2026-04-29
+    <div class="commentary" style="font-size:12px">v2.2.0 -- 2026-04-29
+- Options table: bid and ask stacked in single Bid/Ask column to save horizontal space on narrow screens.
+- Conviction dashboard: numeric score (0-100) displayed inline with conviction level. Component bar strip (IVR/RSI/Range/APY/Earn in descending weight) shows color-coded performance per factor.
+- Header status dot: green = data fresh, amber = stale, blue pulse = refresh in progress.
+- Dashboard tab: "Last full refresh" timestamp persists below the Full Refresh button.
+- ETF charts: 6M/1Y toggle. Total return line and metrics now cached to localStorage and rendered from cache on app wake / airplane mode.
+- ETF return tiles: update dynamically when time span toggles.
+- Income engine Layer 2: per-ETF risk premium (SPYI and NBOS separately vs T-bills). Yield labeled as TTM.
+- Ticker BB/RSI chart: 6M/1Y toggle using already-cached history data.
+
+v2.1.0 -- 2026-04-29
 - Single-ticker refresh button on Ticker tab: fetches all data for selected ticker including 3 options expirations. Same offline safeguards. Does not affect conviction dashboard.
 - Storage display in Settings: shows Storage API usage vs quota with progress bar, plus localStorage breakdown by category (options/history/snaps/news). Tap "Measure Storage" to update.
 - Additional data slimming: top-level options cache, news (ticker + market), history timestamps stored as Unix integers. Reduces total storage ~60%.
@@ -929,6 +940,43 @@ function updateSlider(id){
 }
 
 // ═══ NAV TABS ═══
+function updateHeaderStatus(){
+  // Green = all core data fresh (<30min), amber = some stale, spinner = refreshing
+  const dot=document.getElementById('header-status-dot');
+  if(!dot)return;
+  const tickers=watchlist.slice(0,5); // sample first 5
+  let allFresh=true,anyData=false;
+  const now=Date.now();
+  tickers.forEach(t=>{
+    const snap=S.get('snap_'+t);
+    if(snap?.ts){
+      anyData=true;
+      try{
+        const isoAttr=document.querySelector('.ts-chip')?.getAttribute('data-ts-iso');
+        const snapD=new Date(snap.ts.replace(/ PT$| UTC$| local$/,'').trim());
+        if(!isNaN(snapD.getTime())){
+          const ageMins=(now-snapD.getTime())/60000;
+          if(ageMins>30)allFresh=false;
+        }
+      }catch{}
+    }
+  });
+  if(!anyData){dot.style.background='#555870';dot.title='No data cached';}
+  else if(allFresh){dot.style.background='#00d4aa';dot.title='Data is fresh';}
+  else{dot.style.background='#ff9800';dot.title='Some data is stale -- refresh recommended';}
+  // Show last full refresh time
+  const lts=S.get('last_full_refresh_ts');
+  const lbl=document.getElementById('last-full-refresh-label');
+  if(lbl&&lts){const age=relAge(lts);lbl.textContent='Last full refresh: '+lts+(age?' ('+age+')':'');}
+}
+
+function setRefreshSpinner(active){
+  const dot=document.getElementById('header-status-dot');
+  if(!dot)return;
+  if(active){dot.style.background='#4fc3f7';dot.style.animation='pulse 1s infinite';dot.title='Refreshing...';}
+  else{dot.style.animation='';updateHeaderStatus();}
+}
+
 function refreshTsChipAges(){
   // Re-compute relative age on all ts-chips using data-ts-iso for reliable parsing.
   // data-ts-iso is set by tsChip() at render time as a true ISO timestamp.
@@ -1217,14 +1265,42 @@ function buildUpgradeTable(upgrades){
     +'<tbody>'+rows+'</tbody></table></div></div>';
 }
 
+function toggleBBSpan(span){
+  const btn6=document.getElementById('bb-btn-6m');
+  const btn1=document.getElementById('bb-btn-1y');
+  if(btn6)btn6.style.opacity=span==='6m'?'1':'0.4';
+  if(btn1)btn1.style.opacity=span==='1y'?'1':'0.4';
+  const t=document.getElementById('ticker-select').value;
+  if(!t)return;
+  if(span==='6m'){
+    const h=S.get('hist_'+t);
+    if(h)renderBBChart({timestamps:h.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:h.closes,volumes:h.volumes||[]},S.get('snap_'+t));
+  }else{
+    const h=S.get('hist1y_'+t);
+    if(h)renderBBChart({timestamps:h.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:h.closes,volumes:h.volumes||[]},S.get('snap_'+t));
+    else toast('1Y history not available -- run full refresh',2500);
+  }
+}
+
 function buildR40Tile(snap){
   const revGrowth=snap.revenueGrowthTTM;
   const margin=snap.fcfMargin||snap.operatingMargin;
   if(revGrowth===null||revGrowth===undefined||margin===null||margin===undefined)return'';
   // revenueGrowthTTMYoy is a decimal (0.25 = 25%) -- multiply by 100
-  // fcfMargin / operatingMargin are already percentages (42.3 = 42.3%) -- use directly
-  const growthPct=(revGrowth*100).toFixed(1);
-  const marginPct=margin.toFixed(1);
+  // fcfMargin / operatingMargin: Finnhub returns inconsistently --
+  // sometimes as a percentage (42.3) sometimes as a decimal (0.423)
+  // and occasionally as a large integer (4230 -- bug in their API).
+  // Normalize: if |value| > 200, divide by 100. If |value| <= 1, multiply by 100.
+  let marginNorm=margin;
+  if(Math.abs(marginNorm)>200)marginNorm=marginNorm/100;
+  else if(Math.abs(marginNorm)<=1&&marginNorm!==0)marginNorm=marginNorm*100;
+  // Clamp to reasonable range (-100% to +100%)
+  marginNorm=Math.max(-100,Math.min(100,marginNorm));
+  // Same normalization for revenue growth
+  let growthNorm=revGrowth;
+  if(Math.abs(growthNorm)>5)growthNorm=growthNorm/100; // already a percentage
+  const growthPct=(growthNorm*100).toFixed(1);
+  const marginPct=marginNorm.toFixed(1);
   const score=parseFloat(growthPct)+parseFloat(marginPct);
   const scoreStr=score.toFixed(1);
   const scoreColor=score>=40?'var(--green)':score>=20?'var(--warn)':'var(--red)';
@@ -1321,7 +1397,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive){
     </div>
     ${earningsStr}
   </div>
-  ${hist?`<div class="card"><div class="card-title"><span class="dot"></span>Bollinger Bands + RSI (6mo)</div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility.
+  ${hist?`<div class="card"><div class="card-title"><span class="dot"></span>Bollinger Bands + RSI</div><div style="display:flex;gap:6px;margin-bottom:4px"><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" id="bb-btn-6m" onclick="toggleBBSpan(\'6m\')">6M</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-1y" onclick="toggleBBSpan(\'1y\')">1Y</button></div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility.
 
 RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red shading) = overbought, favorable for covered calls.</div></div>`:''}
   ${hist1y?`<div class="card"><div class="card-title"><span class="dot" style="background:teal"></span>Volume Profile -- Support / Resistance (1Y)</div><div class="chart-wrap" style="height:300px"><canvas id="vp-chart"></canvas></div><div id="vp-analysis"></div></div>`:''}
@@ -1632,10 +1708,10 @@ function buildOptionsTable(){
     if(!earningsDateStr||earningsBannerInserted)return'';
     earningsBannerInserted=true;
     const daysAway=Math.round((earningsD-today)/86400000);
-    return `<tr><td colspan="8" style="padding:0;border:none"><div style="background:rgba(255,165,2,0.1);border-left:3px solid rgba(255,165,2,0.7);padding:5px 10px;font-family:var(--mono);font-size:10px;color:var(--warn);font-weight:600">&#x1F4C5; Earnings ${earningsDateStr}${earningsTiming} &middot; ${daysAway}d away</div></td></tr>`;
+    return `<tr><td colspan="7" style="padding:0;border:none"><div style="background:rgba(255,165,2,0.1);border-left:3px solid rgba(255,165,2,0.7);padding:5px 10px;font-family:var(--mono);font-size:10px;color:var(--warn);font-weight:600">&#x1F4C5; Earnings ${earningsDateStr}${earningsTiming} &middot; ${daysAway}d away</div></td></tr>`;
   }
 
-  const priceSepRow=`<tr><td colspan="8" style="padding:0;border:none">
+  const priceSepRow=`<tr><td colspan="7" style="padding:0;border:none">
     <div style="background:rgba(79,195,247,0.12);border-top:2px solid #4fc3f7;border-bottom:2px solid #4fc3f7;
     padding:4px 8px;font-family:var(--mono);font-size:10px;color:#4fc3f7;font-weight:600;text-align:center;letter-spacing:0.5px">
     NOW $${currentPrice.toFixed(2)}</div></td></tr>`;
@@ -1646,7 +1722,7 @@ function buildOptionsTable(){
     return `<tr class="${hl?'highlighted':''}">
       <td>${r.expDate}<br><span style="color:var(--accent);font-size:12px">$${formatStrike(r.strike)}</span></td>
       <td style="color:var(--text2)">${r.pctOTM.toFixed(1)}%</td>
-      <td>$${r.bid.toFixed(2)}</td><td>$${r.ask.toFixed(2)}</td>
+      <td><span style="display:block">$${r.bid.toFixed(2)}</span><span style="display:block;color:var(--text3);font-size:10px">$${r.ask.toFixed(2)}</span></td>
       <td>$${r.premium.toFixed(0)}</td>
       <td class="${apyCls}">${r.apy.toFixed(1)}%</td>
       <td>${r.oi.toLocaleString()}</td>
@@ -1672,7 +1748,7 @@ function buildOptionsTable(){
     const er=parseInt(hx.substring(0,2),16);
     const eg=parseInt(hx.substring(2,4),16);
     const eb=parseInt(hx.substring(4,6),16);
-    tableBodyHTML+='<tr><td colspan="8" style="padding:0;border:none"><div style="background:rgba('+er+','+eg+','+eb+',0.12);border-left:4px solid '+expColor+';border-top:1px solid '+expColor+'44;padding:6px 10px;font-family:var(--mono);font-size:11px;color:'+expColor+';font-weight:600;display:flex;justify-content:space-between;align-items:center"><span>'+expLabel+'</span><span style="font-size:13px;letter-spacing:0.5px">DTE: '+dte+'</span></div></td></tr>';
+    tableBodyHTML+='<tr><td colspan="7" style="padding:0;border:none"><div style="background:rgba('+er+','+eg+','+eb+',0.12);border-left:4px solid '+expColor+';border-top:1px solid '+expColor+'44;padding:6px 10px;font-family:var(--mono);font-size:11px;color:'+expColor+';font-weight:600;display:flex;justify-content:space-between;align-items:center"><span>'+expLabel+'</span><span style="font-size:13px;letter-spacing:0.5px">DTE: '+dte+'</span></div></td></tr>';
 
     // Insert earnings banner INSIDE this group if earnings falls within this expiry window
     // (after prev expiry and before this expiry -- already checked above for between-group case)
@@ -1699,7 +1775,7 @@ function buildOptionsTable(){
 
   // Earnings banner after all expirations if not yet inserted
   if(earningsD&&!earningsBannerInserted){tableBodyHTML+=earningsBanner();}
-  const tableHTML=`<div class="card"><div class="card-title"><span class="dot"></span>${currentMode==='puts'?'Put':'Call'} Options -- ${t} @ $${currentPrice.toFixed(2)}</div>${(()=>{const optCache=S.get('options_'+t);const optTs=optCache?.ts||'';const optAge=relAge(optTs);const isOptLive=optTs&&(Date.now()-new Date(optTs.replace(/ PT$| UTC$| local$/,'').trim()).getTime())<900000;return'<div class="ts-chip '+(isOptLive?'live':'stale')+'">'+(isOptLive?'live':'cached')+' '+optTs+(optAge?' ('+optAge+')':'')+'</div>';})()}<div class="options-table-wrap"><table class="options-table"><thead><tr><th>Exp / Strike</th><th>% OTM</th><th>Bid</th><th>Ask</th><th>Premium</th><th>APY</th><th>OI</th><th>IV</th></tr></thead><tbody>${tableBodyHTML}</tbody></table></div></div>`;
+  const tableHTML=`<div class="card"><div class="card-title"><span class="dot"></span>${currentMode==='puts'?'Put':'Call'} Options -- ${t} @ $${currentPrice.toFixed(2)}</div>${(()=>{const optCache=S.get('options_'+t);const optTs=optCache?.ts||'';const optAge=relAge(optTs);const isOptLive=optTs&&(Date.now()-new Date(optTs.replace(/ PT$| UTC$| local$/,'').trim()).getTime())<900000;return'<div class="ts-chip '+(isOptLive?'live':'stale')+'">'+(isOptLive?'live':'cached')+' '+optTs+(optAge?' ('+optAge+')':'')+'</div>';})()}<div class="options-table-wrap"><table class="options-table"><thead><tr><th>Exp / Strike</th><th>% OTM</th><th>Bid/Ask</th><th>Premium</th><th>APY</th><th>OI</th><th>IV</th></tr></thead><tbody>${tableBodyHTML}</tbody></table></div></div>`;
   document.getElementById('options-content').innerHTML=tableHTML;renderOIChart(rows,currentPrice,t);
 }
 function renderOIChart(rows,currentPrice,t){
@@ -1854,6 +1930,43 @@ function renderEarningsCards(){
 </script>
 <script>
 // ═══ ETF TAB ═══
+function toggleEtfSpan(ticker,span){
+  const btn6=document.getElementById('etf-btn-6m-'+ticker);
+  const btn1=document.getElementById('etf-btn-1y-'+ticker);
+  if(btn6)btn6.style.opacity=span==='6m'?'1':'0.4';
+  if(btn1)btn1.style.opacity=span==='1y'?'1':'0.4';
+  const cd=window._etfChartData&&window._etfChartData[ticker];
+  if(!cd)return;
+  if(span==='6m'){
+    renderEtfChart(ticker,cd.color,cd.labels6m,cd.data6m,cd.tr6m);
+    updateEtfReturnTiles(ticker,cd.priceRetPct6m,cd.totalRetPct6m,'6M');
+  }else{
+    // Use 1Y cached data if available
+    const c1=S.get('etf_tr_'+ticker);
+    if(c1&&c1.labels1y&&c1.data1y){
+      renderEtfChart(ticker,cd.color,c1.labels1y,c1.data1y,c1.tr1y);
+      updateEtfReturnTiles(ticker,c1.priceRetPct1y,c1.totalRetPct1y,'1Y');
+    }else{
+      toast('1Y data not available -- run full refresh',2500);
+    }
+  }
+}
+
+function updateEtfReturnTiles(ticker,priceRetPct,totalRetPct,span){
+  const prEl=document.getElementById('etf-price-ret-'+ticker);
+  const trEl=document.getElementById('etf-total-ret-'+ticker);
+  if(prEl&&priceRetPct!=null){
+    prEl.innerHTML='<div class="metric-label">Price Return ('+span+')</div>'
+      +'<div class="metric-value" style="color:'+(priceRetPct>=0?'var(--green)':'var(--red)')+'">'+(priceRetPct>=0?'+':'')+priceRetPct.toFixed(1)+'%</div>'
+      +'<div class="metric-sub">NAV change only</div>';
+  }
+  if(trEl&&totalRetPct!=null){
+    trEl.innerHTML='<div class="metric-label">Total Return ('+span+')</div>'
+      +'<div class="metric-value" style="color:'+(totalRetPct>=0?'var(--green)':'var(--red)')+'">'+(totalRetPct>=0?'+':'')+totalRetPct.toFixed(1)+'%</div>'
+      +'<div class="metric-sub">Price + distributions. Spread = yield collected.</div>';
+  }
+}
+
 async function loadETFTab(){
   if(!navigator.onLine&&!offlineMode){toast('Offline -- showing cached ETF data',2500);restoreETFFromCache();return;}
   if(offlineMode){restoreETFFromCache();return;}
@@ -1936,34 +2049,56 @@ async function loadETFTab(){
         ${tsChip(snap?.ts||'',isLive)}
         <div class="metrics-grid" style="margin-bottom:10px">
           <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Trailing 12-Month Distribution Yield</div><div class="metric-value" style="color:${etf.color};font-size:20px">${trailingYield?trailingYield+'%':'N/A'}</div><div class="metric-sub">${trailingYield?`Sum of last ${Math.min(12,distributions.length)} distributions / current price. Compare to your T-bill yield for risk premium context.`:'Fetch live data to compute distribution yield.'}</div></div>
-          ${priceRetPct!=null?`<div class="metric-tile"><div class="metric-label">Price Return (chart period)</div><div class="metric-value" style="color:${priceRetPct>=0?'var(--green)':'var(--red)'}">${priceRetPct>=0?'+':''}${priceRetPct.toFixed(1)}%</div><div class="metric-sub">NAV change only</div></div>`:''}
-          ${totalRetPct!=null?`<div class="metric-tile"><div class="metric-label">Total Return (chart period)</div><div class="metric-value" style="color:${totalRetPct>=0?'var(--green)':'var(--red)'}">${totalRetPct>=0?'+':''}${totalRetPct.toFixed(1)}%</div><div class="metric-sub">Price + distributions. Spread vs price return = yield collected.</div></div>`:''}
+          <div class="metric-tile" id="etf-price-ret-${etf.ticker}">${priceRetPct!=null?`<div class="metric-label">Price Return (6M)</div><div class="metric-value" style="color:${priceRetPct>=0?'var(--green)':'var(--red)'}">${priceRetPct>=0?'+':''}${priceRetPct.toFixed(1)}%</div><div class="metric-sub">NAV change only</div>`:''}</div>
+          <div class="metric-tile" id="etf-total-ret-${etf.ticker}">${totalRetPct!=null?`<div class="metric-label">Total Return (6M)</div><div class="metric-value" style="color:${totalRetPct>=0?'var(--green)':'var(--red)'}">${totalRetPct>=0?'+':''}${totalRetPct.toFixed(1)}%</div><div class="metric-sub">Price + distributions. Spread = yield collected.</div>`:''}</div>
           <div class="metric-tile"><div class="metric-label">Annualized Yield (indicated)</div><div class="metric-value" style="font-size:13px">${snap?.dividendYield?snap.dividendYield.toFixed(2)+'%':'N/A'}</div></div>
           <div class="metric-tile"><div class="metric-label">52W High / Low</div><div class="metric-value" style="font-size:11px">$${snap?.week52High?.toFixed(2)||'N/A'} / $${snap?.week52Low?.toFixed(2)||'N/A'}</div></div>
         </div>
         <div class="commentary" style="margin-bottom:10px;font-size:11px">${etf.strategy}</div>
         ${distributions.length?`<div style="margin-bottom:10px"><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px">Recent Distributions</div>${distributions.slice(0,6).map(d=>`<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">${d.date}</span><span style="color:${etf.color}">$${d.amount?.toFixed(4)||'N/A'}</span></div>`).join('')}</div>`:'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Distribution history not available from data provider. Check fund website for latest distributions.</div>'}
-        ${chartLabels.length?`<div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:${etf.color}"></span>6-Month Price</div><div class="chart-wrap" style="height:140px"><canvas id="etf-chart-${etf.ticker}"></canvas></div>`:''}
+        ${chartLabels.length?`<div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:${etf.color}"></span>6-Month Price</div><div style="display:flex;gap:6px;margin-bottom:4px">
+          <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" onclick="toggleEtfSpan('${etf.ticker}','6m')" id="etf-btn-6m-${etf.ticker}">6M</button>
+          <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" onclick="toggleEtfSpan('${etf.ticker}','1y')" id="etf-btn-1y-${etf.ticker}">1Y</button>
+        </div>
+        <div class="chart-wrap" style="height:140px"><canvas id="etf-chart-${etf.ticker}"></canvas></div>`:''}
       </div>`;
       // Store chart data for rendering after all HTML is injected
-      etfChartQueue.push({ticker:etf.ticker,color:etf.color,labels:chartLabels,data:chartData,totalReturn:totalReturnData});
+      // Cache total return series and return metrics for offline restore
+      S.set('etf_tr_'+etf.ticker,{
+        totalReturn:totalReturnData,
+        priceRetPct,totalRetPct,
+        chartLabels6m:chartLabels,
+        chartData6m:chartData,
+        ts:nowPT()
+      });
+      etfChartQueue.push({ticker:etf.ticker,color:etf.color,labels:chartLabels,data:chartData,totalReturn:totalReturnData,priceRetPct,totalRetPct});
     }catch(err){html+=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">${etf.ticker}: ${err.message}</div></div>`;}
   }
   el.innerHTML=html;
   S.set('etf_rendered',{html,ts:nowPT()});
   // Render all ETF charts after HTML is in DOM -- use requestAnimationFrame to ensure paint
+  window._etfChartData=window._etfChartData||{};
+
+  function renderEtfChart(ticker,color,labels,data,totalReturn){
+    const ctx=document.getElementById('etf-chart-'+ticker)?.getContext('2d');
+    if(!ctx||!labels||!labels.length)return;
+    // Destroy existing chart
+    if(window._etfCharts&&window._etfCharts[ticker]){window._etfCharts[ticker].destroy();}
+    if(!window._etfCharts)window._etfCharts={};
+    const datasets=[{label:'Price',data,borderColor:color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}];
+    if(totalReturn&&totalReturn.length){
+      datasets.push({label:'Total Return',data:totalReturn,borderColor:'#ffd32a',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false,borderDash:[4,3]});
+    }
+    window._etfCharts[ticker]=new Chart(ctx,{type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:datasets.length>1,labels:{color:'#8b8fa8',font:{size:9},boxWidth:20}}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});
+  }
+
   function renderNextEtfChart(queue,idx){
     if(idx>=queue.length)return;
-    const{ticker,color,labels,data,totalReturn}=queue[idx];
+    const{ticker,color,labels,data,totalReturn,priceRetPct,totalRetPct}=queue[idx];
+    // Store full year data for toggle
+    window._etfChartData[ticker]={color,labels6m:labels,data6m:data,tr6m:totalReturn,priceRetPct6m:priceRetPct,totalRetPct6m:totalRetPct};
     requestAnimationFrame(()=>{
-      const ctx=document.getElementById(`etf-chart-${ticker}`)?.getContext('2d');
-      if(ctx&&labels.length){
-        const datasets=[{label:'Price',data,borderColor:color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}];
-        if(totalReturn&&totalReturn.length){
-          datasets.push({label:'Total Return',data:totalReturn,borderColor:'#ffd32a',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false,borderDash:[4,3]});
-        }
-        new Chart(ctx,{type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:datasets.length>1,labels:{color:'#8b8fa8',font:{size:9},boxWidth:20}}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});
-      }
+      renderEtfChart(ticker,color,labels,data,totalReturn);
       renderNextEtfChart(queue,idx+1);
     });
   }
@@ -2039,8 +2174,11 @@ async function loadMarketTab(){
             <div style="font-family:var(--mono);font-size:20px;font-weight:600;color:#64b5f6">${tb3Current?tb3Current.toFixed(2)+'%':'N/A'}</div>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(255,107,53,0.1);border-radius:8px;border:1px solid rgba(255,107,53,0.3)">
-            <div><div style="font-family:var(--mono);font-size:10px;color:var(--text3)">LAYER 2 -- ETFs</div><div style="font-family:var(--mono);font-size:12px;color:var(--text2)">SPYI / NBOS trailing yield</div></div>
-            <div style="text-align:right"><div style="font-family:var(--mono);font-size:16px;font-weight:600;color:var(--accent2)">${spyiYield?spyiYield+'%':'--'} / ${nbosYield?nbosYield+'%':'--'}</div><div style="font-family:var(--mono);font-size:9px;color:var(--text3)">${tb3Current&&spyiYield?`+${(parseFloat(spyiYield)-tb3Current).toFixed(2)}% risk premium`:'load ETF data'}</div></div>
+            <div><div style="font-family:var(--mono);font-size:10px;color:var(--text3)">LAYER 2 -- ETFs</div><div style="font-family:var(--mono);font-size:12px;color:var(--text2)">SPYI / NBOS TTM Yield</div></div>
+            <div style="text-align:right">
+              <div style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent2)">${spyiYield?'SPYI '+spyiYield+'%':'SPYI --'}${tb3Current&&spyiYield?' (+'+((parseFloat(spyiYield)-tb3Current).toFixed(2))+'% vs T-bills)':''}</div>
+              <div style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent2);margin-top:2px">${nbosYield?'NBOS '+nbosYield+'%':'NBOS --'}${tb3Current&&nbosYield?' (+'+((parseFloat(nbosYield)-tb3Current).toFixed(2))+'% vs T-bills)':''}</div>
+            </div>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(0,212,170,0.1);border-radius:8px;border:1px solid rgba(0,212,170,0.3)">
             <div><div style="font-family:var(--mono);font-size:10px;color:var(--text3)">LAYER 3 -- WHEEL</div><div style="font-family:var(--mono);font-size:12px;color:var(--text2)">Active put/call selling target</div></div>
@@ -2133,7 +2271,17 @@ function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expi
   if(ivrVal!==null&&!isNaN(ivrVal)){if(ivrVal>=60){score+=1;details.push(`IV ${ivrVal.toFixed(0)}th pct -- elevated premium`);}else if(ivrVal<30){details.push(`IV ${ivrVal.toFixed(0)}th pct -- thin premiums`);}else{details.push(`IV ${ivrVal.toFixed(0)}th pct -- normal`);}}
   if(estApy&&recStrike){details.push(`Rec ${recStrike} @ ${estApy} (${expiration})`);}
   const signal=score>=3?'high':score>=1?'medium':'low';
-  return{score,signal,factors:reasons.slice(0,2).join(', ')||'Insufficient data',narrative:details.join('. '),recStrike:recStrike||'--',expiration:expiration||'--',estApy:estApy||'--'};
+  // Compute per-component scores for the bar strip (0-3 scale, -1=negative)
+  const rsiScore=rsiVal===null?0:(rsiVal<35?3:rsiVal<50?2:rsiVal>70?-1:rsiVal>60?0:1);
+  const maScore=(!ma50||!ma200||!price)?0:(price>ma50&&price>ma200?2:price<ma50&&price<ma200?-1:1);
+  const rangeScore=rangePos===null?0:(rangePos<0.35?3:rangePos<0.55?2:rangePos>0.85?-1:1);
+  const earningsScore=!earningsDate?1:(()=>{const d=Math.round((new Date(earningsDate.split(' ')[0])-new Date())/86400000);return d>=0&&d<35?-1:d<60?0:2;})();
+  const ivrScore=ivrVal===null?0:(ivrVal>=60?3:ivrVal>=40?2:ivrVal>=20?1:-1);
+  const apyScore=!estApy?0:(parseFloat(estApy)>=12?3:parseFloat(estApy)>=8?2:parseFloat(estApy)>=5?1:0);
+  const components={ivr:ivrScore,rsi:rsiScore,range:rangeScore,apy:apyScore,earn:earningsScore};
+  // Normalize score to 0-100 scale (max possible ~12, min ~-8)
+  const normScore=Math.round(Math.max(0,Math.min(100,(score+8)/20*100)));
+  return{score:normScore,rawScore:score,signal,factors:reasons.slice(0,2).join(', ')||'Insufficient data',narrative:details.join('. '),recStrike:recStrike||'--',expiration:expiration||'--',estApy:estApy||'--',components};
 }
 function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expiration,estApy,ivrVal}){
   let score=0;const reasons=[],details=[];const today=new Date();
@@ -2144,7 +2292,16 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
   if(ivrVal!==null&&!isNaN(ivrVal)){if(ivrVal>=60){score+=1;details.push(`IV ${ivrVal.toFixed(0)}th pct -- elevated premium`);}else if(ivrVal<30){details.push(`IV ${ivrVal.toFixed(0)}th pct -- thin premiums`);}else{details.push(`IV ${ivrVal.toFixed(0)}th pct -- normal`);}}
   if(estApy&&recStrike){details.push(`Rec ${recStrike} @ ${estApy} (${expiration})`);}
   const signal=score>=3?'high':score>=1?'medium':'low';
-  return{score,signal,factors:reasons.slice(0,2).join(', ')||'Insufficient data',narrative:details.join('. '),recStrike:recStrike||'--',expiration:expiration||'--',estApy:estApy||'--'};
+  // Component scores for calls (inverted logic vs puts for RSI/range)
+  const rsiScore=rsiVal===null?0:(rsiVal>70?3:rsiVal>60?2:rsiVal<35?-1:rsiVal<50?0:1);
+  const maScore=(!ma50||!ma200||!price)?0:(price>ma50&&price>ma200?2:price<ma50&&price<ma200?-1:1);
+  const rangeScore=rangePos===null?0:(rangePos>0.80?3:rangePos>0.60?2:rangePos<0.30?-1:rangePos<0.50?0:1);
+  const earningsScore=!earningsDate?1:(()=>{const d=Math.round((new Date(earningsDate.split(' ')[0])-new Date())/86400000);return d>=0&&d<35?-1:d<60?0:2;})();
+  const ivrScore=ivrVal===null?0:(ivrVal>=60?3:ivrVal>=40?2:ivrVal>=20?1:-1);
+  const apyScore=!estApy?0:(parseFloat(estApy)>=12?3:parseFloat(estApy)>=8?2:parseFloat(estApy)>=5?1:0);
+  const components={ivr:ivrScore,rsi:rsiScore,range:rangeScore,apy:apyScore,earn:earningsScore};
+  const normScore=Math.round(Math.max(0,Math.min(100,(score+8)/20*100)));
+  return{score:normScore,rawScore:score,signal,factors:reasons.slice(0,2).join(', ')||'Insufficient data',narrative:details.join('. '),recStrike:recStrike||'--',expiration:expiration||'--',estApy:estApy||'--',components};
 }
 
 async function runDashboards(skipOnlineCheck=false){
@@ -2202,6 +2359,7 @@ async function runDashboards(skipOnlineCheck=false){
   document.getElementById('put-dash-ts').innerHTML=tsChip(ts,true);document.getElementById('cc-dash-ts').innerHTML=tsChip(ts,true);
   toast('Both dashboards updated',3000);
 }
+function compBarColor(v){return v>=2?'#00d4aa':v===1?'#4fc3f7':v===0?'#555870':'#ff4757';}
 function renderDashTable(elId,results,ts,isLive){
   const el=document.getElementById(elId);if(!results.length){el.innerHTML='<div class="empty">No data</div>';return;}
   el.innerHTML=results.filter(r=>r.signal!=='error').map(r=>{
@@ -2210,16 +2368,37 @@ function renderDashTable(elId,results,ts,isLive){
     const rs=r.recStrike&&r.recStrike!=='--'?r.recStrike:null;
     const exp=r.expiration&&r.expiration!=='--'?r.expiration:null;
     const apy=r.estApy&&r.estApy!=='--'?r.estApy:null;
-    return`<div style="background:${bg};border:1px solid ${bc};border-left:4px solid ${bc};border-radius:10px;padding:12px;margin-bottom:10px;cursor:pointer" onclick="selectTickerFromWatchlist('${r.ticker}')">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <div><span style="font-family:var(--sans);font-size:18px;font-weight:700;color:var(--accent)">${r.ticker}</span>${r.price?`<span style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-left:8px">$${r.price.toFixed(2)}</span>`:''}</div>
-        <div style="text-align:right"><div style="font-family:var(--mono);font-size:12px;font-weight:600">${r.signal.toUpperCase()}</div>${r.ivrBadge||''}</div>
-      </div>
-      ${rs?`<div style="display:flex;gap:16px;margin-bottom:8px;font-family:var(--mono)"><div><span style="font-size:9px;color:var(--text3);display:block">REC STRIKE</span><span style="font-size:14px">${rs}</span></div>${exp?`<div><span style="font-size:9px;color:var(--text3);display:block">EXPIRY</span><span style="font-size:12px;color:var(--text2)">${exp}</span></div>`:''} ${apy?`<div><span style="font-size:9px;color:var(--text3);display:block">EST APY</span><span style="font-size:14px;color:var(--accent)">${apy}</span></div>`:''}</div>`:''}
-      ${r.earningsDate?`<div style="font-family:var(--mono);font-size:11px;color:var(--warn);margin-bottom:6px">Earnings ${r.earningsDate}</div>`:''}
-      ${r.narrative?`<div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6;border-top:1px solid rgba(255,255,255,0.05);padding-top:8px;margin-top:4px">${r.narrative}</div>`:''}
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px;text-align:right">Tap to analyze</div>
-    </div>`;
+    const sc=r.score!=null?r.score:'';
+    const comps=r.components||{};
+    // Component bars: IVR, RSI, Range, APY, Earn -- descending weight
+    const compDefs=[
+      {key:'ivr',label:'IVR'},
+      {key:'rsi',label:'RSI'},
+      {key:'range',label:'Rng'},
+      {key:'apy',label:'APY'},
+      {key:'earn',label:'Earn'}
+    ];
+    const compBar=compDefs.map(d=>{
+      const v=comps[d.key]!=null?comps[d.key]:0;
+      const col=compBarColor(v);
+      const ht=Math.max(4,Math.abs(v)/3*14);
+      return '<div style="flex:1;text-align:center">'
+        +'<div style="background:'+col+';height:'+ht+'px;border-radius:2px;margin-bottom:2px"></div>'
+        +'<div style="font-family:var(--mono);font-size:8px;color:var(--text3)">'+d.label+'</div>'
+        +'</div>';
+    }).join('');
+    return'<div style="background:'+bg+';border:1px solid '+bc+';border-left:4px solid '+bc+';border-radius:10px;padding:12px;margin-bottom:10px;cursor:pointer" onclick="selectTickerFromWatchlist(\''+r.ticker+'\')">'
+      +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">'
+      +'<div><span style="font-family:var(--sans);font-size:18px;font-weight:700;color:var(--accent)">'+r.ticker+'</span>'+(r.price?'<span style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-left:8px">$'+r.price.toFixed(2)+'</span>':'')+'</div>'
+      +'<div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;font-weight:600">'+r.signal.toUpperCase()+(sc!==''?' &middot; '+sc:'')+'</div>'+(r.ivrBadge||'')+'</div>'
+      +'</div>'
+      // Component bar strip
+      +'<div style="display:flex;gap:3px;align-items:flex-end;margin-bottom:8px;padding:4px 0">'+compBar+'</div>'
+      +(rs?'<div style="display:flex;gap:16px;margin-bottom:8px;font-family:var(--mono)"><div><span style="font-size:9px;color:var(--text3);display:block">REC STRIKE</span><span style="font-size:14px">'+rs+'</span></div>'+(exp?'<div><span style="font-size:9px;color:var(--text3);display:block">EXPIRY</span><span style="font-size:12px;color:var(--text2)">'+exp+'</span></div>':'')+(apy?'<div><span style="font-size:9px;color:var(--text3);display:block">EST APY</span><span style="font-size:14px;color:var(--accent)">'+apy+'</span></div>':'')+'</div>':'')
+      +(r.earningsDate?'<div style="font-family:var(--mono);font-size:11px;color:var(--warn);margin-bottom:6px">Earnings '+r.earningsDate+'</div>':'')
+      +(r.narrative?'<div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6;border-top:1px solid rgba(255,255,255,0.05);padding-top:8px;margin-top:4px">'+r.narrative+'</div>':'')
+      +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px;text-align:right">Tap to analyze</div>'
+      +'</div>';
   }).join('');
 }
 
@@ -2350,6 +2529,7 @@ async function fullRefreshEverything(){
   const btn=document.getElementById('full-refresh-btn');btn.disabled=true;
   document.getElementById('full-refresh-progress').style.display='block';
   const bar=document.getElementById('full-refresh-bar'),label=document.getElementById('full-refresh-label');
+  setRefreshSpinner(true);
   label.textContent='Step 1/6: Fetching all ticker data...';
   await prefetchAll();bar.style.width='50%';
   label.textContent='Step 2/6: Running conviction dashboards...';
@@ -2363,6 +2543,11 @@ async function fullRefreshEverything(){
   label.textContent='Step 6/6: Refreshing market data...';
   try{await loadMarketTab();}catch{}bar.style.width='100%';
   label.textContent='All done!';
+  const frTs=nowPT();
+  S.set('last_full_refresh_ts',frTs);
+  const lbl2=document.getElementById('last-full-refresh-label');
+  if(lbl2)lbl2.textContent='Last full refresh: '+frTs;
+  setRefreshSpinner(false);
   setTimeout(()=>{document.getElementById('full-refresh-progress').style.display='none';},2000);
   btn.disabled=false;renderWatchlist();toast('Full refresh complete',3000);
 }
@@ -2384,6 +2569,8 @@ function init(){
   // Start market status banner ticker -- every second
   updateMarketBanner();
   setInterval(updateMarketBanner,1000);
+  updateHeaderStatus();
+  setInterval(updateHeaderStatus,60000);
   applyFontSize(fontSize);
   if(!FINNHUB_KEY)setTimeout(()=>toast('Add your Finnhub API key in Settings to get started',4000),500);
 }

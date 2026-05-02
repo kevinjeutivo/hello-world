@@ -1518,6 +1518,14 @@ function buildOptionsTable(){
     const expCached=S.get('options_exp_'+t+'_'+exp);const res=expCached?.optionChain?.result?.[0];if(!res)continue;
     const expD=new Date(exp+'T12:00:00Z');const dte=Math.max(Math.round((expD-today)/86400000),1);
     const proc=(contracts,isCall)=>{if(!contracts)return;contracts.forEach(o=>{const s=o.strike||0;if(s<lowerBound||s>upperBound)return;const bid=o.bid||0,ask=o.ask||0,last=o.lastPrice||0,oi=o.openInterest||0,vol=o.volume||0,iv=o.impliedVolatility||0;const premium=(bid>0?bid:last)*100;const apy=isCall?premium/(currentPrice*100)*(365/dte)*100:premium/(s*100)*(365/dte)*100;const pctOTM=isCall?(s-currentPrice)/currentPrice*100:(currentPrice-s)/currentPrice*100;rows.push({expDate:exp,strike:s,bid,ask,last,premium,apy,oi,vol,iv,dte,pctOTM});});};
+    // DIAGNOSTIC: show first contract fields
+    const _diagContracts=currentMode==='puts'?res.options?.[0]?.puts:res.options?.[0]?.calls;
+    if(_diagContracts&&_diagContracts.length>0){
+      const _c=_diagContracts[0];
+      toast('CONTRACT['+exp+']: strike='+_c.strike+' bid='+_c.bid+' ask='+_c.ask+' lb='+lowerBound.toFixed(0)+' ub='+upperBound.toFixed(0)+' price='+currentPrice,20000);
+    }else{
+      toast('CONTRACT['+exp+']: array empty or null, opts keys='+Object.keys(res.options?.[0]||{}),15000);
+    }
     if(currentMode==='puts')proc(res.options?.[0]?.puts,false);else proc(res.options?.[0]?.calls,true);
   }
   rows.sort((a,b)=>a.expDate.localeCompare(b.expDate)||a.strike-b.strike);

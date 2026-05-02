@@ -559,7 +559,9 @@ function tsChip(ts,isLive){
   const cls=isLive?'live':'stale';
   const age=relAge(ts);
   const ageStr=age?` (${age})`:'';
-  return `<div class="ts-chip ${cls}">${isLive?'live':'cached'} ${ts||'unknown'}${ageStr}</div>`;
+  // Store ISO timestamp as data attribute so refreshTsChipAges can parse reliably
+  const isoTs=new Date().toISOString();
+  return `<div class="ts-chip ${cls}" data-ts-iso="${isoTs}" data-ts-display="${ts||''}">${isLive?'live':'cached'} ${ts||'unknown'}${ageStr}</div>`;
 }
 
 function fmtTS(ts){
@@ -928,33 +930,39 @@ function updateSlider(id){
 
 // ═══ NAV TABS ═══
 function refreshTsChipAges(){
-  // Re-compute relative age on all ts-chips and flip live->stale when data is old.
-  // Called on every tab switch so ages never show stale values.
-  const STALE_MINS=15; // flip green->amber after this many minutes
+  // Re-compute relative age on all ts-chips using data-ts-iso for reliable parsing.
+  // data-ts-iso is set by tsChip() at render time as a true ISO timestamp.
+  // Falls back to parsing the display text if attribute is absent (legacy chips).
+  const STALE_MINS=15;
   document.querySelectorAll('.ts-chip').forEach(chip=>{
-    const text=chip.textContent||'';
-    // Extract timestamp portion -- everything after "live " or "cached "
-    const match=text.match(/^(?:live|cached)\s+(.+?)(?:\s+\(.*\))?$/);
-    if(!match)return;
-    const tsStr=match[1].trim();
-    const age=relAge(tsStr);
-    // Compute age in minutes to decide live vs stale
+    // Prefer ISO attribute for age computation -- always parseable
+    const isoAttr=chip.getAttribute('data-ts-iso');
+    const displayTs=chip.getAttribute('data-ts-display')||'';
     let ageMins=Infinity;
-    try{
-      const clean=tsStr.replace(/ PT$| UTC$| local$/,'').trim();
-      const d=new Date(clean);
-      if(!isNaN(d.getTime()))ageMins=(Date.now()-d.getTime())/60000;
-    }catch{}
-    // Flip to stale if older than threshold, regardless of original class
-    const shouldBeStale=ageMins>STALE_MINS;
-    if(shouldBeStale){
-      chip.classList.remove('live');
-      chip.classList.add('stale');
+    if(isoAttr){
+      try{ageMins=(Date.now()-new Date(isoAttr).getTime())/60000;}catch{}
+    }else{
+      // Legacy fallback: try to parse display text
+      try{
+        const text=chip.textContent||'';
+        const match=text.match(/^(?:live|cached)\s+(.+?)(?:\s+\(.*\))?$/);
+        if(match){
+          const clean=match[1].trim().replace(/ PT$| UTC$| local$/,'');
+          const d=new Date(clean);
+          if(!isNaN(d.getTime()))ageMins=(Date.now()-d.getTime())/60000;
+        }
+      }catch{}
     }
+    const shouldBeStale=ageMins>STALE_MINS;
+    if(shouldBeStale){chip.classList.remove('live');chip.classList.add('stale');}
+    // Recompute age text using display timestamp
+    const tsStr=displayTs||'';
+    const age=relAge(tsStr);
     const prefix=chip.classList.contains('live')?'live':'cached';
-    chip.textContent=`${prefix} ${tsStr}${age?' ('+age+')':''}`;
+    chip.textContent=`${prefix} ${tsStr||'unknown'}${age?' ('+age+')':''}`;
   });
 }
+
 
 function showTab(name){
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));

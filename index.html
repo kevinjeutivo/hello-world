@@ -2191,7 +2191,18 @@ function restoreETFFromCache(){
     }
   });
   const cached=S.get('etf_rendered');
-  if(cached?.html){document.getElementById('etf-content').innerHTML=cached.html;setTimeout(refreshTsChipAges,200);setTimeout(()=>{['SPYI','NBOS'].forEach(ticker=>{const key='hist_etf_'+ticker;const ch=S.get(key);if(!ch)return;const color=ticker==='SPYI'?'#00d4aa':'#ff6b35';const labels=ch.timestamps.slice(-126).map(d=>{const dd=new Date(d);return dd.toLocaleDateString('en-US',{month:'short',day:'numeric'});});const data=ch.closes.slice(-126);const ctx=document.getElementById(`etf-chart-${ticker}`)?.getContext('2d');if(ctx){new Chart(ctx,{type:'line',data:{labels,datasets:[{data,borderColor:color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});}});},100);}
+  if(cached?.html){
+    document.getElementById('etf-content').innerHTML=cached.html;
+    setTimeout(refreshTsChipAges,200);
+    // Use renderEtfChart (global) with cached total return data
+    setTimeout(()=>{
+      ['SPYI','NBOS'].forEach(ticker=>{
+        const cd=window._etfChartData&&window._etfChartData[ticker];
+        if(!cd||!cd.labels6m||!cd.labels6m.length)return;
+        renderEtfChart(ticker,cd.color,cd.labels6m,cd.data6m,cd.tr6m);
+      });
+    },150);
+  }
 }
 
 // ═══ MARKET TAB with T-BILL YIELDS ═══

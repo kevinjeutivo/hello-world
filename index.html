@@ -1329,6 +1329,7 @@ async function loadTicker(){
       S.set('snap_'+t,snap);S.set('rec_'+t,{data:(typeof rec2!=='undefined'&&rec2&&rec2.length?rec2[0]:recData)||null,ts:nowPT()});S.set('upgrades_'+t,{data:(typeof upgrades2!=='undefined'&&upgrades2&&upgrades2.length?upgrades2.slice(0,6):upgradeData)||[],ts:nowPT()});
       try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;
         if(ah.ptMean){snap.ptMean=ah.ptMean;snap.ptHigh=ah.ptHigh||null;snap.ptLow=ah.ptLow||null;snap.ptAnalysts=ah.ptAnalysts||null;}
+        toast('PT DIAG: ptMean='+ah.ptMean+' ptHigh='+ah.ptHigh+' ptLow='+ah.ptLow+' forwardPE='+ah.forwardPE+' eps='+ah.trailingEps,20000);
       }}catch{}
     }catch{
       const cached=S.get('snap_'+t);if(cached){snap=cached;isLive=false;showOfflineBanner(cached.ts);}else throw new Error('No data available');

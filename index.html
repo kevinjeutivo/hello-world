@@ -1948,20 +1948,26 @@ function toggleEtfSpan(ticker,span){
   const btn1=document.getElementById('etf-btn-1y-'+ticker);
   if(btn6)btn6.style.opacity=span==='6m'?'1':'0.4';
   if(btn1)btn1.style.opacity=span==='1y'?'1':'0.4';
-  const cd=window._etfChartData&&window._etfChartData[ticker];
-  if(!cd)return;
+  // Use in-memory data if available (post live-fetch), otherwise fall back to localStorage
+  const mem=window._etfChartData&&window._etfChartData[ticker];
+  const cached=S.get('etf_tr_'+ticker);
+  // Determine ETF color from in-memory or a reasonable default per ticker
+  const etfColors={'SPYI':'#00d4aa','NBOS':'#7c6af7'};
+  const color=(mem&&mem.color)||etfColors[ticker]||'#4fc3f7';
   if(span==='6m'){
-    renderEtfChart(ticker,cd.color,cd.labels6m,cd.data6m,cd.tr6m);
-    updateEtfReturnTiles(ticker,cd.priceRetPct6m,cd.totalRetPct6m,'6M');
+    const labels=mem?.labels6m||cached?.chartLabels6m||[];
+    const data=mem?.data6m||cached?.chartData6m||[];
+    const tr=mem?.tr6m||cached?.totalReturn||[];
+    if(!labels.length){toast('6M ETF data not available',2000);return;}
+    renderEtfChart(ticker,color,labels,data,tr);
+    updateEtfReturnTiles(ticker,mem?.priceRetPct6m||cached?.priceRetPct,mem?.totalRetPct6m||cached?.totalRetPct,'6M');
   }else{
-    // Use 1Y data -- prefer in-memory _etfChartData, fall back to localStorage cache
-    const l1=cd&&cd.labels1y&&cd.labels1y.length?cd:S.get('etf_tr_'+ticker);
-    if(l1&&l1.labels1y&&l1.labels1y.length&&l1.data1y&&l1.data1y.length){
-      renderEtfChart(ticker,cd?cd.color:'#4fc3f7',l1.labels1y,l1.data1y,l1.tr1y||[]);
-      updateEtfReturnTiles(ticker,l1.priceRetPct1y,l1.totalRetPct1y,'1Y');
-    }else{
-      toast('1Y ETF data not cached yet -- run full refresh first',3000);
-    }
+    const labels=mem?.labels1y||cached?.labels1y||[];
+    const data=mem?.data1y||cached?.data1y||[];
+    const tr=mem?.tr1y||cached?.tr1y||[];
+    if(!labels.length){toast('1Y ETF data not cached -- tap Refresh ETF Data first',3000);return;}
+    renderEtfChart(ticker,color,labels,data,tr);
+    updateEtfReturnTiles(ticker,mem?.priceRetPct1y||cached?.priceRetPct1y,mem?.totalRetPct1y||cached?.totalRetPct1y,'1Y');
   }
 }
 
@@ -2141,6 +2147,21 @@ async function loadETFTab(){
   renderNextEtfChart(etfChartQueue,0);
 }
 function restoreETFFromCache(){
+  // Restore _etfChartData from localStorage so toggleEtfSpan works offline
+  if(!window._etfChartData)window._etfChartData={};
+  ['SPYI','NBOS'].forEach(ticker=>{
+    const tr=S.get('etf_tr_'+ticker);
+    if(tr&&!window._etfChartData[ticker]){
+      const etfColors={'SPYI':'#00d4aa','NBOS':'#7c6af7'};
+      window._etfChartData[ticker]={
+        color:etfColors[ticker]||'#4fc3f7',
+        labels6m:tr.chartLabels6m||[],data6m:tr.chartData6m||[],tr6m:tr.totalReturn||[],
+        priceRetPct6m:tr.priceRetPct,totalRetPct6m:tr.totalRetPct,
+        labels1y:tr.labels1y||[],data1y:tr.data1y||[],tr1y:tr.tr1y||[],
+        priceRetPct1y:tr.priceRetPct1y,totalRetPct1y:tr.totalRetPct1y
+      };
+    }
+  });
   const cached=S.get('etf_rendered');
   if(cached?.html){document.getElementById('etf-content').innerHTML=cached.html;setTimeout(refreshTsChipAges,200);setTimeout(()=>{['SPYI','NBOS'].forEach(ticker=>{const key='hist_etf_'+ticker;const ch=S.get(key);if(!ch)return;const color=ticker==='SPYI'?'#00d4aa':'#ff6b35';const labels=ch.timestamps.slice(-126).map(d=>{const dd=new Date(d);return dd.toLocaleDateString('en-US',{month:'short',day:'numeric'});});const data=ch.closes.slice(-126);const ctx=document.getElementById(`etf-chart-${ticker}`)?.getContext('2d');if(ctx){new Chart(ctx,{type:'line',data:{labels,datasets:[{data,borderColor:color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});}});},100);}
 }

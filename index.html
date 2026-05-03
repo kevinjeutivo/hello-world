@@ -178,7 +178,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v2.2.0</span>
+      <span>Options Income Strategy v2.3.0</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -235,6 +235,11 @@ a{color:inherit}
   <div class="card">
     <div class="card-title"><span class="dot"></span>Manage Watchlist</div>
     <div class="row"><input class="input" type="text" id="new-ticker-input" placeholder="e.g. AAPL" style="text-transform:uppercase"><button class="btn btn-secondary btn-sm" onclick="addTicker()">Add</button></div>
+    <div style="display:flex;gap:6px;margin-bottom:6px">
+      <button class="btn btn-secondary" id="wl-sort-manual" onclick="setWatchlistSort('manual')" style="font-size:10px;padding:3px 8px">Manual</button>
+      <button class="btn btn-secondary" id="wl-sort-alpha" onclick="setWatchlistSort('alpha')" style="font-size:10px;padding:3px 8px;opacity:0.4">A→Z</button>
+      <button class="btn btn-secondary" id="wl-sort-opp" onclick="setWatchlistSort('opportunity')" style="font-size:10px;padding:3px 8px;opacity:0.4">By Score</button>
+    </div>
     <button class="btn btn-secondary" id="prefetch-btn" onclick="prefetchAll()">Prefetch All Ticker Data</button>
     <div id="prefetch-progress" style="display:none">
       <div class="progress-bar-wrap"><div class="progress-bar" id="prefetch-progress-bar" style="width:0%"></div></div>
@@ -386,9 +391,20 @@ Version: 1.7</div>
       <div id="storage-display" style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6">Tap Measure to see usage</div>
       <button class="btn btn-secondary" onclick="measureStorage()" style="margin-top:6px;width:100%">Measure Storage</button>
     </div>
+    <div style="margin-top:12px">
+      <div class="card-title" style="font-size:12px;margin-bottom:6px"><span class="dot" style="background:var(--green)"></span>Worker Health Check</div>
+      <div id="worker-health-display" style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6">Tap Test to check Worker connectivity and Yahoo auth</div>
+      <button class="btn btn-secondary" onclick="workerHealthCheck()" style="margin-top:6px;width:100%">Test Worker Connection</button>
+    </div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v2.2.0 -- 2026-04-29
+    <div class="commentary" style="font-size:12px">v2.3.0 -- 2026-04-29
+- Analyst price targets: consensus mean, high, and low target from Finnhub /stock/price-target displayed as a full-width tile on the Ticker tab. Shows % upside/downside from current price and spread between high/low targets. Fetched in loadTicker, prefetchAll, and refreshSingleTicker.
+- Watchlist sort: three modes -- Manual (default, original entry order), A→Z (alphabetical), By Score (conviction score descending from last dashboard run). Buttons above Prefetch All. Mode persists in localStorage.
+- Settings: localStorage key count added to storage display alongside KB breakdown.
+- Settings: Worker health check pings the Worker with a SPY quote request and reports latency, HTTP status, and whether Yahoo auth is working.
+
+v2.2.0 -- 2026-04-29
 - Options table: bid and ask stacked in single Bid/Ask column to save horizontal space on narrow screens.
 - Conviction dashboard: numeric score (0-100) displayed inline with conviction level. Component bar strip (IVR/RSI/Range/APY/Earn in descending weight) shows color-coded performance per factor.
 - Header status dot: green = data fresh, amber = stale, blue pulse = refresh in progress.
@@ -529,6 +545,7 @@ let vixThreshold=parseInt(S.get('vix_threshold')||'20');
 let tzPref=S.get('tz_pref')||'PT';
 let offlineMode=S.get('offline_mode')==='true';
 let fontSize=S.get('font_size')||'19';
+let watchlistSort=S.get('watchlist_sort')||'manual'; // manual | alpha | opportunity
 
 function applyFontSize(size){
   document.documentElement.style.setProperty('--base-font',size+'px');
@@ -829,28 +846,56 @@ async function measureStorage(){
     quotaMB=(est.quota/1048576).toFixed(0);
     pct=Math.round(est.usage/est.quota*100);
   }catch{}
-  // Break down by category
+  // Break down by category + key count
   const cats={options:0,history:0,snap:0,news:0,other:0};
+  const keyCounts={options:0,history:0,snap:0,news:0,other:0};
   for(let i=0;i<localStorage.length;i++){
     const k=localStorage.key(i);
-    const bytes=(localStorage.getItem(k)||'').length*2; // UTF-16
-    if(k.startsWith('options'))cats.options+=bytes;
-    else if(k.startsWith('hist'))cats.history+=bytes;
-    else if(k.startsWith('snap'))cats.snap+=bytes;
-    else if(k.startsWith('news')||k==='market_news')cats.news+=bytes;
-    else cats.other+=bytes;
+    const bytes=(localStorage.getItem(k)||'').length*2;
+    if(k.startsWith('options')){cats.options+=bytes;keyCounts.options++;}
+    else if(k.startsWith('hist')){cats.history+=bytes;keyCounts.history++;}
+    else if(k.startsWith('snap')){cats.snap+=bytes;keyCounts.snap++;}
+    else if(k.startsWith('news')||k==='market_news'){cats.news+=bytes;keyCounts.news++;}
+    else{cats.other+=bytes;keyCounts.other++;}
   }
   const fmt=b=>(b/1024).toFixed(0)+'KB';
   const totalLS=Object.values(cats).reduce((a,b)=>a+b,0);
+  const totalKeys=localStorage.length;
   el.innerHTML='<div style="margin-bottom:4px">Storage API: <b>'+usedMB+'MB</b> / '+quotaMB+'MB ('+pct+'%)</div>'
     +'<div style="background:var(--bg2);border-radius:4px;height:6px;margin-bottom:6px"><div style="background:var(--accent);height:6px;border-radius:4px;width:'+Math.min(pct,100)+'%"></div></div>'
-    +'<div style="color:var(--text3)">localStorage breakdown:</div>'
-    +'<div>Options chains: '+fmt(cats.options)+'</div>'
-    +'<div>Price history: '+fmt(cats.history)+'</div>'
-    +'<div>Ticker snaps: '+fmt(cats.snap)+'</div>'
-    +'<div>News: '+fmt(cats.news)+'</div>'
-    +'<div>Other: '+fmt(cats.other)+'</div>'
+    +'<div style="color:var(--text3);margin-bottom:4px">localStorage: '+totalKeys+' keys total</div>'
+    +'<div>Options chains: '+fmt(cats.options)+' ('+keyCounts.options+' keys)</div>'
+    +'<div>Price history: '+fmt(cats.history)+' ('+keyCounts.history+' keys)</div>'
+    +'<div>Ticker snaps: '+fmt(cats.snap)+' ('+keyCounts.snap+' keys)</div>'
+    +'<div>News: '+fmt(cats.news)+' ('+keyCounts.news+' keys)</div>'
+    +'<div>Other: '+fmt(cats.other)+' ('+keyCounts.other+' keys)</div>'
     +'<div style="margin-top:4px;color:var(--text2)">Total localStorage: '+fmt(totalLS)+'</div>';
+}
+
+async function workerHealthCheck(){
+  const el=document.getElementById('worker-health-display');
+  if(!el)return;
+  el.textContent='Testing Worker...';
+  const t0=Date.now();
+  try{
+    // Ping the Worker with a lightweight quote request for a well-known ticker
+    const r=await fetch(WORKER_URL+'/?ticker=SPY&type=quote',{signal:AbortSignal.timeout(8000)});
+    const latency=Date.now()-t0;
+    if(!r.ok){el.innerHTML='<span style="color:var(--red)">Worker returned HTTP '+r.status+' ('+latency+'ms)</span>';return;}
+    const d=await r.json();
+    const price=d?.quoteResponse?.result?.[0]?.regularMarketPrice;
+    if(price){
+      el.innerHTML='<span style="color:var(--green)">Worker OK &mdash; '+latency+'ms latency</span>'
+        +'<div style="color:var(--text3);font-size:10px;margin-top:2px">Yahoo auth working &middot; SPY quote: $'+price.toFixed(2)+'</div>';
+    }else{
+      el.innerHTML='<span style="color:var(--warn)">Worker reachable but Yahoo auth may be stale ('+latency+'ms)</span>'
+        +'<div style="color:var(--text3);font-size:10px;margin-top:2px">Response received but no price data. Try refreshing data.</div>';
+    }
+  }catch(e){
+    const latency=Date.now()-t0;
+    el.innerHTML='<span style="color:var(--red)">Worker unreachable ('+latency+'ms) &mdash; '+e.message.slice(0,60)+'</span>'
+      +'<div style="color:var(--text3);font-size:10px;margin-top:2px">Check your internet connection and Cloudflare Worker status.</div>';
+  }
 }
 
 function openSettings(){
@@ -1207,10 +1252,41 @@ function renderNewsItems(newsArr,maxItems=5){if(!newsArr||!newsArr.length)return
 </script>
 <script>
 // ═══ WATCHLIST ═══
+function setWatchlistSort(mode){
+  watchlistSort=mode;
+  S.set('watchlist_sort',mode);
+  // Update button opacities
+  ['manual','alpha','opp'].forEach(m=>{
+    const btn=document.getElementById('wl-sort-'+m);
+    if(btn)btn.style.opacity=(
+      (m==='manual'&&mode==='manual')||(m==='alpha'&&mode==='alpha')||(m==='opp'&&mode==='opportunity')
+    )?'1':'0.4';
+  });
+  renderWatchlist();
+}
+
+function getSortedWatchlist(){
+  if(watchlistSort==='alpha'){
+    return [...watchlist].sort((a,b)=>a.localeCompare(b));
+  }
+  if(watchlistSort==='opportunity'){
+    const puts=S.get('conviction_puts')?.results||[];
+    const cc=S.get('conviction_cc')?.results||[];
+    // Merge scores -- take max of puts and calls score per ticker
+    const scoreMap={};
+    [...puts,...cc].forEach(r=>{
+      if(!scoreMap[r.ticker]||r.score>scoreMap[r.ticker])scoreMap[r.ticker]=r.score||0;
+    });
+    return [...watchlist].sort((a,b)=>(scoreMap[b]||0)-(scoreMap[a]||0));
+  }
+  return watchlist; // manual order
+}
+
 function renderWatchlist(){
   const el=document.getElementById('watchlist-items');
   if(!watchlist.length){el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CB;</div>Watchlist is empty</div>';return;}
-  el.innerHTML=watchlist.map(t=>{
+  const sorted=getSortedWatchlist();
+  el.innerHTML=sorted.map(t=>{
     const c=S.get('snap_'+t);const price=c?`$${c.price.toFixed(2)}`:'--';
     const chg=c?c.change:0,chgPct=c?c.changePct:0;const cc=chg>=0?'var(--green)':'var(--red)';
     const age=c?relAge(c.ts):'';
@@ -1239,9 +1315,10 @@ async function loadTicker(){
         fh(`/stock/metric?symbol=${t}&metric=all`),
         fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)
       ]);
-      let rec=null,upgrades=null;
+      let rec=null,upgrades=null,priceTarget=null;
       try{rec=await fh(`/stock/recommendation?symbol=${t}`);}catch{}
       try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch{}
+      try{priceTarget=await fh(`/stock/price-target?symbol=${t}`);}catch{}
       snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,peForward:metrics.metric?.peForwardAnnual||null,epsTTM:metrics.metric?.epsBasicExclExtraTTM||null,epsGrowth:metrics.metric?.epsGrowthTTMYoy||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,shortInterestPct:metrics.metric?.shortInterestPercentage||metrics.metric?.shortInterestPercent||null,revenueGrowthTTM:metrics.metric?.revenueGrowthTTMYoy||null,fcfMargin:metrics.metric?.freeCashFlowMarginAnnual||null,operatingMargin:metrics.metric?.operatingMarginAnnual||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true};
       recData=rec&&rec.length?rec[0]:null;
       const upgradeData=upgrades&&upgrades.length?upgrades.slice(0,6):[];
@@ -1431,6 +1508,17 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive){
       <div class="metric-tile"><div class="metric-label">Div Yield</div><div class="metric-value">${snap.dividendYield?snap.dividendYield.toFixed(2)+'%':'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">RSI (14)</div><div class="metric-value" style="color:${rsiColor}">${rsiStr}</div><div class="metric-sub">${rsiLabel}</div></div>
       <div class="metric-tile"><div class="metric-label">Short Interest</div><div class="metric-value" style="font-size:11px">${shortStr}</div></div>
+      ${snap.ptMean?`<div class="metric-tile" style="grid-column:span 2">
+        <div class="metric-label">Analyst Price Target</div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-top:4px">
+          <div style="font-family:var(--mono);font-size:20px;font-weight:600;color:${snap.ptMean>snap.price?'var(--green)':'var(--red)'}">$${snap.ptMean.toFixed(2)}</div>
+          <div style="font-family:var(--mono);font-size:11px;color:${snap.ptMean>snap.price?'var(--green)':'var(--red)'}">consensus (${snap.ptMean>snap.price?'+':''}${((snap.ptMean-snap.price)/snap.price*100).toFixed(1)}% from current)</div>
+        </div>
+        <div class="metric-sub" style="margin-top:4px">
+          Low: $${snap.ptLow?.toFixed(2)||'N/A'} &nbsp;|&nbsp; High: $${snap.ptHigh?.toFixed(2)||'N/A'}
+          ${snap.ptLow&&snap.ptHigh?` &nbsp;|&nbsp; Range: $${(snap.ptHigh-snap.ptLow).toFixed(2)} (${((snap.ptHigh-snap.ptLow)/snap.ptMean*100).toFixed(0)}% spread)`:''}
+        </div>
+      </div>`:''}
       ${buildR40Tile(snap)}
       ${analystHtml}
       <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">IV Rank (approx)</div><div style="margin-top:4px">${ivr.badge||'N/A'}</div><div class="metric-sub" style="margin-top:4px;font-size:10px;line-height:1.4">${ivr.guidance}</div></div>
@@ -2510,9 +2598,10 @@ async function prefetchAll(){
     const t=watchlist[i];if(barEl)barEl.style.width=Math.round((i/watchlist.length)*100)+'%';if(labelEl)labelEl.textContent=`Fetching ${t} (${i+1}/${watchlist.length})...`;
     try{const[quote,profile,metrics,earnings]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)]);
       // Fetch rec and upgrades sequentially to avoid rate limit (60/min on free tier)
-      let rec2=null,upgrades2=null;
+      let rec2=null,upgrades2=null,priceTarget2=null;
       try{rec2=await fh(`/stock/recommendation?symbol=${t}`);}catch{}
-      try{upgrades2=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch{}S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});}catch{}
+      try{upgrades2=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch{}
+      try{priceTarget2=await fh(`/stock/price-target?symbol=${t}`);}catch{}S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});}catch{}
     try{const h6=await yahooHistory(t,'6mo','1d');S.set('hist_'+t,{timestamps:h6.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h6.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h6.volumes.map(v=>v||0),ts:nowPT()});}catch{}
     try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});}catch{}
     try{const opts=await yahooOptionsViaProxy(t);S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT()});const yr=opts?.optionChain?.result?.[0];const rawTs2=yr?.expirationDates||[];
@@ -2553,9 +2642,10 @@ async function refreshSingleTicker(){
       fh(`/stock/metric?symbol=${t}&metric=all`),
       fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)
     ]);
-    let rec=null,upgrades=null;
+    let rec=null,upgrades=null,priceTargetS=null;
     try{rec=await fh(`/stock/recommendation?symbol=${t}`);}catch{}
     try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch{}
+    try{priceTargetS=await fh(`/stock/price-target?symbol=${t}`);}catch{}
     const futE=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
     const snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,
       change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),
@@ -2577,6 +2667,7 @@ async function refreshSingleTicker(){
     // Step 2: Yahoo quote for forwardPE and EPS
     setP(20,'Fetching '+t+' extended quote...');
     try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!=null)snap.epsTTM=ah.trailingEps;}}catch{}
+      if(priceTarget){snap.ptMean=priceTarget.targetMean||null;snap.ptHigh=priceTarget.targetHigh||null;snap.ptLow=priceTarget.targetLow||null;snap.ptAnalysts=priceTarget.lastUpdated||null;}
     S.set('snap_'+t,snap);
     S.set('rec_'+t,{data:rec&&rec.length?rec[0]:null,ts:nowPT()});
     S.set('upgrades_'+t,{data:upgrades&&upgrades.length?upgrades.slice(0,6):[],ts:nowPT()});
@@ -2656,6 +2747,8 @@ function init(){
   if(cp){renderDashTable('put-dashboard-content',cp.results,cp.ts,false);document.getElementById('put-dash-ts').innerHTML=tsChip(cp.ts,false);}
   if(cc){renderDashTable('cc-dashboard-content',cc.results,cc.ts,false);document.getElementById('cc-dash-ts').innerHTML=tsChip(cc.ts,false);}
   renderWatchlist();populateSelects();
+  // Apply saved sort mode button state
+  setWatchlistSort(watchlistSort);
   const lt=S.get('last_ticker');
   if(lt){currentTicker=lt;document.getElementById('ticker-select').value=lt;document.getElementById('options-ticker-select').value=lt;restoreTickerFromCache(lt);}
   restoreVIXFromCache();

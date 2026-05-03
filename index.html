@@ -1965,7 +1965,9 @@ function toggleEtfSpan(ticker,span){
     const labels=mem?.labels1y||cached?.labels1y||[];
     const data=mem?.data1y||cached?.data1y||[];
     const tr=mem?.tr1y||cached?.tr1y||[];
-    if(!labels.length){toast('1Y ETF data not cached -- tap Refresh ETF Data first',3000);return;}
+    // DIAGNOSTIC
+    toast('DIAG['+ticker+']: mem='+(mem?'yes':'no')+' cached='+(cached?'yes':'no')+' labels1y='+labels.length+' data1y='+data.length+' cached.keys='+(cached?Object.keys(cached).join(','):'none'),25000);
+    if(!labels.length){return;}
     renderEtfChart(ticker,color,labels,data,tr);
     updateEtfReturnTiles(ticker,mem?.priceRetPct1y||cached?.priceRetPct1y,mem?.totalRetPct1y||cached?.totalRetPct1y,'1Y');
   }

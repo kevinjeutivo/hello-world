@@ -1943,6 +1943,18 @@ function renderEarningsCards(){
 </script>
 <script>
 // ═══ ETF TAB ═══
+function renderEtfChart(ticker,color,labels,data,totalReturn){
+  const ctx=document.getElementById('etf-chart-'+ticker)?.getContext('2d');
+  if(!ctx||!labels||!labels.length)return;
+  if(window._etfCharts&&window._etfCharts[ticker]){window._etfCharts[ticker].destroy();}
+  if(!window._etfCharts)window._etfCharts={};
+  const datasets=[{label:'Price',data,borderColor:color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}];
+  if(totalReturn&&totalReturn.length){
+    datasets.push({label:'Total Return',data:totalReturn,borderColor:'#ffd32a',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false,borderDash:[4,3]});
+  }
+  window._etfCharts[ticker]=new Chart(ctx,{type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:datasets.length>1,labels:{color:'#8b8fa8',font:{size:9},boxWidth:20}}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});
+}
+
 function toggleEtfSpan(ticker,span){
   const btn6=document.getElementById('etf-btn-6m-'+ticker);
   const btn1=document.getElementById('etf-btn-1y-'+ticker);
@@ -1965,9 +1977,7 @@ function toggleEtfSpan(ticker,span){
     const labels=mem?.labels1y||cached?.labels1y||[];
     const data=mem?.data1y||cached?.data1y||[];
     const tr=mem?.tr1y||cached?.tr1y||[];
-    // DIAGNOSTIC
-    toast('DIAG['+ticker+']: mem='+(mem?'yes':'no')+' cached='+(cached?'yes':'no')+' labels1y='+labels.length+' data1y='+data.length+' cached.keys='+(cached?Object.keys(cached).join(','):'none'),25000);
-    if(!labels.length){return;}
+    if(!labels.length){toast('1Y ETF data not cached -- tap Refresh ETF Data first',3000);return;}
     renderEtfChart(ticker,color,labels,data,tr);
     updateEtfReturnTiles(ticker,mem?.priceRetPct1y||cached?.priceRetPct1y,mem?.totalRetPct1y||cached?.totalRetPct1y,'1Y');
   }
@@ -2123,18 +2133,6 @@ async function loadETFTab(){
   // Render all ETF charts after HTML is in DOM -- use requestAnimationFrame to ensure paint
   window._etfChartData=window._etfChartData||{};
 
-  function renderEtfChart(ticker,color,labels,data,totalReturn){
-    const ctx=document.getElementById('etf-chart-'+ticker)?.getContext('2d');
-    if(!ctx||!labels||!labels.length)return;
-    // Destroy existing chart
-    if(window._etfCharts&&window._etfCharts[ticker]){window._etfCharts[ticker].destroy();}
-    if(!window._etfCharts)window._etfCharts={};
-    const datasets=[{label:'Price',data,borderColor:color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}];
-    if(totalReturn&&totalReturn.length){
-      datasets.push({label:'Total Return',data:totalReturn,borderColor:'#ffd32a',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false,borderDash:[4,3]});
-    }
-    window._etfCharts[ticker]=new Chart(ctx,{type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:datasets.length>1,labels:{color:'#8b8fa8',font:{size:9},boxWidth:20}}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});
-  }
 
   function renderNextEtfChart(queue,idx){
     if(idx>=queue.length)return;

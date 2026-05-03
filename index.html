@@ -1170,6 +1170,26 @@ async function yahooOptionsViaProxy(symbol,expiration){
   const json=await r.json();
   return slimOptionsData(json);
 }
+async function fetchPriceTarget(symbol){
+  // Yahoo quoteSummary financialData module -- contains price targets
+  // Separate from the quote endpoint which does NOT include targetMeanPrice
+  if(offlineMode)return null;
+  try{
+    const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=summary&modules=financialData`);
+    if(!r.ok)return null;
+    const d=await r.json();
+    const fd=d.quoteSummary?.result?.[0]?.financialData;
+    if(!fd)return null;
+    return{
+      ptMean:fd.targetMeanPrice?.raw||null,
+      ptHigh:fd.targetHighPrice?.raw||null,
+      ptLow:fd.targetLowPrice?.raw||null,
+      ptAnalysts:fd.numberOfAnalystOpinions?.raw||null,
+      ptMedian:fd.targetMedianPrice?.raw||null
+    };
+  }catch{return null;}
+}
+
 async function fetchAfterHoursPrice(symbol){
   // Use Yahoo Finance quote endpoint (same source as yfinance stock.info)
   // This is the most reliable source for postMarketPrice and preMarketPrice.
@@ -1195,10 +1215,10 @@ async function fetchAfterHoursPrice(symbol){
       forwardPE:q.forwardPE||null,
       trailingEps:q.epsTrailingTwelveMonths||q.trailingEps||null,
       epsGrowth:null,
-      ptMean:q.targetMeanPrice||null,
-      ptHigh:q.targetHighPrice||null,
-      ptLow:q.targetLowPrice||null,
-      ptAnalysts:q.numberOfAnalystOpinions||null
+      ptMean:null,
+      ptHigh:null,
+      ptLow:null,
+      ptAnalysts:null
     };
   }catch{return null;}
 }
@@ -1328,9 +1348,12 @@ async function loadTicker(){
       const upgradeData=upgrades&&upgrades.length?upgrades.slice(0,6):[];
       S.set('snap_'+t,snap);S.set('rec_'+t,{data:(typeof rec2!=='undefined'&&rec2&&rec2.length?rec2[0]:recData)||null,ts:nowPT()});S.set('upgrades_'+t,{data:(typeof upgrades2!=='undefined'&&upgrades2&&upgrades2.length?upgrades2.slice(0,6):upgradeData)||[],ts:nowPT()});
       try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;
-        if(ah.ptMean){snap.ptMean=ah.ptMean;snap.ptHigh=ah.ptHigh||null;snap.ptLow=ah.ptLow||null;snap.ptAnalysts=ah.ptAnalysts||null;}
-        toast('PT DIAG: ptMean='+ah.ptMean+' ptHigh='+ah.ptHigh+' ptLow='+ah.ptLow+' forwardPE='+ah.forwardPE+' eps='+ah.trailingEps,20000);
       }}catch{}
+      // Fetch price targets from Yahoo quoteSummary (separate endpoint from quote)
+      try{
+        const pt=await fetchPriceTarget(t);
+        if(pt&&pt.ptMean){snap.ptMean=pt.ptMean;snap.ptHigh=pt.ptHigh||null;snap.ptLow=pt.ptLow||null;snap.ptAnalysts=pt.ptAnalysts||null;}
+      }catch{}
     }catch{
       const cached=S.get('snap_'+t);if(cached){snap=cached;isLive=false;showOfflineBanner(cached.ts);}else throw new Error('No data available');
       const cr=S.get('rec_'+t);if(cr)recData=cr.data;
@@ -2618,7 +2641,8 @@ async function prefetchAll(){
       if(monthlyPairs2.length===0)monthlyPairs2=allExpPairs2.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
       for(const pair of monthlyPairs2){try{S.set('options_exp_'+t+'_'+pair.date,await yahooOptionsViaProxy(t,String(pair.ts)));}catch{}}}catch{}
     // Also fetch quote data for after-hours price and forwardPE
-    try{const ah=await fetchAfterHoursPrice(t);if(ah){const snap=S.get('snap_'+t);if(snap){snap.postMarketPrice=ah.postMarketPrice||null;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState||null;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;if(ah.ptMean){snap.ptMean=ah.ptMean;snap.ptHigh=ah.ptHigh||null;snap.ptLow=ah.ptLow||null;snap.ptAnalysts=ah.ptAnalysts||null;}S.set('snap_'+t,snap);}}}catch{}
+    try{const ah=await fetchAfterHoursPrice(t);if(ah){const snap=S.get('snap_'+t);if(snap){snap.postMarketPrice=ah.postMarketPrice||null;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState||null;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;S.set('snap_'+t,snap);}}}catch{}
+    try{const pt=await fetchPriceTarget(t);if(pt&&pt.ptMean){const sn=S.get('snap_'+t);if(sn){sn.ptMean=pt.ptMean;sn.ptHigh=pt.ptHigh||null;sn.ptLow=pt.ptLow||null;sn.ptAnalysts=pt.ptAnalysts||null;S.set('snap_'+t,sn);}}}catch{}
     try{const news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}
     if(i<watchlist.length-1)await sleep(1000);
   }
@@ -2674,8 +2698,8 @@ async function refreshSingleTicker(){
     // Step 2: Yahoo quote for forwardPE and EPS
     setP(20,'Fetching '+t+' extended quote...');
     try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!=null)snap.epsTTM=ah.trailingEps;
-        if(ah.ptMean){snap.ptMean=ah.ptMean;snap.ptHigh=ah.ptHigh||null;snap.ptLow=ah.ptLow||null;snap.ptAnalysts=ah.ptAnalysts||null;}
       }}catch{}
+      try{const pt=await fetchPriceTarget(t);if(pt&&pt.ptMean){snap.ptMean=pt.ptMean;snap.ptHigh=pt.ptHigh||null;snap.ptLow=pt.ptLow||null;snap.ptAnalysts=pt.ptAnalysts||null;}}catch{}
       if(priceTargetS&&priceTargetS.targetMean){snap.ptMean=priceTargetS.targetMean||null;snap.ptHigh=priceTargetS.targetHigh||null;snap.ptLow=priceTargetS.targetLow||null;}
     S.set('snap_'+t,snap);
     S.set('rec_'+t,{data:rec&&rec.length?rec[0]:null,ts:nowPT()});

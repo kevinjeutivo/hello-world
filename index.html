@@ -1272,14 +1272,27 @@ function toggleBBSpan(span){
   if(btn1)btn1.style.opacity=span==='1y'?'1':'0.4';
   const t=document.getElementById('ticker-select').value;
   if(!t)return;
-  if(span==='6m'){
-    const h=S.get('hist_'+t);
-    if(h)renderBBChart({timestamps:h.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:h.closes,volumes:h.volumes||[]},S.get('snap_'+t));
-  }else{
-    const h=S.get('hist1y_'+t);
-    if(h)renderBBChart({timestamps:h.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:h.closes,volumes:h.volumes||[]},S.get('snap_'+t));
-    else toast('1Y history not available -- run full refresh',2500);
+  const cacheKey=span==='6m'?'hist_'+t:'hist1y_'+t;
+  const h=S.get(cacheKey);
+  if(!h){toast((span==='1y'?'1Y':'6M')+' history not cached -- run full refresh',2500);return;}
+  const hist={
+    timestamps:h.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),
+    closes:h.closes,
+    volumes:h.volumes||[]
+  };
+  // Recompute Bollinger Band data from history (same logic as renderTickerContent)
+  let bbData=null;
+  if(hist.closes&&hist.closes.length>20){
+    const closes=hist.closes.filter(c=>c!==null);
+    const sma20=closes.map((_,i)=>i<19?null:avg(closes.slice(i-19,i+1)));
+    const stdDev=closes.map((_,i)=>{if(i<19)return null;const sl=closes.slice(i-19,i+1);const m=avg(sl);return Math.sqrt(sl.reduce((s,v)=>s+(v-m)**2,0)/20);});
+    const upper=sma20.map((m,i)=>m?m+2*stdDev[i]:null);
+    const lower=sma20.map((m,i)=>m?m-2*stdDev[i]:null);
+    // Align with timestamps (filter nulls from front)
+    const fullCloses=hist.closes;
+    bbData={timestamps:hist.timestamps,closes:fullCloses,sma20,upper,lower};
   }
+  if(bbData)renderBBChart(bbData,hist);
 }
 
 function buildR40Tile(snap){
@@ -1941,13 +1954,13 @@ function toggleEtfSpan(ticker,span){
     renderEtfChart(ticker,cd.color,cd.labels6m,cd.data6m,cd.tr6m);
     updateEtfReturnTiles(ticker,cd.priceRetPct6m,cd.totalRetPct6m,'6M');
   }else{
-    // Use 1Y cached data if available
-    const c1=S.get('etf_tr_'+ticker);
-    if(c1&&c1.labels1y&&c1.data1y){
-      renderEtfChart(ticker,cd.color,c1.labels1y,c1.data1y,c1.tr1y);
-      updateEtfReturnTiles(ticker,c1.priceRetPct1y,c1.totalRetPct1y,'1Y');
+    // Use 1Y data -- prefer in-memory _etfChartData, fall back to localStorage cache
+    const l1=cd&&cd.labels1y&&cd.labels1y.length?cd:S.get('etf_tr_'+ticker);
+    if(l1&&l1.labels1y&&l1.labels1y.length&&l1.data1y&&l1.data1y.length){
+      renderEtfChart(ticker,cd?cd.color:'#4fc3f7',l1.labels1y,l1.data1y,l1.tr1y||[]);
+      updateEtfReturnTiles(ticker,l1.priceRetPct1y,l1.totalRetPct1y,'1Y');
     }else{
-      toast('1Y data not available -- run full refresh',2500);
+      toast('1Y ETF data not cached yet -- run full refresh first',3000);
     }
   }
 }
@@ -2063,15 +2076,38 @@ async function loadETFTab(){
         <div class="chart-wrap" style="height:140px"><canvas id="etf-chart-${etf.ticker}"></canvas></div>`:''}
       </div>`;
       // Store chart data for rendering after all HTML is injected
+      // Also compute 1Y series for the toggle
+      const labels1y=hist6mo?hist6mo.timestamps.map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});}):[];
+      const data1y=hist6mo?hist6mo.closes:[];
+      // Total return for 1Y
+      let totalReturn1y=[];
+      if(hist6mo&&hist6mo.timestamps&&distributions.length){
+        let cumDist1y=0;
+        const distByDate1y={};
+        distributions.forEach(d=>{if(d.date&&d.amount)distByDate1y[d.date]=(distByDate1y[d.date]||0)+d.amount;});
+        totalReturn1y=hist6mo.timestamps.map((ts,i)=>{
+          if(!(ts instanceof Date))ts=new Date(ts);
+          const dateStr=ts.toISOString().split('T')[0];
+          if(distByDate1y[dateStr])cumDist1y+=distByDate1y[dateStr];
+          const price=data1y[i];
+          return price!=null?price+cumDist1y:null;
+        });
+      }
+      const first1y=data1y.find(p=>p!=null);const last1y=[...data1y].reverse().find(p=>p!=null);
+      const priceRetPct1y=first1y&&last1y?((last1y-first1y)/first1y*100):null;
+      const firstTR1y=totalReturn1y.find(p=>p!=null);const lastTR1y=totalReturn1y.length?[...totalReturn1y].reverse().find(p=>p!=null):null;
+      const totalRetPct1y=firstTR1y&&lastTR1y?((lastTR1y-firstTR1y)/firstTR1y*100):null;
       // Cache total return series and return metrics for offline restore
       S.set('etf_tr_'+etf.ticker,{
         totalReturn:totalReturnData,
         priceRetPct,totalRetPct,
         chartLabels6m:chartLabels,
         chartData6m:chartData,
+        labels1y,data1y,tr1y:totalReturn1y,
+        priceRetPct1y,totalRetPct1y,
         ts:nowPT()
       });
-      etfChartQueue.push({ticker:etf.ticker,color:etf.color,labels:chartLabels,data:chartData,totalReturn:totalReturnData,priceRetPct,totalRetPct});
+      etfChartQueue.push({ticker:etf.ticker,color:etf.color,labels:chartLabels,data:chartData,totalReturn:totalReturnData,priceRetPct,totalRetPct,labels1y,data1y,tr1y:totalReturn1y,priceRetPct1y,totalRetPct1y});
     }catch(err){html+=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">${etf.ticker}: ${err.message}</div></div>`;}
   }
   el.innerHTML=html;
@@ -2094,9 +2130,9 @@ async function loadETFTab(){
 
   function renderNextEtfChart(queue,idx){
     if(idx>=queue.length)return;
-    const{ticker,color,labels,data,totalReturn,priceRetPct,totalRetPct}=queue[idx];
+    const{ticker,color,labels,data,totalReturn,priceRetPct,totalRetPct,labels1y,data1y,tr1y,priceRetPct1y,totalRetPct1y}=queue[idx];
     // Store full year data for toggle
-    window._etfChartData[ticker]={color,labels6m:labels,data6m:data,tr6m:totalReturn,priceRetPct6m:priceRetPct,totalRetPct6m:totalRetPct};
+    window._etfChartData[ticker]={color,labels6m:labels,data6m:data,tr6m:totalReturn,priceRetPct6m:priceRetPct,totalRetPct6m:totalRetPct,labels1y,data1y,tr1y,priceRetPct1y,totalRetPct1y};
     requestAnimationFrame(()=>{
       renderEtfChart(ticker,color,labels,data,totalReturn);
       renderNextEtfChart(queue,idx+1);

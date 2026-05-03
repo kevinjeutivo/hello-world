@@ -30,6 +30,9 @@ html,body{background:var(--bg);color:var(--text);font-family:var(--sans);font-si
 .mkt-prepost{background:rgba(255,165,2,0.9);color:#000}
 .mkt-closed{background:rgba(255,71,87,0.85);color:#fff}
 /* Header */
+#top-progress-bar{position:fixed;top:0;left:0;right:0;height:3px;z-index:9999;background:transparent;pointer-events:none}
+#top-progress-bar .top-bar-fill{height:3px;width:0%;background:linear-gradient(90deg,#00d4aa,#4fc3f7);transition:width 0.3s ease;border-radius:0 2px 2px 0}
+#top-progress-bar.active .top-bar-fill{box-shadow:0 0 8px rgba(0,212,170,0.6)}
 .header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px 8px;position:sticky;top:36px;z-index:100;display:flex;align-items:center;justify-content:space-between}
 .header-left{display:flex;flex-direction:column;gap:2px}
 .header-title{font-family:var(--sans);font-size:18px;font-weight:800;letter-spacing:-0.5px;color:var(--accent)}
@@ -169,6 +172,7 @@ a{color:inherit}
 <div id="offline-mode-bar">OFFLINE MODE -- all data served from cache</div>
 <div id="app">
 <div id="market-status-banner" class="mkt-closed">Loading market status...</div>
+<div id="top-progress-bar"><div class="top-bar-fill" id="top-bar-fill"></div></div>
 <div class="header">
   <div class="header-left">
     <div class="header-title">PutSeller Pro <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
@@ -970,11 +974,35 @@ function updateHeaderStatus(){
   if(lbl&&lts){const age=relAge(lts);lbl.textContent='Last full refresh: '+lts+(age?' ('+age+')':'');}
 }
 
+function setTopBar(pct){
+  const bar=document.getElementById('top-bar-fill');
+  const wrap=document.getElementById('top-progress-bar');
+  if(!bar||!wrap)return;
+  if(pct===null){
+    // Hide
+    wrap.classList.remove('active');
+    bar.style.width='100%';
+    setTimeout(()=>{bar.style.transition='none';bar.style.width='0%';wrap.style.display='none';setTimeout(()=>{bar.style.transition='width 0.3s ease';},50);},400);
+  }else{
+    wrap.style.display='block';
+    wrap.classList.add('active');
+    bar.style.width=Math.min(pct,99)+'%';
+  }
+}
+
 function setRefreshSpinner(active){
   const dot=document.getElementById('header-status-dot');
   if(!dot)return;
-  if(active){dot.style.background='#4fc3f7';dot.style.animation='pulse 1s infinite';dot.title='Refreshing...';}
-  else{dot.style.animation='';updateHeaderStatus();}
+  if(active){
+    dot.style.background='#4fc3f7';
+    dot.style.animation='pulse 1s infinite';
+    dot.title='Refreshing...';
+    setTopBar(2); // start bar at 2% so it's immediately visible
+  }else{
+    dot.style.animation='';
+    setTopBar(null); // complete and hide
+    updateHeaderStatus();
+  }
 }
 
 function refreshTsChipAges(){
@@ -2586,19 +2614,19 @@ async function fullRefreshEverything(){
   const btn=document.getElementById('full-refresh-btn');btn.disabled=true;
   document.getElementById('full-refresh-progress').style.display='block';
   const bar=document.getElementById('full-refresh-bar'),label=document.getElementById('full-refresh-label');
-  setRefreshSpinner(true);
+  setRefreshSpinner(true);setTopBar(5);
   label.textContent='Step 1/6: Fetching all ticker data...';
-  await prefetchAll();bar.style.width='50%';
+  await prefetchAll();bar.style.width='50%';setTopBar(50);
   label.textContent='Step 2/6: Running conviction dashboards...';
-  try{await runDashboards(true);}catch{}bar.style.width='65%';
+  try{await runDashboards(true);}catch{}bar.style.width='65%';setTopBar(65);
   label.textContent='Step 3/6: Loading earnings calendar...';
-  try{await loadEarningsTab();}catch{}bar.style.width='75%';
+  try{await loadEarningsTab();}catch{}bar.style.width='75%';setTopBar(75);
   label.textContent='Step 4/6: Refreshing VIX...';
-  try{await loadVIX();}catch{}bar.style.width='85%';
+  try{await loadVIX();}catch{}bar.style.width='85%';setTopBar(85);
   label.textContent='Step 5/6: Refreshing ETF data...';
-  try{await loadETFTab();}catch{}bar.style.width='93%';
+  try{await loadETFTab();}catch{}bar.style.width='93%';setTopBar(93);
   label.textContent='Step 6/6: Refreshing market data...';
-  try{await loadMarketTab();}catch{}bar.style.width='100%';
+  try{await loadMarketTab();}catch{}bar.style.width='100%';setTopBar(100);
   label.textContent='All done!';
   const frTs=nowPT();
   S.set('last_full_refresh_ts',frTs);

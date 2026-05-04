@@ -172,13 +172,32 @@ a{color:inherit}
 <div id="offline-mode-bar">OFFLINE MODE -- all data served from cache</div>
 <div id="app">
 <div id="market-status-banner" class="mkt-closed">Loading market status...</div>
+<!-- Disclaimer modal -->
+<div id="disclaimer-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.8);overflow-y:auto">
+  <div style="background:var(--surface);border-radius:16px;margin:20px auto;max-width:600px;padding:24px;position:relative">
+    <div style="font-family:var(--sans);font-size:18px;font-weight:700;color:var(--accent);margin-bottom:16px">Disclaimer &amp; Terms of Use</div>
+    <div style="font-family:var(--mono);font-size:12px;color:var(--text2);line-height:1.8">
+      <p style="margin-bottom:12px"><strong style="color:var(--text)">For Informational Purposes Only</strong><br>
+      This application is an analytical tool designed to help visualize and organize publicly available market data. Nothing presented in this app constitutes financial advice, investment advice, trading advice, or any other type of professional financial guidance.</p>
+      <p style="margin-bottom:12px"><strong style="color:var(--text)">No Recommendations</strong><br>
+      Conviction scores, strategy suggestions, and any other analysis presented are purely informational and algorithmic in nature. They do not represent personalized recommendations and should not be relied upon as the basis for any investment decision.</p>
+      <p style="margin-bottom:12px"><strong style="color:var(--text)">Risk Warning</strong><br>
+      Options trading involves substantial risk of loss and is not suitable for all investors. Selling puts and covered calls can result in significant financial losses. Past performance is not indicative of future results.</p>
+      <p style="margin-bottom:12px"><strong style="color:var(--text)">Data Accuracy</strong><br>
+      Market data is sourced from third-party providers including Yahoo Finance and Finnhub. Data may be delayed, inaccurate, or incomplete. Always verify information with your broker or a licensed financial professional before making investment decisions.</p>
+      <p style="margin-bottom:0"><strong style="color:var(--text)">No Liability</strong><br>
+      The developer of this application accepts no liability for any financial losses or damages arising from use of this tool.</p>
+    </div>
+    <button class="btn btn-primary" onclick="document.getElementById('disclaimer-modal').style.display='none'" style="margin-top:20px;width:100%">I Understand</button>
+  </div>
+</div>
 <div id="top-progress-bar"><div class="top-bar-fill" id="top-bar-fill"></div></div>
 <div class="header">
   <div class="header-left">
     <div class="header-title">PutSeller Pro <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v2.3.0</span>
+      <span>Options Income Strategy v2.4.0</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -378,7 +397,8 @@ Version: 1.7</div>
     </div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Enable before flights. Disables all API calls -- everything served from localStorage cache.</div>
     <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
-    <button class="btn btn-secondary" onclick="closeSettings()">Cancel</button>
+    <button class="btn btn-secondary" onclick="document.getElementById('disclaimer-modal').style.display='block'">View Disclaimer &amp; Terms</button>
+    <button class="btn btn-secondary" onclick="closeSettings()" style="margin-top:6px">Cancel</button>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent)"></span>App Updates</div>
     <button class="btn btn-secondary" onclick="forceAppRefresh()">Force App Refresh</button>
@@ -398,7 +418,17 @@ Version: 1.7</div>
     </div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v2.3.0 -- 2026-04-29
+    <div class="commentary" style="font-size:12px">v2.4.0 -- 2026-04-29
+- fetchQuoteSummary: single Yahoo quoteSummary call fetches financialData + defaultKeyStatistics + earningsTrend + recommendationTrend in one round trip.
+- PEG ratio tile: color-coded (<1 green, 1-2 neutral, >2 red). From Yahoo defaultKeyStatistics.
+- EV/EBITDA tile: with qualitative label. From Yahoo defaultKeyStatistics.
+- Short interest: switched to Yahoo shortPercentOfFloat and shortRatio (reliable on free tier). Finnhub used as fallback only.
+- Analyst Price Target card: moved below Analyst Coverage. Now a full card with consensus, low, high, and spread tiles.
+- Earnings Estimates card: EPS and revenue estimates for current quarter, next quarter, current year, next year with growth rate. From Yahoo earningsTrend.
+- Recommendation Trend card: buy/hold/sell percentages for last 3 months from Yahoo recommendationTrend. Free tier -- more reliable than Finnhub.
+- Disclaimer modal: accessible via "View Disclaimer & Terms" button in Settings. Non-blocking -- appears as overlay.
+
+v2.3.0 -- 2026-04-29
 - Analyst price targets: consensus mean, high, and low target from Finnhub /stock/price-target displayed as a full-width tile on the Ticker tab. Shows % upside/downside from current price and spread between high/low targets. Fetched in loadTicker, prefetchAll, and refreshSingleTicker.
 - Watchlist sort: three modes -- Manual (default, original entry order), A→Z (alphabetical), By Score (conviction score descending from last dashboard run). Buttons above Prefetch All. Mode persists in localStorage.
 - Settings: localStorage key count added to storage display alongside KB breakdown.
@@ -1170,24 +1200,61 @@ async function yahooOptionsViaProxy(symbol,expiration){
   const json=await r.json();
   return slimOptionsData(json);
 }
-async function fetchPriceTarget(symbol){
-  // Yahoo quoteSummary financialData module -- contains price targets
-  // Separate from the quote endpoint which does NOT include targetMeanPrice
+async function fetchQuoteSummary(symbol){
+  // Single call fetching 4 quoteSummary modules:
+  // financialData: price targets, margins, growth
+  // defaultKeyStatistics: PEG, EV/EBITDA, short interest, beta
+  // earningsTrend: EPS/revenue estimates by period + revision direction
+  // recommendationTrend: buy/hold/sell counts by month (Yahoo free, vs Finnhub premium)
   if(offlineMode)return null;
   try{
-    const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=summary&modules=financialData`);
+    const modules='financialData,defaultKeyStatistics,earningsTrend,recommendationTrend';
+    const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=summary&modules=${encodeURIComponent(modules)}`);
     if(!r.ok)return null;
     const d=await r.json();
-    const fd=d.quoteSummary?.result?.[0]?.financialData;
-    if(!fd)return null;
+    const res=d.quoteSummary?.result?.[0];
+    if(!res)return null;
+    const fd=res.financialData||{};
+    const ks=res.defaultKeyStatistics||{};
+    const et=res.earningsTrend?.trend||[];
+    const rt=res.recommendationTrend?.trend||[];
     return{
+      // Price targets (financialData)
       ptMean:fd.targetMeanPrice?.raw||null,
       ptHigh:fd.targetHighPrice?.raw||null,
       ptLow:fd.targetLowPrice?.raw||null,
       ptAnalysts:fd.numberOfAnalystOpinions?.raw||null,
-      ptMedian:fd.targetMedianPrice?.raw||null
+      // Valuation (defaultKeyStatistics)
+      pegRatio:ks.pegRatio?.raw||null,
+      evToEbitda:ks.enterpriseToEbitda?.raw||null,
+      // Short interest (defaultKeyStatistics -- more reliable than Finnhub free tier)
+      shortPctFloat:ks.shortPercentOfFloat?.raw||null,
+      shortRatioYahoo:ks.shortRatio?.raw||null,
+      sharesShort:ks.sharesShort?.raw||null,
+      // Earnings trend (array of 4 periods)
+      earningsTrend:et.slice(0,4).map(p=>({
+        period:p.period,
+        epsMean:p.earningsEstimate?.avg?.raw||null,
+        epsLow:p.earningsEstimate?.low?.raw||null,
+        epsHigh:p.earningsEstimate?.high?.raw||null,
+        revenueAvg:p.revenueEstimate?.avg?.raw||null,
+        epsRevUp:p.earningsEstimate?.numberOfAnalystsWithEstimate?.raw||null,
+        growth:p.growth?.raw||null,
+        endDate:p.endDate
+      })),
+      // Recommendation trend (last 3 months)
+      recTrend:rt.slice(0,3).map(m=>({
+        period:m.period,
+        strongBuy:m.strongBuy,buy:m.buy,hold:m.hold,sell:m.sell,strongSell:m.strongSell
+      }))
     };
   }catch{return null;}
+}
+
+// Keep fetchPriceTarget as thin alias for backward compat
+async function fetchPriceTarget(symbol){
+  const qs=await fetchQuoteSummary(symbol);
+  return qs?{ptMean:qs.ptMean,ptHigh:qs.ptHigh,ptLow:qs.ptLow,ptAnalysts:qs.ptAnalysts}:null;
 }
 
 async function fetchAfterHoursPrice(symbol){
@@ -1349,10 +1416,18 @@ async function loadTicker(){
       S.set('snap_'+t,snap);S.set('rec_'+t,{data:(typeof rec2!=='undefined'&&rec2&&rec2.length?rec2[0]:recData)||null,ts:nowPT()});S.set('upgrades_'+t,{data:(typeof upgrades2!=='undefined'&&upgrades2&&upgrades2.length?upgrades2.slice(0,6):upgradeData)||[],ts:nowPT()});
       try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;
       }}catch{}
-      // Fetch price targets from Yahoo quoteSummary (separate endpoint from quote)
+      // Fetch enriched data from Yahoo quoteSummary (4 modules in one call)
       try{
-        const pt=await fetchPriceTarget(t);
-        if(pt&&pt.ptMean){snap.ptMean=pt.ptMean;snap.ptHigh=pt.ptHigh||null;snap.ptLow=pt.ptLow||null;snap.ptAnalysts=pt.ptAnalysts||null;}
+        const qs=await fetchQuoteSummary(t);
+        if(qs){
+          if(qs.ptMean){snap.ptMean=qs.ptMean;snap.ptHigh=qs.ptHigh||null;snap.ptLow=qs.ptLow||null;snap.ptAnalysts=qs.ptAnalysts||null;}
+          if(qs.pegRatio!=null)snap.pegRatio=qs.pegRatio;
+          if(qs.evToEbitda!=null)snap.evToEbitda=qs.evToEbitda;
+          if(qs.shortPctFloat!=null){snap.shortPctFloat=qs.shortPctFloat;snap.shortRatioYahoo=qs.shortRatioYahoo;}
+          if(qs.earningsTrend&&qs.earningsTrend.length)snap.earningsTrend=qs.earningsTrend;
+          if(qs.recTrend&&qs.recTrend.length)snap.recTrend=qs.recTrend;
+          S.set('snap_'+t,snap);
+        }
       }catch{}
     }catch{
       const cached=S.get('snap_'+t);if(cached){snap=cached;isLive=false;showOfflineBanner(cached.ts);}else throw new Error('No data available');
@@ -1377,6 +1452,67 @@ function restoreTickerFromCache(t){
   renderTickerContent(snap,hist6mo,hist1y,cn?cn.items:null,cr?cr.data:null,cu?cu.data:[],false);
   setTimeout(refreshTsChipAges,50);
 }
+function buildPriceTargetCard(snap){
+  const pct=((snap.ptMean-snap.price)/snap.price*100);
+  const col=snap.ptMean>snap.price?'var(--green)':'var(--red)';
+  const spread=snap.ptLow&&snap.ptHigh?(snap.ptHigh-snap.ptLow).toFixed(2):null;
+  const spreadPct=snap.ptLow&&snap.ptHigh?((snap.ptHigh-snap.ptLow)/snap.ptMean*100).toFixed(0):null;
+  return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent3)"></span>Analyst Price Target</div>'
+    +'<div class="metrics-grid">'
+    +'<div class="metric-tile"><div class="metric-label">Consensus Target</div>'
+    +'<div class="metric-value" style="color:'+col+'">$'+snap.ptMean.toFixed(2)+'</div>'
+    +'<div class="metric-sub">'+(pct>=0?'+':'')+pct.toFixed(1)+'% from current'+(snap.ptAnalysts?' &middot; '+snap.ptAnalysts+' analysts':'')+'</div></div>'
+    +(snap.ptLow?'<div class="metric-tile"><div class="metric-label">Low Target</div><div class="metric-value">$'+snap.ptLow.toFixed(2)+'</div><div class="metric-sub">'+(((snap.ptLow-snap.price)/snap.price*100)).toFixed(1)+'% from current</div></div>':'')
+    +(snap.ptHigh?'<div class="metric-tile"><div class="metric-label">High Target</div><div class="metric-value">$'+snap.ptHigh.toFixed(2)+'</div><div class="metric-sub">'+(((snap.ptHigh-snap.price)/snap.price*100)).toFixed(1)+'% from current</div></div>':'')
+    +(spread?'<div class="metric-tile"><div class="metric-label">Analyst Range</div><div class="metric-value" style="font-size:14px">$'+spread+'</div><div class="metric-sub">'+spreadPct+'% spread -- '+( parseFloat(spreadPct)<30?'High consensus':'Wide disagreement')+'</div></div>':'')
+    +'</div></div>';
+}
+
+function buildEarningsTrendCard(trend){
+  const periodLabel=p=>{
+    if(p==='0q')return'This Qtr';if(p==='+1q')return'Next Qtr';
+    if(p==='0y')return'This Year';if(p==='+1y')return'Next Year';return p;
+  };
+  const rows=trend.map(p=>{
+    const epsStr=p.epsMean!=null?'$'+p.epsMean.toFixed(2):'--';
+    const revStr=p.revenueAvg!=null?(p.revenueAvg>=1e9?(p.revenueAvg/1e9).toFixed(1)+'B':(p.revenueAvg/1e6).toFixed(0)+'M'):'--';
+    const growthStr=p.growth!=null?((p.growth>=0?'+':'')+( p.growth*100).toFixed(1)+'%'):'--';
+    const growthCol=p.growth!=null?(p.growth>0?'var(--green)':'var(--red)'):'var(--text3)';
+    return '<tr>'
+      +'<td style="color:var(--text2)">'+periodLabel(p.period)+'</td>'
+      +'<td>'+epsStr+'</td>'
+      +'<td>'+revStr+'</td>'
+      +'<td style="color:'+growthCol+'">'+growthStr+'</td>'
+      +'</tr>';
+  }).join('');
+  return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--warn)"></span>Earnings Estimates</div>'
+    +'<div class="options-table-wrap"><table class="options-table">'
+    +'<thead><tr><th style="text-align:left">Period</th><th style="text-align:left">EPS Est</th><th style="text-align:left">Revenue</th><th style="text-align:left">Growth</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table></div></div>';
+}
+
+function buildRecTrendCard(trend){
+  const months=trend.slice(0,3);
+  const cols=['#00d4aa','#4fc3f7','#555870'];
+  const rows=months.map((m,i)=>{
+    const total=(m.strongBuy||0)+(m.buy||0)+(m.hold||0)+(m.sell||0)+(m.strongSell||0);
+    const buyPct=total?Math.round(((m.strongBuy||0)+(m.buy||0))/total*100):0;
+    const holdPct=total?Math.round((m.hold||0)/total*100):0;
+    const sellPct=total?Math.round(((m.sell||0)+(m.strongSell||0))/total*100):0;
+    return '<tr>'
+      +'<td style="color:var(--text3);font-size:10px">'+m.period+'</td>'
+      +'<td style="color:var(--green)">'+buyPct+'% buy</td>'
+      +'<td style="color:var(--text2)">'+holdPct+'% hold</td>'
+      +'<td style="color:var(--red)">'+sellPct+'% sell</td>'
+      +'<td style="color:var(--text3)">'+total+'</td>'
+      +'</tr>';
+  }).join('');
+  return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Recommendation Trend (Monthly)</div>'
+    +'<div class="options-table-wrap"><table class="options-table">'
+    +'<thead><tr><th style="text-align:left">Month</th><th>Buy%</th><th>Hold%</th><th>Sell%</th><th>Total</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table></div></div>';
+}
+
 function buildUpgradeTable(upgrades){
   if(!upgrades||!upgrades.length)return'';
   const actionColor=a=>a==='upgrade'||a==='init'?'var(--green)':a==='downgrade'?'var(--red)':'var(--text3)';
@@ -1488,10 +1624,13 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive){
   const ivr=ivrInfo(ivrVal);
   let impliedMoveStr='N/A';
   try{const oc=S.get('options_'+snap.ticker);const res=oc?.data?.optionChain?.result?.[0];if(res&&snap.price){const opts=res.options?.[0];if(opts){const atmP=(opts.puts||[]).filter(p=>Math.abs(p.strike-snap.price)/snap.price<0.03);const atmC=(opts.calls||[]).filter(c=>Math.abs(c.strike-snap.price)/snap.price<0.03);if(atmP.length&&atmC.length){const straddle=((atmP[0].bid+atmP[0].ask)/2)+((atmC[0].bid+atmC[0].ask)/2);impliedMoveStr=`+/-${(straddle/snap.price*100).toFixed(1)}% ($${straddle.toFixed(2)} straddle)`;}}}}catch{}
-  // Short interest: Finnhub provides shortInterest (shares) and shortRatio (days-to-cover)
-  // Updated twice monthly; may be null on free tier for some tickers
+  // Short interest: prefer Yahoo quoteSummary (reliable on free tier)
+  // Fall back to Finnhub fields if Yahoo not yet fetched
   let shortStr='N/A (not reported)';
-  if(snap.shortInterest&&snap.shortInterest>0){
+  if(snap.shortPctFloat!=null&&snap.shortPctFloat>0){
+    shortStr=`${(snap.shortPctFloat*100).toFixed(2)}% of float`;
+    if(snap.shortRatioYahoo)shortStr+=` (${snap.shortRatioYahoo.toFixed(1)}d to cover)`;
+  }else if(snap.shortInterest&&snap.shortInterest>0){
     shortStr=`${(snap.shortInterest/1e6).toFixed(1)}M shares`;
     if(snap.shortRatio)shortStr+=` (${snap.shortRatio.toFixed(1)}d to cover)`;
   }else if(snap.shortInterestPct&&snap.shortInterestPct>0){
@@ -1534,21 +1673,13 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive){
       <div class="metric-tile"><div class="metric-label">Beta</div><div class="metric-value">${snap.beta?.toFixed(2)||'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">P/E (TTM)</div><div class="metric-value">${snap.peRatio?.toFixed(1)||'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">P/E (Forward)</div><div class="metric-value">${snap.peForward?.toFixed(1)||'N/A'}</div><div class="metric-sub">${snap.peRatio&&snap.peForward?(snap.peForward<snap.peRatio?'Earnings growth expected':'Earnings shrinkage expected'):'Estimated next 12m earnings'}</div></div>
+      <div class="metric-tile"><div class="metric-label">PEG Ratio</div><div class="metric-value" style="color:${snap.pegRatio!=null?(snap.pegRatio<1?'var(--green)':snap.pegRatio<2?'var(--text)':'var(--red)'):'var(--text3)'}">${snap.pegRatio!=null?snap.pegRatio.toFixed(2):'N/A'}</div><div class="metric-sub">${snap.pegRatio!=null?(snap.pegRatio<1?'Undervalued vs growth':snap.pegRatio<2?'Fair value':snap.pegRatio<3?'Expensive':'Very expensive'):'Forward P/E divided by growth rate'}</div></div>
+      <div class="metric-tile"><div class="metric-label">EV/EBITDA</div><div class="metric-value">${snap.evToEbitda!=null?snap.evToEbitda.toFixed(1)+'x':'N/A'}</div><div class="metric-sub">${snap.evToEbitda!=null?(snap.evToEbitda<10?'Low (value territory)':snap.evToEbitda<20?'Moderate':snap.evToEbitda<30?'Elevated':'High multiple'):'Enterprise value vs EBITDA'}</div></div>
       <div class="metric-tile"><div class="metric-label">EPS (TTM)</div><div class="metric-value" style="color:${snap.epsTTM>0?'var(--green)':snap.epsTTM<0?'var(--red)':'var(--text)'}">${snap.epsTTM!=null?'$'+snap.epsTTM.toFixed(2):'N/A'}</div><div class="metric-sub">${snap.epsTTM>0?'Profitable':snap.epsTTM<0?'Not profitable (TTM)':''}${snap.epsGrowth!=null?' | YoY '+(snap.epsGrowth>=0?'+':'')+(snap.epsGrowth*100).toFixed(1)+'%':''}</div></div>
       <div class="metric-tile"><div class="metric-label">Div Yield</div><div class="metric-value">${snap.dividendYield?snap.dividendYield.toFixed(2)+'%':'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">RSI (14)</div><div class="metric-value" style="color:${rsiColor}">${rsiStr}</div><div class="metric-sub">${rsiLabel}</div></div>
       <div class="metric-tile"><div class="metric-label">Short Interest</div><div class="metric-value" style="font-size:11px">${shortStr}</div></div>
-      ${snap.ptMean?`<div class="metric-tile" style="grid-column:span 2">
-        <div class="metric-label">Analyst Price Target</div>
-        <div style="display:flex;align-items:baseline;gap:8px;margin-top:4px">
-          <div style="font-family:var(--mono);font-size:20px;font-weight:600;color:${snap.ptMean>snap.price?'var(--green)':'var(--red)'}">$${snap.ptMean.toFixed(2)}</div>
-          <div style="font-family:var(--mono);font-size:11px;color:${snap.ptMean>snap.price?'var(--green)':'var(--red)'}">consensus (${snap.ptMean>snap.price?'+':''}${((snap.ptMean-snap.price)/snap.price*100).toFixed(1)}% from current)</div>
-        </div>
-        <div class="metric-sub" style="margin-top:4px">
-          Low: $${snap.ptLow?.toFixed(2)||'N/A'} &nbsp;|&nbsp; High: $${snap.ptHigh?.toFixed(2)||'N/A'}
-          ${snap.ptLow&&snap.ptHigh?` &nbsp;|&nbsp; Range: $${(snap.ptHigh-snap.ptLow).toFixed(2)} (${((snap.ptHigh-snap.ptLow)/snap.ptMean*100).toFixed(0)}% spread)`:''}
-        </div>
-      </div>`:''}
+
       ${buildR40Tile(snap)}
       ${analystHtml}
       <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">IV Rank (approx)</div><div style="margin-top:4px">${ivr.badge||'N/A'}</div><div class="metric-sub" style="margin-top:4px;font-size:10px;line-height:1.4">${ivr.guidance}</div></div>
@@ -1561,7 +1692,10 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive){
 RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red shading) = overbought, favorable for covered calls.</div></div>`:''}
   ${hist1y?`<div class="card"><div class="card-title"><span class="dot" style="background:teal"></span>Volume Profile -- Support / Resistance (1Y)</div><div class="chart-wrap" style="height:300px"><canvas id="vp-chart"></canvas></div><div id="vp-analysis"></div></div>`:''}
   <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Recent News (7 days)</div><div id="news-section">${renderNewsItems(news)}</div></div>
-  ${upgradesData&&upgradesData.length?buildUpgradeTable(upgradesData):''}`;
+  ${upgradesData&&upgradesData.length?buildUpgradeTable(upgradesData):''}
+  ${snap.ptMean?buildPriceTargetCard(snap):''}
+  ${snap.earningsTrend&&snap.earningsTrend.length?buildEarningsTrendCard(snap.earningsTrend):''}
+  ${snap.recTrend&&snap.recTrend.length?buildRecTrendCard(snap.recTrend):''}`;
   if(bbData)renderBBChart(bbData,hist);
   if(hist1y)renderVPChart(hist1y,snap.price,snap.week52High,snap.week52Low);
 }
@@ -2642,7 +2776,14 @@ async function prefetchAll(){
       for(const pair of monthlyPairs2){try{S.set('options_exp_'+t+'_'+pair.date,await yahooOptionsViaProxy(t,String(pair.ts)));}catch{}}}catch{}
     // Also fetch quote data for after-hours price and forwardPE
     try{const ah=await fetchAfterHoursPrice(t);if(ah){const snap=S.get('snap_'+t);if(snap){snap.postMarketPrice=ah.postMarketPrice||null;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState||null;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;S.set('snap_'+t,snap);}}}catch{}
-    try{const pt=await fetchPriceTarget(t);if(pt&&pt.ptMean){const sn=S.get('snap_'+t);if(sn){sn.ptMean=pt.ptMean;sn.ptHigh=pt.ptHigh||null;sn.ptLow=pt.ptLow||null;sn.ptAnalysts=pt.ptAnalysts||null;S.set('snap_'+t,sn);}}}catch{}
+    try{const qs=await fetchQuoteSummary(t);if(qs){const sn=S.get('snap_'+t);if(sn){
+      if(qs.ptMean){sn.ptMean=qs.ptMean;sn.ptHigh=qs.ptHigh||null;sn.ptLow=qs.ptLow||null;sn.ptAnalysts=qs.ptAnalysts||null;}
+      if(qs.pegRatio!=null)sn.pegRatio=qs.pegRatio;
+      if(qs.evToEbitda!=null)sn.evToEbitda=qs.evToEbitda;
+      if(qs.shortPctFloat!=null){sn.shortPctFloat=qs.shortPctFloat;sn.shortRatioYahoo=qs.shortRatioYahoo;}
+      if(qs.earningsTrend&&qs.earningsTrend.length)sn.earningsTrend=qs.earningsTrend;
+      if(qs.recTrend&&qs.recTrend.length)sn.recTrend=qs.recTrend;
+      S.set('snap_'+t,sn);}}}catch{}
     try{const news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}
     if(i<watchlist.length-1)await sleep(1000);
   }
@@ -2699,7 +2840,14 @@ async function refreshSingleTicker(){
     setP(20,'Fetching '+t+' extended quote...');
     try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!=null)snap.epsTTM=ah.trailingEps;
       }}catch{}
-      try{const pt=await fetchPriceTarget(t);if(pt&&pt.ptMean){snap.ptMean=pt.ptMean;snap.ptHigh=pt.ptHigh||null;snap.ptLow=pt.ptLow||null;snap.ptAnalysts=pt.ptAnalysts||null;}}catch{}
+      try{const qs=await fetchQuoteSummary(t);if(qs){
+        if(qs.ptMean){snap.ptMean=qs.ptMean;snap.ptHigh=qs.ptHigh||null;snap.ptLow=qs.ptLow||null;snap.ptAnalysts=qs.ptAnalysts||null;}
+        if(qs.pegRatio!=null)snap.pegRatio=qs.pegRatio;
+        if(qs.evToEbitda!=null)snap.evToEbitda=qs.evToEbitda;
+        if(qs.shortPctFloat!=null){snap.shortPctFloat=qs.shortPctFloat;snap.shortRatioYahoo=qs.shortRatioYahoo;}
+        if(qs.earningsTrend&&qs.earningsTrend.length)snap.earningsTrend=qs.earningsTrend;
+        if(qs.recTrend&&qs.recTrend.length)snap.recTrend=qs.recTrend;
+      }}catch{}
       if(priceTargetS&&priceTargetS.targetMean){snap.ptMean=priceTargetS.targetMean||null;snap.ptHigh=priceTargetS.targetHigh||null;snap.ptLow=priceTargetS.targetLow||null;}
     S.set('snap_'+t,snap);
     S.set('rec_'+t,{data:rec&&rec.length?rec[0]:null,ts:nowPT()});

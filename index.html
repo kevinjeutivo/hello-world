@@ -1447,7 +1447,11 @@ async function loadTicker(){
   }catch(err){document.getElementById('ticker-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
 }
 function restoreTickerFromCache(t){
-  if(!t)return;const snap=S.get('snap_'+t);if(!snap)return;
+  if(!t)return;
+  // Skip restore if a live render just happened for this ticker (within 5 seconds)
+  if(_lastLiveRenderTicker===t&&Date.now()-_lastLiveRenderTime<5000)return;
+  // Always read the latest snap -- may be enriched by fetchQuoteSummary since last render
+  const snap=S.get('snap_'+t);if(!snap)return;
   const ch=S.get('hist_'+t);const hist6mo=ch?{timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes}:null;
   const ch1=S.get('hist1y_'+t);const hist1y=ch1?{timestamps:ch1.timestamps.map(d=>new Date(d)),closes:ch1.closes,volumes:ch1.volumes}:null;
   const cn=S.get('news_'+t);const cr=S.get('rec_'+t);
@@ -1604,8 +1608,9 @@ function buildR40Tile(snap){
     +'</div>';
 }
 
+let _lastLiveRenderTicker='';let _lastLiveRenderTime=0;
 function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive){
-  toast('RENDER: ptMean='+snap.ptMean+' etLen='+(snap.earningsTrend?.length)+' rtLen='+(snap.recTrend?.length),15000);
+  if(isLive){_lastLiveRenderTicker=snap.ticker;_lastLiveRenderTime=Date.now();}
   const el=document.getElementById('ticker-content');
   const chgColor=snap.change>=0?'var(--green)':'var(--red)';const chgSign=snap.change>=0?'+':'';
   let rsiStr='N/A',bbStr='',bbData=null;

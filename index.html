@@ -1703,7 +1703,6 @@ RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red
   <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Recent News (7 days)</div><div id="news-section">${renderNewsItems(news)}</div></div>
   ${upgradesData&&upgradesData.length?buildUpgradeTable(upgradesData):''}
   ${snap.ptMean?buildPriceTargetCard(snap):''}
-  <div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:4px">ET_DEBUG: ptMean=${snap.ptMean||'null'} etLen=${snap.earningsTrend?.length||0} rtLen=${snap.recTrend?.length||0}</div>
   ${snap.earningsTrend&&snap.earningsTrend.length?buildEarningsTrendCard(snap.earningsTrend):''}
   ${snap.recTrend&&snap.recTrend.length?buildRecTrendCard(snap.recTrend):''}`;
   if(bbData)renderBBChart(bbData,hist);

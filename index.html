@@ -1419,7 +1419,6 @@ async function loadTicker(){
       // Fetch enriched data from Yahoo quoteSummary (4 modules in one call)
       try{
         const qs=await fetchQuoteSummary(t);
-        toast('QS DIAG: ptMean='+(qs?.ptMean)+' peg='+(qs?.pegRatio)+' etLen='+(qs?.earningsTrend?.length)+' rtLen='+(qs?.recTrend?.length),20000);
         if(qs){
           if(qs.ptMean){snap.ptMean=qs.ptMean;snap.ptHigh=qs.ptHigh||null;snap.ptLow=qs.ptLow||null;snap.ptAnalysts=qs.ptAnalysts||null;}
           if(qs.pegRatio!=null)snap.pegRatio=qs.pegRatio;
@@ -1441,7 +1440,10 @@ async function loadTicker(){
     try{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}
     catch{const cn=S.get('news_'+t);if(cn)news=cn.items;}
     const upgradesData=S.get('upgrades_'+t)?.data||[];
-    renderTickerContent(snap,hist6mo,hist1y,news,recData,upgradesData,isLive);renderWatchlist();
+    // Re-read snap from localStorage to pick up fetchQuoteSummary enrichment
+    // (ptMean, pegRatio, earningsTrend etc. are saved there by fetchQuoteSummary)
+    const snapFinal=S.get('snap_'+t)||snap;
+    renderTickerContent(snapFinal,hist6mo,hist1y,news,recData,upgradesData,isLive);renderWatchlist();
   }catch(err){document.getElementById('ticker-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
 }
 function restoreTickerFromCache(t){

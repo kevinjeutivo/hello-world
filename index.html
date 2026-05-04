@@ -1419,6 +1419,7 @@ async function loadTicker(){
       // Fetch enriched data from Yahoo quoteSummary (4 modules in one call)
       try{
         const qs=await fetchQuoteSummary(t);
+        toast('QS DIAG: ptMean='+(qs?.ptMean)+' peg='+(qs?.pegRatio)+' etLen='+(qs?.earningsTrend?.length)+' rtLen='+(qs?.recTrend?.length),20000);
         if(qs){
           if(qs.ptMean){snap.ptMean=qs.ptMean;snap.ptHigh=qs.ptHigh||null;snap.ptLow=qs.ptLow||null;snap.ptAnalysts=qs.ptAnalysts||null;}
           if(qs.pegRatio!=null)snap.pegRatio=qs.pegRatio;

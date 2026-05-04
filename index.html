@@ -197,7 +197,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v2.4.0</span>
+      <span>Options Income Strategy v2.5.0</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -367,12 +367,14 @@ VIX above 30: fear spike -- exceptional premium, higher risk
 VIX backwardation (VIX above VIX3M): historically strong time to sell puts</div>
   </div>
   <div class="card"><div class="card-title"><span class="dot"></span>About</div>
-    <div class="commentary">Data: Finnhub (quotes, fundamentals, earnings, news, analyst ratings)
-     Yahoo Finance via Cloudflare Worker (history, options, VIX, indices)
-     FRED API (T-bill yields -- no key required)
-     Worker: wheel.kevinjeu.workers.dev
-Offline: all data cached to localStorage
-Version: 1.7</div>
+    <div class="commentary">Data Sources:
+  Finnhub (quotes, fundamentals, earnings, news, analyst ratings -- free tier)
+  Yahoo Finance via Cloudflare Worker (price history, options chains, VIX, indices, T-bill yields, quoteSummary)
+  Yahoo Finance quoteSummary modules: financialData, defaultKeyStatistics, earningsTrend, recommendationTrend
+
+Offline: all data cached to localStorage -- full functionality after first prefetch
+Worker: configured in Settings (Cloudflare Worker proxy for Yahoo Finance)
+Version: v2.4.0</div>
   </div>
 </div>
 
@@ -418,7 +420,17 @@ Version: 1.7</div>
     </div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v2.4.0 -- 2026-04-29
+    <div class="commentary" style="font-size:12px">v2.5.0 -- 2026-05-04
+- Extended hours display: pre-market and after-hours prices now suppressed during REGULAR market session. Only shown in PRE, POST, POSTPOST, or CLOSED states.
+- S&P 500 / Nasdaq: switched to live quote fetch (?type=quote) for current price and prev close. History closes for index tickers are unreliable (often null). Live prices cached to mkt_sp_live / mkt_nq_live keys.
+- VIX live price: live quote injected into last history close after fetch, replacing stale prior-day close. VIX chart and indicator now reflect intraday value.
+- Earnings tab EPS estimate: Yahoo earningsTrend (current quarter epsMean) used as fallback when Finnhub returns null on free tier.
+- Earnings tab TODAY label: fixed timezone boundary bug. daysUntilDate() utility compares calendar dates in user timezone -- no more UTC midnight rounding issues.
+- Timezone audit: daysUntilDate() applied to earnings banner in options table and conviction scoring earnings timing (2 locations). Options DTE was already safe (uses noon UTC).
+- About card: updated data sources and version number. FRED references removed.
+- Release notes: dates now reflect actual generation date.
+
+v2.4.0 -- 2026-04-29
 - fetchQuoteSummary: single Yahoo quoteSummary call fetches financialData + defaultKeyStatistics + earningsTrend + recommendationTrend in one round trip.
 - PEG ratio tile: color-coded (<1 green, 1-2 neutral, >2 red). From Yahoo defaultKeyStatistics.
 - EV/EBITDA tile: with qualitative label. From Yahoo defaultKeyStatistics.
@@ -601,6 +613,28 @@ function nowInTZ(){
   return s+' '+tzLabel;
 }
 function nowPT(){return nowInTZ();}// alias kept for compatibility
+
+// Calendar-safe days-until calculation.
+// Compares date strings (YYYY-MM-DD) against today in the user's local/selected timezone.
+// Avoids UTC midnight boundary bugs where "tomorrow" rounds to 0 days.
+function daysUntilDate(dateStr){
+  if(!dateStr)return null;
+  try{
+    const tz=tzPref==='PT'?'America/Los_Angeles':tzPref==='UTC'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const fmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'});
+    const todayParts=fmt.formatToParts(new Date());
+    const ty=todayParts.find(p=>p.type==='year').value;
+    const tm=todayParts.find(p=>p.type==='month').value;
+    const td=todayParts.find(p=>p.type==='day').value;
+    const todayStr=ty+'-'+tm+'-'+td;
+    // Compare date strings directly -- no millisecond arithmetic
+    if(dateStr===todayStr)return 0;
+    // For day count, use noon UTC of each date to avoid DST and timezone issues
+    const d1=new Date(todayStr+'T12:00:00Z');
+    const d2=new Date(dateStr+'T12:00:00Z');
+    return Math.round((d2-d1)/86400000);
+  }catch{return null;}
+}
 
 function relAge(tsStr){
   if(!tsStr)return'';
@@ -1674,7 +1708,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive){
     ${tsChip(snap.ts,isLive)}
     <div style="font-family:var(--mono);font-size:28px;font-weight:500;margin-bottom:4px">$${snap.price?.toFixed(2)||'N/A'}</div>
     <div style="font-family:var(--mono);font-size:13px;color:${chgColor};margin-bottom:6px">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>
-    ${(snap.postMarketPrice&&snap.postMarketPrice!==snap.price)?`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarketPrice>snap.price?'var(--green)':'var(--red)'};margin-bottom:8px">${snap.marketState==='PRE'?'Pre-market':'After-hours'}: $${snap.postMarketPrice.toFixed(2)}${snap.postMarketChange?` <span style="font-size:11px">${snap.postMarketChange>=0?'+':''}${snap.postMarketChange.toFixed(2)} (${snap.postMarketChange>=0?'+':''}${snap.postMarketChangePct?.toFixed(2)||'0.00'}%)</span>`:''} <span style="font-size:10px;color:var(--text3)">(${snap.marketState||'extended'})</span></div>`:''}
+    ${(snap.postMarketPrice&&snap.postMarketPrice!==snap.price&&snap.marketState&&snap.marketState!=='REGULAR')?`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarketPrice>snap.price?'var(--green)':'var(--red)'};margin-bottom:8px">${snap.marketState==='PRE'?'Pre-market':'After-hours'}: $${snap.postMarketPrice.toFixed(2)}${snap.postMarketChange?` <span style="font-size:11px">${snap.postMarketChange>=0?'+':''}${snap.postMarketChange.toFixed(2)} (${snap.postMarketChange>=0?'+':''}${snap.postMarketChangePct?.toFixed(2)||'0.00'}%)</span>`:''} <span style="font-size:10px;color:var(--text3)">(${snap.marketState||'extended'})</span></div>`:''}
     <div class="metrics-grid">
       <div class="metric-tile"><div class="metric-label">52W High</div><div class="metric-value" style="font-size:13px">$${snap.week52High?.toFixed(2)||'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">52W Low</div><div class="metric-value" style="font-size:13px">$${snap.week52Low?.toFixed(2)||'N/A'}</div></div>
@@ -2009,7 +2043,7 @@ function buildOptionsTable(){
   function earningsBanner(){
     if(!earningsDateStr||earningsBannerInserted)return'';
     earningsBannerInserted=true;
-    const daysAway=Math.round((earningsD-today)/86400000);
+    const daysAway=daysUntilDate(earningsDateStr)??Math.round((earningsD-today)/86400000);
     return `<tr><td colspan="7" style="padding:0;border:none"><div style="background:rgba(255,165,2,0.1);border-left:3px solid rgba(255,165,2,0.7);padding:5px 10px;font-family:var(--mono);font-size:10px;color:var(--warn);font-weight:600">&#x1F4C5; Earnings ${earningsDateStr}${earningsTiming} &middot; ${daysAway}d away</div></td></tr>`;
   }
 
@@ -2120,7 +2154,18 @@ async function loadVIX(){
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading VIX...</div></div>';
   try{
     let vixH,vix3H,isLive=true;
-    try{[vixH,vix3H]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT()});}
+    try{[vixH,vix3H]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT()});
+      // Inject live VIX quote to replace stale daily close
+      try{
+        const vq=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX')}&type=quote`).then(r=>r.json());
+        const vLive=vq?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
+        if(vLive){
+          const last=vixH.closes.length-1;
+          // Replace last close with live price
+          vixH.closes[last]=vLive;
+          S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});
+        }
+      }catch{}}
     catch{const cv=S.get('vix_hist'),cv3=S.get('vix3m_hist');if(cv){vixH={timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes};vix3H=cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null;isLive=false;showOfflineBanner(cv.ts);}else throw new Error('No VIX data available');}
     renderVIXContent(vixH,vix3H,isLive,isLive?nowPT():(S.get('vix_hist')?.ts||''));
   }catch(err){document.getElementById('vix-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
@@ -2183,10 +2228,12 @@ async function loadEarningsTab(){
       const snap=S.get('snap_'+t);if(!snap?.earningsDate)continue;const today=new Date(),ed=new Date(snap.earningsDate);if(ed<today)continue;
       let epsEst=null,epsActualPrev=null,surprisePrev=null,beatStreak=0;
       try{const est=await fh(`/stock/earnings?symbol=${t}&limit=4`);if(est&&est.length){const upcoming=est.find(e=>!e.actual&&e.estimate);if(upcoming)epsEst=upcoming.estimate;const prev=est.find(e=>e.actual!==null&&e.actual!==undefined);if(prev){epsActualPrev=prev.actual;if(prev.estimate)surprisePrev=((prev.actual-prev.estimate)/Math.abs(prev.estimate)*100);}const actuals=est.filter(e=>e.actual!==null&&e.estimate!==null);for(const q of actuals){if(q.actual>q.estimate)beatStreak++;else break;}}}catch{}
+      // Fallback: use Yahoo earningsTrend if Finnhub EPS estimate null (free tier)
+      if(epsEst===null){try{const sn=S.get('snap_'+t);const et=sn?.earningsTrend;if(et&&et.length){const cur=et.find(p=>p.period==='0q')||et[0];if(cur?.epsMean!=null)epsEst=cur.epsMean;}}catch{}}
       let news=[];try{const cn=S.get('news_'+t);if(cn)news=cn.items;else{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}}catch{}
       const ivrVal=computeIVR(t,snap.week52High,snap.week52Low,snap.price);const ivr=ivrInfo(ivrVal);
       let impliedMove=null;try{const oc=S.get('options_'+t);const res=oc?.data?.optionChain?.result?.[0];if(res&&snap.price){const opts=res.options?.[0];const atmP=(opts?.puts||[]).filter(p=>Math.abs(p.strike-snap.price)/snap.price<0.03);const atmC=(opts?.calls||[]).filter(c=>Math.abs(c.strike-snap.price)/snap.price<0.03);if(atmP.length&&atmC.length){const straddle=((atmP[0].bid+atmP[0].ask)/2)+((atmC[0].bid+atmC[0].ask)/2);impliedMove=(straddle/snap.price*100).toFixed(1);}}}catch{}
-      const daysUntil=Math.round((ed-new Date())/86400000);
+      const daysUntil=daysUntilDate(snap.earningsDate)??Math.round((ed-new Date())/86400000);
       earningsAllData.push({ticker:t,snap,earningsDate:snap.earningsDate,earningsHour:snap.earningsHour,daysUntil,epsEst,epsActualPrev,surprisePrev,beatStreak,ivrVal,ivrBadge:ivr.badge,impliedMove,news:news.slice(0,3)});
     }catch{}
     if(i<watchlist.length-1)await sleep(400);
@@ -2197,14 +2244,14 @@ async function loadEarningsTab(){
 function renderEarningsCards(){
   const el=document.getElementById('earnings-content');const today=new Date();
   let data=earningsAllData;
-  if(!data.length){const cached=S.get('earnings_data');if(cached?.data){data=cached.data.map(e=>({...e,daysUntil:Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);earningsAllData=data;}}
+  if(!data.length){const cached=S.get('earnings_data');if(cached?.data){data=cached.data.map(e=>({...e,daysUntil:daysUntilDate(e.earningsDate)??Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);earningsAllData=data;}}
   const filtered=data.filter(e=>e.daysUntil<=earningsDaysFilter);
   if(!filtered.length){el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4C5;</div>No upcoming earnings in this window. Press Refresh or run Full Refresh.</div>';return;}
   const ts=S.get('earnings_data')?.ts||nowPT();
   el.innerHTML=tsChip(ts,false)+filtered.map(e=>{
     const cardCls=e.daysUntil<=7?'earnings-card earnings-card-urgent':e.daysUntil<=21?'earnings-card earnings-card-soon':'earnings-card earnings-card-normal';
     const timing=e.earningsHour==='bmo'?' (before open)':e.earningsHour==='amc'?' (after close)':'';
-    const urgency=e.daysUntil===0?'TODAY':e.daysUntil===1?'TOMORROW':`In ${e.daysUntil} days`;
+    const urgency=e.daysUntil===0?'TODAY':e.daysUntil===1?'TOMORROW':'In '+e.daysUntil+' days';
     let guidance='';
     if(e.daysUntil<=14){guidance='Earnings within 2 weeks -- avoid options expirations that straddle this date. ';if(e.ivrVal&&e.ivrVal>60)guidance+='IV elevated ahead of earnings -- go wider OTM if selling options. ';guidance+='Consider waiting until after the announcement for IV crush to remove event risk.';}
     else if(e.daysUntil<=35){guidance='Earnings in 2-5 weeks. Confirm your expirations do not straddle this date. ';if(e.beatStreak>=3)guidance+='Strong beat streak -- put selling may be favorable on post-announcement pullbacks. ';}
@@ -2473,9 +2520,33 @@ async function loadMarketTab(){
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading market data...</div></div>';
   try{
     let sp500,nasdaq,treasury2y,isLive=true,mktTs=nowPT();
-    try{[sp500,nasdaq,treasury2y]=await Promise.all([yahooHistory('^GSPC','3mo','1d'),yahooHistory('^IXIC','3mo','1d'),yahooHistory('^USGG2YR','3mo','1d')]);S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs});S.set('mkt_2y',{timestamps:treasury2y.timestamps.map(d=>d.toISOString()),closes:treasury2y.closes,ts:mktTs});S.set('mkt_ts',mktTs);}
-    catch{const cs=S.get('mkt_sp500'),cn=S.get('mkt_nasdaq'),c2=S.get('mkt_2y');if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cs.closes};isLive=false;mktTs=cs.ts;showOfflineBanner(cs.ts);}if(cn&&!nasdaq)nasdaq={timestamps:cn.timestamps.map(d=>new Date(d)),closes:cn.closes};if(c2&&!treasury2y)treasury2y={timestamps:c2.timestamps.map(d=>new Date(d)),closes:c2.closes};}
-
+    let spLivePrice=null,nqLivePrice=null,spPrevClose=null,nqPrevClose=null;
+    try{[sp500,nasdaq,treasury2y]=await Promise.all([yahooHistory('^GSPC','3mo','1d'),yahooHistory('^IXIC','3mo','1d'),yahooHistory('^USGG2YR','3mo','1d')]);
+      S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});
+      S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs});
+      S.set('mkt_2y',{timestamps:treasury2y.timestamps.map(d=>d.toISOString()),closes:treasury2y.closes,ts:mktTs});
+      S.set('mkt_ts',mktTs);
+    }catch{
+      const cs=S.get('mkt_sp500'),cn=S.get('mkt_nasdaq'),c2=S.get('mkt_2y');
+      if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cs.closes};isLive=false;mktTs=cs.ts;showOfflineBanner(cs.ts);}
+      if(cn&&!nasdaq)nasdaq={timestamps:cn.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cn.closes};
+      if(c2&&!treasury2y)treasury2y={timestamps:c2.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:c2.closes};
+    }
+    // Fetch live quotes for S&P 500 and Nasdaq -- history closes can be null for index tickers
+    try{
+      const[spQ,nqQ]=await Promise.all([
+        fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^GSPC')}&type=quote`).then(r=>r.json()),
+        fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^IXIC')}&type=quote`).then(r=>r.json())
+      ]);
+      spLivePrice=spQ?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
+      spPrevClose=spQ?.quoteResponse?.result?.[0]?.regularMarketPreviousClose||null;
+      nqLivePrice=nqQ?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
+      nqPrevClose=nqQ?.quoteResponse?.result?.[0]?.regularMarketPreviousClose||null;
+      if(spLivePrice)S.set('mkt_sp_live',{price:spLivePrice,prevClose:spPrevClose,ts:mktTs});
+      if(nqLivePrice)S.set('mkt_nq_live',{price:nqLivePrice,prevClose:nqPrevClose,ts:mktTs});
+    }catch{}
+    if(!spLivePrice){const c=S.get('mkt_sp_live');if(c){spLivePrice=c.price;spPrevClose=c.prevClose;}}
+    if(!nqLivePrice){const c=S.get('mkt_nq_live');if(c){nqLivePrice=c.price;nqPrevClose=c.prevClose;}}
     // T-bill yields from US Treasury FiscalData API (via Worker, no key needed)
     let tbill3m=[],tbill6m=[],fredTs=nowPT();
     try{
@@ -2503,12 +2574,17 @@ async function loadMarketTab(){
     if(nbos_snap?.price&&nbos_div?.distributions){const tot=nbos_div.distributions.slice(0,12).reduce((s,d)=>s+(d.amount||0),0);nbosYield=(tot/nbos_snap.price*100).toFixed(2);}
 
     const cv=S.get('vix_hist');const vixCurrent=cv?.closes?.filter(c=>c!==null).slice(-1)[0]||null;
-    const spCurrent=sp500?.closes?.filter(c=>c!==null).slice(-1)[0]||null;
-    const spPrev=sp500?.closes?.filter(c=>c!==null).slice(-2)[0]||null;
-    const spChg=spCurrent&&spPrev?spCurrent-spPrev:null;const spChgPct=spChg&&spPrev?spChg/spPrev*100:null;
-    const nqCurrent=nasdaq?.closes?.filter(c=>c!==null).slice(-1)[0]||null;
-    const nqPrev=nasdaq?.closes?.filter(c=>c!==null).slice(-2)[0]||null;
-    const nqChg=nqCurrent&&nqPrev?nqCurrent-nqPrev:null;const nqChgPct=nqChg&&nqPrev?nqChg/nqPrev*100:null;
+    // Prefer live quote price; fall back to last close from history
+    const spCurrent=spLivePrice||sp500?.closes?.filter(c=>c!==null).slice(-1)[0]||null;
+    const spPrevHist=sp500?.closes?.filter(c=>c!==null).slice(-2)[0]||null;
+    const spPrevFinal=spPrevClose||spPrevHist||null;
+    const spChg=spCurrent&&spPrevFinal?spCurrent-spPrevFinal:null;
+    const spChgPct=spChg&&spPrevFinal?spChg/spPrevFinal*100:null;
+    const nqCurrent=nqLivePrice||nasdaq?.closes?.filter(c=>c!==null).slice(-1)[0]||null;
+    const nqPrevHist=nasdaq?.closes?.filter(c=>c!==null).slice(-2)[0]||null;
+    const nqPrevFinal=nqPrevClose||nqPrevHist||null;
+    const nqChg=nqCurrent&&nqPrevFinal?nqCurrent-nqPrevFinal:null;
+    const nqChgPct=nqChg&&nqPrevFinal?nqChg/nqPrevFinal*100:null;
     function fmtChg(val,chg,chgPct){if(!val)return'N/A';const color=chg>=0?'var(--green)':'var(--red)';const sign=chg>=0?'+':'';return`${val.toFixed(2)} <span style="color:${color};font-size:11px">${sign}${chg?.toFixed(2)} (${sign}${chgPct?.toFixed(2)}%)</span>`;}
 
     // 1Y T-bill chart data
@@ -2632,7 +2708,7 @@ function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expi
   const rsiScore=rsiVal===null?0:(rsiVal<35?3:rsiVal<50?2:rsiVal>70?-1:rsiVal>60?0:1);
   const maScore=(!ma50||!ma200||!price)?0:(price>ma50&&price>ma200?2:price<ma50&&price<ma200?-1:1);
   const rangeScore=rangePos===null?0:(rangePos<0.35?3:rangePos<0.55?2:rangePos>0.85?-1:1);
-  const earningsScore=!earningsDate?1:(()=>{const d=Math.round((new Date(earningsDate.split(' ')[0])-new Date())/86400000);return d>=0&&d<35?-1:d<60?0:2;})();
+  const earningsScore=!earningsDate?1:(()=>{const d=daysUntilDate(earningsDate.split(' ')[0])??Math.round((new Date(earningsDate.split(' ')[0])-new Date())/86400000);return d>=0&&d<35?-1:d<60?0:2;})();
   const ivrScore=ivrVal===null?0:(ivrVal>=60?3:ivrVal>=40?2:ivrVal>=20?1:-1);
   const apyScore=!estApy?0:(parseFloat(estApy)>=12?3:parseFloat(estApy)>=8?2:parseFloat(estApy)>=5?1:0);
   const components={ivr:ivrScore,rsi:rsiScore,range:rangeScore,apy:apyScore,earn:earningsScore};
@@ -2653,7 +2729,7 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
   const rsiScore=rsiVal===null?0:(rsiVal>70?3:rsiVal>60?2:rsiVal<35?-1:rsiVal<50?0:1);
   const maScore=(!ma50||!ma200||!price)?0:(price>ma50&&price>ma200?2:price<ma50&&price<ma200?-1:1);
   const rangeScore=rangePos===null?0:(rangePos>0.80?3:rangePos>0.60?2:rangePos<0.30?-1:rangePos<0.50?0:1);
-  const earningsScore=!earningsDate?1:(()=>{const d=Math.round((new Date(earningsDate.split(' ')[0])-new Date())/86400000);return d>=0&&d<35?-1:d<60?0:2;})();
+  const earningsScore=!earningsDate?1:(()=>{const d=daysUntilDate(earningsDate.split(' ')[0])??Math.round((new Date(earningsDate.split(' ')[0])-new Date())/86400000);return d>=0&&d<35?-1:d<60?0:2;})();
   const ivrScore=ivrVal===null?0:(ivrVal>=60?3:ivrVal>=40?2:ivrVal>=20?1:-1);
   const apyScore=!estApy?0:(parseFloat(estApy)>=12?3:parseFloat(estApy)>=8?2:parseFloat(estApy)>=5?1:0);
   const components={ivr:ivrScore,rsi:rsiScore,range:rangeScore,apy:apyScore,earn:earningsScore};
@@ -2943,7 +3019,7 @@ function init(){
   if(lt){currentTicker=lt;document.getElementById('ticker-select').value=lt;document.getElementById('options-ticker-select').value=lt;restoreTickerFromCache(lt);}
   restoreVIXFromCache();
   const cv=S.get('vix_hist');if(cv?.closes){const c=cv.closes.filter(x=>x!==null);if(c.length)updateVIXIndicator(c[c.length-1]);}
-  const ce=S.get('earnings_data');if(ce?.data){const today=new Date();earningsAllData=ce.data.map(e=>({...e,daysUntil:Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);}
+  const ce=S.get('earnings_data');if(ce?.data){const today=new Date();earningsAllData=ce.data.map(e=>({...e,daysUntil:daysUntilDate(e.earningsDate)??Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);}
   updateOnlineIndicator();
   // Start market status banner ticker -- every second
   updateMarketBanner();

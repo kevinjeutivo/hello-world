@@ -1605,6 +1605,7 @@ function buildR40Tile(snap){
 }
 
 function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive){
+  toast('RENDER: ptMean='+snap.ptMean+' etLen='+(snap.earningsTrend?.length)+' rtLen='+(snap.recTrend?.length),15000);
   const el=document.getElementById('ticker-content');
   const chgColor=snap.change>=0?'var(--green)':'var(--red)';const chgSign=snap.change>=0?'+':'';
   let rsiStr='N/A',bbStr='',bbData=null;

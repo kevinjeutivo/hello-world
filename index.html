@@ -197,7 +197,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v2.6.1</span>
+      <span>Options Income Strategy v2.6.2</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -374,7 +374,7 @@ VIX backwardation (VIX above VIX3M): historically strong time to sell puts</div>
 
 Offline: all data cached to localStorage -- full functionality after first prefetch
 Worker: configured in Settings (Cloudflare Worker proxy for Yahoo Finance)
-Version: v2.6.1</div>
+Version: v2.6.2</div>
   </div>
 </div>
 
@@ -420,7 +420,11 @@ Version: v2.6.1</div>
     </div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v2.6.1 -- 2026-05-04
+    <div class="commentary" style="font-size:12px">v2.6.2 -- 2026-05-04
+- Earnings tab: fixed timezone boundary bug where BMO tickers disappeared the evening before their earnings date. Filter now uses daysUntilDate() (calendar date comparison in local timezone) instead of raw UTC millisecond math. Tickers now stay visible throughout their entire earnings day.
+- Fed Rate Outlook card: removed from Market tab. It was an imprecise proxy (2Y vs 3M Treasury spread) that conflicted with the more accurate CME Fed Funds Futures card. The Futures card is the authoritative source for rate direction.
+
+v2.6.1 -- 2026-05-04
 - CME Fed Funds Futures: fixed ticker format from ZQK26=F to ZQK26.CBT (Yahoo Finance CBOT format). Card should now appear on Market tab.
 - Font sizes: added 2XL (26px), 3XL (30px), and 4XL (36px) options to Settings dropdown. Useful for low-visibility conditions. Note: text scales via CSS variable; some fixed-px layout elements do not scale proportionally.
 
@@ -2297,7 +2301,11 @@ async function loadEarningsTab(){
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];
     try{
-      const snap=S.get('snap_'+t);if(!snap?.earningsDate)continue;const today=new Date(),ed=new Date(snap.earningsDate);if(ed<today)continue;
+      const snap=S.get('snap_'+t);if(!snap?.earningsDate)continue;
+      // Use timezone-safe date comparison -- daysUntilDate compares calendar dates in local TZ
+      // so a BMO ticker on earnings day doesn't vanish at night when UTC crosses midnight
+      const du=daysUntilDate(snap.earningsDate);if(du===null||du<0)continue;
+      const ed=new Date(snap.earningsDate+'T12:00:00Z'); // noon UTC for safe arithmetic
       let epsEst=null,epsActualPrev=null,surprisePrev=null,beatStreak=0;
       try{const est=await fh(`/stock/earnings?symbol=${t}&limit=4`);if(est&&est.length){const upcoming=est.find(e=>!e.actual&&e.estimate);if(upcoming)epsEst=upcoming.estimate;const prev=est.find(e=>e.actual!==null&&e.actual!==undefined);if(prev){epsActualPrev=prev.actual;if(prev.estimate)surprisePrev=((prev.actual-prev.estimate)/Math.abs(prev.estimate)*100);}const actuals=est.filter(e=>e.actual!==null&&e.estimate!==null);for(const q of actuals){if(q.actual>q.estimate)beatStreak++;else break;}}}catch{}
       // Fallback: use Yahoo earningsTrend if Finnhub EPS estimate null (free tier)
@@ -2305,7 +2313,7 @@ async function loadEarningsTab(){
       let news=[];try{const cn=S.get('news_'+t);if(cn)news=cn.items;else{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}}catch{}
       const ivrVal=computeIVR(t,snap.week52High,snap.week52Low,snap.price);const ivr=ivrInfo(ivrVal);
       let impliedMove=null;try{const oc=S.get('options_'+t);const res=oc?.data?.optionChain?.result?.[0];if(res&&snap.price){const opts=res.options?.[0];const atmP=(opts?.puts||[]).filter(p=>Math.abs(p.strike-snap.price)/snap.price<0.03);const atmC=(opts?.calls||[]).filter(c=>Math.abs(c.strike-snap.price)/snap.price<0.03);if(atmP.length&&atmC.length){const straddle=((atmP[0].bid+atmP[0].ask)/2)+((atmC[0].bid+atmC[0].ask)/2);impliedMove=(straddle/snap.price*100).toFixed(1);}}}catch{}
-      const daysUntil=daysUntilDate(snap.earningsDate)??Math.round((ed-new Date())/86400000);
+      const daysUntil=du; // already computed above via daysUntilDate
       earningsAllData.push({ticker:t,snap,earningsDate:snap.earningsDate,earningsHour:snap.earningsHour,daysUntil,epsEst,epsActualPrev,surprisePrev,beatStreak,ivrVal,ivrBadge:ivr.badge,impliedMove,news:news.slice(0,3)});
     }catch{}
     if(i<watchlist.length-1)await sleep(400);
@@ -2746,30 +2754,7 @@ async function loadMarketTab(){
           +'<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:8px">'+summary+' (next '+fedFutures.length+' months, '+Math.abs(totalBps)+'bp total)</div>'
           +'</div>';
       })()}
-      ${(()=>{
-        // Fed rate outlook based on 2-year Treasury vs current ^IRX (3-month / near-term fed funds proxy)
-        const t2y=treasury2y?.closes?.filter(c=>c!=null);
-        const t2yCurrent=t2y&&t2y.length?t2y[t2y.length-1]:null;
-        const t2y1mAgo=t2y&&t2y.length>=21?t2y[t2y.length-21]:null;
-        if(!t2yCurrent||!tb3Current)return'';
-        const spread=t2yCurrent-tb3Current;
-        const t2yTrend=t2y1mAgo?(t2yCurrent-t2y1mAgo):null;
-        let spreadInterp,spreadColor;
-        if(spread<-0.5){spreadInterp='Market pricing in significant rate cuts (2Y well below Fed Funds rate). Tailwind for equity valuations and growth stocks.';spreadColor='var(--green)';}
-        else if(spread<-0.1){spreadInterp='Market expecting modest rate cuts. Mild tailwind for equities.';spreadColor='var(--green)';}
-        else if(spread<0.1){spreadInterp='Market expects rates roughly unchanged near-term.';spreadColor='var(--text2)';}
-        else if(spread<0.5){spreadInterp='Market pricing in modest rate increases. Slight headwind for growth valuations.';spreadColor='var(--warn)';}
-        else{spreadInterp='Market pricing in significant rate hikes. Headwind for equity multiples.';spreadColor='var(--red)';}
-        const trendStr=t2yTrend!=null?(t2yTrend<-0.1?' -- 2Y falling (cut expectations growing)':t2yTrend>0.1?' -- 2Y rising (fewer cuts expected)':''):'';
-        return '<div class="card">'
-          +'<div class="card-title"><span class="dot" style="background:var(--accent3)"></span>Fed Rate Outlook</div>'
-          +'<div class="metrics-grid">'
-          +'<div class="metric-tile"><div class="metric-label">2-Year Treasury (^USGG2YR)</div><div class="metric-value" style="color:var(--accent3)">'+t2yCurrent.toFixed(2)+'%</div><div class="metric-sub">Market\'s implied rate path over next 2 years</div></div>'
-          +'<div class="metric-tile"><div class="metric-label">Spread (2Y minus 3M Fed Funds)</div><div class="metric-value" style="color:'+spreadColor+'">'+(spread>=0?'+':'')+spread.toFixed(2)+'%</div><div class="metric-sub">'+(spread<0?'Inverted = cuts expected':'Normal = hikes or hold')+'</div></div>'
-          +'</div>'
-          +'<div class="commentary">'+spreadInterp+trendStr+'</div>'
-          +'</div>';
-      })()}
+      }
       <div class="card">
         <div class="card-title"><span class="dot" style="background:#64b5f6"></span>T-Bill Yields (^IRX / ^FVX)</div>
         ${tsChip(fredTs,isLive)}

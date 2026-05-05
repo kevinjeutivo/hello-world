@@ -2103,7 +2103,9 @@ function buildOptionsTable(){
   // Diagnostic: check OI availability
   const oiSum=rows.reduce((s,r)=>s+(r.oi||0),0);
   const oiSample=rows.slice(0,3).map(r=>r.expDate+'@'+r.strike+'='+r.oi).join(', ');
-  toast('OI DIAG: '+rows.length+' rows, total OI='+oiSum+', sample: '+oiSample,20000);
+  const selExpStr=selectedExpirations.slice(0,3).join(', ')||'EMPTY';
+  const rowExpStr=[...new Set(rows.map(r=>r.expDate))].slice(0,3).join(', ')||'EMPTY';
+  toast('OI DIAG: '+rows.length+' rows, OI='+oiSum+' | selExp=['+selExpStr+'] | rowExp=['+rowExpStr+']',25000);
   // Build rows HTML with:
   //   1. Colored expiration group header (date, DTE, color matches OI chart)
   //   2. Earnings banner inserted where earnings date falls relative to expirations

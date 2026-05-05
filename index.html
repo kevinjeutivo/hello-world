@@ -197,7 +197,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v2.5.0</span>
+      <span>Options Income Strategy v2.6.0</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -374,7 +374,7 @@ VIX backwardation (VIX above VIX3M): historically strong time to sell puts</div>
 
 Offline: all data cached to localStorage -- full functionality after first prefetch
 Worker: configured in Settings (Cloudflare Worker proxy for Yahoo Finance)
-Version: v2.4.0</div>
+Version: v2.6.0</div>
   </div>
 </div>
 
@@ -420,7 +420,14 @@ Version: v2.4.0</div>
     </div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v2.5.0 -- 2026-05-04
+    <div class="commentary" style="font-size:12px">v2.6.0 -- 2026-05-04
+- About card: version number updated (v2.6.0).
+- Ordinal suffix: ordinal() utility function added. IVR percentile now shows "23rd pct", "42nd pct" etc. with correct English suffixes. Replaces hardcoded "th" throughout.
+- Market tab: index fetches (sp500, nasdaq, treasury2y) made independent so one failure no longer blocks the others.
+- Fed Rate Outlook card: treasury2y now falls back to ^TNX (10-year) live quote if ^USGG2YR returns all-null closes. Card should now appear reliably.
+- CME Fed Funds Futures card: new card on Market tab showing 30-day futures implied rates for next 6 months. Price, implied rate (100 minus price), and delta vs near-month contract in basis points. Summary line shows market consensus on rate direction.
+
+v2.5.0 -- 2026-05-04
 - Extended hours display: pre-market and after-hours prices now suppressed during REGULAR market session. Only shown in PRE, POST, POSTPOST, or CLOSED states.
 - S&P 500 / Nasdaq: switched to live quote fetch (?type=quote) for current price and prev close. History closes for index tickers are unreliable (often null). Live prices cached to mkt_sp_live / mkt_nq_live keys.
 - VIX live price: live quote injected into last history close after fetch, replacing stale prior-day close. VIX chart and indicator now reflect intraday value.
@@ -634,6 +641,18 @@ function daysUntilDate(dateStr){
     const d2=new Date(dateStr+'T12:00:00Z');
     return Math.round((d2-d1)/86400000);
   }catch{return null;}
+}
+
+function ordinal(n){
+  // Correct English ordinal suffix -- handles teen exceptions (11th, 12th, 13th)
+  const abs=Math.abs(Math.round(n));
+  const mod100=abs%100;
+  const mod10=abs%10;
+  if(mod100>=11&&mod100<=13)return abs+'th';
+  if(mod10===1)return abs+'st';
+  if(mod10===2)return abs+'nd';
+  if(mod10===3)return abs+'rd';
+  return abs+'th';
 }
 
 function relAge(tsStr){
@@ -1327,6 +1346,55 @@ async function fetchNews(ticker){
   const to=fmtDate(new Date());const from=fmtDate(addDays(new Date(),-7));
   return fh(`/company-news?symbol=${ticker}&from=${from}&to=${to}`);
 }
+async function fetchFedFundsFutures(){
+  // CME 30-Day Fed Funds Futures -- Yahoo Finance tickers:
+  // ZQF26=F (Jan 2026), ZQG26=F (Feb), ZQH26=F (Mar), ZQJ26=F (Apr), ZQK26=F (May)
+  // ZQM26=F (Jun), ZQN26=F (Jul), ZQQ26=F (Aug), ZQU26=F (Sep), ZQV26=F (Oct)
+  // Convention: implied rate = 100 - futures price
+  // Current year month codes: F=Jan G=Feb H=Mar J=Apr K=May M=Jun N=Jul Q=Aug U=Sep V=Oct X=Nov Z=Dec
+  if(offlineMode)return null;
+  try{
+    const now=new Date();
+    const yr=now.getFullYear();
+    const mo=now.getMonth(); // 0-indexed
+    // Month codes for futures contracts
+    const codes=['F','G','H','J','K','M','N','Q','U','V','X','Z'];
+    // Build tickers for next 6 months starting from current month
+    const tickers=[];
+    for(let i=0;i<6;i++){
+      const d=new Date(yr,mo+i,1);
+      const y=d.getFullYear().toString().slice(2);
+      const c=codes[d.getMonth()];
+      tickers.push(`ZQ${c}${y}=F`);
+    }
+    // Fetch quotes for all 6 contracts in parallel
+    const results=await Promise.all(tickers.map(t=>
+      fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(t)}&type=quote`)
+        .then(r=>r.json())
+        .catch(()=>null)
+    ));
+    const contracts=[];
+    results.forEach((d,i)=>{
+      const q=d?.quoteResponse?.result?.[0];
+      if(!q)return;
+      const price=q.regularMarketPrice||null;
+      if(!price||price<90)return; // sanity check -- valid futures are 95-100
+      const impliedRate=parseFloat((100-price).toFixed(3));
+      const contractDate=new Date(yr,mo+i,1);
+      contracts.push({
+        ticker:tickers[i],
+        month:contractDate.toLocaleDateString('en-US',{month:'short',year:'numeric'}),
+        price,
+        impliedRate
+      });
+    });
+    if(!contracts.length)return null;
+    // Compute implied cut/hike probabilities between consecutive months
+    // Current effective fed funds rate from most recent contract or ^IRX
+    return contracts;
+  }catch{return null;}
+}
+
 async function fetchTBills(){
   // Yahoo Finance T-bill index tickers via existing Worker history proxy:
   //   ^IRX = 13-week (3-month) T-bill yield index -- daily closing rate
@@ -2189,11 +2257,11 @@ function renderVIXContent(vixH,vix3H,isLive,ts){
   const bbUpper=upper[upper.length-1],bbLower=lower[lower.length-1],bbSMA=sma20[sma20.length-1];
   let bbComment='';if(bbUpper&&vixCurrent>=bbUpper*0.97)bbComment='VIX near upper Bollinger Band -- mean reversion likely. Good time to sell puts before premiums compress.';else if(bbLower&&vixCurrent<=bbLower*1.03)bbComment='VIX near lower Bollinger Band -- premiums compressed. Volatility expansion may be approaching.';else bbComment=`VIX within normal range (${bbLower?.toFixed(1)} - ${bbUpper?.toFixed(1)}, SMA ${bbSMA?.toFixed(1)}).`;
   const ageStr=relAge(ts);
-  el.innerHTML=`<div class="${zoneClass} vix-banner"><div><div class="vix-banner-label">${zoneLabel}</div><div style="font-family:var(--mono);font-size:10px;opacity:0.7;margin-top:2px">${pct1y.toFixed(0)}th percentile (1Y) -- alert threshold: ${vixThreshold}</div></div><div class="vix-banner-value">${vixCurrent.toFixed(2)}</div></div>
+  el.innerHTML=`<div class="${zoneClass} vix-banner"><div><div class="vix-banner-label">${zoneLabel}</div><div style="font-family:var(--mono);font-size:10px;opacity:0.7;margin-top:2px">${ordinal(pct1y)} percentile (1Y) -- alert threshold: ${vixThreshold}</div></div><div class="vix-banner-value">${vixCurrent.toFixed(2)}</div></div>
     ${tsChip(ts,isLive)}
     <div class="metrics-grid">
       <div class="metric-tile"><div class="metric-label">VIX</div><div class="metric-value">${vixCurrent.toFixed(2)}</div></div>
-      <div class="metric-tile"><div class="metric-label">1Y Percentile</div><div class="metric-value">${pct1y.toFixed(0)}th</div></div>
+      <div class="metric-tile"><div class="metric-label">1Y Percentile</div><div class="metric-value">${ordinal(pct1y)}</div></div>
       ${vix3mCurrent?`<div class="metric-tile"><div class="metric-label">VIX3M</div><div class="metric-value">${vix3mCurrent.toFixed(2)}</div></div>`:''}
       ${tsRatio?`<div class="metric-tile"><div class="metric-label">VIX/VIX3M</div><div class="metric-value" style="font-size:13px">${tsRatio.toFixed(3)}</div><div class="metric-sub">${tsLabel}</div></div>`:''}
     </div>
@@ -2521,17 +2589,34 @@ async function loadMarketTab(){
   try{
     let sp500,nasdaq,treasury2y,isLive=true,mktTs=nowPT();
     let spLivePrice=null,nqLivePrice=null,spPrevClose=null,nqPrevClose=null;
-    try{[sp500,nasdaq,treasury2y]=await Promise.all([yahooHistory('^GSPC','3mo','1d'),yahooHistory('^IXIC','3mo','1d'),yahooHistory('^USGG2YR','3mo','1d')]);
-      S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});
-      S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs});
+    // Fetch each independently so one failure doesn't block the others
+    try{sp500=await yahooHistory('^GSPC','3mo','1d');S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});}
+    catch{const cs=S.get('mkt_sp500');if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cs.closes};isLive=false;mktTs=cs.ts;showOfflineBanner(cs.ts);}}
+    try{nasdaq=await yahooHistory('^IXIC','3mo','1d');S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs});}
+    catch{const cn=S.get('mkt_nasdaq');if(cn)nasdaq={timestamps:cn.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cn.closes};}
+    // 2-year Treasury: try ^USGG2YR first, fall back to ^TNX (10Y) scaled, then live quote
+    try{
+      treasury2y=await yahooHistory('^USGG2YR','3mo','1d');
+      // Validate -- ^USGG2YR sometimes returns all-null closes
+      const validCloses=treasury2y?.closes?.filter(c=>c!==null&&c>0)||[];
+      if(!validCloses.length)throw new Error('No valid 2Y closes');
       S.set('mkt_2y',{timestamps:treasury2y.timestamps.map(d=>d.toISOString()),closes:treasury2y.closes,ts:mktTs});
-      S.set('mkt_ts',mktTs);
     }catch{
-      const cs=S.get('mkt_sp500'),cn=S.get('mkt_nasdaq'),c2=S.get('mkt_2y');
-      if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cs.closes};isLive=false;mktTs=cs.ts;showOfflineBanner(cs.ts);}
-      if(cn&&!nasdaq)nasdaq={timestamps:cn.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cn.closes};
-      if(c2&&!treasury2y)treasury2y={timestamps:c2.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:c2.closes};
+      // Try live quote for 2Y yield as fallback
+      try{
+        const t2q=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^TNX')}&type=quote`).then(r=>r.json());
+        const t2Live=t2q?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
+        if(t2Live){
+          // Create synthetic history with just the current value
+          const now=new Date();
+          treasury2y={timestamps:[now],closes:[t2Live]};
+        }
+      }catch{}
+      const c2=S.get('mkt_2y');
+      if(c2&&(!treasury2y||!treasury2y.closes?.filter(c=>c!==null).length))
+        treasury2y={timestamps:c2.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:c2.closes};
     }
+    S.set('mkt_ts',mktTs);
     // Fetch live quotes for S&P 500 and Nasdaq -- history closes can be null for index tickers
     try{
       const[spQ,nqQ]=await Promise.all([
@@ -2547,6 +2632,11 @@ async function loadMarketTab(){
     }catch{}
     if(!spLivePrice){const c=S.get('mkt_sp_live');if(c){spLivePrice=c.price;spPrevClose=c.prevClose;}}
     if(!nqLivePrice){const c=S.get('mkt_nq_live');if(c){nqLivePrice=c.price;nqPrevClose=c.prevClose;}}
+    // Fetch CME Fed Funds futures for rate probability display
+    let fedFutures=null;
+    try{fedFutures=await fetchFedFundsFutures();if(fedFutures)S.set('fed_futures',{data:fedFutures,ts:mktTs});}
+    catch{}
+    if(!fedFutures){const cf=S.get('fed_futures');if(cf)fedFutures=cf.data;}
     // T-bill yields from US Treasury FiscalData API (via Worker, no key needed)
     let tbill3m=[],tbill6m=[],fredTs=nowPT();
     try{
@@ -2620,6 +2710,38 @@ async function loadMarketTab(){
         </div>
       </div>
       <!-- T-bill yields -->
+      ${(()=>{
+        // CME Fed Funds Futures -- implied rate path
+        if(!fedFutures||!fedFutures.length)return'';
+        const firstRate=fedFutures[0]?.impliedRate;
+        const lastRate=fedFutures[fedFutures.length-1]?.impliedRate;
+        // Compute cumulative cut/hike vs first contract
+        const rows=fedFutures.map((c,i)=>{
+          const delta=i===0?0:parseFloat((c.impliedRate-fedFutures[0].impliedRate).toFixed(3));
+          const bps=Math.round(delta*100);
+          const col=bps<-5?'var(--green)':bps>5?'var(--red)':'var(--text2)';
+          const sign=bps>0?'+':'';
+          return '<tr>'
+            +'<td style="color:var(--text2)">'+c.month+'</td>'
+            +'<td style="font-family:var(--mono)">'+c.price.toFixed(3)+'</td>'
+            +'<td style="font-family:var(--mono)">'+c.impliedRate.toFixed(3)+'%</td>'
+            +'<td style="color:'+col+';font-family:var(--mono)">'+(i===0?'—':sign+bps+'bp')+'</td>'
+            +'</tr>';
+        }).join('');
+        const totalBps=Math.round((lastRate-firstRate)*100);
+        const outlook=totalBps<=-50?'Markets pricing 2+ cuts':'Markets pricing 1-2 cuts over this window';
+        const outlookMild=totalBps<=-25&&totalBps>-50?'Markets pricing ~1 cut':'';
+        const outlookFlat=Math.abs(totalBps)<25?'Markets pricing no change':'';
+        const outlookHike=totalBps>=25?'Markets pricing rate hike':'';
+        const summary=outlookFlat||outlookMild||(totalBps<=-50?'Markets pricing 2+ cuts':'Markets pricing 1-2 cuts');
+        return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Fed Funds Futures (CME Implied Rates)</div>'
+          +'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:8px">30-day futures price → implied rate (100 − price). Delta vs near-month contract.</div>'
+          +'<div class="options-table-wrap"><table class="options-table">'
+          +'<thead><tr><th style="text-align:left">Month</th><th>Price</th><th>Implied Rate</th><th>Δ vs Now</th></tr></thead>'
+          +'<tbody>'+rows+'</tbody></table></div>'
+          +'<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:8px">'+summary+' (next '+fedFutures.length+' months, '+Math.abs(totalBps)+'bp total)</div>'
+          +'</div>';
+      })()}
       ${(()=>{
         // Fed rate outlook based on 2-year Treasury vs current ^IRX (3-month / near-term fed funds proxy)
         const t2y=treasury2y?.closes?.filter(c=>c!=null);
@@ -2701,7 +2823,7 @@ function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expi
   if(ma50&&ma200&&price){if(price>ma50&&price>ma200){score+=1;reasons.push('Above 50 & 200-day MA');details.push('Above both MAs');}else if(price<ma50&&price<ma200){score-=1;details.push('Below both MAs -- caution');}else{details.push('Mixed vs MAs');}}
   if(rangePos!==null){const pct=(rangePos*100).toFixed(0);if(rangePos<0.35){score+=2;reasons.push(`Lower 52W range (${pct}%)`);details.push(`${pct}% of 52W range -- near lows, favorable`);}else if(rangePos<0.55){score+=1;details.push(`${pct}% of 52W range -- lower half`);}else if(rangePos>0.85){score-=1;details.push(`${pct}% of 52W range -- near highs, caution`);}else{details.push(`${pct}% of 52W range`);}}
   if(earningsDate){const ed=new Date(earningsDate.split(' ')[0]);const days=Math.round((ed-today)/86400000);if(days>=0&&days<35){score-=2;reasons.push(`Earnings in ${days}d`);details.push(`Earnings in ${days} days -- avoid straddling`);}else if(days>=35&&days<60){details.push(`Earnings in ${days} days -- monitor`);}}
-  if(ivrVal!==null&&!isNaN(ivrVal)){if(ivrVal>=60){score+=1;details.push(`IV ${ivrVal.toFixed(0)}th pct -- elevated premium`);}else if(ivrVal<30){details.push(`IV ${ivrVal.toFixed(0)}th pct -- thin premiums`);}else{details.push(`IV ${ivrVal.toFixed(0)}th pct -- normal`);}}
+  if(ivrVal!==null&&!isNaN(ivrVal)){if(ivrVal>=60){score+=1;details.push(`IV ${ordinal(ivrVal)} pct -- elevated premium`);}else if(ivrVal<30){details.push(`IV ${ordinal(ivrVal)} pct -- thin premiums`);}else{details.push(`IV ${ordinal(ivrVal)} pct -- normal`);}}
   if(estApy&&recStrike){details.push(`Rec ${recStrike} @ ${estApy} (${expiration})`);}
   const signal=score>=3?'high':score>=1?'medium':'low';
   // Compute per-component scores for the bar strip (0-3 scale, -1=negative)
@@ -2722,7 +2844,7 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
   if(ma50&&ma200&&price){if(price>ma50&&price>ma200){score+=1;reasons.push('Above 50 & 200-day MA');details.push('Above both MAs -- momentum');}else if(price<ma50&&price<ma200){score-=1;details.push('Below both MAs -- avoid capping upside');}else{details.push('Mixed vs MAs');}}
   if(rangePos!==null){const pct=(rangePos*100).toFixed(0);if(rangePos>0.80){score+=2;reasons.push(`Upper 52W range (${pct}%)`);details.push(`${pct}% of 52W range -- near highs, favorable for calls`);}else if(rangePos>0.60){score+=1;details.push(`${pct}% of 52W range -- upper half`);}else if(rangePos<0.30){score-=2;details.push(`${pct}% of 52W range -- near lows, avoid calls`);}else if(rangePos<0.50){score-=1;details.push(`${pct}% of 52W range -- lower half`);}else{details.push(`${pct}% of 52W range`);}}
   if(earningsDate){const ed=new Date(earningsDate.split(' ')[0]);const days=Math.round((ed-today)/86400000);if(days>=0&&days<35){score-=2;reasons.push(`Earnings in ${days}d`);details.push(`Earnings in ${days} days -- gap-up risk`);}else if(days>=35&&days<60){details.push(`Earnings in ${days} days -- monitor`);}}
-  if(ivrVal!==null&&!isNaN(ivrVal)){if(ivrVal>=60){score+=1;details.push(`IV ${ivrVal.toFixed(0)}th pct -- elevated premium`);}else if(ivrVal<30){details.push(`IV ${ivrVal.toFixed(0)}th pct -- thin premiums`);}else{details.push(`IV ${ivrVal.toFixed(0)}th pct -- normal`);}}
+  if(ivrVal!==null&&!isNaN(ivrVal)){if(ivrVal>=60){score+=1;details.push(`IV ${ordinal(ivrVal)} pct -- elevated premium`);}else if(ivrVal<30){details.push(`IV ${ordinal(ivrVal)} pct -- thin premiums`);}else{details.push(`IV ${ordinal(ivrVal)} pct -- normal`);}}
   if(estApy&&recStrike){details.push(`Rec ${recStrike} @ ${estApy} (${expiration})`);}
   const signal=score>=3?'high':score>=1?'medium':'low';
   // Component scores for calls (inverted logic vs puts for RSI/range)

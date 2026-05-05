@@ -197,7 +197,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v2.6.0</span>
+      <span>Options Income Strategy v2.6.1</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -374,7 +374,7 @@ VIX backwardation (VIX above VIX3M): historically strong time to sell puts</div>
 
 Offline: all data cached to localStorage -- full functionality after first prefetch
 Worker: configured in Settings (Cloudflare Worker proxy for Yahoo Finance)
-Version: v2.6.0</div>
+Version: v2.6.1</div>
   </div>
 </div>
 
@@ -390,7 +390,7 @@ Version: v2.6.0</div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Key stored locally on your device only. Get a free key at finnhub.io.</div>
     <div class="input-group"><label class="input-label">Default Watchlist (comma separated)</label><input class="input" type="text" id="default-watchlist-input" value="NVDA,AMZN,GOOGL,GLW,MS,PANW,NET,NFLX,SHOP,ORCL,TSLA"></div>
     <div class="input-group"><label class="input-label">VIX Alert Threshold (shows indicator above this level)</label><input class="input" type="number" id="vix-threshold-input" value="20" min="10" max="50"></div>
-    <div class="input-group"><label class="input-label">Font Size</label><select class="input" id="font-size-input"><option value="15">Small (15px)</option><option value="17">Medium (17px)</option><option value="19" selected>Default (19px)</option><option value="21">Large (21px)</option><option value="23">Extra Large (23px)</option></select></div>
+    <div class="input-group"><label class="input-label">Font Size</label><select class="input" id="font-size-input"><option value="15">Small (15px)</option><option value="17">Medium (17px)</option><option value="19" selected>Default (19px)</option><option value="21">Large (21px)</option><option value="23">Extra Large (23px)</option><option value="26">2XL (26px)</option><option value="30">3XL (30px)</option><option value="36">4XL (36px)</option></select></div>
     <div class="input-group"><label class="input-label">Timestamp Display</label><select class="input" id="tz-pref-input"><option value="PT">Pacific Time (PT) -- home timezone</option><option value="local">Local Device Time</option><option value="UTC">UTC / GMT</option></select></div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">All timestamps throughout the app will use this timezone. Relative age (e.g. "3h ago") is always shown alongside.</div>
     <div class="input-group" style="display:flex;align-items:center;justify-content:space-between">
@@ -420,7 +420,11 @@ Version: v2.6.0</div>
     </div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v2.6.0 -- 2026-05-04
+    <div class="commentary" style="font-size:12px">v2.6.1 -- 2026-05-04
+- CME Fed Funds Futures: fixed ticker format from ZQK26=F to ZQK26.CBT (Yahoo Finance CBOT format). Card should now appear on Market tab.
+- Font sizes: added 2XL (26px), 3XL (30px), and 4XL (36px) options to Settings dropdown. Useful for low-visibility conditions. Note: text scales via CSS variable; some fixed-px layout elements do not scale proportionally.
+
+v2.6.0 -- 2026-05-04
 - About card: version number updated (v2.6.0).
 - Ordinal suffix: ordinal() utility function added. IVR percentile now shows "23rd pct", "42nd pct" etc. with correct English suffixes. Replaces hardcoded "th" throughout.
 - Market tab: index fetches (sp500, nasdaq, treasury2y) made independent so one failure no longer blocks the others.
@@ -1365,7 +1369,7 @@ async function fetchFedFundsFutures(){
       const d=new Date(yr,mo+i,1);
       const y=d.getFullYear().toString().slice(2);
       const c=codes[d.getMonth()];
-      tickers.push(`ZQ${c}${y}=F`);
+      tickers.push(`ZQ${c}${y}.CBT`);
     }
     // Fetch quotes for all 6 contracts in parallel
     const results=await Promise.all(tickers.map(t=>

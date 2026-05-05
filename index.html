@@ -2100,6 +2100,10 @@ function buildOptionsTable(){
   rows.sort((a,b)=>a.expDate.localeCompare(b.expDate)||a.strike-b.strike);
   if(!rows.length){document.getElementById('options-content').innerHTML='<div class="card"><div class="empty"><div class="empty-icon">&#x1F50D;</div>No options found in selected range</div></div>';document.getElementById('oi-chart-section').style.display='none';return;}
   cachedOIRows=rows;
+  // Diagnostic: check OI availability
+  const oiSum=rows.reduce((s,r)=>s+(r.oi||0),0);
+  const oiSample=rows.slice(0,3).map(r=>r.expDate+'@'+r.strike+'='+r.oi).join(', ');
+  toast('OI DIAG: '+rows.length+' rows, total OI='+oiSum+', sample: '+oiSample,20000);
   // Build rows HTML with:
   //   1. Colored expiration group header (date, DTE, color matches OI chart)
   //   2. Earnings banner inserted where earnings date falls relative to expirations

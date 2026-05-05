@@ -2200,6 +2200,9 @@ function renderOIChart(rows,currentPrice,t){
   const section=document.getElementById('oi-chart-section');section.style.display='block';
   const strikes=[...new Set(rows.map(r=>r.strike))].sort((a,b)=>a-b);
   const exps=[...new Set(rows.map(r=>r.expDate))].filter(e=>selectedExpirations.includes(e)).sort();
+  // Diagnostic inside renderOIChart
+  const sampleData=exps.length?strikes.slice(0,3).map(s=>{const r=rows.find(x=>x.strike===s&&x.expDate===exps[0]);return s+'='+( r?r.oi:' missing');}).join(','):'no exps';
+  toast('RENDER DIAG: strikes='+strikes.length+' exps='+exps.length+' price='+currentPrice+' sample='+sampleData,20000);
   const labels=strikes.map(s=>'$'+formatStrike(s));
   const nearestIdx=strikes.reduce((bi,s,i)=>Math.abs(s-currentPrice)<Math.abs(strikes[bi]-currentPrice)?i:bi,0);
   const hexDatasets=exps.map((exp,ei)=>{const hex=EXP_COLORS[ei%EXP_COLORS.length];const data=strikes.map(s=>{const row=rows.find(r=>r.strike===s&&r.expDate===exp);return row?row.oi:0;});return{label:exp,data,backgroundColor:strikes.map(s=>{const otm=currentMode==='puts'?s<=currentPrice:s>currentPrice;return otm?hex+'bb':hex+'44';}),borderRadius:2,stack:'oi'};});

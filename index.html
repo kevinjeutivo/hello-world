@@ -2100,13 +2100,7 @@ function buildOptionsTable(){
   rows.sort((a,b)=>a.expDate.localeCompare(b.expDate)||a.strike-b.strike);
   if(!rows.length){document.getElementById('options-content').innerHTML='<div class="card"><div class="empty"><div class="empty-icon">&#x1F50D;</div>No options found in selected range</div></div>';document.getElementById('oi-chart-section').style.display='none';return;}
   cachedOIRows=rows;
-  // Diagnostic: check OI availability
-  const oiSum=rows.reduce((s,r)=>s+(r.oi||0),0);
-  const oiSample=rows.slice(0,3).map(r=>r.expDate+'@'+r.strike+'='+r.oi).join(', ');
-  const selExpStr=selectedExpirations.slice(0,3).join(', ')||'EMPTY';
-  const rowExpStr=[...new Set(rows.map(r=>r.expDate))].slice(0,3).join(', ')||'EMPTY';
-  toast('OI DIAG: '+rows.length+' rows, OI='+oiSum+' | selExp=['+selExpStr+'] | rowExp=['+rowExpStr+']',25000);
-  // Build rows HTML with:
+    // Build rows HTML with:
   //   1. Colored expiration group header (date, DTE, color matches OI chart)
   //   2. Earnings banner inserted where earnings date falls relative to expirations
   //   3. Current-price separator within each group
@@ -2200,9 +2194,7 @@ function renderOIChart(rows,currentPrice,t){
   const section=document.getElementById('oi-chart-section');section.style.display='block';
   const strikes=[...new Set(rows.map(r=>r.strike))].sort((a,b)=>a-b);
   const exps=[...new Set(rows.map(r=>r.expDate))].filter(e=>selectedExpirations.includes(e)).sort();
-  // Diagnostic inside renderOIChart
-  const sampleData=exps.length?strikes.slice(0,3).map(s=>{const r=rows.find(x=>x.strike===s&&x.expDate===exps[0]);return s+'='+( r?r.oi:' missing');}).join(','):'no exps';
-  toast('RENDER DIAG: strikes='+strikes.length+' exps='+exps.length+' price='+currentPrice+' sample='+sampleData,20000);
+
   const labels=strikes.map(s=>'$'+formatStrike(s));
   const nearestIdx=strikes.reduce((bi,s,i)=>Math.abs(s-currentPrice)<Math.abs(strikes[bi]-currentPrice)?i:bi,0);
   const hexDatasets=exps.map((exp,ei)=>{const hex=EXP_COLORS[ei%EXP_COLORS.length];const data=strikes.map(s=>{const row=rows.find(r=>r.strike===s&&r.expDate===exp);return row?row.oi:0;});return{label:exp,data,backgroundColor:strikes.map(s=>{const otm=currentMode==='puts'?s<=currentPrice:s>currentPrice;return otm?hex+'bb':hex+'44';}),borderRadius:2,stack:'oi'};});
@@ -2210,7 +2202,9 @@ function renderOIChart(rows,currentPrice,t){
   document.getElementById('oi-ts').innerHTML=tsChip(cached?.ts||nowPT(),!!cached?.ts);
   const legendEl=document.getElementById('oi-legend');if(legendEl){legendEl.innerHTML=exps.map((exp,ei)=>`<div style="display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10px;color:var(--text2)"><div style="width:10px;height:10px;border-radius:2px;background:${EXP_COLORS[ei%EXP_COLORS.length]}"></div>${exp}</div>`).join('');}
   const ctx=document.getElementById('oi-chart').getContext('2d');
-  if(window._oiChart)window._oiChart.destroy();
+  if(window._oiChart){window._oiChart.destroy();window._oiChart=null;}
+  // Use requestAnimationFrame to ensure canvas is ready after destroy
+  requestAnimationFrame(()=>{
   window._oiChart=new Chart(ctx,{type:'bar',data:{labels,datasets:hexDatasets},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:20}},plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()} OI`,afterLabel:ctx=>{const s=strikes[ctx.dataIndex];const pct=currentMode==='puts'?((currentPrice-s)/currentPrice*100).toFixed(1):((s-currentPrice)/currentPrice*100).toFixed(1);return`${pct}% OTM`;}}}},scales:{x:{stacked:true,ticks:{color:'#555870',font:{size:9},maxRotation:45},grid:{color:'#2a2e38'}},y:{stacked:true,ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}},plugins:[{id:'currentPriceLine',afterDraw(chart){const c=chart.ctx,xA=chart.scales.x,yA=chart.scales.y;const x=xA.getPixelForValue(nearestIdx);c.save();c.beginPath();c.moveTo(x,yA.top+18);c.lineTo(x,yA.bottom);c.lineWidth=2;c.strokeStyle='#4fc3f7';c.setLineDash([5,4]);c.stroke();c.setLineDash([]);c.fillStyle='#4fc3f7';c.font='bold 10px DM Mono,monospace';c.textAlign='center';c.fillText('$'+currentPrice.toFixed(0),x,yA.top+14);c.restore();}}]});
   const byS=strikes.map((s,i)=>({strike:s,oi:hexDatasets.reduce((sum,ds)=>sum+(ds.data[i]||0),0)}));
   const oiEl=document.getElementById('oi-analysis');
@@ -2227,6 +2221,7 @@ ${guide}
 Bars stacked by expiration (see legend). Blue dashed line = current price $${currentPrice.toFixed(2)}.</div>`;}}
     oiEl.innerHTML=html;
   }
+  }); // end requestAnimationFrame
 }
 </script>
 <script>

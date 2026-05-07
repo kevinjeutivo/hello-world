@@ -1,3 +1,8 @@
+// PutSeller Pro scoring.js
+// Purpose: conviction scoring formulas only.
+// Keep dashboard rendering/UI in index.html for now.
+// Version: scoring-v1
+
 // ═══ CONVICTION SCORING LOGIC ═══
 
 function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expiration,estApy,ivrVal}){

@@ -285,7 +285,10 @@ Version: v2.6.2</div>
 </div>
 
 <div class="toast" id="toast"></div>
+
 <script src="./js/storage.js"></script>
+<script src="./js/utils.js"></script>
+
 <script>
 
 // ═══ CONFIG ═══
@@ -302,9 +305,6 @@ let offlineMode=S.get('offline_mode')==='true';
 let fontSize=S.get('font_size')||'19';
 let watchlistSort=S.get('watchlist_sort')||'manual'; // manual | alpha | opportunity
 
-function applyFontSize(size){
-  document.documentElement.style.setProperty('--base-font',size+'px');
-}
 const DEFAULT_WATCHLIST=['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
 const WORKER_URL='https://wheel.kevinjeu.workers.dev';
 const EXP_COLORS=['#00d4aa','#ff6b35','#7c6af7','#ffa502'];

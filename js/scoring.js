@@ -24,7 +24,14 @@ function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expi
   const components={ivr:ivrScore,rsi:rsiScore,range:rangeScore,apy:apyScore,earn:earningsScore};
   // Normalize score to 0-100 scale (max possible ~12, min ~-8)
   const normScore=Math.round(Math.max(0,Math.min(100,(score+8)/20*100)));
-  return{score:normScore,rawScore:score,signal,factors:reasons.slice(0,2).join(', ')||'Insufficient data',narrative:details.join('. '),recStrike:recStrike||'--',expiration:expiration||'--',estApy:estApy||'--',components};
+  const factorBreakdown = [
+    { name:'IVR', value:ivrVal, score:components?.ivr ?? 0, note:'Implied volatility rank / premium environment' },
+    { name:'RSI', value:rsiVal, score:components?.rsi ?? 0, note:'Momentum / overbought-oversold condition' },
+    { name:'Range', value:rangePos, score:components?.range ?? 0, note:'Position within 52-week range' },
+    { name:'APY', value:estApy, score:components?.apy ?? 0, note:'Estimated annualized premium yield' },
+    { name:'Earnings', value:earningsDate, score:components?.earnings ?? 0, note:'Near-term earnings risk' }
+  ];
+  return{score:normScore,rawScore:score,signal,factors:reasons.slice(0,2).join(', ')||'Insufficient data',narrative:details.join('. '),recStrike:recStrike||'--',expiration:expiration||'--',estApy:estApy||'--',components,factorBreakdown};
 }
 function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expiration,estApy,ivrVal}){
   let score=0;const reasons=[],details=[];const today=new Date();
@@ -44,5 +51,12 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
   const apyScore=!estApy?0:(parseFloat(estApy)>=12?3:parseFloat(estApy)>=8?2:parseFloat(estApy)>=5?1:0);
   const components={ivr:ivrScore,rsi:rsiScore,range:rangeScore,apy:apyScore,earn:earningsScore};
   const normScore=Math.round(Math.max(0,Math.min(100,(score+8)/20*100)));
-  return{score:normScore,rawScore:score,signal,factors:reasons.slice(0,2).join(', ')||'Insufficient data',narrative:details.join('. '),recStrike:recStrike||'--',expiration:expiration||'--',estApy:estApy||'--',components};
+  const factorBreakdown = [
+    { name:'IVR', value:ivrVal, score:components?.ivr ?? 0, note:'Implied volatility rank / premium environment' },
+    { name:'RSI', value:rsiVal, score:components?.rsi ?? 0, note:'Momentum / overbought-oversold condition' },
+    { name:'Range', value:rangePos, score:components?.range ?? 0, note:'Position within 52-week range' },
+    { name:'APY', value:estApy, score:components?.apy ?? 0, note:'Estimated annualized premium yield' },
+    { name:'Earnings', value:earningsDate, score:components?.earnings ?? 0, note:'Near-term earnings risk' }
+  ];
+  return{score:normScore,rawScore:score,signal,factors:reasons.slice(0,2).join(', ')||'Insufficient data',narrative:details.join('. '),recStrike:recStrike||'--',expiration:expiration||'--',estApy:estApy||'--',components,factorBreakdown};
 }

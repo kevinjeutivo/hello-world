@@ -623,11 +623,7 @@ v1.7 -- 2026-04-29
 
 <script>
 // ═══ GLOBAL CONFIG & STATE ═══
-const S={
-  get:k=>{try{return JSON.parse(localStorage.getItem(k));}catch{return null;}},
-  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){if(e.name==='QuotaExceededError'||e.code===22){console.warn('Storage full -- could not save',k);toast('Storage full -- clear cached data in Settings',4000);}}}  ,
-  del:k=>localStorage.removeItem(k)
-};
+// S object defined in storage.js
 
 let FINNHUB_KEY=S.get('finnhub_key')||'';
 let watchlist=S.get('watchlist')||['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];

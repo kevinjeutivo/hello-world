@@ -68,7 +68,10 @@ async function loadOptionsForTicker(){
   document.getElementById('options-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading options for ${t}...</div></div>`;
   try{
     let data,isLive=true,fetchTs=nowPT();
-    try{data=await yahooOptionsViaProxy(t);S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs});}
+    try{data=await yahooOptionsViaProxy(t);
+      // Preserve good OI: only save if new data has OI or no prior cache exists
+      const topOI=(data?.optionChain?.result?.[0]?.options?.[0]?.puts||[]).reduce((s,p)=>s+(p.openInterest||0),0);
+      if(topOI>0||!S.get('options_'+t)){S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs});}}
     catch{const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;showOfflineBanner(cached.ts);}else throw new Error('No options data available');}
     currentOptionsData=data;
     const yr=data?.optionChain?.result?.[0];
@@ -94,7 +97,22 @@ async function loadOptionsForTicker(){
       try{
         // Pass the original Unix timestamp string -- Yahoo matches this exactly
         const ed=await yahooOptionsViaProxy(t,String(pair.ts));
-        S.set('options_exp_'+t+'_'+pair.date,ed);
+        // Only save if new data has non-zero OI -- never overwrite good cache with zero-OI data
+        const newOI=(ed?.optionChain?.result?.[0]?.options||[]).reduce((sum,o)=>{
+          return sum+(o.puts||[]).reduce((s,p)=>s+(p.openInterest||0),0)
+                   +(o.calls||[]).reduce((s,c)=>s+(c.openInterest||0),0);
+        },0);
+        if(newOI>0){
+          S.set('options_exp_'+t+'_'+pair.date,ed);
+        }else{
+          const existing=S.get('options_exp_'+t+'_'+pair.date);
+          const existingOI=(existing?.optionChain?.result?.[0]?.options||[]).reduce((sum,o)=>{
+            return sum+(o.puts||[]).reduce((s,p)=>s+(p.openInterest||0),0)
+                     +(o.calls||[]).reduce((s,c)=>s+(c.openInterest||0),0);
+          },0);
+          if(!existingOI)S.set('options_exp_'+t+'_'+pair.date,ed); // no prior good data, save anyway
+          // else: preserve existing good OI cache silently
+        }
       }catch(e){
         // silently skip -- cached data preserved if any
       }

@@ -673,15 +673,23 @@ function init(){
   const ce=S.get('earnings_data');if(ce?.data){const today=new Date();earningsAllData=ce.data.map(e=>({...e,daysUntil:daysUntilDate(e.earningsDate)??Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);}
   updateOnlineIndicator();
   // Start market status banner ticker -- every second
-  updateMarketBanner();
-  setInterval(updateMarketBanner,1000);
+  try{updateMarketBanner();}catch(e){console.error('Banner error:',e);}
+  setInterval(function(){try{updateMarketBanner();}catch(e){console.error('Banner interval error:',e);}},1000);
   updateHeaderStatus();
   setInterval(updateHeaderStatus,60000);
   applyFontSize(fontSize);
   if(!FINNHUB_KEY)setTimeout(()=>toast('Add your Finnhub API key in Settings to get started',4000),500);
 }
 
-window.addEventListener('DOMContentLoaded', init);
+// Call init when DOM is ready -- with fallback
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded', function(){
+    try{init();}catch(e){console.error('Init error:',e);toast('App init error: '+e.message,5000);}
+  });
+}else{
+  // DOM already ready (e.g. script at end of body)
+  try{init();}catch(e){console.error('Init error:',e);toast('App init error: '+e.message,5000);}
+}
 
 if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').then(reg=>{window._swReg=reg;}).catch(err=>console.warn('SW:',err));});
 }

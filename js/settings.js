@@ -36,6 +36,108 @@ function loadWeightSliders(){
   });
 }
 
+
+async function checkFlightModeReady(){
+  const el=document.getElementById('flight-mode-display');
+  if(!el)return;
+  el.innerHTML='<div style="color:var(--text3)">Checking...</div>';
+
+  const now=Date.now();
+  const maxAge=24*60*60*1000; // 24 hours -- reasonable for a flight
+  const checks=[];
+
+  // Helper: age in hours
+  const ageHrs=ts=>{
+    if(!ts)return null;
+    try{const d=new Date(ts.replace(/ PT$| UTC$| local$/,'').trim());
+    return isNaN(d.getTime())?null:(now-d.getTime())/3600000;}catch{return null;}
+  };
+  const ageStr=hrs=>{
+    if(hrs===null)return'missing';
+    if(hrs<1)return Math.round(hrs*60)+'m old';
+    return hrs.toFixed(1)+'h old';
+  };
+  const ok=v=>v!==null&&v<24;
+
+  // 1. Watchlist snaps
+  const wl=S.get('watchlist')||[];
+  let snapMissing=0,snapStale=0;
+  wl.forEach(t=>{
+    const sn=S.get('snap_'+t);
+    if(!sn){snapMissing++;return;}
+    const hrs=ageHrs(sn.ts);
+    if(!ok(hrs))snapStale++;
+  });
+  const snapStatus=snapMissing>0?'red':snapStale>0?'amber':'green';
+  checks.push({label:'Ticker data ('+wl.length+' tickers)',
+    status:snapStatus,
+    detail:snapMissing>0?snapMissing+' tickers missing':snapStale>0?snapStale+' tickers stale':'All fresh'});
+
+  // 2. Price history
+  let histMissing=0;
+  wl.forEach(t=>{if(!S.get('hist_'+t))histMissing++;});
+  checks.push({label:'Price history (6M)',status:histMissing>0?'red':'green',
+    detail:histMissing>0?histMissing+' missing':'All cached'});
+
+  // 3. Options chains
+  let optsMissing=0,optsZeroOI=0;
+  wl.forEach(t=>{
+    const o=S.get('options_'+t);
+    if(!o){optsMissing++;return;}
+    const puts=o.data?.optionChain?.result?.[0]?.options?.[0]?.puts||[];
+    const totalOI=puts.reduce((s,p)=>s+(p.openInterest||0),0);
+    if(totalOI===0)optsZeroOI++;
+  });
+  const optsStatus=optsMissing>0?'red':optsZeroOI>0?'amber':'green';
+  checks.push({label:'Options chains',status:optsStatus,
+    detail:optsMissing>0?optsMissing+' missing':optsZeroOI>0?optsZeroOI+' have zero OI (fetch during market hours)':'All cached with OI'});
+
+  // 4. VIX history
+  const vixH=S.get('vix_hist');
+  const vixAge=vixH?.ts?ageHrs(vixH.ts):null;
+  checks.push({label:'VIX data',status:ok(vixAge)?'green':'red',
+    detail:vixAge!==null?ageStr(vixAge):'not cached'});
+
+  // 5. ETF data
+  const spyiDiv=S.get('div_etf_SPYI');
+  const nbosDiv=S.get('div_etf_NBOS');
+  const etfStatus=(!spyiDiv||!nbosDiv)?'red':'green';
+  checks.push({label:'ETF data (SPYI/NBOS)',status:etfStatus,
+    detail:etfStatus==='green'?'Cached':'Missing -- refresh ETF tab'});
+
+  // 6. Market data
+  const mktTs=S.get('mkt_ts');
+  const mktAge=mktTs?.ts?ageHrs(mktTs.ts):null;
+  checks.push({label:'Market data',status:ok(mktAge)?'green':'red',
+    detail:mktAge!==null?ageStr(mktAge):'not cached'});
+
+  // 7. News (non-critical, amber only)
+  let newsMissing=0;
+  wl.forEach(t=>{if(!S.get('news_'+t))newsMissing++;});
+  checks.push({label:'Ticker news',status:newsMissing>0?'amber':'green',
+    detail:newsMissing>0?newsMissing+' tickers missing news':'All cached'});
+
+  // Overall
+  const hasRed=checks.some(c=>c.status==='red');
+  const hasAmber=checks.some(c=>c.status==='amber');
+  const overall=hasRed?'red':hasAmber?'amber':'green';
+  const overallLabel=hasRed?'NOT READY -- fetch data before flying':hasAmber?'MOSTLY READY -- minor gaps':'READY FOR FLIGHT';
+  const overallColor=hasRed?'var(--red)':hasAmber?'var(--warn)':'var(--green)';
+
+  const rowsHtml=checks.map(c=>{
+    const dot=c.status==='green'?'&#x1F7E2;':c.status==='amber'?'&#x1F7E1;':'&#x1F534;';
+    return '<div style="display:flex;gap:8px;align-items:baseline;margin-bottom:6px;font-family:var(--mono);font-size:11px">'
+      +'<span style="flex-shrink:0">'+dot+'</span>'
+      +'<div><div style="color:var(--text)">'+c.label+'</div>'
+      +'<div style="color:var(--text3);font-size:10px">'+c.detail+'</div></div>'
+      +'</div>';
+  }).join('');
+
+  el.innerHTML='<div style="font-family:var(--mono);font-size:13px;font-weight:600;color:'+overallColor+';margin-bottom:10px">'+overallLabel+'</div>'
+    +rowsHtml
+    +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:8px">Run Full Refresh Everything before flights to ensure all data is fresh.</div>';
+}
+
 async function measureStorage(){
   const el=document.getElementById('storage-display');
   if(!el)return;

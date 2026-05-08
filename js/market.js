@@ -1,4 +1,19 @@
-// ═══ MARKET TAB with T-BILL YIELDS ═══
+// PutSeller Pro -- market.js
+// Market tab: load and restore market data, T-bill yields, Fed funds futures.
+// Globals used: WORKER_URL, S, offlineMode, tzPref
+// Dependencies: helpers.js, api.js, storage.js
+
+function fmtChg(val,chg,chgPct){
+  if(!val)return'N/A';
+  const color=chg>=0?'var(--green)':'var(--red)';
+  const sign=chg>=0?'+':'';
+  return`${val.toFixed(2)} <span style="color:${color};font-size:11px">${sign}${chg.toFixed(2)} (${sign}${chgPct?.toFixed(2)||'0.00'}%)</span>`;
+}
+
+
+
+// ─── Additional market helpers (moved from index.html) ───
+
 async function loadMarketTab(){
   if(offlineMode){restoreMarketFromCache();return;}
   const el=document.getElementById('market-content');
@@ -159,6 +174,7 @@ async function loadMarketTab(){
           +'<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:8px">'+summary+' (next '+fedFutures.length+' months, '+Math.abs(totalBps)+'bp total)</div>'
           +'</div>';
       })()}
+      }
       <div class="card">
         <div class="card-title"><span class="dot" style="background:#64b5f6"></span>T-Bill Yields (^IRX / ^FVX)</div>
         ${tsChip(fredTs,isLive)}
@@ -201,8 +217,9 @@ async function loadMarketTab(){
     },100);
 
     S.set('market_ts',{ts:nowPT()});
-  }catch(err){el.innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
+  }catch(err){console.warn('Market load error:',err);restoreMarketFromCache();}
 }
+
 function restoreMarketFromCache(){
   // For market tab, just trigger a fresh load attempt -- cached data will be used if offline
   loadMarketTab();

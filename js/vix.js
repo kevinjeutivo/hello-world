@@ -13,15 +13,18 @@ async function loadVIX(){
   try{
     let vixH,vix3H,isLive=true;
     try{[vixH,vix3H]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT()});
-      // Inject live VIX quote to replace stale daily close
+      // Inject intraday VIX via 5-minute bars (more reliable than quote endpoint for ^VIX)
       try{
-        const vq=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX')}&type=quote`).then(r=>r.json());
-        const vLive=vq?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
-        if(vLive){
-          const last=vixH.closes.length-1;
-          // Replace last close with live price
-          vixH.closes[last]=vLive;
-          S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});
+        const vIntra=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX')}&type=history&range=1d&interval=5m`).then(r=>r.json());
+        const vResult=vIntra?.chart?.result?.[0];
+        if(vResult){
+          const vCloses=vResult.indicators?.quote?.[0]?.close||[];
+          const vLive=vCloses.filter(c=>c!=null).slice(-1)[0]||null;
+          if(vLive){
+            const last=vixH.closes.length-1;
+            vixH.closes[last]=vLive;
+            S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});
+          }
         }
       }catch{}}
     catch{const cv=S.get('vix_hist'),cv3=S.get('vix3m_hist');if(cv){vixH={timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes};vix3H=cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null;isLive=false;showOfflineBanner(cv.ts);}else throw new Error('No VIX data available');}

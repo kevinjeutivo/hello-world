@@ -111,6 +111,9 @@ function computeIVR(ticker,w52h,w52l,price){try{const cached=S.get('options_'+ti
 
 function ivrInfo(val){if(val===null)return{badge:'',guidance:'IV rank not available -- fetch options data to compute.'};if(val<30)return{badge:`<span class="ivr-badge ivr-low">Low IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: Options historically cheap. Premiums thin -- consider waiting for a volatility uptick.`};if(val<60)return{badge:`<span class="ivr-badge ivr-normal">Normal IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: Normal historical IV. Standard conditions for premium collection.`};if(val<80)return{badge:`<span class="ivr-badge ivr-elevated">Elevated IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: IV elevated -- above-average premium opportunity. Good time to sell options.`};return{badge:`<span class="ivr-badge ivr-high">High IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: IV very high. Exceptional premiums -- driven by recent volatility or upcoming event.`};}
 
+const POS_WORDS=['beat','beats','surge','surges','upgrade','upgrades','raises','record','strong','soar','gain','rally','top'];
+const NEG_WORDS=['miss','misses','cut','cuts','downgrade','downgrades','warning','weak','fall','drop','investigation','recall','decline','loss'];
+
 function newsSentiment(h){const l=h.toLowerCase();if(POS_WORDS.some(w=>l.includes(w)))return{dot:'pos',css:'color:var(--green)'};if(NEG_WORDS.some(w=>l.includes(w)))return{dot:'neg',css:'color:var(--red)'};return{dot:'neu',css:'color:var(--text3)'};}
 
 function sentDot(s){return s.dot==='pos'?'&#x1F7E2;':s.dot==='neg'?'&#x1F534;':'&#x26AA;';}

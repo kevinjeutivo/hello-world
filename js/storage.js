@@ -1,4 +1,6 @@
-// ═══ STORAGE ═══
+// PutSeller Pro -- storage.js
+// localStorage wrapper with QuotaExceededError handling.
+
 const S={
   get:k=>{try{return JSON.parse(localStorage.getItem(k));}catch{return null;}},
   set:(k,v)=>{

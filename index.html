@@ -10,7 +10,162 @@
 <link rel="apple-touch-startup-image" href="apple-touch-icon.png">
 <title>PutSeller Pro</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<link rel="stylesheet" href="app.css">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap');
+:root{
+  --base-font:18px;
+  --bg:#0a0c0f;--surface:#111318;--surface2:#1a1d24;--surface3:#22262f;
+  --border:#2a2e38;--accent:#00d4aa;--accent2:#ff6b35;--accent3:#7c6af7;
+  --danger:#ff4757;--warn:#ffa502;--text:#e8eaf0;--text2:#8b8fa8;--text3:#555870;
+  --green:#00c896;--red:#ff4757;--yellow:#ffd32a;
+  --mono:'DM Mono',monospace;--sans:'Syne',sans-serif;
+  --radius:10px;--radius-lg:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:var(--base-font);min-height:100vh;overscroll-behavior:none}
+#app{display:flex;flex-direction:column;min-height:100vh}
+/* Market status banner */
+#market-status-banner{font-family:var(--mono);font-size:12px;font-weight:600;padding:6px 16px;text-align:center;position:sticky;top:0;z-index:200;transition:background 0.5s}
+.mkt-open{background:rgba(0,200,150,0.9);color:#000}
+.mkt-prepost{background:rgba(255,165,2,0.9);color:#000}
+.mkt-closed{background:rgba(255,71,87,0.85);color:#fff}
+/* Header */
+#top-progress-bar{position:fixed;top:0;left:0;right:0;height:3px;z-index:9999;background:transparent;pointer-events:none}
+#top-progress-bar .top-bar-fill{height:3px;width:0%;background:linear-gradient(90deg,#00d4aa,#4fc3f7);transition:width 0.3s ease;border-radius:0 2px 2px 0}
+#top-progress-bar.active .top-bar-fill{box-shadow:0 0 8px rgba(0,212,170,0.6)}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px 8px;position:sticky;top:36px;z-index:100;display:flex;align-items:center;justify-content:space-between}
+.header-left{display:flex;flex-direction:column;gap:2px}
+.header-title{font-family:var(--sans);font-size:18px;font-weight:800;letter-spacing:-0.5px;color:var(--accent)}
+.header-sub{font-family:var(--mono);font-size:10px;color:var(--text3);display:flex;align-items:center;gap:6px}
+.online-dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex-shrink:0}
+.online-dot-on{background:var(--green)}
+.online-dot-off{background:var(--red)}
+.settings-btn{background:var(--surface3);border:1px solid var(--border);color:var(--text2);border-radius:8px;padding:7px 11px;font-size:13px;cursor:pointer;font-family:var(--mono)}
+/* VIX status banner in header */
+#vix-status-banner{display:none;font-family:var(--mono);font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;margin-top:3px;width:fit-content}
+.vix-status-elevated{background:rgba(255,165,2,0.2);color:var(--warn);border:1px solid rgba(255,165,2,0.4)}
+.vix-status-high{background:rgba(255,71,87,0.2);color:var(--red);border:1px solid rgba(255,71,87,0.4)}
+.vix-status-extreme{background:rgba(124,106,247,0.2);color:#b39ddb;border:1px solid rgba(124,106,247,0.4)}
+/* Nav tabs */
+.nav-tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;position:sticky;top:94px;z-index:99}
+.nav-tabs::-webkit-scrollbar{display:none}
+.nav-tab{flex:0 0 auto;padding:10px 13px;font-family:var(--mono);font-size:11px;color:var(--text3);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all 0.2s}
+.nav-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.vix-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:4px;vertical-align:middle;position:relative;top:-1px}
+.vix-dot-elevated{background:var(--warn)}
+.vix-dot-high{background:var(--red)}
+.vix-dot-extreme{background:#b39ddb;animation:vixpulse 1.4s ease-in-out infinite}
+@keyframes vixpulse{0%,100%{opacity:1}50%{opacity:0.3}}
+/* Offline banner */
+.offline-banner{position:fixed;top:0;left:0;right:0;background:rgba(255,165,2,0.95);color:#000;font-family:var(--mono);font-size:12px;padding:10px 16px;text-align:center;z-index:500;transform:translateY(-100%);transition:transform 0.3s;font-weight:600}
+.offline-banner.show{transform:translateY(0)}
+/* Offline mode overlay */
+#offline-mode-bar{display:none;background:rgba(124,106,247,0.15);border-bottom:1px solid rgba(124,106,247,0.3);font-family:var(--mono);font-size:10px;color:#b39ddb;padding:4px 16px;text-align:center}
+/* Layout */
+.main{flex:1;padding:14px}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px;margin-bottom:12px}
+.card-title{font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.card-title .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:var(--radius);padding:11px 16px;font-family:var(--mono);font-size:12px;font-weight:500;cursor:pointer;transition:all 0.15s;width:100%;margin-bottom:8px}
+.btn-primary{background:var(--accent);color:#000}
+.btn-success{background:#00897b;color:#fff}
+.btn-secondary{background:var(--surface3);color:var(--text);border:1px solid var(--border)}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-sm{padding:7px 12px;font-size:11px;width:auto;margin-bottom:0}
+.btn:disabled{opacity:0.4;cursor:not-allowed}
+.input-group{margin-bottom:12px}
+.input-label{font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:5px;display:block}
+.input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:13px;padding:10px 12px;outline:none;transition:border-color 0.2s;-webkit-appearance:none}
+.input:focus{border-color:var(--accent)}
+select.input{cursor:pointer}
+.metrics-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.metric-tile{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px}
+.metric-label{font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:3px}
+.metric-value{font-family:var(--mono);font-size:16px;font-weight:500;color:var(--text)}
+.metric-sub{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px;line-height:1.4}
+.watchlist-item{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px;cursor:pointer}
+.watchlist-ticker{font-family:var(--mono);font-size:14px;font-weight:500;color:var(--accent)}
+.watchlist-price{font-family:var(--mono);font-size:13px;color:var(--text);text-align:right}
+.watchlist-change{font-family:var(--mono);font-size:10px;margin-top:1px}
+.watchlist-ts{font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:1px}
+.watchlist-remove{background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:4px 8px;margin-left:8px;flex-shrink:0}
+.options-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.options-table{width:100%;border-collapse:collapse;min-width:480px}
+.options-table th{font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.7px;padding:6px 8px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}
+.options-table th:first-child{text-align:left}
+.options-table td{font-family:var(--mono);font-size:11px;color:var(--text);padding:7px 8px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}
+.options-table td:first-child{text-align:left;color:var(--text2)}
+.options-table tr.highlighted td{background:rgba(0,212,170,0.22)}
+.options-table tr.highlighted td:first-child{border-left:3px solid var(--accent)}
+.apy-cell{color:var(--accent)!important;font-weight:500}
+.apy-cell.great{color:var(--green)!important}
+.chart-wrap{position:relative;height:200px;margin-bottom:8px}
+.ivr-badge{display:inline-block;font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;font-weight:500}
+.ivr-low{background:rgba(33,150,243,0.2);color:#64b5f6}
+.ivr-normal{background:rgba(0,200,150,0.2);color:var(--green)}
+.ivr-elevated{background:rgba(255,165,2,0.2);color:var(--warn)}
+.ivr-high{background:rgba(255,71,87,0.2);color:var(--red)}
+.ts-chip{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:2px 6px;margin-bottom:8px}
+.ts-chip.live{color:var(--green);border-color:rgba(0,200,150,0.3)}
+.ts-chip.stale{color:var(--warn);border-color:rgba(255,165,2,0.3)}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.progress-bar-wrap{height:3px;background:var(--surface3);border-radius:2px;overflow:hidden;margin-bottom:8px}
+.progress-bar{height:100%;background:var(--accent);border-radius:2px;transition:width 0.3s}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:10px 16px;border-radius:var(--radius);z-index:999;opacity:0;transition:opacity 0.3s;white-space:nowrap;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1}
+.settings-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:300;backdrop-filter:blur(4px)}
+.settings-overlay.open{display:flex;align-items:flex-end}
+.settings-sheet{background:var(--surface);border-top:1px solid var(--border);border-radius:20px 20px 0 0;padding:20px 16px 40px;width:100%;max-height:85vh;overflow-y:auto}
+.settings-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 18px}
+.settings-title{font-family:var(--sans);font-size:16px;font-weight:700;margin-bottom:16px}
+/* Offline confirm modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:400;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex}
+.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;max-width:340px;width:100%}
+.modal-title{font-family:var(--sans);font-size:16px;font-weight:700;color:var(--danger);margin-bottom:12px}
+.modal-body{font-family:var(--mono);font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:16px}
+.exp-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.exp-chip{font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer;transition:all 0.15s}
+.exp-chip.selected{background:rgba(0,212,170,0.15);border-color:var(--accent);color:var(--accent)}
+.mode-toggle{display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:12px}
+.mode-btn{flex:1;padding:9px;font-family:var(--mono);font-size:11px;border:none;background:none;color:var(--text3);cursor:pointer;transition:all 0.2s}
+.mode-btn.active{background:var(--accent);color:#000;font-weight:500}
+.slider-wrap{margin-bottom:12px}
+.slider-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.slider-label{font-family:var(--mono);font-size:11px;color:var(--text2)}
+.slider-val{font-family:var(--mono);font-size:11px;color:var(--accent)}
+input[type=range]{-webkit-appearance:none;width:100%;height:4px;background:var(--surface3);border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--accent);cursor:pointer}
+.commentary{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.7;white-space:pre-wrap;word-break:break-word}
+.empty{text-align:center;padding:40px 20px;color:var(--text3);font-family:var(--mono);font-size:12px}
+.empty-icon{font-size:32px;margin-bottom:10px}
+.divider{border:none;border-top:1px solid var(--border);margin:14px 0}
+.row{display:flex;gap:8px;align-items:center}
+.row .input{flex:1}
+.earnings-warn{background:rgba(255,165,2,0.1);border:1px solid rgba(255,165,2,0.3);border-radius:var(--radius);padding:10px 12px;font-family:var(--mono);font-size:11px;color:var(--warn);margin-bottom:10px;line-height:1.5}
+.oi-empty-box{background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.3);border-radius:var(--radius);padding:12px;font-family:var(--mono);font-size:11px;color:var(--warn);line-height:1.6;margin-top:8px}
+.vix-banner{border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
+.vix-banner-label{font-family:var(--sans);font-size:13px;font-weight:700}
+.vix-banner-value{font-family:var(--mono);font-size:22px;font-weight:500}
+.vix-low{background:rgba(33,150,243,0.15);border:1px solid rgba(33,150,243,0.4)}
+.vix-normal{background:rgba(0,200,150,0.15);border:1px solid rgba(0,200,150,0.4)}
+.vix-elevated{background:rgba(255,165,2,0.15);border:1px solid rgba(255,165,2,0.4)}
+.vix-high{background:rgba(255,71,87,0.15);border:1px solid rgba(255,71,87,0.4)}
+.vix-extreme{background:rgba(124,106,247,0.15);border:1px solid rgba(124,106,247,0.4)}
+.news-item{padding:10px 0;border-bottom:1px solid var(--border)}
+.news-item:last-child{border-bottom:none}
+.news-headline{font-family:var(--sans);font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;line-height:1.4}
+.news-meta{font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:4px}
+.news-summary{font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.5}
+.earnings-card{border-radius:var(--radius-lg);padding:14px;margin-bottom:12px;cursor:pointer}
+.earnings-card-urgent{background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.3);border-left:4px solid rgba(255,71,87,0.7)}
+.earnings-card-soon{background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.3);border-left:4px solid rgba(255,165,2,0.7)}
+.earnings-card-normal{background:rgba(0,212,170,0.05);border:1px solid var(--border);border-left:4px solid rgba(0,212,170,0.4)}
+a{color:inherit}
+</style>
 </head>
 <body>
 <div class="offline-banner" id="offline-banner">No network -- showing cached data</div>
@@ -42,7 +197,7 @@
     <div class="header-title">PutSeller Pro <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v2.6.2</span>
+      <span>Options Income Strategy v2.7.0</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -219,7 +374,7 @@ VIX backwardation (VIX above VIX3M): historically strong time to sell puts</div>
 
 Offline: all data cached to localStorage -- full functionality after first prefetch
 Worker: configured in Settings (Cloudflare Worker proxy for Yahoo Finance)
-Version: v2.6.2</div>
+Version: v2.7.0</div>
   </div>
 </div>
 
@@ -247,6 +402,23 @@ Version: v2.6.2</div>
     <button class="btn btn-secondary" onclick="document.getElementById('disclaimer-modal').style.display='block'">View Disclaimer &amp; Terms</button>
     <button class="btn btn-secondary" onclick="closeSettings()" style="margin-top:6px">Cancel</button>
     <hr class="divider">
+    <div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:var(--accent2)"></span>Conviction Factor Weights</div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px;line-height:1.6">Multipliers per scoring factor (0.0 = ignore, 1.0 = default, 2.0 = double). Takes effect on next dashboard run.</div>
+    <div id="weight-sliders">
+      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">IVR (implied vol rank)</label><span id="weight-val-ivr" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-ivr" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-ivr').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
+      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">RSI (momentum)</label><span id="weight-val-rsi" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-rsi" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-rsi').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
+      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">Range (52W position)</label><span id="weight-val-range" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-range" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-range').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
+      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">APY (yield vs target)</label><span id="weight-val-apy" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-apy" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-apy').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
+      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">Earnings (penalty)</label><span id="weight-val-earnings" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-earnings" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-earnings').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
+      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">MA (trend confirmation)</label><span id="weight-val-ma" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-ma" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-ma').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
+      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">Analyst Upside</label><span id="weight-val-upside" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-upside" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-upside').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
+      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">Beta (high-beta penalty)</label><span id="weight-val-beta" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-beta" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-beta').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:4px;margin-bottom:12px">
+      <button class="btn btn-primary" onclick="saveConvictionWeights()" style="flex:1">Save Weights</button>
+      <button class="btn btn-secondary" onclick="resetConvictionWeights()" style="flex:1">Reset Defaults</button>
+    </div>
+    <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent)"></span>App Updates</div>
     <button class="btn btn-secondary" onclick="forceAppRefresh()">Force App Refresh</button>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Clears page cache, reloads latest version from GitHub. Your data is preserved.</div>
@@ -264,13 +436,161 @@ Version: v2.6.2</div>
       <button class="btn btn-secondary" onclick="workerHealthCheck()" style="margin-top:6px;width:100%">Test Worker Connection</button>
     </div>
     <hr class="divider">
-    <div class="card-title" style="margin-bottom:10px">
-      <span class="dot" style="background:var(--accent3)"></span>
-      Release Notes
-    </div>
-    <a class="btn btn-secondary" href="./release-notes.html" style="text-decoration:none">
-      View Release Notes
-    </a>
+    <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
+    <div class="commentary" style="font-size:12px">v2.7.0 -- 2026-05-08
+- Conviction scoring rebalanced: IVR now correctly weighted as most important factor (max +3 pts, was +1). APY now contributes to raw score (was display-only). Two new factors: Analyst Target Upside and Beta adjustment.
+- Dynamic factor weights: Settings panel now has 8 sliders (0.0x to 3.0x) for each conviction factor. Defaults reproduce the new balanced algorithm. Save/Reset buttons. Weights persisted in localStorage.
+- Ghost variable cleanup: removed stale rec2/upgrades2 references in loadTicker. Removed unused Finnhub /stock/price-target call (price targets now from Yahoo quoteSummary, free tier).
+- Removed old scorePuts/scoreCalls from index.html -- now exclusively in js/scoring.js.
+
+v2.6.2 -- 2026-05-04
+- Earnings tab: fixed timezone boundary bug where BMO tickers disappeared the evening before their earnings date. Filter now uses daysUntilDate() (calendar date comparison in local timezone) instead of raw UTC millisecond math. Tickers now stay visible throughout their entire earnings day.
+- Fed Rate Outlook card: removed from Market tab. It was an imprecise proxy (2Y vs 3M Treasury spread) that conflicted with the more accurate CME Fed Funds Futures card. The Futures card is the authoritative source for rate direction.
+
+v2.6.1 -- 2026-05-04
+- CME Fed Funds Futures: fixed ticker format from ZQK26=F to ZQK26.CBT (Yahoo Finance CBOT format). Card should now appear on Market tab.
+- Font sizes: added 2XL (26px), 3XL (30px), and 4XL (36px) options to Settings dropdown. Useful for low-visibility conditions. Note: text scales via CSS variable; some fixed-px layout elements do not scale proportionally.
+
+v2.6.0 -- 2026-05-04
+- About card: version number updated (v2.6.0).
+- Ordinal suffix: ordinal() utility function added. IVR percentile now shows "23rd pct", "42nd pct" etc. with correct English suffixes. Replaces hardcoded "th" throughout.
+- Market tab: index fetches (sp500, nasdaq, treasury2y) made independent so one failure no longer blocks the others.
+- Fed Rate Outlook card: treasury2y now falls back to ^TNX (10-year) live quote if ^USGG2YR returns all-null closes. Card should now appear reliably.
+- CME Fed Funds Futures card: new card on Market tab showing 30-day futures implied rates for next 6 months. Price, implied rate (100 minus price), and delta vs near-month contract in basis points. Summary line shows market consensus on rate direction.
+
+v2.5.0 -- 2026-05-04
+- Extended hours display: pre-market and after-hours prices now suppressed during REGULAR market session. Only shown in PRE, POST, POSTPOST, or CLOSED states.
+- S&P 500 / Nasdaq: switched to live quote fetch (?type=quote) for current price and prev close. History closes for index tickers are unreliable (often null). Live prices cached to mkt_sp_live / mkt_nq_live keys.
+- VIX live price: live quote injected into last history close after fetch, replacing stale prior-day close. VIX chart and indicator now reflect intraday value.
+- Earnings tab EPS estimate: Yahoo earningsTrend (current quarter epsMean) used as fallback when Finnhub returns null on free tier.
+- Earnings tab TODAY label: fixed timezone boundary bug. daysUntilDate() utility compares calendar dates in user timezone -- no more UTC midnight rounding issues.
+- Timezone audit: daysUntilDate() applied to earnings banner in options table and conviction scoring earnings timing (2 locations). Options DTE was already safe (uses noon UTC).
+- About card: updated data sources and version number. FRED references removed.
+- Release notes: dates now reflect actual generation date.
+
+v2.4.0 -- 2026-04-29
+- fetchQuoteSummary: single Yahoo quoteSummary call fetches financialData + defaultKeyStatistics + earningsTrend + recommendationTrend in one round trip.
+- PEG ratio tile: color-coded (<1 green, 1-2 neutral, >2 red). From Yahoo defaultKeyStatistics.
+- EV/EBITDA tile: with qualitative label. From Yahoo defaultKeyStatistics.
+- Short interest: switched to Yahoo shortPercentOfFloat and shortRatio (reliable on free tier). Finnhub used as fallback only.
+- Analyst Price Target card: moved below Analyst Coverage. Now a full card with consensus, low, high, and spread tiles.
+- Earnings Estimates card: EPS and revenue estimates for current quarter, next quarter, current year, next year with growth rate. From Yahoo earningsTrend.
+- Recommendation Trend card: buy/hold/sell percentages for last 3 months from Yahoo recommendationTrend. Free tier -- more reliable than Finnhub.
+- Disclaimer modal: accessible via "View Disclaimer & Terms" button in Settings. Non-blocking -- appears as overlay.
+
+v2.3.0 -- 2026-04-29
+- Analyst price targets: consensus mean, high, and low target from Finnhub /stock/price-target displayed as a full-width tile on the Ticker tab. Shows % upside/downside from current price and spread between high/low targets. Fetched in loadTicker, prefetchAll, and refreshSingleTicker.
+- Watchlist sort: three modes -- Manual (default, original entry order), A→Z (alphabetical), By Score (conviction score descending from last dashboard run). Buttons above Prefetch All. Mode persists in localStorage.
+- Settings: localStorage key count added to storage display alongside KB breakdown.
+- Settings: Worker health check pings the Worker with a SPY quote request and reports latency, HTTP status, and whether Yahoo auth is working.
+
+v2.2.0 -- 2026-04-29
+- Options table: bid and ask stacked in single Bid/Ask column to save horizontal space on narrow screens.
+- Conviction dashboard: numeric score (0-100) displayed inline with conviction level. Component bar strip (IVR/RSI/Range/APY/Earn in descending weight) shows color-coded performance per factor.
+- Header status dot: green = data fresh, amber = stale, blue pulse = refresh in progress.
+- Dashboard tab: "Last full refresh" timestamp persists below the Full Refresh button.
+- ETF charts: 6M/1Y toggle. Total return line and metrics now cached to localStorage and rendered from cache on app wake / airplane mode.
+- ETF return tiles: update dynamically when time span toggles.
+- Income engine Layer 2: per-ETF risk premium (SPYI and NBOS separately vs T-bills). Yield labeled as TTM.
+- Ticker BB/RSI chart: 6M/1Y toggle using already-cached history data.
+
+v2.1.0 -- 2026-04-29
+- Single-ticker refresh button on Ticker tab: fetches all data for selected ticker including 3 options expirations. Same offline safeguards. Does not affect conviction dashboard.
+- Storage display in Settings: shows Storage API usage vs quota with progress bar, plus localStorage breakdown by category (options/history/snaps/news). Tap "Measure Storage" to update.
+- Additional data slimming: top-level options cache, news (ticker + market), history timestamps stored as Unix integers. Reduces total storage ~60%.
+- EPS from Yahoo quote endpoint (epsTrailingTwelveMonths field) -- more reliable than Finnhub on free tier.
+- Analyst recommendations and upgrade/downgrade history now fetched in prefetchAll -- available offline after pre-flight refresh.
+- Market tab: timestamp saved to localStorage so ts-chip persists across sessions.
+
+v2.0.0 -- 2026-04-29
+- Font size setting in Settings: Small/Medium/Default/Large/Extra Large. Applied instantly via CSS variable.
+- EPS (TTM) and YoY EPS growth added to Ticker tab metrics grid. Red when negative (not profitable).
+- Analyst upgrade/downgrade history: recent 90 days from Finnhub with firm name, action, and grade transition.
+- ETF total return overlay: yellow dashed line on price chart showing price + cumulative distributions. Price return % and total return % printed as metric tiles for direct comparison.
+- Fed rate outlook card on Market tab: 2-year Treasury yield vs 3-month T-bill spread with plain-English interpretation of implied Fed rate path. Tailwind/headwind signal for equity valuations.
+- Conviction dashboard offline safety: if ALL tickers return errors (network failure), cached results are preserved and restored. No more accidental wipe in airplane mode.
+- prefetchAll: now fetches 3 monthly expirations per ticker (was 2). Also fetches Yahoo quote data to cache forwardPE and after-hours price.
+- Options tab: warning shown when options chain is freshly fetched but ticker price is stale (>30 min old).
+
+v1.9.0 -- 2026-04-29
+- Forward P/E added to Ticker tab metrics grid with direction indicator
+- Rule of 40 added to Ticker tab (revenue growth % + FCF/operating margin %). Color-coded score with context note that it applies to software/SaaS companies
+- Earnings date: now filters to earliest future date from Finnhub array. Window extended to 180 days. Prevents showing past earnings or far-future date when near-term date was in the array
+- Options table: expiration group header row at top of each month with date, DTE, and color matching OI chart stacked bars
+- Options table: earnings banner inserted at the correct position relative to expirations (between groups or inside group if earnings falls within that window). Shows date and BMO/AMC timing
+- Options table: dollar signs use HTML entity to avoid template literal conflicts
+- OI chart: now cleared immediately when ticker changes before new data loads
+- runDashboards: accepts skipOnlineCheck=true parameter for programmatic calls
+- fullRefreshEverything: now 6 steps including ETF and Market tab refresh. Passes skipOnlineCheck=true to runDashboards
+- Income engine summary: Layer 3 APY reads from target-apy setting on Dashboard tab
+- T-bill card title: FRED reference removed, now shows ^IRX / ^FVX
+- refreshTsChipAges: called in restoreVIXFromCache, restoreTickerFromCache, restoreETFFromCache so chips show correct stale state on first tab visit
+
+v1.8.1 -- 2026-04-29
+- Settings save: ticker dropdown selection now restored after saving settings. Previously populateSelects() rebuilt the option elements and the browser reset the dropdown to blank.
+- Settings save: refreshTsChipAges() now called immediately after saving so timezone change is reflected in all visible timestamp chips without needing to switch tabs.
+
+v1.8.0 -- 2026-04-29
+- Options tab live controls: expiration chips, OTM sliders, and APY threshold now all instantly redraw the options table and OI chart when a chain is already loaded. No need to press Load/Refresh again after adjusting any control.
+
+v1.7.9 -- 2026-04-29
+- Timestamp chips: refreshTsChipAges() now flips chip from green (live) to amber (cached) when data is older than 15 minutes. Fixes contradiction where ETF tab showed green "live" for hour-old data.
+- Options separator: completely rewritten with correct unified logic. In ascending strike order, the separator always appears before the first strike above the current price -- identical for both puts and calls mode. Previous version had swapped conditions causing puts separator to appear at top.
+
+v1.7.8 -- 2026-04-29
+- After-hours/pre-market price: now uses Yahoo Finance quote endpoint (?type=quote) via Worker -- same data source as Python yfinance stock.info. Shows change and % alongside extended price.
+- PWA icon: apple-touch-icon link tags added. Drop a 180x180 apple-touch-icon.png in the repo root whenever ready.
+- Options mode toggle: switching between Sell Puts and Sell Calls now auto-rebuilds the table and OI chart instantly without requiring a second button tap. Button renamed to "Load / Refresh Options Chain".
+- Options separator: puts mode separator now correctly appears between ITM puts (strike above price) and OTM puts (strike below price). Previous version incorrectly placed it at the top of each group.
+
+v1.7.7 -- 2026-04-29
+- Market banner: fixed next-open time calculation. Previous version constructed 9:30 AM ET incorrectly by guessing UTC offset from midnight -- which gave wrong results depending on DST. New approach uses make930ET() which tries both EDT (UTC-4) and EST (UTC-5), then verifies with Intl.DateTimeFormat that the resulting UTC timestamp actually corresponds to 9:30 AM ET before using it.
+
+v1.7.6 -- 2026-04-29
+- Volume Profile: VP bars now drawn as overlay on price chart using yAxis.getPixelForValue() -- guarantees pixel-perfect alignment with price axis. No more separate panel.
+- Volume Profile: removed separate horizontal bar chart panel. VP bars integrated into right margin of price chart, color-coded by volume magnitude.
+- Options table: current price separator row injected at the strike crossing point within each expiration group.
+- After-hours price: now also shows pre-market price when available; handles all extended-hours session states.
+- Short interest: improved field detection; shows "not reported" instead of "N/A" when data is genuinely unavailable.
+- Offline guard: all refresh/run buttons (dashboards, earnings, VIX, prefetch, ETF, market) now check connectivity before attempting fetch. Cached data is preserved.
+- Timestamp chips: age ("3h ago") refreshed on every tab switch so values never show "just now" for stale data.
+- ETF charts: SPYI chart now renders reliably using sequential requestAnimationFrame instead of setTimeout.
+
+v1.7.5 -- 2026-04-29
+- Options sliders: loadOptionsPrefs() now called whenever a new ticker is loaded in Options tab, so slider positions always reflect saved values rather than drifting
+- Volume Profile: both panels now share the same Y-axis min/max so price levels align horizontally across the price chart and volume bar chart
+- Volume Profile: chart container is now a horizontal scroll wrapper -- swipe left to see full volume bar panel on narrow screens
+
+v1.7.4 -- 2026-04-29
+- Market banner: fixed incorrect open/closed determination by using Intl.DateTimeFormat.formatToParts() instead of unreliable locale string parsing (Safari iOS incompatibility)
+- Market banner: close/open times now displayed in your selected timezone (PT/local/UTC) instead of hardcoded ET
+- Market banner: countdown shows "closes in 2h 30m (at 1:00 PM PT)" format
+
+v1.7.3 -- 2026-04-29
+- T-bill yields: switched to Yahoo Finance ^IRX (3-month) and ^FVX (5-year) via existing Worker history proxy. Avoids Treasury FiscalData SSL failures on Cloudflare Workers and FRED key requirement.
+
+v1.7.2 -- 2026-04-29
+- T-bill yields: switched from FRED API (requires key -- 400 error) to US Treasury FiscalData API (fully public, no key needed, routed via Worker)
+- ETF distributions and T-bill data now route correctly through Cloudflare Worker
+
+v1.7.1 -- 2026-04-29
+- Market banner timezone fix: respects PT/local/UTC setting from Settings
+- T-bill yields now routed through Cloudflare Worker (fixes N/A -- FRED CORS issue)
+- ETF distributions now fetched from Yahoo Finance via Worker (fixes N/A -- wrong Finnhub endpoint)
+- ETF trailing yield now computed correctly from Yahoo dividend event data
+
+v1.7 -- 2026-04-29
+- Live market status banner: green (open with countdown), red (closed), amber (pre/post market). Second-level precision in final 10 minutes. NYSE holiday aware.
+- Timezone preference in Settings: Pacific / Local Device / UTC. All timestamps use selected zone plus relative age (e.g. "3h ago")
+- Mode-specific slider persistence: puts and calls each remember their own OTM range and APY threshold settings
+- OI empty state: amber info box when OI data unavailable (typical overnight condition) with explanation and last-known-good timestamp
+- Analyst coverage on Ticker tab: analyst count, consensus label, recommendation mean, buy/hold/sell breakdown with visual bar
+- Treasury bill yields on Market tab: 3-month and 6-month T-bill yield history from FRED API, 1-year chart, spread analysis, income engine summary panel
+- ETF and Market tabs: auto-restore from cache on app wake, timestamps throughout
+- Online/offline indicator dot in header
+- Offline Mode toggle in Settings: skips all network fetches when enabled (for flights)
+- Clear All safety guard: strong warning with offline detection prevents accidental data loss on airplane
+- Offline detection: fleeting banner when network fails, persists as indicator dot</div>
   </div>
 </div>
 
@@ -285,14 +605,13 @@ Version: v2.6.2</div>
 </div>
 
 <div class="toast" id="toast"></div>
-
-<script src="./js/storage.js"></script>
-<script src="./js/utils.js"></script>
-<script src="./js/api.js"></script>
-<script src="./js/scoring.js"></script>
-<script src="./js/market.js"></script>
-
 <script>
+// ═══ STORAGE ═══
+const S={
+  get:k=>{try{return JSON.parse(localStorage.getItem(k));}catch{return null;}},
+  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){if(e.name==='QuotaExceededError'||e.code===22){console.warn('Storage full -- could not save',k);toast('Storage full -- clear cached data in Settings',4000);}}}  ,
+  del:k=>localStorage.removeItem(k)
+};
 
 // ═══ CONFIG ═══
 let FINNHUB_KEY=S.get('finnhub_key')||'';
@@ -308,6 +627,9 @@ let offlineMode=S.get('offline_mode')==='true';
 let fontSize=S.get('font_size')||'19';
 let watchlistSort=S.get('watchlist_sort')||'manual'; // manual | alpha | opportunity
 
+function applyFontSize(size){
+  document.documentElement.style.setProperty('--base-font',size+'px');
+}
 const DEFAULT_WATCHLIST=['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
 const WORKER_URL='https://wheel.kevinjeu.workers.dev';
 const EXP_COLORS=['#00d4aa','#ff6b35','#7c6af7','#ffa502'];
@@ -626,6 +948,37 @@ function toast(msg,dur=2500){
 }
 
 // ═══ SETTINGS ═══
+// ─── CONVICTION WEIGHT SETTINGS ───
+function getConvictionWeights(){
+  return S.get('conviction_weights')||{ivr:1.0,rsi:1.0,range:1.0,apy:1.0,earnings:1.0,ma:1.0,upside:1.0,beta:1.0};
+}
+function saveConvictionWeights(){
+  const keys=['ivr','rsi','range','apy','earnings','ma','upside','beta'];
+  const weights={};
+  keys.forEach(k=>{
+    const el=document.getElementById('weight-'+k);
+    if(el)weights[k]=Math.max(0,Math.min(3,parseFloat(el.value)||1.0));
+  });
+  S.set('conviction_weights',weights);
+  toast('Conviction weights saved');
+}
+function resetConvictionWeights(){
+  const defaults={ivr:1.0,rsi:1.0,range:1.0,apy:1.0,earnings:1.0,ma:1.0,upside:1.0,beta:1.0};
+  S.set('conviction_weights',defaults);
+  loadWeightSliders();
+  toast('Weights reset to defaults');
+}
+function loadWeightSliders(){
+  const w=getConvictionWeights();
+  const keys=['ivr','rsi','range','apy','earnings','ma','upside','beta'];
+  keys.forEach(k=>{
+    const el=document.getElementById('weight-'+k);
+    const valEl=document.getElementById('weight-val-'+k);
+    if(el){el.value=w[k]||1.0;}
+    if(valEl){valEl.textContent=(w[k]||1.0).toFixed(1)+'x';}
+  });
+}
+
 async function measureStorage(){
   const el=document.getElementById('storage-display');
   if(!el)return;
@@ -697,6 +1050,7 @@ function openSettings(){
   document.getElementById('tz-pref-input').value=tzPref;
   document.getElementById('offline-mode-input').checked=offlineMode;
   document.getElementById('font-size-input').value=fontSize;
+  loadWeightSliders();
   document.getElementById('settings-overlay').classList.add('open');
 }
 function closeSettings(){document.getElementById('settings-overlay').classList.remove('open');}
@@ -903,6 +1257,13 @@ function showTab(name){
 }
 
 // ═══ API HELPERS ═══
+async function fh(path){
+  if(offlineMode)throw new Error('offline mode');
+  if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');throw new Error('No API key');}
+  const r=await fetch(`https://finnhub.io/api/v1${path}&token=${FINNHUB_KEY}`);
+  if(!r.ok)throw new Error(`Finnhub ${r.status}`);
+  return r.json();
+}
 async function yahooHistory(symbol,range='6mo',interval='1d'){
   if(offlineMode)throw new Error('offline mode');
   const url=`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=history&range=${range}&interval=${interval}`;
@@ -1203,7 +1564,7 @@ async function loadTicker(){
   if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('options-ticker-select').value=t;clearOptionsState();}
   document.getElementById('ticker-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading ${t}...</div></div>`;
   try{
-    let snap,hist6mo,hist1y,news,recData,isLive=true,priceTargetData=null;
+    let snap,hist6mo,hist1y,news,recData,isLive=true;
     try{
       const[quote,profile,metrics,earnings]=await Promise.all([
         fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),
@@ -1213,11 +1574,11 @@ async function loadTicker(){
       let rec=null,upgrades=null;
       try{rec=await fh(`/stock/recommendation?symbol=${t}`);}catch{}
       try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch{}
-      try{priceTargetData=await fh(`/stock/price-target?symbol=${t}`);}catch{}
+      // price targets fetched via fetchQuoteSummary below (Yahoo, free tier)
       snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,peForward:metrics.metric?.peForwardAnnual||null,epsTTM:metrics.metric?.epsBasicExclExtraTTM||null,epsGrowth:metrics.metric?.epsGrowthTTMYoy||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,shortInterestPct:metrics.metric?.shortInterestPercentage||metrics.metric?.shortInterestPercent||null,revenueGrowthTTM:metrics.metric?.revenueGrowthTTMYoy||null,fcfMargin:metrics.metric?.freeCashFlowMarginAnnual||null,operatingMargin:metrics.metric?.operatingMarginAnnual||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true};
       recData=rec&&rec.length?rec[0]:null;
       const upgradeData=upgrades&&upgrades.length?upgrades.slice(0,6):[];
-      S.set('snap_'+t,snap);S.set('rec_'+t,{data:(typeof rec2!=='undefined'&&rec2&&rec2.length?rec2[0]:recData)||null,ts:nowPT()});S.set('upgrades_'+t,{data:(typeof upgrades2!=='undefined'&&upgrades2&&upgrades2.length?upgrades2.slice(0,6):upgradeData)||[],ts:nowPT()});
+      S.set('snap_'+t,snap);S.set('rec_'+t,{data:recData||null,ts:nowPT()});S.set('upgrades_'+t,{data:upgradeData||[],ts:nowPT()});
       try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;
       }}catch{}
       // Fetch enriched data from Yahoo quoteSummary (4 modules in one call)
@@ -2291,6 +2652,216 @@ function restoreETFFromCache(){
   }
 }
 
+// ═══ MARKET TAB with T-BILL YIELDS ═══
+async function loadMarketTab(){
+  if(offlineMode){restoreMarketFromCache();return;}
+  const el=document.getElementById('market-content');
+  el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading market data...</div></div>';
+  try{
+    let sp500,nasdaq,treasury2y,isLive=true,mktTs=nowPT();
+    let spLivePrice=null,nqLivePrice=null,spPrevClose=null,nqPrevClose=null;
+    // Fetch each independently so one failure doesn't block the others
+    try{sp500=await yahooHistory('^GSPC','3mo','1d');S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});}
+    catch{const cs=S.get('mkt_sp500');if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cs.closes};isLive=false;mktTs=cs.ts;showOfflineBanner(cs.ts);}}
+    try{nasdaq=await yahooHistory('^IXIC','3mo','1d');S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs});}
+    catch{const cn=S.get('mkt_nasdaq');if(cn)nasdaq={timestamps:cn.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cn.closes};}
+    // 2-year Treasury: try ^USGG2YR first, fall back to ^TNX (10Y) scaled, then live quote
+    try{
+      treasury2y=await yahooHistory('^USGG2YR','3mo','1d');
+      // Validate -- ^USGG2YR sometimes returns all-null closes
+      const validCloses=treasury2y?.closes?.filter(c=>c!==null&&c>0)||[];
+      if(!validCloses.length)throw new Error('No valid 2Y closes');
+      S.set('mkt_2y',{timestamps:treasury2y.timestamps.map(d=>d.toISOString()),closes:treasury2y.closes,ts:mktTs});
+    }catch{
+      // Try live quote for 2Y yield as fallback
+      try{
+        const t2q=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^TNX')}&type=quote`).then(r=>r.json());
+        const t2Live=t2q?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
+        if(t2Live){
+          // Create synthetic history with just the current value
+          const now=new Date();
+          treasury2y={timestamps:[now],closes:[t2Live]};
+        }
+      }catch{}
+      const c2=S.get('mkt_2y');
+      if(c2&&(!treasury2y||!treasury2y.closes?.filter(c=>c!==null).length))
+        treasury2y={timestamps:c2.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:c2.closes};
+    }
+    S.set('mkt_ts',mktTs);
+    // Fetch live quotes for S&P 500 and Nasdaq -- history closes can be null for index tickers
+    try{
+      const[spQ,nqQ]=await Promise.all([
+        fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^GSPC')}&type=quote`).then(r=>r.json()),
+        fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^IXIC')}&type=quote`).then(r=>r.json())
+      ]);
+      spLivePrice=spQ?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
+      spPrevClose=spQ?.quoteResponse?.result?.[0]?.regularMarketPreviousClose||null;
+      nqLivePrice=nqQ?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
+      nqPrevClose=nqQ?.quoteResponse?.result?.[0]?.regularMarketPreviousClose||null;
+      if(spLivePrice)S.set('mkt_sp_live',{price:spLivePrice,prevClose:spPrevClose,ts:mktTs});
+      if(nqLivePrice)S.set('mkt_nq_live',{price:nqLivePrice,prevClose:nqPrevClose,ts:mktTs});
+    }catch{}
+    if(!spLivePrice){const c=S.get('mkt_sp_live');if(c){spLivePrice=c.price;spPrevClose=c.prevClose;}}
+    if(!nqLivePrice){const c=S.get('mkt_nq_live');if(c){nqLivePrice=c.price;nqPrevClose=c.prevClose;}}
+    // Fetch CME Fed Funds futures for rate probability display
+    let fedFutures=null;
+    try{fedFutures=await fetchFedFundsFutures();if(fedFutures)S.set('fed_futures',{data:fedFutures,ts:mktTs});}
+    catch{}
+    if(!fedFutures){const cf=S.get('fed_futures');if(cf)fedFutures=cf.data;}
+    // T-bill yields from US Treasury FiscalData API (via Worker, no key needed)
+    let tbill3m=[],tbill6m=[],fredTs=nowPT();
+    try{
+      const tbills=await fetchTBills();
+      tbill3m=tbills.tbill3m;tbill6m=tbills.tbill6m;
+      fredTs=nowPT();
+      S.set('tbills_cache',{tbill3m,tbill6m,ts:fredTs});
+    }catch{
+      const cd=S.get('tbills_cache');
+      if(cd){tbill3m=cd.tbill3m||[];tbill6m=cd.tbill6m||[];fredTs=cd.ts||'';}
+    }
+
+    const tb3Current=tbill3m.length?tbill3m[tbill3m.length-1].value:null;
+    const tb6Current=tbill6m.length?tbill6m[tbill6m.length-1].value:null;
+    const tb3Yr=tbill3m.length>=252?tbill3m[tbill3m.length-252].value:tbill3m[0]?.value;
+    const tb6Yr=tbill6m.length>=252?tbill6m[tbill6m.length-252].value:tbill6m[0]?.value;
+    const spread=tb3Current&&tb6Current?tb6Current-tb3Current:null;
+    const spreadStr=spread!==null?(spread>=0?`6M yields ${spread.toFixed(2)}bp above 3M (normal)`:`3M yields ${Math.abs(spread).toFixed(2)}bp above 6M (inverted -- market expects rate cuts)`):'';
+
+    // Income engine summary -- compare all three layers
+    const spyi_snap=S.get('snap_etf_SPYI');const nbos_snap=S.get('snap_etf_NBOS');
+    const spyi_div=S.get('div_etf_SPYI');const nbos_div=S.get('div_etf_NBOS');
+    let spyiYield=null,nbosYield=null;
+    if(spyi_snap?.price&&spyi_div?.distributions){const tot=spyi_div.distributions.slice(0,12).reduce((s,d)=>s+(d.amount||0),0);spyiYield=(tot/spyi_snap.price*100).toFixed(2);}
+    if(nbos_snap?.price&&nbos_div?.distributions){const tot=nbos_div.distributions.slice(0,12).reduce((s,d)=>s+(d.amount||0),0);nbosYield=(tot/nbos_snap.price*100).toFixed(2);}
+
+    const cv=S.get('vix_hist');const vixCurrent=cv?.closes?.filter(c=>c!==null).slice(-1)[0]||null;
+    // Prefer live quote price; fall back to last close from history
+    const spCurrent=spLivePrice||sp500?.closes?.filter(c=>c!==null).slice(-1)[0]||null;
+    const spPrevHist=sp500?.closes?.filter(c=>c!==null).slice(-2)[0]||null;
+    const spPrevFinal=spPrevClose||spPrevHist||null;
+    const spChg=spCurrent&&spPrevFinal?spCurrent-spPrevFinal:null;
+    const spChgPct=spChg&&spPrevFinal?spChg/spPrevFinal*100:null;
+    const nqCurrent=nqLivePrice||nasdaq?.closes?.filter(c=>c!==null).slice(-1)[0]||null;
+    const nqPrevHist=nasdaq?.closes?.filter(c=>c!==null).slice(-2)[0]||null;
+    const nqPrevFinal=nqPrevClose||nqPrevHist||null;
+    const nqChg=nqCurrent&&nqPrevFinal?nqCurrent-nqPrevFinal:null;
+    const nqChgPct=nqChg&&nqPrevFinal?nqChg/nqPrevFinal*100:null;
+    function fmtChg(val,chg,chgPct){if(!val)return'N/A';const color=chg>=0?'var(--green)':'var(--red)';const sign=chg>=0?'+':'';return`${val.toFixed(2)} <span style="color:${color};font-size:11px">${sign}${chg?.toFixed(2)} (${sign}${chgPct?.toFixed(2)}%)</span>`;}
+
+    // 1Y T-bill chart data
+    // tbill3m and tbill6m arrays contain ~52 weekly auctions each
+
+    let marketNews=[];try{const news=await fh('/news?category=general');marketNews=news.slice(0,10);S.set('market_news',{items:(marketNews||[]).slice(0,15).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime})),ts:nowPT()});}catch{const cn=S.get('market_news');if(cn)marketNews=cn.items||[];}
+
+    const spLabels=sp500?.timestamps?.slice(-63).map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});})||[];
+    const spData=sp500?.closes?.slice(-63)||[];
+
+    el.innerHTML=`
+      ${tsChip(mktTs,isLive)}
+      <!-- Income Engine Summary -->
+      <div class="card" style="border-left:4px solid var(--accent3)">
+        <div class="card-title"><span class="dot" style="background:var(--accent3)"></span>Income Engine Summary</div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Your three-layer income strategy -- risk premium above risk-free rate at each layer</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(33,150,243,0.1);border-radius:8px;border:1px solid rgba(33,150,243,0.3)">
+            <div><div style="font-family:var(--mono);font-size:10px;color:var(--text3)">LAYER 1 -- T-BILLS</div><div style="font-family:var(--mono);font-size:12px;color:var(--text2)">3-month Treasury</div></div>
+            <div style="font-family:var(--mono);font-size:20px;font-weight:600;color:#64b5f6">${tb3Current?tb3Current.toFixed(2)+'%':'N/A'}</div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(255,107,53,0.1);border-radius:8px;border:1px solid rgba(255,107,53,0.3)">
+            <div><div style="font-family:var(--mono);font-size:10px;color:var(--text3)">LAYER 2 -- ETFs</div><div style="font-family:var(--mono);font-size:12px;color:var(--text2)">SPYI / NBOS TTM Yield</div></div>
+            <div style="text-align:right">
+              <div style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent2)">${spyiYield?'SPYI '+spyiYield+'%':'SPYI --'}${tb3Current&&spyiYield?' (+'+((parseFloat(spyiYield)-tb3Current).toFixed(2))+'% vs T-bills)':''}</div>
+              <div style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent2);margin-top:2px">${nbosYield?'NBOS '+nbosYield+'%':'NBOS --'}${tb3Current&&nbosYield?' (+'+((parseFloat(nbosYield)-tb3Current).toFixed(2))+'% vs T-bills)':''}</div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(0,212,170,0.1);border-radius:8px;border:1px solid rgba(0,212,170,0.3)">
+            <div><div style="font-family:var(--mono);font-size:10px;color:var(--text3)">LAYER 3 -- WHEEL</div><div style="font-family:var(--mono);font-size:12px;color:var(--text2)">Active put/call selling target</div></div>
+            <div style="text-align:right"><div style="font-family:var(--mono);font-size:20px;font-weight:600;color:var(--accent)">${(parseFloat(document.getElementById('target-apy')?.value)||12).toFixed(1)}%</div><div style="font-family:var(--mono);font-size:9px;color:var(--text3)">${tb3Current?`+${((parseFloat(document.getElementById('target-apy')?.value)||12)-tb3Current).toFixed(2)}% risk premium`:'target APY (set on Dashboard tab)'}</div></div>
+          </div>
+        </div>
+      </div>
+      <!-- T-bill yields -->
+      ${(()=>{
+        // CME Fed Funds Futures -- implied rate path
+        if(!fedFutures||!fedFutures.length)return'';
+        const firstRate=fedFutures[0]?.impliedRate;
+        const lastRate=fedFutures[fedFutures.length-1]?.impliedRate;
+        // Compute cumulative cut/hike vs first contract
+        const rows=fedFutures.map((c,i)=>{
+          const delta=i===0?0:parseFloat((c.impliedRate-fedFutures[0].impliedRate).toFixed(3));
+          const bps=Math.round(delta*100);
+          const col=bps<-5?'var(--green)':bps>5?'var(--red)':'var(--text2)';
+          const sign=bps>0?'+':'';
+          return '<tr>'
+            +'<td style="color:var(--text2)">'+c.month+'</td>'
+            +'<td style="font-family:var(--mono)">'+c.price.toFixed(3)+'</td>'
+            +'<td style="font-family:var(--mono)">'+c.impliedRate.toFixed(3)+'%</td>'
+            +'<td style="color:'+col+';font-family:var(--mono)">'+(i===0?'—':sign+bps+'bp')+'</td>'
+            +'</tr>';
+        }).join('');
+        const totalBps=Math.round((lastRate-firstRate)*100);
+        const outlook=totalBps<=-50?'Markets pricing 2+ cuts':'Markets pricing 1-2 cuts over this window';
+        const outlookMild=totalBps<=-25&&totalBps>-50?'Markets pricing ~1 cut':'';
+        const outlookFlat=Math.abs(totalBps)<25?'Markets pricing no change':'';
+        const outlookHike=totalBps>=25?'Markets pricing rate hike':'';
+        const summary=outlookFlat||outlookMild||(totalBps<=-50?'Markets pricing 2+ cuts':'Markets pricing 1-2 cuts');
+        return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Fed Funds Futures (CME Implied Rates)</div>'
+          +'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:8px">30-day futures price → implied rate (100 − price). Delta vs near-month contract.</div>'
+          +'<div class="options-table-wrap"><table class="options-table">'
+          +'<thead><tr><th style="text-align:left">Month</th><th>Price</th><th>Implied Rate</th><th>Δ vs Now</th></tr></thead>'
+          +'<tbody>'+rows+'</tbody></table></div>'
+          +'<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:8px">'+summary+' (next '+fedFutures.length+' months, '+Math.abs(totalBps)+'bp total)</div>'
+          +'</div>';
+      })()}
+      }
+      <div class="card">
+        <div class="card-title"><span class="dot" style="background:#64b5f6"></span>T-Bill Yields (^IRX / ^FVX)</div>
+        ${tsChip(fredTs,isLive)}
+        <div class="metrics-grid">
+          <div class="metric-tile"><div class="metric-label">3-Month T-Bill (^IRX)</div><div class="metric-value" style="color:#64b5f6">${tb3Current?tb3Current.toFixed(3)+'%':'N/A'}</div><div class="metric-sub">${tb3Yr?`1Y ago: ${tb3Yr.toFixed(3)}% (${(tb3Current-tb3Yr)>=0?'+':''}${(tb3Current-tb3Yr).toFixed(3)}%)`:''}</div></div>
+          <div class="metric-tile"><div class="metric-label">5-Year Treasury (^FVX)</div><div class="metric-value" style="color:#64b5f6">${tb6Current?tb6Current.toFixed(3)+'%':'N/A'}</div><div class="metric-sub">${tb6Yr?`1Y ago: ${tb6Yr.toFixed(3)}% (${(tb6Current-tb6Yr)>=0?'+':''}${(tb6Current-tb6Yr).toFixed(3)}%)`:''}</div></div>
+          ${spread!==null?`<div class="metric-tile" style="grid-column:span 2"><div class="metric-label">3M / 6M Spread</div><div class="metric-value" style="font-size:13px">${Math.abs(spread).toFixed(2)}bp ${spread>=0?'(6M > 3M)':'(3M > 6M -- inverted)'}</div><div class="metric-sub">${spreadStr}</div></div>`:''}
+        </div>
+        ${tbill3m&&tbill3m.length?`<div class="chart-wrap" style="height:160px"><canvas id="tbill-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px">52-week history of 3-month (blue) and 6-month (orange) T-bill auction rates. Source: Yahoo Finance (^IRX, ^FVX) via Cloudflare Worker. When lines converge or cross (inversion), market is pricing in Federal Reserve rate cuts ahead.</div>`:''}
+      </div>
+      <!-- Market indices -->
+      <div class="metrics-grid">
+        <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">S&P 500</div><div class="metric-value" style="font-size:15px">${fmtChg(spCurrent,spChg,spChgPct)}</div></div>
+        <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Nasdaq Composite</div><div class="metric-value" style="font-size:15px">${fmtChg(nqCurrent,nqChg,nqChgPct)}</div></div>
+        ${vixCurrent?`<div class="metric-tile" style="grid-column:span 2;background:${vixCurrent>=30?'rgba(255,71,87,0.1)':vixCurrent>=20?'rgba(255,165,2,0.1)':'var(--surface2)'}"><div class="metric-label">VIX (from cache)</div><div class="metric-value" style="color:${vixCurrent>=30?'var(--red)':vixCurrent>=20?'var(--warn)':'var(--text)'}">${vixCurrent.toFixed(2)}</div><div class="metric-sub">${vixCurrent>=30?'FEAR SPIKE -- exceptional premium':vixCurrent>=20?'ELEVATED -- favorable for selling':'Normal conditions'}</div></div>`:''}
+      </div>
+      ${spLabels.length?`<div class="card"><div class="card-title"><span class="dot" style="background:#4fc3f7"></span>S&P 500 (3 months)</div><div class="chart-wrap" style="height:180px"><canvas id="sp500-chart"></canvas></div></div>`:''}
+      <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Top Market News</div><div>${renderNewsItems(marketNews,10)}</div></div>`;
+
+    // Render S&P 500 chart
+    setTimeout(()=>{
+      const ctx=document.getElementById('sp500-chart')?.getContext('2d');
+      if(ctx&&spLabels.length){new Chart(ctx,{type:'line',data:{labels:spLabels,datasets:[{data:spData,borderColor:'#4fc3f7',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});}
+      // T-bill chart -- Treasury auction data, weekly frequency
+      const tbCtx=document.getElementById('tbill-chart')?.getContext('2d');
+      if(tbCtx&&tbill3m.length){
+        // Use last 52 weekly auctions (~1 year) for chart
+        const last52_3m=tbill3m.slice(-52);
+        const last52_6m=tbill6m.slice(-52);
+        // Build unified label set from 3M dates (auctions every week)
+        const chartLabels=last52_3m.map(d=>d.date.slice(5)); // MM-DD
+        // Align 6M data to same date range (6M auctions are also weekly)
+        const len52=last52_3m.length;
+        const aligned6m=last52_6m.slice(-len52).map(d=>d.value);
+        new Chart(tbCtx,{type:'line',data:{labels:chartLabels,datasets:[
+          {label:'3-Month T-bill',data:last52_3m.map(d=>d.value),borderColor:'#64b5f6',borderWidth:1.5,pointRadius:0,tension:0.3,fill:false},
+          {label:'6-Month T-bill',data:aligned6m,borderColor:'#ff9800',borderWidth:1.5,pointRadius:0,tension:0.3,fill:false}
+        ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b8fa8',font:{size:9}}}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:8},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9},callback:v=>v.toFixed(2)+'%'},grid:{color:'#2a2e38'}}}}});
+      }
+    },100);
+
+    S.set('market_ts',{ts:nowPT()});
+  }catch(err){el.innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
+}
+function restoreMarketFromCache(){
+  // For market tab, just trigger a fresh load attempt -- cached data will be used if offline
+  loadMarketTab();
+}
 </script>
 <script>
 // ═══ CONVICTION DASHBOARDS ═══
@@ -2321,8 +2892,8 @@ async function runDashboards(skipOnlineCheck=false){
       try{const today=new Date();const oc=S.get('options_'+t);const yr=oc?.data?.optionChain?.result?.[0];if(yr&&price){const expDates=(yr.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]);for(const exp of expDates.slice(0,3)){const ec=S.get('options_exp_'+t+'_'+exp);const res=ec?.optionChain?.result?.[0];if(!res)continue;const expD=new Date(exp+'T12:00:00Z');const dte=Math.max(Math.round((expD-today)/86400000),1);if(dte<25||dte>100)continue;if(!pRS&&res.options?.[0]?.puts){const puts=res.options[0].puts.filter(p=>{const s=p.strike,bid=p.bid||0,last=p.lastPrice||0,prem=(bid>0?bid:last)*100,apy=prem/(s*100)*(365/dte)*100,pct=(price-s)/price*100;return s<price&&pct>=4&&pct<=18&&apy>=targetAPY*0.7&&(p.openInterest||0)>=50;});if(puts.length){const best=puts.reduce((b,p)=>{const apyA=((p.bid||0)>0?p.bid:p.lastPrice||0)*100/(p.strike*100)*(365/dte)*100;const apyB=((b.bid||0)>0?b.bid:b.lastPrice||0)*100/(b.strike*100)*(365/dte)*100;return Math.abs(apyA-targetAPY)<Math.abs(apyB-targetAPY)?p:b;});const prem=((best.bid||0)>0?best.bid:best.lastPrice||0)*100;pRS='$'+formatStrike(best.strike);pExp=exp;pApy=(prem/(best.strike*100)*(365/dte)*100).toFixed(1)+'%';}}if(!cRS&&res.options?.[0]?.calls){const calls=res.options[0].calls.filter(c=>{const s=c.strike,bid=c.bid||0,last=c.lastPrice||0,prem=(bid>0?bid:last)*100,apy=prem/(price*100)*(365/dte)*100,pct=(s-price)/price*100;return s>price&&pct>=4&&pct<=18&&apy>=targetAPY*0.7&&(c.openInterest||0)>=50;});if(calls.length){const best=calls.reduce((b,c)=>{const apyA=((c.bid||0)>0?c.bid:c.lastPrice||0)*100/(price*100)*(365/dte)*100;const apyB=((b.bid||0)>0?b.bid:b.lastPrice||0)*100/(price*100)*(365/dte)*100;return Math.abs(apyA-targetAPY)<Math.abs(apyB-targetAPY)?c:b;});const prem=((best.bid||0)>0?best.bid:best.lastPrice||0)*100;cRS='$'+formatStrike(best.strike);cExp=exp;cApy=(prem/(price*100)*(365/dte)*100).toFixed(1)+'%';}}if(pRS&&cRS)break;}}}catch{}
       const earningsTiming=earningsHour==='bmo'?' (before open)':earningsHour==='amc'?' (after close)':'';
       const earningsDisplay=earningsDate?earningsDate+earningsTiming:null;
-      const ps=scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:pRS,expiration:pExp,estApy:pApy,ivrVal});
-      const cs=scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:cRS,expiration:cExp,estApy:cApy,ivrVal});
+      const ps=scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:pRS,expiration:pExp,estApy:pApy,ivrVal,ptMean:snap.ptMean||null,beta:snap.beta||null});
+      const cs=scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:cRS,expiration:cExp,estApy:cApy,ivrVal,ptMean:snap.ptMean||null,beta:snap.beta||null});
       const common={ticker:t,price,ivrBadge:ivr.badge,ivrVal,earningsDate:earningsDisplay};
       putResults.push({...common,...ps});ccResults.push({...common,...cs});
     }catch{const e={ticker:t,price:null,score:-99,signal:'error',factors:'Data unavailable',narrative:'',ivrBadge:'',earningsDate:null,recStrike:'--',expiration:'--',estApy:'--'};putResults.push({...e});ccResults.push({...e});}

@@ -32,17 +32,17 @@ async function loadEarningsTab(){
     if(i<watchlist.length-1)await sleep(400);
   }
   earningsAllData.sort((a,b)=>a.daysUntil-b.daysUntil);
-  S.set('earnings_data',{data:earningsAllData,ts:nowPT()});renderEarningsCards();
+  S.set('earnings_data',{data:earningsAllData,ts:nowPT()});renderEarningsCards(true);
 }
 
-function renderEarningsCards(){
+function renderEarningsCards(isLive=false){
   const el=document.getElementById('earnings-content');const today=new Date();
   let data=earningsAllData;
   if(!data.length){const cached=S.get('earnings_data');if(cached?.data){data=cached.data.map(e=>({...e,daysUntil:daysUntilDate(e.earningsDate)??Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);earningsAllData=data;}}
   const filtered=data.filter(e=>e.daysUntil<=earningsDaysFilter);
   if(!filtered.length){el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4C5;</div>No upcoming earnings in this window. Press Refresh or run Full Refresh.</div>';return;}
   const ts=S.get('earnings_data')?.ts||nowPT();
-  el.innerHTML=tsChip(ts,false)+filtered.map(e=>{
+  el.innerHTML=tsChip(ts,isLive)+filtered.map(e=>{
     const cardCls=e.daysUntil<=7?'earnings-card earnings-card-urgent':e.daysUntil<=21?'earnings-card earnings-card-soon':'earnings-card earnings-card-normal';
     const timing=e.earningsHour==='bmo'?' (before open)':e.earningsHour==='amc'?' (after close)':'';
     const urgency=e.daysUntil===0?'TODAY':e.daysUntil===1?'TOMORROW':'In '+e.daysUntil+' days';

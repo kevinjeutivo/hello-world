@@ -1,54 +1,66 @@
 // PutSeller Pro -- watchlist.js
-// Watchlist tab: render, add, remove (with undo), sort.
+// Watchlist tab: render, add, remove (with confirmation modal), sort.
 // Globals used: watchlist, watchlistSort, currentTicker, S
-// Dependencies: helpers.js, storage.js
+// Dependencies: helpers.js, storage.js, ui.js
 
-// ── Undo-toast state ─────────────────────────────────────────────────────────
-// The undo toast piggybacks on the existing #toast element which is already
-// a direct child of <body> outside #app and is known to be viewport-fixed on
-// iOS Safari.  We temporarily restyle it with .toast-undo-mode and inject an
-// Undo button, then restore normal toast behaviour when done.
-let _undoTicker=null;
-let _undoTimer=null;
-const UNDO_DURATION=5000;
+// ── Removal confirmation modal ────────────────────────────────────────────────
+// Uses the same .modal-overlay / .modal-box pattern as the "Clear All Cached
+// Data" confirmation -- already styled in app.css, proven to work on iPhone.
+// The modal is created once and reused; the ticker being confirmed is tracked
+// in _pendingRemoveTicker.
 
-function _showUndoToast(ticker){
-  _commitPendingUndo();
-  _undoTicker=ticker;
-  const el=document.getElementById('toast');
-  if(!el)return;
-  clearTimeout(window._toastTimer);
-  // Set structure via innerHTML but attach the button listener via addEventListener
-  // so we are not relying on inline onclick resolution, which can fail on iOS
-  // Safari when the function is defined in an external script file.
-  el.innerHTML='<span>Removed '+ticker+'</span>'
-    +'<button class="toast-undo-btn" id="toast-undo-btn">Undo</button>';
-  const btn=document.getElementById('toast-undo-btn');
-  if(btn)btn.addEventListener('click',function(e){e.stopPropagation();_undoRemove();});
-  el.classList.add('toast-undo-mode','show');
-  _undoTimer=setTimeout(()=>_commitPendingUndo(),UNDO_DURATION);
-}
+let _pendingRemoveTicker=null;
 
-function _commitPendingUndo(){
-  if(_undoTimer){clearTimeout(_undoTimer);_undoTimer=null;}
-  _undoTicker=null;
-  const el=document.getElementById('toast');
-  if(!el)return;
-  el.classList.remove('toast-undo-mode','show');
-  el.textContent='';
-}
-
-function _undoRemove(){
-  if(!_undoTicker)return;
-  const ticker=_undoTicker;
-  _commitPendingUndo();
-  if(!watchlist.includes(ticker)){
-    watchlist.push(ticker);
-    S.set('watchlist',watchlist);
+function _ensureRemoveModal(){
+  let el=document.getElementById('watchlist-remove-modal');
+  if(!el){
+    el=document.createElement('div');
+    el.className='modal-overlay';
+    el.id='watchlist-remove-modal';
+    el.innerHTML=
+      '<div class="modal-box">'+
+        '<div class="modal-title" id="wrm-title">Remove ticker?</div>'+
+        '<div class="modal-body" id="wrm-body"></div>'+
+        '<div style="display:flex;gap:8px">'+
+          '<button class="btn btn-secondary btn-sm" id="wrm-cancel">Cancel</button>'+
+          '<button class="btn btn-danger btn-sm" id="wrm-confirm">Remove</button>'+
+        '</div>'+
+      '</div>';
+    document.body.appendChild(el);
+    document.getElementById('wrm-cancel').addEventListener('click',_closeRemoveModal);
+    document.getElementById('wrm-confirm').addEventListener('click',_confirmRemove);
+    // Tap outside the box to cancel
+    el.addEventListener('click',function(e){if(e.target===el)_closeRemoveModal();});
   }
+  return el;
+}
+
+function _openRemoveModal(ticker){
+  _pendingRemoveTicker=ticker;
+  const el=_ensureRemoveModal();
+  document.getElementById('wrm-body').textContent=
+    'Remove '+ticker+' from your watchlist? This will also clear its cached price data.';
+  el.classList.add('open');
+}
+
+function _closeRemoveModal(){
+  _pendingRemoveTicker=null;
+  const el=document.getElementById('watchlist-remove-modal');
+  if(el)el.classList.remove('open');
+}
+
+function _confirmRemove(){
+  const ticker=_pendingRemoveTicker;
+  _closeRemoveModal();
+  if(!ticker)return;
+  watchlist=watchlist.filter(x=>x!==ticker);
+  S.set('watchlist',watchlist);
+  // Clear the ticker's cached snapshot so stale data doesn't re-appear
+  // if the user re-adds the ticker later.
+  S.del('snap_'+ticker);
   renderWatchlist();
   populateSelects();
-  toast('Restored '+ticker);
+  toast('Removed '+ticker);
 }
 
 // ── Watchlist core ────────────────────────────────────────────────────────────
@@ -83,7 +95,10 @@ function getSortedWatchlist(){
 
 function renderWatchlist(){
   const el=document.getElementById('watchlist-items');
-  if(!watchlist.length){el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CB;</div>Watchlist is empty</div>';return;}
+  if(!watchlist.length){
+    el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CB;</div>Watchlist is empty</div>';
+    return;
+  }
   const sorted=getSortedWatchlist();
   el.innerHTML=sorted.map(t=>{
     const c=S.get('snap_'+t);
@@ -100,7 +115,7 @@ function renderWatchlist(){
         '<div class="watchlist-price">'+price+'</div>'+
         (c?'<div class="watchlist-change" style="color:'+cc+'">'+(chg>=0?'+':'')+chg.toFixed(2)+' ('+(chgPct>=0?'+':'')+chgPct.toFixed(2)+'%)</div>':'')+
       '</div>'+
-      '<button class="watchlist-remove" onclick="removeTicker(event,\''+t+'\')">&#x2715;</button>'+
+      '<button class="watchlist-remove" onclick="event.stopPropagation();_openRemoveModal(\''+t+'\')">&#x2715;</button>'+
     '</div>';
   }).join('');
 }
@@ -124,15 +139,12 @@ function addTicker(){
 
 function removeTicker(e,t){
   e.stopPropagation();
-  watchlist=watchlist.filter(x=>x!==t);
-  S.set('watchlist',watchlist);
-  renderWatchlist();
-  populateSelects();
-  _showUndoToast(t);
+  _openRemoveModal(t);
 }
 
 function populateSelects(){
-  const opts='<option value="">-- Select --</option>'+watchlist.map(t=>'<option value="'+t+'">'+t+'</option>').join('');
+  const opts='<option value="">-- Select --</option>'+
+    watchlist.map(t=>'<option value="'+t+'">'+t+'</option>').join('');
   document.getElementById('ticker-select').innerHTML=opts;
   document.getElementById('options-ticker-select').innerHTML=opts;
 }

@@ -2,9 +2,45 @@
 // Conviction dashboards: run scoring, render cards.
 // Globals used: watchlist, currentMode, S, WORKER_URL
 // Dependencies: helpers.js, scoring.js, storage.js
-// Change: 2026-05-09: stale timestamp after fresh run. snap was used (snap.ptMean, snap.beta) but never declared in the scoring loop — it was read from S.get('snap_'+t) in the old monolithic code but that line was dropped during extraction. Every ticker was throwing ReferenceError: snap is not defined inside the catch block, silently producing zero results, so renderDashTable was never called with the fresh ts — leaving the stale cached version on screen. Fixed by adding const snap = S.get('snap_'+t) || {} after the IVR computation.
 
 function compBarColor(v){return v>=2?'#00d4aa':v===1?'#4fc3f7':v===0?'#555870':'#ff4757';}
+
+// 9 component definitions split into two rows: 4 on top, 5 on bottom.
+// Labels sit below their respective bar, consistent with the existing convention.
+const COMP_DEFS=[
+  {key:'ivr',   label:'IVR'},
+  {key:'rsi',   label:'RSI'},
+  {key:'range', label:'Rng'},
+  {key:'apy',   label:'APY'},
+  {key:'earn',  label:'Earn'},
+  {key:'ma',    label:'MA'},
+  {key:'upside',label:'Up\u2191'},
+  {key:'beta',  label:'Beta'},
+  {key:'oiGap', label:'OI\u2193'},
+];
+const COMP_ROW1=COMP_DEFS.slice(0,4);  // IVR RSI Rng APY
+const COMP_ROW2=COMP_DEFS.slice(4);    // Earn MA Up↑ Beta OI↓
+
+function renderCompRow(defs,comps){
+  return '<div style="display:flex;gap:3px;align-items:flex-end">'
+    +defs.map(d=>{
+      const v=comps[d.key]!=null?comps[d.key]:0;
+      const col=compBarColor(v);
+      const ht=Math.max(4,Math.abs(v)/3*14);
+      return '<div style="flex:1;text-align:center">'
+        +'<div style="background:'+col+';height:'+ht+'px;border-radius:2px;margin-bottom:2px"></div>'
+        +'<div style="font-family:var(--mono);font-size:8px;color:var(--text3)">'+d.label+'</div>'
+        +'</div>';
+    }).join('')
+    +'</div>';
+}
+
+function renderCompBars(comps){
+  return '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px;padding:4px 0">'
+    +renderCompRow(COMP_ROW1,comps)
+    +renderCompRow(COMP_ROW2,comps)
+    +'</div>';
+}
 
 function renderDashTable(elId,results,ts,isLive){
   const el=document.getElementById(elId);if(!results.length){el.innerHTML='<div class="empty">No data</div>';return;}
@@ -16,31 +52,12 @@ function renderDashTable(elId,results,ts,isLive){
     const apy=r.estApy&&r.estApy!=='--'?r.estApy:null;
     const sc=r.score!=null?r.score:'';
     const comps=r.components||{};
-    // Component bars: IVR, RSI, Range, APY, Earn -- descending weight
-    const compDefs=[
-      {key:'ivr',label:'IVR'},
-      {key:'rsi',label:'RSI'},
-      {key:'range',label:'Rng'},
-      {key:'apy',label:'APY'},
-      {key:'earn',label:'Earn'},
-      {key:'oiGap',label:'OI\u2193'}
-    ];
-    const compBar=compDefs.map(d=>{
-      const v=comps[d.key]!=null?comps[d.key]:0;
-      const col=compBarColor(v);
-      const ht=Math.max(4,Math.abs(v)/3*14);
-      return '<div style="flex:1;text-align:center">'
-        +'<div style="background:'+col+';height:'+ht+'px;border-radius:2px;margin-bottom:2px"></div>'
-        +'<div style="font-family:var(--mono);font-size:8px;color:var(--text3)">'+d.label+'</div>'
-        +'</div>';
-    }).join('');
     return'<div style="background:'+bg+';border:1px solid '+bc+';border-left:4px solid '+bc+';border-radius:10px;padding:12px;margin-bottom:10px;cursor:pointer" onclick="selectTickerFromWatchlist(\''+r.ticker+'\')">'
       +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">'
       +'<div><span style="font-family:var(--sans);font-size:18px;font-weight:700;color:var(--accent)">'+r.ticker+'</span>'+(r.price?'<span style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-left:8px">$'+r.price.toFixed(2)+'</span>':'')+'</div>'
       +'<div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;font-weight:600">'+r.signal.toUpperCase()+(sc!==''?' &middot; '+sc:'')+'</div>'+(r.ivrBadge||'')+'</div>'
       +'</div>'
-      // Component bar strip
-      +'<div style="display:flex;gap:3px;align-items:flex-end;margin-bottom:8px;padding:4px 0">'+compBar+'</div>'
+      +renderCompBars(comps)
       +(rs?'<div style="display:flex;gap:16px;margin-bottom:8px;font-family:var(--mono)"><div><span style="font-size:9px;color:var(--text3);display:block">REC STRIKE</span><span style="font-size:14px">'+rs+'</span></div>'+(exp?'<div><span style="font-size:9px;color:var(--text3);display:block">EXPIRY</span><span style="font-size:12px;color:var(--text2)">'+exp+'</span></div>':'')+(apy?'<div><span style="font-size:9px;color:var(--text3);display:block">EST APY</span><span style="font-size:14px;color:var(--accent)">'+apy+'</span></div>':'')+'</div>':'')
       +(r.earningsDate?'<div style="font-family:var(--mono);font-size:11px;color:var(--warn);margin-bottom:6px">Earnings '+r.earningsDate+'</div>':'')
       +(r.narrative?'<div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6;border-top:1px solid rgba(255,255,255,0.05);padding-top:8px;margin-top:4px">'+r.narrative+'</div>':'')
@@ -71,40 +88,38 @@ async function runDashboards(skipOnlineCheck=false){
       let rsiVal=null,ma50=null,ma200=null,rangePos=null;
       try{const hist=await yahooHistory(t,'1y','1d');const closes=hist.closes.filter(c=>c!==null);const rsi=computeRSI(closes);rsiVal=rsi[rsi.length-1];ma50=avg(closes.slice(-50));ma200=avg(closes.slice(-200));if(w52h&&w52l&&w52h>w52l)rangePos=(price-w52l)/(w52h-w52l);}catch{}
       const ivrVal=computeIVR(t,w52h,w52l,price);const ivr=ivrInfo(ivrVal);
-      // Read cached snap for enriched fields (ptMean, beta) from Yahoo quoteSummary
       const snap=S.get('snap_'+t)||{};
       let pRS=null,pExp=null,pApy=null,cRS=null,cExp=null,cApy=null;
       try{const today=new Date();const oc=S.get('options_'+t);const yr=oc?.data?.optionChain?.result?.[0];if(yr&&price){const expDates=(yr.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]);for(const exp of expDates.slice(0,3)){const ec=S.get('options_exp_'+t+'_'+exp);const res=ec?.optionChain?.result?.[0];if(!res)continue;const expD=new Date(exp+'T12:00:00Z');const dte=Math.max(Math.round((expD-today)/86400000),1);if(dte<25||dte>100)continue;if(!pRS&&res.options?.[0]?.puts){const puts=res.options[0].puts.filter(p=>{const s=p.strike,bid=p.bid||0,last=p.lastPrice||0,prem=(bid>0?bid:last)*100,apy=prem/(s*100)*(365/dte)*100,pct=(price-s)/price*100;return s<price&&pct>=4&&pct<=18&&apy>=targetAPY*0.7&&(p.openInterest||0)>=50;});if(puts.length){const best=puts.reduce((b,p)=>{const apyA=((p.bid||0)>0?p.bid:p.lastPrice||0)*100/(p.strike*100)*(365/dte)*100;const apyB=((b.bid||0)>0?b.bid:b.lastPrice||0)*100/(b.strike*100)*(365/dte)*100;return Math.abs(apyA-targetAPY)<Math.abs(apyB-targetAPY)?p:b;});const prem=((best.bid||0)>0?best.bid:best.lastPrice||0)*100;pRS='$'+formatStrike(best.strike);pExp=exp;pApy=(prem/(best.strike*100)*(365/dte)*100).toFixed(1)+'%';}}if(!cRS&&res.options?.[0]?.calls){const calls=res.options[0].calls.filter(c=>{const s=c.strike,bid=c.bid||0,last=c.lastPrice||0,prem=(bid>0?bid:last)*100,apy=prem/(price*100)*(365/dte)*100,pct=(s-price)/price*100;return s>price&&pct>=4&&pct<=18&&apy>=targetAPY*0.7&&(c.openInterest||0)>=50;});if(calls.length){const best=calls.reduce((b,c)=>{const apyA=((c.bid||0)>0?c.bid:c.lastPrice||0)*100/(price*100)*(365/dte)*100;const apyB=((b.bid||0)>0?b.bid:b.lastPrice||0)*100/(price*100)*(365/dte)*100;return Math.abs(apyA-targetAPY)<Math.abs(apyB-targetAPY)?c:b;});const prem=((best.bid||0)>0?best.bid:best.lastPrice||0)*100;cRS='$'+formatStrike(best.strike);cExp=exp;cApy=(prem/(price*100)*(365/dte)*100).toFixed(1)+'%';}}if(pRS&&cRS)break;}}}catch{}
       const earningsTiming=earningsHour==='bmo'?' (before open)':earningsHour==='amc'?' (after close)':'';
       const earningsDisplay=earningsDate?earningsDate+earningsTiming:null;
-      // Compute OI gravity gap from cached options data
+      // OI gravity gap -- max put OI strike below price
       let oiGapPct=null;
       try{
-        const optCache=S.get('options_'+snap.ticker);
+        const optCache=S.get('options_'+t);
         const opts=optCache?.data?.optionChain?.result?.[0];
         if(opts&&price>0){
-          // Find nearest expiration's puts
           const nearOpts=opts.options?.[0];
           if(nearOpts?.puts?.length){
-            const maxOIPut=nearOpts.puts.reduce((best,p)=>(!best||( p.openInterest||0)>(best.openInterest||0))?p:best,null);
-            if(maxOIPut?.strike){oiGapPct=(price-maxOIPut.strike)/price*100;}
+            const maxOIPut=nearOpts.puts.reduce((best,p)=>(!best||(p.openInterest||0)>(best.openInterest||0))?p:best,null);
+            if(maxOIPut?.strike)oiGapPct=(price-maxOIPut.strike)/price*100;
           }
         }
       }catch{}
-      const ps=scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:pRS,expiration:pExp,estApy:pApy,ivrVal,ptMean:snap.ptMean||null,beta:snap.beta||null,oiGapPct});
-      // OI gap for calls: distance to max call OI strike above price
+      // OI gap for calls -- max call OI strike above price
       let callOiGapPct=null;
       try{
-        const optCache2=S.get('options_'+snap.ticker);
+        const optCache2=S.get('options_'+t);
         const opts2=optCache2?.data?.optionChain?.result?.[0];
         if(opts2&&price>0){
           const nearOpts2=opts2.options?.[0];
           if(nearOpts2?.calls?.length){
             const maxOICall=nearOpts2.calls.filter(c=>c.strike>price).reduce((best,c)=>(!best||(c.openInterest||0)>(best.openInterest||0))?c:best,null);
-            if(maxOICall?.strike){callOiGapPct=(maxOICall.strike-price)/price*100;}
+            if(maxOICall?.strike)callOiGapPct=(maxOICall.strike-price)/price*100;
           }
         }
       }catch{}
+      const ps=scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:pRS,expiration:pExp,estApy:pApy,ivrVal,ptMean:snap.ptMean||null,beta:snap.beta||null,oiGapPct});
       const cs=scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:cRS,expiration:cExp,estApy:cApy,ivrVal,ptMean:snap.ptMean||null,beta:snap.beta||null,oiGapPct:callOiGapPct});
       const common={ticker:t,price,ivrBadge:ivr.badge,ivrVal,earningsDate:earningsDisplay};
       putResults.push({...common,...ps});ccResults.push({...common,...cs});
@@ -116,13 +131,10 @@ async function runDashboards(skipOnlineCheck=false){
   setTimeout(()=>{document.getElementById('dashboard-progress').style.display='none';},1500);
   btn.disabled=false;
   putResults.sort((a,b)=>b.score-a.score);ccResults.sort((a,b)=>b.score-a.score);
-  // Safety check: if every single ticker came back as an error, network likely failed.
-  // Do NOT overwrite cached data with all-error results. Restore backup and warn.
   const validPuts=putResults.filter(r=>r.signal!=='error');
   const validCC=ccResults.filter(r=>r.signal!=='error');
   if(validPuts.length===0&&validCC.length===0){
     toast('Network error -- cached dashboards preserved',3500);
-    // Restore backup to DOM if it exists
     const cp=S.get('conviction_puts'),cc=S.get('conviction_cc');
     if(cp)renderDashTable('put-dashboard-content',cp.results,cp.ts,false);
     if(cc)renderDashTable('cc-dashboard-content',cc.results,cc.ts,false);

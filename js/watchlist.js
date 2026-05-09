@@ -11,36 +11,18 @@ let _undoTicker=null;       // ticker symbol pending undo
 let _undoTimer=null;        // setTimeout handle
 const UNDO_DURATION=5000;   // ms the undo window stays open
 
-// Ensure the undo toast DOM element exists (created once, reused).
-// It is appended to <body> outside #app so that the zoom transform on #app
-// does not affect its size or position.  It starts fully hidden.
-function _ensureUndoToast(){
-  let el=document.getElementById('undo-toast');
-  if(!el){
-    el=document.createElement('div');
-    el.id='undo-toast';
-    // Start with the base class only -- no 'show' -- so it is invisible
-    // and non-interactive until _showUndoToast() explicitly adds 'show'.
-    el.className='toast-undo';
-    el.innerHTML=
-      '<span class="toast-undo-msg" id="undo-toast-msg"></span>'+
-      '<button class="toast-undo-btn" id="undo-toast-btn" onclick="_undoRemove()">Undo</button>';
-    document.body.appendChild(el);
-  }
-  // Always ensure it starts hidden when first created or re-obtained.
-  // Defensive: strip 'show' in case a prior session left it visible.
-  el.classList.remove('show');
-  return el;
-}
-
 // Show the undo toast for a just-removed ticker.
+// The #undo-toast element is declared statically in index.html as a direct
+// sibling of #app -- this is essential on iOS Safari where position:fixed
+// inside a zoomed element does not fix to the viewport correctly.
 function _showUndoToast(ticker){
-  // Commit any previously pending removal immediately before starting a new one.
+  // Commit any previously pending removal before starting a new one.
   _commitPendingUndo();
 
   _undoTicker=ticker;
 
-  const el=_ensureUndoToast();
+  const el=document.getElementById('undo-toast');
+  if(!el)return;
   document.getElementById('undo-toast-msg').textContent='Removed '+ticker;
   el.classList.add('show');
 

@@ -4,7 +4,14 @@
 // Dependencies: storage.js (S)
 
 function applyFontSize(size){
-  document.documentElement.style.setProperty('--base-font',size+'px');
+  const px=size+'px';
+  // Set the CSS variable so any var(--base-font) references stay in sync.
+  document.documentElement.style.setProperty('--base-font',px);
+  // iOS Safari does not reliably re-cascade a CSS variable change into the
+  // computed font-size of the <html> element itself.  Setting fontSize
+  // directly on documentElement is the only approach that works consistently
+  // across all WebKit versions, including Safari on iPhone 13 mini.
+  document.documentElement.style.fontSize=px;
 }
 
 function nowInTZ(){
@@ -26,9 +33,7 @@ function daysUntilDate(dateStr){
     const tm=todayParts.find(p=>p.type==='month').value;
     const td=todayParts.find(p=>p.type==='day').value;
     const todayStr=ty+'-'+tm+'-'+td;
-    // Compare date strings directly -- no millisecond arithmetic
     if(dateStr===todayStr)return 0;
-    // For day count, use noon UTC of each date to avoid DST and timezone issues
     const d1=new Date(todayStr+'T12:00:00Z');
     const d2=new Date(dateStr+'T12:00:00Z');
     return Math.round((d2-d1)/86400000);
@@ -36,7 +41,6 @@ function daysUntilDate(dateStr){
 }
 
 function ordinal(n){
-  // Correct English ordinal suffix -- handles teen exceptions (11th, 12th, 13th)
   const abs=Math.abs(Math.round(n));
   const mod100=abs%100;
   const mod10=abs%10;
@@ -50,7 +54,6 @@ function ordinal(n){
 function relAge(tsStr){
   if(!tsStr)return'';
   try{
-    // Parse the stored timestamp -- try to extract date/time
     const clean=tsStr.replace(/ PT$| UTC$| local$/,'').trim();
     const d=new Date(clean);
     if(isNaN(d.getTime()))return'';
@@ -66,13 +69,11 @@ function tsChip(ts,isLive){
   const cls=isLive?'live':'stale';
   const age=relAge(ts);
   const ageStr=age?` (${age})`:'';
-  // Store ISO timestamp as data attribute so refreshTsChipAges can parse reliably
   const isoTs=new Date().toISOString();
   return `<div class="ts-chip ${cls}" data-ts-iso="${isoTs}" data-ts-display="${ts||''}">${isLive?'live':'cached'} ${ts||'unknown'}${ageStr}</div>`;
 }
 
 function fmtTS(ts){
-  // Re-format a stored timestamp string in current tz preference
   if(!ts)return'unknown';
   const age=relAge(ts);
   const ageStr=age?` (${age})`:'';

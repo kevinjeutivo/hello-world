@@ -2,6 +2,7 @@
 // Conviction dashboards: run scoring, render cards.
 // Globals used: watchlist, currentMode, S, WORKER_URL
 // Dependencies: helpers.js, scoring.js, storage.js
+// Change: 2026-05-09: stale timestamp after fresh run. snap was used (snap.ptMean, snap.beta) but never declared in the scoring loop — it was read from S.get('snap_'+t) in the old monolithic code but that line was dropped during extraction. Every ticker was throwing ReferenceError: snap is not defined inside the catch block, silently producing zero results, so renderDashTable was never called with the fresh ts — leaving the stale cached version on screen. Fixed by adding const snap = S.get('snap_'+t) || {} after the IVR computation.
 
 function compBarColor(v){return v>=2?'#00d4aa':v===1?'#4fc3f7':v===0?'#555870':'#ff4757';}
 

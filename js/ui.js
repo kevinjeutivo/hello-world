@@ -288,8 +288,6 @@ function updateVIXIndicator(vixValue){
 
 function toast(msg,dur=2500){
   const el=document.getElementById('toast');
-  // If the undo toast is active, don't clobber it with a normal toast
-  if(el&&el.classList.contains('toast-undo-mode'))return;
   el.style.whiteSpace='normal';
   el.style.maxWidth='92vw';
   el.style.fontSize='11px';

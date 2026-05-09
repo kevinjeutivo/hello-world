@@ -1,8 +1,15 @@
 // PutSeller Pro -- options.js
-// OI cache protection deployed (never overwrite good OI with zero-OI data).
 // Options tab: load, build table, OI chart.
 // Globals used: currentTicker, currentMode, selectedExpirations, currentOptionsData, WORKER_URL, S
 // Dependencies: helpers.js, api.js, storage.js
+
+function updateSlider(id){
+  const slider=document.getElementById(id+'-slider');
+  const label=document.getElementById(id+'-val');
+  if(!slider||!label)return;
+  label.textContent=slider.value+'%';
+  buildOptionsTable();
+}
 
 function clearOptionsState(){
   document.getElementById('exp-section').style.display='none';

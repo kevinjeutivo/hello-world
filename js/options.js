@@ -4,11 +4,11 @@
 // Dependencies: helpers.js, api.js, storage.js
 
 function updateSlider(id){
-  const slider=document.getElementById(id+'-slider');
+  const slider=document.getElementById(id);
   const label=document.getElementById(id+'-val');
   if(!slider||!label)return;
   label.textContent=slider.value+'%';
-  buildOptionsTable();
+  if(currentOptionsData)buildOptionsTable();
 }
 
 function clearOptionsState(){

@@ -18,8 +18,13 @@ function _showUndoToast(ticker){
   const el=document.getElementById('toast');
   if(!el)return;
   clearTimeout(window._toastTimer);
+  // Set structure via innerHTML but attach the button listener via addEventListener
+  // so we are not relying on inline onclick resolution, which can fail on iOS
+  // Safari when the function is defined in an external script file.
   el.innerHTML='<span>Removed '+ticker+'</span>'
-    +'<button class="toast-undo-btn" onclick="_undoRemove()">Undo</button>';
+    +'<button class="toast-undo-btn" id="toast-undo-btn">Undo</button>';
+  const btn=document.getElementById('toast-undo-btn');
+  if(btn)btn.addEventListener('click',function(e){e.stopPropagation();_undoRemove();});
   el.classList.add('toast-undo-mode','show');
   _undoTimer=setTimeout(()=>_commitPendingUndo(),UNDO_DURATION);
 }

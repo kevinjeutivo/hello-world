@@ -4,14 +4,26 @@
 // Dependencies: storage.js (S)
 
 function applyFontSize(size){
-  const px=size+'px';
-  // Set the CSS variable so any var(--base-font) references stay in sync.
-  document.documentElement.style.setProperty('--base-font',px);
-  // iOS Safari does not reliably re-cascade a CSS variable change into the
-  // computed font-size of the <html> element itself.  Setting fontSize
-  // directly on documentElement is the only approach that works consistently
-  // across all WebKit versions, including Safari on iPhone 13 mini.
-  document.documentElement.style.fontSize=px;
+  // All font sizes in this app are hardcoded in px (in app.css and inline
+  // styles), so changing the root font-size has no effect on them.
+  // Instead we scale the entire #app container using CSS zoom, which is
+  // a WebKit original and is fully supported on iOS Safari.  zoom scales
+  // EVERYTHING uniformly -- text, borders, padding, charts -- with no
+  // changes required to any px values anywhere in the codebase.
+  //
+  // Base size is 19 (the default option).  Zoom = selected / 19.
+  // Examples: 15px -> 0.789, 19px -> 1.000, 26px -> 1.368, 36px -> 1.895
+  const BASE=19;
+  const zoom=parseFloat(size)/BASE;
+  const app=document.getElementById('app');
+  if(app){
+    app.style.zoom=zoom;
+    // transform-origin ensures the app scales from the top-left corner,
+    // preventing horizontal overflow on narrow iPhone screens.
+    app.style.transformOrigin='top left';
+  }
+  // Keep the CSS variable updated for any code that reads it.
+  document.documentElement.style.setProperty('--base-font',size+'px');
 }
 
 function nowInTZ(){

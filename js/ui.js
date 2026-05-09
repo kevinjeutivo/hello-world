@@ -3,18 +3,137 @@
 // Globals used: tzPref, offlineMode, vixThreshold, currentTicker, watchlist, S
 // Dependencies: helpers.js, storage.js
 
-function isNYSEHoliday(etDateObj){
-  // Takes a Date object, checks holiday in ET
-  const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'});
-  const parts=fmt.formatToParts(etDateObj);
-  const y=parts.find(p=>p.type==='year').value;
-  const mo=parts.find(p=>p.type==='month').value;
-  const da=parts.find(p=>p.type==='day').value;
-  return NYSE_HOLIDAYS.has(`${y}-${mo}-${da}`);
+// ── NYSE Holiday computation ──────────────────────────────────────────────────
+// Replaces the old hardcoded NYSE_HOLIDAYS Set with a function that computes
+// holidays algorithmically for any year.  No maintenance required, works
+// offline forever.
+//
+// Observation rule (same for all NYSE holidays):
+//   If the holiday falls on Saturday → observed Friday
+//   If the holiday falls on Sunday   → observed Monday
+//
+// Rules by holiday:
+//   New Year's Day   Jan 1 (observed)
+//   MLK Day          3rd Monday of January
+//   Presidents' Day  3rd Monday of February
+//   Good Friday      Friday before Easter (computed via Anonymous Gregorian)
+//   Memorial Day     last Monday of May
+//   Juneteenth       Jun 19 (observed) -- if Sat → Fri Jun 18, if Sun → Mon Jun 20
+//   Independence Day Jul 4 (observed)
+//   Labor Day        1st Monday of September
+//   Thanksgiving     4th Thursday of November
+//   Christmas        Dec 25 (observed)
+
+function _observed(date){
+  // Returns the NYSE-observed date for a holiday that falls on a fixed calendar date.
+  // date is a Date object at noon UTC to avoid DST edge cases.
+  const dow=date.getUTCDay(); // 0=Sun 6=Sat
+  if(dow===6)return new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate()-1));
+  if(dow===0)return new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate()+1));
+  return date;
 }
 
+function _nthWeekday(year,month,weekday,n){
+  // Returns the date of the nth occurrence of weekday (0=Sun..6=Sat)
+  // in the given month (0-indexed) of year.
+  // n=1 → first, n=2 → second, etc.
+  // n=-1 → last occurrence.
+  if(n>0){
+    const first=new Date(Date.UTC(year,month,1));
+    const diff=(weekday-first.getUTCDay()+7)%7;
+    return new Date(Date.UTC(year,month,1+diff+(n-1)*7));
+  }else{
+    // last occurrence: start from end of month
+    const last=new Date(Date.UTC(year,month+1,0)); // last day of month
+    const diff=(last.getUTCDay()-weekday+7)%7;
+    return new Date(Date.UTC(year,month,last.getUTCDate()-diff));
+  }
+}
+
+function _easter(year){
+  // Anonymous Gregorian algorithm -- returns Easter Sunday as a UTC noon Date.
+  const a=year%19;
+  const b=Math.floor(year/100);
+  const c=year%100;
+  const d=Math.floor(b/4);
+  const e=b%4;
+  const f=Math.floor((b+8)/25);
+  const g=Math.floor((b-f+1)/3);
+  const h=(19*a+b-d-g+15)%30;
+  const i=Math.floor(c/4);
+  const k=c%4;
+  const l=(32+2*e+2*i-h-k)%7;
+  const m=Math.floor((a+11*h+22*l)/451);
+  const month=Math.floor((h+l-7*m+114)/31)-1; // 0-indexed
+  const day=((h+l-7*m+114)%31)+1;
+  return new Date(Date.UTC(year,month,day));
+}
+
+function _computeNYSEHolidays(year){
+  // Returns a Set of 'YYYY-MM-DD' strings for NYSE holidays in the given year.
+  const holidays=new Set();
+
+  function add(date){
+    // date is a Date object -- store as YYYY-MM-DD
+    const y=date.getUTCFullYear();
+    const m=String(date.getUTCMonth()+1).padStart(2,'0');
+    const d=String(date.getUTCDate()).padStart(2,'0');
+    holidays.add(`${y}-${m}-${d}`);
+  }
+
+  // New Year's Day -- Jan 1 (observed)
+  add(_observed(new Date(Date.UTC(year,0,1))));
+
+  // MLK Day -- 3rd Monday of January
+  add(_nthWeekday(year,0,1,3));
+
+  // Presidents' Day -- 3rd Monday of February
+  add(_nthWeekday(year,1,1,3));
+
+  // Good Friday -- Friday before Easter Sunday
+  const easter=_easter(year);
+  const goodFriday=new Date(Date.UTC(easter.getUTCFullYear(),easter.getUTCMonth(),easter.getUTCDate()-2));
+  add(goodFriday);
+
+  // Memorial Day -- last Monday of May
+  add(_nthWeekday(year,4,1,-1));
+
+  // Juneteenth -- Jun 19 (observed)
+  // If Sat → observed Fri Jun 18; if Sun → observed Mon Jun 20
+  add(_observed(new Date(Date.UTC(year,5,19))));
+
+  // Independence Day -- Jul 4 (observed)
+  add(_observed(new Date(Date.UTC(year,6,4))));
+
+  // Labor Day -- 1st Monday of September
+  add(_nthWeekday(year,8,1,1));
+
+  // Thanksgiving -- 4th Thursday of November
+  add(_nthWeekday(year,10,4,4));
+
+  // Christmas -- Dec 25 (observed)
+  add(_observed(new Date(Date.UTC(year,11,25))));
+
+  return holidays;
+}
+
+// Cache computed holiday sets by year so we don't recompute on every banner tick.
+const _holidayCache={};
+
+function isNYSEHoliday(etDateObj){
+  // etDateObj is a Date object; we check its calendar date in ET.
+  const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'});
+  const parts=fmt.formatToParts(etDateObj);
+  const y=parseInt(parts.find(p=>p.type==='year').value);
+  const mo=parts.find(p=>p.type==='month').value;
+  const da=parts.find(p=>p.type==='day').value;
+  if(!_holidayCache[y])_holidayCache[y]=_computeNYSEHolidays(y);
+  return _holidayCache[y].has(`${y}-${mo}-${da}`);
+}
+
+// ── Market state ──────────────────────────────────────────────────────────────
+
 function getETComponents(){
-  // Use Intl.DateTimeFormat to reliably extract ET time components on all browsers
   const now=new Date();
   const fmt=new Intl.DateTimeFormat('en-US',{
     timeZone:'America/New_York',
@@ -26,11 +145,10 @@ function getETComponents(){
   const get=type=>parseInt(parts.find(p=>p.type===type)?.value||'0');
   const getStr=type=>parts.find(p=>p.type===type)?.value||'';
   let hour=get('hour');
-  // Intl hour12:false returns 24 for midnight on some platforms -- normalize
   if(hour===24)hour=0;
   const min=get('minute');
   const sec=get('second');
-  const weekday=getStr('weekday'); // 'Sun','Mon',...
+  const weekday=getStr('weekday');
   const isWeekend=(weekday==='Sun'||weekday==='Sat');
   return{now,hour,min,sec,isWeekend,totalMins:hour*60+min};
 }
@@ -40,7 +158,6 @@ function getMarketState(){
   const{now,hour,min,sec,isWeekend,totalMins}=et;
   if(isWeekend)return{state:'closed',reason:'weekend',now,sec};
   if(isNYSEHoliday(now))return{state:'closed',reason:'holiday',now,sec};
-  // Market hours ET: open 9:30 (570 mins) to 16:00 (960 mins)
   if(totalMins>=570&&totalMins<960)return{state:'open',totalMins,sec,now};
   if(totalMins>=240&&totalMins<570)return{state:'premarket',totalMins,sec,now};
   if(totalMins>=960&&totalMins<1200)return{state:'afterhours',totalMins,sec,now};
@@ -52,24 +169,8 @@ function minsToHHMM(m){const h=Math.floor(m/60);const mm=m%60;return h>0?`${h}h 
 function secsToMMSS(s){return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;}
 
 function etTimeToDisplay(etHour,etMin){
-  // Build a Date object for today at the given ET hour:min
-  const now=new Date();
-  // Get today's date in ET
-  const etFmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'});
-  const etParts=etFmt.formatToParts(now);
-  const etY=etParts.find(p=>p.type==='year').value;
-  const etMo=etParts.find(p=>p.type==='month').value;
-  const etDa=etParts.find(p=>p.type==='day').value;
-  // Create a UTC date for this ET time today
-  // ET is UTC-4 (EDT) or UTC-5 (EST). Use Intl to get the offset indirectly.
-  const etMidnight=new Date(`${etY}-${etMo}-${etDa}T${String(etHour).padStart(2,'0')}:${String(etMin).padStart(2,'0')}:00`);
-  // Display in chosen timezone
-  const tz=tzPref==='PT'?'America/Los_Angeles':tzPref==='UTC'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const displayFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',minute:'2-digit',hour12:true});
-  const tzLabel=tzPref==='PT'?'PT':tzPref==='UTC'?'UTC':'local';
-  // The etMidnight date was created in LOCAL time, not ET. We need proper ET->display conversion.
-  // Better: use the actual now moment and compute the close time as now + minsLeft
-  return null; // signal to use minsLeft instead
+  // Signal to use minsLeft instead -- see updateMarketBanner
+  return null;
 }
 
 function updateMarketBanner(){
@@ -83,7 +184,6 @@ function updateMarketBanner(){
     const secsLeft=minsLeft*60-ms.sec;
     const inFinal10=minsLeft<=10;
     banner.className='mkt-open';
-    // Show close time in selected timezone
     const closeTime=new Date(ms.now.getTime()+secsLeft*1000);
     const closeFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',minute:'2-digit',hour12:true});
     const closeStr=closeFmt.format(closeTime);
@@ -103,25 +203,15 @@ function updateMarketBanner(){
     banner.className='mkt-prepost';
     banner.textContent=`After-hours -- extended session ends in ${minsToHHMM(minsLeft)}`;
   }else{
-    // Find next NYSE open: scan forward day by day from current ET date
-    // Strategy: for each candidate day, construct 9:30 AM ET as a real UTC Date
-    // by binary-searching the offset. We do this by checking what UTC time
-    // corresponds to 9:30 AM on that ET calendar date.
     const now=ms.now;
-    // Get current ET date components
     const etFmt2=new Intl.DateTimeFormat('en-US',{
       timeZone:'America/New_York',
       year:'numeric',month:'2-digit',day:'2-digit'
     });
-    // Build a candidate 9:30 AM ET time for a given calendar date string 'YYYY-MM-DD'
-    // by trying UTC offsets until Intl confirms it's 9:30 in ET
     function make930ET(etDateStr){
-      // Try UTC offsets -5 (EST) and -4 (EDT)
       for(const offsetH of [4,5]){
-        // 9:30 AM ET = 9:30 + offsetH in UTC
         const utcH=9+offsetH;
         const candidate=new Date(`${etDateStr}T${String(utcH).padStart(2,'0')}:30:00Z`);
-        // Verify this is actually 9:30 AM ET using Intl
         const parts=new Intl.DateTimeFormat('en-US',{
           timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false
         }).formatToParts(candidate);
@@ -129,26 +219,20 @@ function updateMarketBanner(){
         const m=parseInt(parts.find(p=>p.type==='minute').value);
         if(h===9&&m===30)return candidate;
       }
-      // Fallback: assume EDT (UTC-4)
       return new Date(`${etDateStr}T13:30:00Z`);
     }
-
-    // Start with today's ET date
     const todayParts=etFmt2.formatToParts(now);
     const etY=todayParts.find(p=>p.type==='year').value;
     const etMo=todayParts.find(p=>p.type==='month').value;
     const etDa=todayParts.find(p=>p.type==='day').value;
     let etDateStr=`${etY}-${etMo}-${etDa}`;
-
     let nextOpen=make930ET(etDateStr);
-    // If 9:30 AM ET today is already past, move to next day
     if(nextOpen<=now){
       const d=new Date(nextOpen.getTime()+86400000);
       const p=etFmt2.formatToParts(d);
       etDateStr=`${p.find(q=>q.type==='year').value}-${p.find(q=>q.type==='month').value}-${p.find(q=>q.type==='day').value}`;
       nextOpen=make930ET(etDateStr);
     }
-    // Skip weekends and holidays
     let safety=0;
     while(safety<10){
       const wd=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short'}).format(nextOpen);
@@ -179,9 +263,6 @@ function updateOnlineIndicator(){
 }
 
 function showOfflineBanner(fetchTs){
-  // Only show the offline banner when the device is genuinely offline.
-  // Transient fetch errors while online (rate limits, timeouts) should not
-  // trigger the banner -- they are handled silently by falling back to cache.
   if(navigator.onLine)return;
   const b=document.getElementById('offline-banner');
   const age=relAge(fetchTs);
@@ -207,6 +288,8 @@ function updateVIXIndicator(vixValue){
 
 function toast(msg,dur=2500){
   const el=document.getElementById('toast');
+  // If the undo toast is active, don't clobber it with a normal toast
+  if(el&&el.classList.contains('toast-undo-mode'))return;
   el.style.whiteSpace='normal';
   el.style.maxWidth='92vw';
   el.style.fontSize='11px';
@@ -217,10 +300,9 @@ function toast(msg,dur=2500){
 }
 
 function updateHeaderStatus(){
-  // Green = all core data fresh (<30min), amber = some stale, spinner = refreshing
   const dot=document.getElementById('header-status-dot');
   if(!dot)return;
-  const tickers=watchlist.slice(0,5); // sample first 5
+  const tickers=watchlist.slice(0,5);
   let allFresh=true,anyData=false;
   const now=Date.now();
   tickers.forEach(t=>{
@@ -228,7 +310,6 @@ function updateHeaderStatus(){
     if(snap?.ts){
       anyData=true;
       try{
-        const isoAttr=document.querySelector('.ts-chip')?.getAttribute('data-ts-iso');
         const snapD=new Date(snap.ts.replace(/ PT$| UTC$| local$/,'').trim());
         if(!isNaN(snapD.getTime())){
           const ageMins=(now-snapD.getTime())/60000;
@@ -240,7 +321,6 @@ function updateHeaderStatus(){
   if(!anyData){dot.style.background='#555870';dot.title='No data cached';}
   else if(allFresh){dot.style.background='#00d4aa';dot.title='Data is fresh';}
   else{dot.style.background='#ff9800';dot.title='Some data is stale -- refresh recommended';}
-  // Show last full refresh time
   const lts=S.get('last_full_refresh_ts');
   const lbl=document.getElementById('last-full-refresh-label');
   if(lbl&&lts){const age=relAge(lts);lbl.textContent='Last full refresh: '+lts+(age?' ('+age+')':'');}
@@ -251,7 +331,6 @@ function setTopBar(pct){
   const wrap=document.getElementById('top-progress-bar');
   if(!bar||!wrap)return;
   if(pct===null){
-    // Hide
     wrap.classList.remove('active');
     bar.style.width='100%';
     setTimeout(()=>{bar.style.transition='none';bar.style.width='0%';wrap.style.display='none';setTimeout(()=>{bar.style.transition='width 0.3s ease';},50);},400);
@@ -269,28 +348,23 @@ function setRefreshSpinner(active){
     dot.style.background='#4fc3f7';
     dot.style.animation='pulse 1s infinite';
     dot.title='Refreshing...';
-    setTopBar(2); // start bar at 2% so it's immediately visible
+    setTopBar(2);
   }else{
     dot.style.animation='';
-    setTopBar(null); // complete and hide
+    setTopBar(null);
     updateHeaderStatus();
   }
 }
 
 function refreshTsChipAges(){
-  // Re-compute relative age on all ts-chips using data-ts-iso for reliable parsing.
-  // data-ts-iso is set by tsChip() at render time as a true ISO timestamp.
-  // Falls back to parsing the display text if attribute is absent (legacy chips).
   const STALE_MINS=15;
   document.querySelectorAll('.ts-chip').forEach(chip=>{
-    // Prefer ISO attribute for age computation -- always parseable
     const isoAttr=chip.getAttribute('data-ts-iso');
     const displayTs=chip.getAttribute('data-ts-display')||'';
     let ageMins=Infinity;
     if(isoAttr){
       try{ageMins=(Date.now()-new Date(isoAttr).getTime())/60000;}catch{}
     }else{
-      // Legacy fallback: try to parse display text
       try{
         const text=chip.textContent||'';
         const match=text.match(/^(?:live|cached)\s+(.+?)(?:\s+\(.*\))?$/);
@@ -303,7 +377,6 @@ function refreshTsChipAges(){
     }
     const shouldBeStale=ageMins>STALE_MINS;
     if(shouldBeStale){chip.classList.remove('live');chip.classList.add('stale');}
-    // Recompute age text using display timestamp
     const tsStr=displayTs||'';
     const age=relAge(tsStr);
     const prefix=chip.classList.contains('live')?'live':'cached';
@@ -317,7 +390,6 @@ function showTab(name){
   document.getElementById('tab-'+name).classList.add('active');
   const tabs=['dashboard','watchlist','ticker','options','vix','earnings','etf','market','guide'];
   document.querySelectorAll('.nav-tab')[tabs.indexOf(name)].classList.add('active');
-  // Refresh all age labels whenever user switches tabs
   refreshTsChipAges();
   if(name==='watchlist')renderWatchlist();
   if(name==='ticker'&&currentTicker){

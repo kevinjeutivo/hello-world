@@ -123,7 +123,7 @@ async function runDashboards(skipOnlineCheck=false){
       const cs=scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:cRS,expiration:cExp,estApy:cApy,ivrVal,ptMean:snap.ptMean||null,beta:snap.beta||null,oiGapPct:callOiGapPct});
       const common={ticker:t,price,ivrBadge:ivr.badge,ivrVal,earningsDate:earningsDisplay};
       putResults.push({...common,...ps});ccResults.push({...common,...cs});
-    }catch{const e={ticker:t,price:null,score:-99,signal:'error',factors:'Data unavailable',narrative:'',ivrBadge:'',earningsDate:null,recStrike:'--',expiration:'--',estApy:'--'};putResults.push({...e});ccResults.push({...e});}
+    }catch(err){console.error('Dashboard scoring error for '+t+':',err?.message||err);const e={ticker:t,price:null,score:-99,signal:'error',factors:'Data unavailable: '+(err?.message||'unknown').slice(0,40),narrative:'Error: '+(err?.message||'unknown'),ivrBadge:'',earningsDate:null,recStrike:'--',expiration:'--',estApy:'--'};putResults.push({...e});ccResults.push({...e});}
     if(i<watchlist.length-1)await sleep(800);
   }
   document.getElementById('dash-progress-bar').style.width='100%';
@@ -134,7 +134,9 @@ async function runDashboards(skipOnlineCheck=false){
   const validPuts=putResults.filter(r=>r.signal!=='error');
   const validCC=ccResults.filter(r=>r.signal!=='error');
   if(validPuts.length===0&&validCC.length===0){
-    toast('Network error -- cached dashboards preserved',3500);
+    const firstErr=putResults.find(r=>r.signal==='error')?.narrative||'';
+    const errHint=firstErr?': '+firstErr.slice(0,50):'';
+    toast('All tickers failed'+errHint,4500);
     const cp=S.get('conviction_puts'),cc=S.get('conviction_cc');
     if(cp)renderDashTable('put-dashboard-content',cp.results,cp.ts,false);
     if(cc)renderDashTable('cc-dashboard-content',cc.results,cc.ts,false);

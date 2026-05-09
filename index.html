@@ -785,10 +785,7 @@ let vixThreshold=parseInt(S.get('vix_threshold')||'20');
 let tzPref=S.get('tz_pref')||'PT';
 let offlineMode=S.get('offline_mode')==='true';
 let fontSize=S.get('font_size')||'19';
-// Apply saved font size immediately on startup -- must run after helpers.js
-// is loaded. applyFontSize sets both the CSS variable and document-
-// Element.style.fontSize directly, which is required for iOS Safari.
-document.addEventListener('DOMContentLoaded',()=>applyFontSize(fontSize));
+applyFontSize(fontSize);
 let watchlistSort=S.get('watchlist_sort')||'manual'; // manual | alpha | opportunity
 
 const DEFAULT_WATCHLIST=['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];

@@ -409,14 +409,159 @@ Version: v2.7.0</div>
     <div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:var(--accent2)"></span>Conviction Factor Weights</div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px;line-height:1.6">Multipliers per scoring factor (0.0 = ignore, 1.0 = default, 2.0 = double). Takes effect on next dashboard run.</div>
     <div id="weight-sliders">
-      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">IVR (implied vol rank)</label><span id="weight-val-ivr" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-ivr" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-ivr').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
-      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">RSI (momentum)</label><span id="weight-val-rsi" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-rsi" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-rsi').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
-      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">Range (52W position)</label><span id="weight-val-range" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-range" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-range').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
-      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">APY (yield vs target)</label><span id="weight-val-apy" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-apy" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-apy').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
-      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">Earnings (penalty)</label><span id="weight-val-earnings" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-earnings" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-earnings').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
-      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">MA (trend confirmation)</label><span id="weight-val-ma" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-ma" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-ma').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
-      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">Analyst Upside</label><span id="weight-val-upside" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-upside" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-upside').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
-      <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between"><label class="input-label" style="margin:0;font-size:11px">Beta (high-beta penalty)</label><span id="weight-val-beta" style="font-family:var(--mono);font-size:12px;color:var(--accent)">1.0x</span></div><input type="range" id="weight-beta" min="0" max="3" step="0.1" value="1.0" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('weight-val-beta').textContent=parseFloat(this.value).toFixed(1)+'x'"></div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <label class="input-label" style="margin:0;font-size:11px">IVR (implied vol rank)</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="weight-share-ivr" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
+            <span id="weight-val-ivr" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
+          </div>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
+          <div id="weight-bar-ivr" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
+        </div>
+        <input type="range" id="weight-ivr" min="0" max="3" step="0.1" value="1.0"
+          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
+          oninput="document.getElementById('weight-val-ivr').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
+        <button onclick="(function(){const d=document.getElementById('weight-desc-ivr');const b=document.getElementById('weight-info-ivr');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['ivr']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-ivr" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
+        <div id="weight-desc-ivr" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <label class="input-label" style="margin:0;font-size:11px">RSI (momentum)</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="weight-share-rsi" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
+            <span id="weight-val-rsi" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
+          </div>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
+          <div id="weight-bar-rsi" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
+        </div>
+        <input type="range" id="weight-rsi" min="0" max="3" step="0.1" value="1.0"
+          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
+          oninput="document.getElementById('weight-val-rsi').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
+        <button onclick="(function(){const d=document.getElementById('weight-desc-rsi');const b=document.getElementById('weight-info-rsi');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['rsi']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-rsi" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
+        <div id="weight-desc-rsi" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <label class="input-label" style="margin:0;font-size:11px">Range (52W position)</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="weight-share-range" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
+            <span id="weight-val-range" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
+          </div>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
+          <div id="weight-bar-range" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
+        </div>
+        <input type="range" id="weight-range" min="0" max="3" step="0.1" value="1.0"
+          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
+          oninput="document.getElementById('weight-val-range').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
+        <button onclick="(function(){const d=document.getElementById('weight-desc-range');const b=document.getElementById('weight-info-range');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['range']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-range" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
+        <div id="weight-desc-range" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <label class="input-label" style="margin:0;font-size:11px">APY (yield vs target)</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="weight-share-apy" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
+            <span id="weight-val-apy" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
+          </div>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
+          <div id="weight-bar-apy" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
+        </div>
+        <input type="range" id="weight-apy" min="0" max="3" step="0.1" value="1.0"
+          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
+          oninput="document.getElementById('weight-val-apy').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
+        <button onclick="(function(){const d=document.getElementById('weight-desc-apy');const b=document.getElementById('weight-info-apy');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['apy']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-apy" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
+        <div id="weight-desc-apy" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <label class="input-label" style="margin:0;font-size:11px">Earnings (penalty)</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="weight-share-earnings" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
+            <span id="weight-val-earnings" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
+          </div>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
+          <div id="weight-bar-earnings" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
+        </div>
+        <input type="range" id="weight-earnings" min="0" max="3" step="0.1" value="1.0"
+          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
+          oninput="document.getElementById('weight-val-earnings').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
+        <button onclick="(function(){const d=document.getElementById('weight-desc-earnings');const b=document.getElementById('weight-info-earnings');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['earnings']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-earnings" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
+        <div id="weight-desc-earnings" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <label class="input-label" style="margin:0;font-size:11px">MA (trend confirmation)</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="weight-share-ma" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
+            <span id="weight-val-ma" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
+          </div>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
+          <div id="weight-bar-ma" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
+        </div>
+        <input type="range" id="weight-ma" min="0" max="3" step="0.1" value="1.0"
+          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
+          oninput="document.getElementById('weight-val-ma').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
+        <button onclick="(function(){const d=document.getElementById('weight-desc-ma');const b=document.getElementById('weight-info-ma');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['ma']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-ma" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
+        <div id="weight-desc-ma" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <label class="input-label" style="margin:0;font-size:11px">Analyst Upside</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="weight-share-upside" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
+            <span id="weight-val-upside" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
+          </div>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
+          <div id="weight-bar-upside" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
+        </div>
+        <input type="range" id="weight-upside" min="0" max="3" step="0.1" value="1.0"
+          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
+          oninput="document.getElementById('weight-val-upside').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
+        <button onclick="(function(){const d=document.getElementById('weight-desc-upside');const b=document.getElementById('weight-info-upside');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['upside']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-upside" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
+        <div id="weight-desc-upside" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <label class="input-label" style="margin:0;font-size:11px">Beta (high-beta penalty)</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="weight-share-beta" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
+            <span id="weight-val-beta" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
+          </div>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
+          <div id="weight-bar-beta" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
+        </div>
+        <input type="range" id="weight-beta" min="0" max="3" step="0.1" value="1.0"
+          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
+          oninput="document.getElementById('weight-val-beta').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
+        <button onclick="(function(){const d=document.getElementById('weight-desc-beta');const b=document.getElementById('weight-info-beta');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['beta']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-beta" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
+        <div id="weight-desc-beta" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <label class="input-label" style="margin:0;font-size:11px">OI Gravity Gap</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="weight-share-oiGap" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
+            <span id="weight-val-oiGap" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
+          </div>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
+          <div id="weight-bar-oiGap" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
+        </div>
+        <input type="range" id="weight-oiGap" min="0" max="3" step="0.1" value="1.0"
+          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
+          oninput="document.getElementById('weight-val-oiGap').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
+        <button onclick="(function(){const d=document.getElementById('weight-desc-oiGap');const b=document.getElementById('weight-info-oiGap');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['oiGap']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-oiGap" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
+        <div id="weight-desc-oiGap" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
+      </div>
     </div>
     <div style="display:flex;gap:8px;margin-top:4px;margin-bottom:12px">
       <button class="btn btn-primary" onclick="saveConvictionWeights()" style="flex:1">Save Weights</button>

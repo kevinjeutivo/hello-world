@@ -4,6 +4,22 @@
 
 // ═══ CONVICTION SCORING LOGIC ═══
 
+// Maximum base point contribution per factor -- used by settings.js to
+// compute each factor's share of the total possible score.
+// Values reflect the highest positive score each factor can contribute
+// in scorePuts / scoreCalls.
+const FACTOR_BASE_MAX={
+  ivr:3,
+  rsi:3,
+  range:3,
+  apy:3,
+  earnings:2,
+  ma:2,
+  upside:3,
+  beta:3,
+  oiGap:3
+};
+
 function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expiration,estApy,ivrVal,ptMean,beta,oiGapPct}){
   let score=0;const reasons=[],details=[];const today=new Date();
   if(rsiVal!==null&&!isNaN(rsiVal)){if(rsiVal<35){score+=2;reasons.push(`RSI oversold (${rsiVal.toFixed(0)})`);details.push(`RSI ${rsiVal.toFixed(0)} -- oversold`);}else if(rsiVal<50){score+=1;details.push(`RSI ${rsiVal.toFixed(0)} -- neutral-low`);}else if(rsiVal>70){score-=2;reasons.push(`RSI overbought (${rsiVal.toFixed(0)})`);details.push(`RSI ${rsiVal.toFixed(0)} -- overbought, caution`);}else if(rsiVal>60){score-=1;details.push(`RSI ${rsiVal.toFixed(0)} -- elevated`);}else{details.push(`RSI ${rsiVal.toFixed(0)} -- neutral`);}}

@@ -4,7 +4,48 @@
 // Globals used: vixThreshold, WORKER_URL, S
 // Dependencies: helpers.js, ui.js, storage.js
 
-function restoreVIXFromCache(){const cv=S.get('vix_hist'),cv3=S.get('vix3m_hist');if(!cv)return;renderVIXContent({timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes},cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null,false,cv.ts);refreshTsChipAges();}
+// How old VIX cached data can be (minutes) before a tab switch triggers a
+// live refresh.  30 minutes matches the staleness threshold used elsewhere.
+const VIX_CACHE_FRESH_MINS=30;
+
+// Returns the age in minutes of a stored timestamp string, or Infinity if
+// absent / unparseable.  Handles both bare strings and {ts:'...'} objects.
+function _vixCacheAgeMins(tsStr){
+  if(!tsStr)return Infinity;
+  try{
+    const clean=(typeof tsStr==='object'&&tsStr.ts)?tsStr.ts:tsStr;
+    const d=new Date(String(clean).replace(/ PT$| UTC$| local$/,'').trim());
+    if(isNaN(d.getTime()))return Infinity;
+    return(Date.now()-d.getTime())/60000;
+  }catch{return Infinity;}
+}
+
+function restoreVIXFromCache(){
+  const cv=S.get('vix_hist');
+  const cv3=S.get('vix3m_hist');
+
+  // Always render whatever is cached first — this guarantees the user sees
+  // something immediately and that no cached data is ever lost.
+  if(cv){
+    renderVIXContent(
+      {timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes},
+      cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null,
+      false,
+      cv.ts
+    );
+    refreshTsChipAges();
+  }
+
+  // After rendering the cache, decide whether to fetch fresh data:
+  //   • Only when the device is online AND offlineMode is disabled.
+  //   • Only when the cached data is stale (or absent).
+  // loadVIX() has its own offline guards at the top and wraps every S.set()
+  // in a try block — it never zeros the cache on a failed fetch.
+  const ageMins=_vixCacheAgeMins(cv?.ts);
+  if(ageMins>=VIX_CACHE_FRESH_MINS&&navigator.onLine&&!offlineMode){
+    loadVIX();
+  }
+}
 
 async function loadVIX(){
   if(!navigator.onLine&&!offlineMode){toast('Offline -- showing cached VIX',2500);restoreVIXFromCache();return;}

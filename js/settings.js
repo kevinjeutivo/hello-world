@@ -3,12 +3,34 @@
 // Globals used: FINNHUB_KEY, watchlist, vixThreshold, tzPref, offlineMode, fontSize, S
 // Dependencies: helpers.js, ui.js, storage.js
 
+// Base max point contributions per factor (must match scoring.js)
+const FACTOR_BASE_MAX={ivr:3,rsi:2,range:2,apy:2,earnings:2,ma:1,upside:1,beta:1,oiGap:2};
+
 function getConvictionWeights(){
-  return S.get('conviction_weights')||{ivr:1.0,rsi:1.0,range:1.0,apy:1.0,earnings:1.0,ma:1.0,upside:1.0,beta:1.0};
+  const defaults={ivr:1.0,rsi:1.0,range:1.0,apy:1.0,earnings:1.0,ma:1.0,upside:1.0,beta:1.0,oiGap:1.0};
+  return{...defaults,...(S.get('conviction_weights')||{})};
+}
+
+function updateWeightShares(){
+  // Compute weighted contributions and display as % share of total
+  const keys=['ivr','rsi','range','apy','earnings','ma','upside','beta','oiGap'];
+  const weighted=keys.map(k=>{
+    const el=document.getElementById('weight-'+k);
+    const base=FACTOR_BASE_MAX[k]||1;
+    return{k,val:parseFloat(el?.value||1)*base};
+  });
+  const total=weighted.reduce((s,w)=>s+w.val,0)||1;
+  weighted.forEach(({k,val})=>{
+    const pct=Math.round(val/total*100);
+    const pctEl=document.getElementById('weight-pct-'+k);
+    const barEl=document.getElementById('weight-bar-'+k);
+    if(pctEl)pctEl.textContent=pct+'%';
+    if(barEl)barEl.style.width=pct+'%';
+  });
 }
 
 function saveConvictionWeights(){
-  const keys=['ivr','rsi','range','apy','earnings','ma','upside','beta'];
+  const keys=['ivr','rsi','range','apy','earnings','ma','upside','beta','oiGap'];
   const weights={};
   keys.forEach(k=>{
     const el=document.getElementById('weight-'+k);
@@ -19,29 +41,62 @@ function saveConvictionWeights(){
 }
 
 function resetConvictionWeights(){
-  const defaults={ivr:1.0,rsi:1.0,range:1.0,apy:1.0,earnings:1.0,ma:1.0,upside:1.0,beta:1.0};
+  const defaults={ivr:1.0,rsi:1.0,range:1.0,apy:1.0,earnings:1.0,ma:1.0,upside:1.0,beta:1.0,oiGap:1.0};
   S.set('conviction_weights',defaults);
   loadWeightSliders();
   toast('Weights reset to defaults');
 }
 
+// Factor base max points (must match scoring.js FACTOR_BASE_MAX)
+const FACTOR_BASE_MAX_SETTINGS={ivr:3,rsi:2,range:2,apy:2,earnings:2,ma:1,upside:1,beta:1,oiGap:2};
+
+const FACTOR_DESCRIPTIONS={
+  ivr:'Implied Volatility Rank -- measures how elevated current IV is vs the past year. High IVR means options are unusually expensive, so you collect more premium for the same risk. The most important factor for income generation.',
+  rsi:'Relative Strength Index -- momentum (0-100). For puts, oversold (below 35) is favorable since the stock has pulled back. For calls, overbought (above 70) is favorable. Neutral RSI is neither good nor bad.',
+  range:'52-week range position. For puts, lower in the range (near annual lows) means more downside cushion above your strike. For calls, upper half of range is favorable.',
+  apy:'Estimated annualized yield of the recommended strike. Higher APY relative to your target (12%) directly improves the income thesis. Set to 0x to remove APY from scoring entirely.',
+  earnings:'Proximity to the next earnings announcement. Within 35 days is penalized -- earnings create overnight gap risk. This is a pure penalty. Increase weight to be more conservative around earnings.',
+  ma:'Moving average trend -- whether price is above its 50-day and 200-day MAs. Above both confirms an uptrend. Below both is a caution signal for put selling.',
+  upside:'Analyst consensus price target distance from current price. Large upside to target (15%+) suggests analysts see the stock as undervalued, adding confidence for put selling.',
+  beta:'Market sensitivity. High beta (above 1.8) means wider price swings and higher assignment risk. Increase weight to penalize volatile stocks more heavily in your scoring.',
+  oiGap:'OI Gravity Gap -- the distance between current price and the strike with the highest open interest. For puts, a wide gap below (20%+) means the max-OI anchor is far beneath you, giving a comfortable runway. Increase weight if this factor matters most to your trade selection.'
+};
+
+function updateWeightShares(){
+  const keys=['ivr','rsi','range','apy','earnings','ma','upside','beta','oiGap'];
+  const weights={};
+  keys.forEach(k=>{
+    const el=document.getElementById('weight-'+k);
+    weights[k]=el?parseFloat(el.value)||0:0;
+  });
+  const total=keys.reduce((s,k)=>s+(FACTOR_BASE_MAX_SETTINGS[k]||1)*(weights[k]||0),0);
+  keys.forEach(k=>{
+    const share=total>0?Math.round((FACTOR_BASE_MAX_SETTINGS[k]||1)*(weights[k]||0)/total*100):0;
+    const shareEl=document.getElementById('weight-share-'+k);
+    const barEl=document.getElementById('weight-bar-'+k);
+    if(shareEl)shareEl.textContent=share+'%';
+    if(barEl)barEl.style.width=Math.min(share,100)+'%';
+  });
+}
+
 function loadWeightSliders(){
   const w=getConvictionWeights();
-  const keys=['ivr','rsi','range','apy','earnings','ma','upside','beta'];
+  const keys=['ivr','rsi','range','apy','earnings','ma','upside','beta','oiGap'];
   keys.forEach(k=>{
     const el=document.getElementById('weight-'+k);
     const valEl=document.getElementById('weight-val-'+k);
     if(el){el.value=w[k]||1.0;}
     if(valEl){valEl.textContent=(w[k]||1.0).toFixed(1)+'x';}
   });
+  updateWeightShares();
 }
 
 
 async function checkFlightModeReady(){
   const el=document.getElementById('flight-mode-display');
-  if(!el)return;
+  if(!el){console.error('flight-mode-display element not found');return;}
   el.innerHTML='<div style="color:var(--text3)">Checking...</div>';
-
+  try{
   const now=Date.now();
   const maxAge=24*60*60*1000; // 24 hours -- reasonable for a flight
   const checks=[];
@@ -49,8 +104,13 @@ async function checkFlightModeReady(){
   // Helper: age in hours
   const ageHrs=ts=>{
     if(!ts)return null;
-    try{const d=new Date(ts.replace(/ PT$| UTC$| local$/,'').trim());
-    return isNaN(d.getTime())?null:(now-d.getTime())/3600000;}catch{return null;}
+    try{
+      // Handle both string timestamps and {ts:string} objects
+      const tsStr=typeof ts==='object'&&ts.ts?ts.ts:(typeof ts==='string'?ts:null);
+      if(!tsStr)return null;
+      const d=new Date(tsStr.replace(/ PT$| UTC$| local$/,'').trim());
+      return isNaN(d.getTime())?null:(now-d.getTime())/3600000;
+    }catch{return null;}
   };
   const ageStr=hrs=>{
     if(hrs===null)return'missing';
@@ -106,8 +166,8 @@ async function checkFlightModeReady(){
     detail:etfStatus==='green'?'Cached':'Missing -- refresh ETF tab'});
 
   // 6. Market data
-  const mktTs=S.get('mkt_ts');
-  const mktAge=mktTs?.ts?ageHrs(mktTs.ts):null;
+  const mktTsRaw=S.get('mkt_ts');
+  const mktAge=ageHrs(mktTsRaw?.ts||mktTsRaw);
   checks.push({label:'Market data',status:ok(mktAge)?'green':'red',
     detail:mktAge!==null?ageStr(mktAge):'not cached'});
 
@@ -136,6 +196,10 @@ async function checkFlightModeReady(){
   el.innerHTML='<div style="font-family:var(--mono);font-size:13px;font-weight:600;color:'+overallColor+';margin-bottom:10px">'+overallLabel+'</div>'
     +rowsHtml
     +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:8px">Run Full Refresh Everything before flights to ensure all data is fresh.</div>';
+  }catch(e){
+    console.error('Flight check error:',e);
+    if(el)el.innerHTML='<span style="color:var(--red)">Check failed: '+e.message+'</span>';
+  }
 }
 
 async function measureStorage(){

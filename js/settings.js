@@ -11,24 +11,6 @@ function getConvictionWeights(){
   return{...defaults,...(S.get('conviction_weights')||{})};
 }
 
-function updateWeightShares(){
-  // Compute weighted contributions and display as % share of total
-  const keys=['ivr','rsi','range','apy','earnings','ma','upside','beta','oiGap'];
-  const weighted=keys.map(k=>{
-    const el=document.getElementById('weight-'+k);
-    const base=FACTOR_BASE_MAX[k]||1;
-    return{k,val:parseFloat(el?.value||1)*base};
-  });
-  const total=weighted.reduce((s,w)=>s+w.val,0)||1;
-  weighted.forEach(({k,val})=>{
-    const pct=Math.round(val/total*100);
-    const pctEl=document.getElementById('weight-pct-'+k);
-    const barEl=document.getElementById('weight-bar-'+k);
-    if(pctEl)pctEl.textContent=pct+'%';
-    if(barEl)barEl.style.width=pct+'%';
-  });
-}
-
 function saveConvictionWeights(){
   const keys=['ivr','rsi','range','apy','earnings','ma','upside','beta','oiGap'];
   const weights={};

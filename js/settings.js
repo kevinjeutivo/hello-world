@@ -4,7 +4,7 @@
 // Dependencies: helpers.js, ui.js, storage.js
 
 // Base max point contributions per factor (must match scoring.js)
-const FACTOR_BASE_MAX={ivr:3,rsi:2,range:2,apy:2,earnings:2,ma:1,upside:1,beta:1,oiGap:2};
+// FACTOR_BASE_MAX defined in scoring.js
 
 function getConvictionWeights(){
   const defaults={ivr:1.0,rsi:1.0,range:1.0,apy:1.0,earnings:1.0,ma:1.0,upside:1.0,beta:1.0,oiGap:1.0};
@@ -48,7 +48,7 @@ function resetConvictionWeights(){
 }
 
 // Factor base max points (must match scoring.js FACTOR_BASE_MAX)
-const FACTOR_BASE_MAX_SETTINGS={ivr:3,rsi:2,range:2,apy:2,earnings:2,ma:1,upside:1,beta:1,oiGap:2};
+// FACTOR_BASE_MAX defined in scoring.js
 
 const FACTOR_DESCRIPTIONS={
   ivr:'Implied Volatility Rank -- measures how elevated current IV is vs the past year. High IVR means options are unusually expensive, so you collect more premium for the same risk. The most important factor for income generation.',
@@ -69,9 +69,9 @@ function updateWeightShares(){
     const el=document.getElementById('weight-'+k);
     weights[k]=el?parseFloat(el.value)||0:0;
   });
-  const total=keys.reduce((s,k)=>s+(FACTOR_BASE_MAX_SETTINGS[k]||1)*(weights[k]||0),0);
+  const total=keys.reduce((s,k)=>s+(FACTOR_BASE_MAX[k]||1)*(weights[k]||0),0);
   keys.forEach(k=>{
-    const share=total>0?Math.round((FACTOR_BASE_MAX_SETTINGS[k]||1)*(weights[k]||0)/total*100):0;
+    const share=total>0?Math.round((FACTOR_BASE_MAX[k]||1)*(weights[k]||0)/total*100):0;
     const shareEl=document.getElementById('weight-share-'+k);
     const barEl=document.getElementById('weight-bar-'+k);
     if(shareEl)shareEl.textContent=share+'%';

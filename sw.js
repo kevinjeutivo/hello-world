@@ -5,7 +5,7 @@
 // Version bump this string to force a refresh
 // of the cache when you deploy a new version.
 // ============================================
-const CACHE_NAME = 'putseller-v12';
+const CACHE_NAME = 'putseller-v13';
 
 // Files to cache on install — the app shell
 const APP_SHELL = [
@@ -28,6 +28,7 @@ const APP_SHELL = [
   './js/ui.js',
   './js/vix.js',
   './js/watchlist.js',
+  './js/income.js',
   './sw.js',
   'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js',
   'https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap'

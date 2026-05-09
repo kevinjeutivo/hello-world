@@ -404,4 +404,5 @@ function showTab(name){
   if(name==='earnings'){const ec=document.getElementById('earnings-content');if(!ec||ec.querySelector('.empty'))renderEarningsCards();}
   if(name==='etf'){const etc=document.getElementById('etf-content');if(!etc||etc.querySelector('.empty'))restoreETFFromCache();}
   if(name==='market'){const mc=document.getElementById('market-content');if(!mc||mc.querySelector('.empty'))restoreMarketFromCache();}
+  if(name==='income'){restoreIncomeFromCache();}
 }

@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap');
 :root{
-  --base-font:18px;
+  --base-font:19px;
   --bg:#0a0c0f;--surface:#111318;--surface2:#1a1d24;--surface3:#22262f;
   --border:#2a2e38;--accent:#00d4aa;--accent2:#ff6b35;--accent3:#7c6af7;
   --danger:#ff4757;--warn:#ffa502;--text:#e8eaf0;--text2:#8b8fa8;--text3:#555870;
@@ -9,8 +9,9 @@
   --radius:10px;--radius-lg:16px;
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-html,body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:var(--base-font);min-height:100vh;overscroll-behavior:none}
-#app{display:flex;flex-direction:column;min-height:100vh}
+/* font-size is NOT set here -- applyFontSize() controls scaling via zoom on #app */
+html,body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overscroll-behavior:none}
+#app{display:flex;flex-direction:column;min-height:100vh;transform-origin:top left}
 /* Market status banner */
 #market-status-banner{font-family:var(--mono);font-size:12px;font-weight:600;padding:6px 16px;text-align:center;position:sticky;top:0;z-index:200;transition:background 0.5s}
 .mkt-open{background:rgba(0,200,150,0.9);color:#000}
@@ -115,7 +116,7 @@ select.input{cursor:pointer}
 .modal-title{font-family:var(--sans);font-size:16px;font-weight:700;color:var(--danger);margin-bottom:12px}
 .modal-body{font-family:var(--mono);font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:16px}
 .exp-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
-.exp-chip{font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer;transition:all 0.15s}
+.exp-chip{font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer;transition:all 0.15px}
 .exp-chip.selected{background:rgba(0,212,170,0.15);border-color:var(--accent);color:var(--accent)}
 .mode-toggle{display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:12px}
 .mode-btn{flex:1;padding:9px;font-family:var(--mono);font-size:11px;border:none;background:none;color:var(--text3);cursor:pointer;transition:all 0.2s}

@@ -1,49 +1,37 @@
 // PutSeller Pro scoring.js
-// Purpose: conviction scoring formulas with rebalanced weights and dynamic multipliers.
-// Weight multipliers are read from localStorage (set in Settings).
-// Version: scoring-v2
+// Conviction scoring with rebalanced weights, dynamic multipliers, and OI Gravity Gap factor.
+// Version: scoring-v3
 
-// ─── DEFAULT FACTOR WEIGHTS ───
-// Each weight is a multiplier (0.0 – 3.0) applied to the base point contribution.
-// Defaults reflect the stated importance hierarchy:
-//   IVR most important (premium environment), then RSI/Range, then APY,
-//   with Earnings as a pure penalty and MA/Beta/Upside as modifiers.
-const DEFAULT_WEIGHTS={
-  ivr:1.0,      // IVR -- implied volatility rank (premium opportunity)
-  rsi:1.0,      // RSI -- momentum / overbought-oversold
-  range:1.0,    // Range -- 52W position
-  apy:1.0,      // APY -- estimated yield vs target
-  earnings:1.0, // Earnings timing -- penalty multiplier
-  ma:1.0,       // MA -- 50/200-day trend confirmation
-  upside:1.0,   // Analyst target upside
-  beta:1.0      // Beta -- high beta penalty
-};
+// ─── BASE MAX POINTS PER FACTOR (used for weight share calculation in Settings) ───
+const FACTOR_BASE_MAX={ivr:3,rsi:2,range:2,apy:2,earnings:2,ma:1,upside:1,beta:1,oiGap:2};
+
+// ─── DEFAULT WEIGHTS (1.0x = use base max as-is) ───
+const DEFAULT_WEIGHTS={ivr:1.0,rsi:1.0,range:1.0,apy:1.0,earnings:1.0,ma:1.0,upside:1.0,beta:1.0,oiGap:1.0};
 
 function getWeights(){
   try{
     const stored=typeof S!=='undefined'?S.get('conviction_weights'):null;
     if(!stored)return DEFAULT_WEIGHTS;
-    // Merge stored with defaults to handle new keys added in future versions
     return{...DEFAULT_WEIGHTS,...stored};
   }catch{return DEFAULT_WEIGHTS;}
 }
 
-// ─── BASE POINT VALUES (before weight multiplier applied) ───
-// These are the raw point contributions at each threshold.
-// IVR: max +3 (most important -- elevated premium is the core thesis)
-// RSI: max +2 / min -2
-// Range: max +2 / min -1
-// APY: max +2 / min 0 (now contributes to raw score, not just bar strip)
-// Earnings: max 0 / min -2 (pure penalty)
-// MA: +1 / -1 (trend confirmation)
-// Analyst upside: +1 (consensus target >15% above price)
-// Beta: 0 / -1 (penalty for high-beta names)
+// Compute each factor's percentage share of the overall score (sums to 100)
+function getWeightShares(weights){
+  weights=weights||getWeights();
+  const total=Object.keys(FACTOR_BASE_MAX).reduce((s,k)=>s+(FACTOR_BASE_MAX[k]*(weights[k]||1.0)),0);
+  const shares={};
+  Object.keys(FACTOR_BASE_MAX).forEach(k=>{
+    shares[k]=total>0?Math.round(FACTOR_BASE_MAX[k]*(weights[k]||1.0)/total*100):0;
+  });
+  return shares;
+}
 
-function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expiration,estApy,ivrVal,ptMean,beta}){
+function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expiration,estApy,ivrVal,ptMean,beta,oiGapPct}){
   const w=getWeights();
   let score=0;const reasons=[],details=[];
 
-  // ── IVR (max raw +3, min 0) ──
+  // ── IVR (base max +3) ──
   let ivrRaw=0,ivrScore=0;
   if(ivrVal!==null&&!isNaN(ivrVal)){
     if(ivrVal>=70){ivrRaw=3;reasons.push(`IVR ${ivrVal.toFixed(0)} (very high)`);details.push(`IV ${ordinal(ivrVal)} pct -- exceptional premium`);}
@@ -55,7 +43,7 @@ function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expi
   }
   score+=ivrRaw*w.ivr;
 
-  // ── RSI (max raw +2, min -2) ──
+  // ── RSI (base max +2) ──
   let rsiRaw=0,rsiScore=0;
   if(rsiVal!==null&&!isNaN(rsiVal)){
     if(rsiVal<35){rsiRaw=2;reasons.push(`RSI oversold (${rsiVal.toFixed(0)})`);details.push(`RSI ${rsiVal.toFixed(0)} -- oversold`);}
@@ -67,7 +55,7 @@ function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expi
   }
   score+=rsiRaw*w.rsi;
 
-  // ── Range position (max raw +2, min -1) ──
+  // ── Range (base max +2) ──
   let rangeRaw=0,rangeScore=0;
   if(rangePos!==null){
     const pct=(rangePos*100).toFixed(0);
@@ -79,7 +67,7 @@ function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expi
   }
   score+=rangeRaw*w.range;
 
-  // ── APY (max raw +2, min 0) -- now contributes to raw score ──
+  // ── APY (base max +2) ──
   let apyRaw=0,apyScore=0;
   if(estApy&&recStrike){
     const apyVal=parseFloat(estApy);
@@ -92,7 +80,7 @@ function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expi
   }
   score+=apyRaw*w.apy;
 
-  // ── Earnings timing (max 0, min -2 -- pure penalty) ──
+  // ── Earnings (base max -2, pure penalty) ──
   let earnRaw=0,earnScore=0;
   if(earningsDate){
     const d=daysUntilDate(earningsDate.split(' ')[0])??Math.round((new Date(earningsDate.split(' ')[0])-new Date())/86400000);
@@ -103,7 +91,7 @@ function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expi
   }else{earnScore=1;}
   score+=earnRaw*w.earnings;
 
-  // ── MA confirmation (max +1, min -1) ──
+  // ── MA (base max +1) ──
   let maRaw=0,maScore=0;
   if(ma50&&ma200&&price){
     if(price>ma50&&price>ma200){maRaw=1;details.push('Above both MAs');}
@@ -113,7 +101,7 @@ function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expi
   }
   score+=maRaw*w.ma;
 
-  // ── Analyst target upside (max +1, min 0) ──
+  // ── Analyst Upside (base max +1) ──
   let upsideRaw=0,upsideScore=0;
   if(ptMean&&price&&ptMean>0){
     const upsidePct=(ptMean-price)/price*100;
@@ -124,20 +112,33 @@ function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expi
   }
   score+=upsideRaw*w.upside;
 
-  // ── Beta (max 0, min -1 -- penalty for high-beta names) ──
+  // ── Beta (base max -1, penalty) ──
   let betaRaw=0,betaScore=0;
   if(beta!=null){
-    if(beta>1.8){betaRaw=-1;details.push(`Beta ${beta.toFixed(1)} -- high volatility, wider buffer needed`);}
+    if(beta>1.8){betaRaw=-1;details.push(`Beta ${beta.toFixed(1)} -- high vol, wider buffer needed`);}
     else if(beta>1.3){betaRaw=0;details.push(`Beta ${beta.toFixed(1)} -- elevated`);}
     else if(beta<0.7&&beta>0){betaRaw=1;details.push(`Beta ${beta.toFixed(1)} -- low vol, stable`);}
     betaScore=beta>1.8?-1:beta>1.3?0:beta<0.7&&beta>0?2:1;
   }
   score+=betaRaw*w.beta;
 
+  // ── OI Gravity Gap (base max +2) ──
+  // For puts: gap = (price - maxPutOIStrike) / price * 100
+  // Larger gap = more runway below = more comfortable put position
+  let oiGapRaw=0,oiGapScore=0;
+  if(oiGapPct!=null){
+    if(oiGapPct>=20){oiGapRaw=2;reasons.push(`OI gap ${oiGapPct.toFixed(0)}% below`);details.push(`Put OI anchor ${oiGapPct.toFixed(0)}% below price -- wide runway`);}
+    else if(oiGapPct>=12){oiGapRaw=1;details.push(`Put OI anchor ${oiGapPct.toFixed(0)}% below price -- comfortable`);}
+    else if(oiGapPct>=5){oiGapRaw=0;details.push(`Put OI anchor ${oiGapPct.toFixed(0)}% below price -- moderate`);}
+    else if(oiGapPct>=0){oiGapRaw=-1;details.push(`Put OI anchor only ${oiGapPct.toFixed(0)}% below -- tight`);}
+    else{oiGapRaw=-1;details.push('Put OI anchor above current price -- caution');}
+    oiGapScore=oiGapPct>=20?3:oiGapPct>=12?2:oiGapPct>=5?1:oiGapPct>=0?0:-1;
+  }
+  score+=oiGapRaw*w.oiGap;
+
   const signal=score>=3?'high':score>=1?'medium':'low';
-  const components={ivr:ivrScore,rsi:rsiScore,range:rangeScore,apy:apyScore,earn:earnScore};
-  // Normalize: range is now wider. Max theoretical ~14, min ~-8. Normalize to 0-100.
-  const normScore=Math.round(Math.max(0,Math.min(100,(score+8)/22*100)));
+  const components={ivr:ivrScore,rsi:rsiScore,range:rangeScore,apy:apyScore,earn:earnScore,ma:maScore,upside:upsideScore,beta:betaScore,oiGap:oiGapScore};
+  const normScore=Math.round(Math.max(0,Math.min(100,(score+8)/24*100)));
   return{score:normScore,rawScore:score,signal,
     factors:reasons.slice(0,2).join(', ')||'Insufficient data',
     narrative:details.join('. '),
@@ -145,7 +146,7 @@ function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expi
     components};
 }
 
-function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expiration,estApy,ivrVal,ptMean,beta}){
+function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expiration,estApy,ivrVal,ptMean,beta,oiGapPct}){
   const w=getWeights();
   let score=0;const reasons=[],details=[];
 
@@ -161,7 +162,7 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
   }
   score+=ivrRaw*w.ivr;
 
-  // ── RSI -- inverted for calls (overbought is favorable) ──
+  // ── RSI inverted for calls ──
   let rsiRaw=0,rsiScore=0;
   if(rsiVal!==null&&!isNaN(rsiVal)){
     if(rsiVal>70){rsiRaw=2;reasons.push(`RSI overbought (${rsiVal.toFixed(0)})`);details.push(`RSI ${rsiVal.toFixed(0)} -- overbought, ideal for calls`);}
@@ -173,7 +174,7 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
   }
   score+=rsiRaw*w.rsi;
 
-  // ── Range -- inverted for calls (near highs is favorable) ──
+  // ── Range inverted for calls ──
   let rangeRaw=0,rangeScore=0;
   if(rangePos!==null){
     const pct=(rangePos*100).toFixed(0);
@@ -186,7 +187,7 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
   }
   score+=rangeRaw*w.range;
 
-  // ── APY ──
+  // ── APY (same as puts) ──
   let apyRaw=0,apyScore=0;
   if(estApy&&recStrike){
     const apyVal=parseFloat(estApy);
@@ -199,7 +200,7 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
   }
   score+=apyRaw*w.apy;
 
-  // ── Earnings timing (same penalty for calls) ──
+  // ── Earnings (same penalty) ──
   let earnRaw=0,earnScore=0;
   if(earningsDate){
     const d=daysUntilDate(earningsDate.split(' ')[0])??Math.round((new Date(earningsDate.split(' ')[0])-new Date())/86400000);
@@ -210,7 +211,7 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
   }else{earnScore=1;}
   score+=earnRaw*w.earnings;
 
-  // ── MA (same as puts) ──
+  // ── MA (same) ──
   let maRaw=0,maScore=0;
   if(ma50&&ma200&&price){
     if(price>ma50&&price>ma200){maRaw=1;details.push('Above both MAs -- momentum');}
@@ -220,11 +221,10 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
   }
   score+=maRaw*w.ma;
 
-  // ── Analyst upside -- for calls, target proximity matters differently ──
+  // ── Analyst Upside -- for calls, near/above target is less favorable ──
   let upsideRaw=0,upsideScore=0;
   if(ptMean&&price&&ptMean>0){
     const upsidePct=(ptMean-price)/price*100;
-    // For calls: stock near or above analyst target = less room to run = slight penalty
     if(upsidePct<-5){upsideRaw=-1;details.push(`Above analyst target -- limited upside per analysts`);}
     else if(upsidePct>=15){upsideRaw=1;details.push(`Analyst target $${ptMean.toFixed(0)} (+${upsidePct.toFixed(0)}% upside -- room to run)`);}
     else{details.push(`Analyst target $${ptMean.toFixed(0)}`);}
@@ -232,7 +232,7 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
   }
   score+=upsideRaw*w.upside;
 
-  // ── Beta -- for calls, high beta means more upside potential (neutral/slight positive) ──
+  // ── Beta -- for calls, high beta is neutral/slight positive ──
   let betaRaw=0,betaScore=0;
   if(beta!=null){
     if(beta>1.5){betaRaw=0;details.push(`Beta ${beta.toFixed(1)} -- high vol, gap risk`);}
@@ -241,9 +241,23 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
   }
   score+=betaRaw*w.beta;
 
+  // ── OI Gravity Gap for calls (base max +2) ──
+  // For calls: gap = (maxCallOIStrike - price) / price * 100
+  // Larger gap = call OI wall is further above = more room for stock to run without getting called
+  let oiGapRaw=0,oiGapScore=0;
+  if(oiGapPct!=null){
+    if(oiGapPct>=20){oiGapRaw=2;reasons.push(`OI gap ${oiGapPct.toFixed(0)}% above`);details.push(`Call OI wall ${oiGapPct.toFixed(0)}% above price -- wide runway`);}
+    else if(oiGapPct>=12){oiGapRaw=1;details.push(`Call OI wall ${oiGapPct.toFixed(0)}% above price -- comfortable`);}
+    else if(oiGapPct>=5){oiGapRaw=0;details.push(`Call OI wall ${oiGapPct.toFixed(0)}% above price -- moderate`);}
+    else if(oiGapPct>=0){oiGapRaw=-1;details.push(`Call OI wall only ${oiGapPct.toFixed(0)}% above -- tight`);}
+    else{oiGapRaw=-1;details.push('Call OI wall below price -- unusual');}
+    oiGapScore=oiGapPct>=20?3:oiGapPct>=12?2:oiGapPct>=5?1:oiGapPct>=0?0:-1;
+  }
+  score+=oiGapRaw*w.oiGap;
+
   const signal=score>=3?'high':score>=1?'medium':'low';
-  const components={ivr:ivrScore,rsi:rsiScore,range:rangeScore,apy:apyScore,earn:earnScore};
-  const normScore=Math.round(Math.max(0,Math.min(100,(score+8)/22*100)));
+  const components={ivr:ivrScore,rsi:rsiScore,range:rangeScore,apy:apyScore,earn:earnScore,ma:maScore,upside:upsideScore,beta:betaScore,oiGap:oiGapScore};
+  const normScore=Math.round(Math.max(0,Math.min(100,(score+8)/24*100)));
   return{score:normScore,rawScore:score,signal,
     factors:reasons.slice(0,2).join(', ')||'Insufficient data',
     narrative:details.join('. '),

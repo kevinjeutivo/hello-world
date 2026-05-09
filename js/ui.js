@@ -386,7 +386,7 @@ function showTab(name){
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
-  const tabs=['dashboard','watchlist','ticker','options','vix','earnings','etf','market','guide'];
+  const tabs=['dashboard','watchlist','ticker','options','vix','earnings','etf','market','income','guide'];
   document.querySelectorAll('.nav-tab')[tabs.indexOf(name)].classList.add('active');
   refreshTsChipAges();
   if(name==='watchlist')renderWatchlist();

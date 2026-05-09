@@ -4,51 +4,39 @@
 // Dependencies: helpers.js, storage.js
 
 // ── Undo-toast state ─────────────────────────────────────────────────────────
-// Only one removal can be pending undo at a time.  If the user removes a
-// second ticker before the first undo window expires, the first is committed
-// silently and the new removal starts its own 5-second window.
-let _undoTicker=null;       // ticker symbol pending undo
-let _undoTimer=null;        // setTimeout handle
-const UNDO_DURATION=5000;   // ms the undo window stays open
+// The undo toast piggybacks on the existing #toast element which is already
+// a direct child of <body> outside #app and is known to be viewport-fixed on
+// iOS Safari.  We temporarily restyle it with .toast-undo-mode and inject an
+// Undo button, then restore normal toast behaviour when done.
+let _undoTicker=null;
+let _undoTimer=null;
+const UNDO_DURATION=5000;
 
-// Show the undo toast for a just-removed ticker.
-// The #undo-toast element is declared statically in index.html as a direct
-// sibling of #app -- this is essential on iOS Safari where position:fixed
-// inside a zoomed element does not fix to the viewport correctly.
 function _showUndoToast(ticker){
-  // Commit any previously pending removal before starting a new one.
   _commitPendingUndo();
-
   _undoTicker=ticker;
-
-  const el=document.getElementById('undo-toast');
+  const el=document.getElementById('toast');
   if(!el)return;
-  document.getElementById('undo-toast-msg').textContent='Removed '+ticker;
-  el.classList.add('show');
-
-  _undoTimer=setTimeout(()=>{
-    _commitPendingUndo();
-  },UNDO_DURATION);
+  clearTimeout(window._toastTimer);
+  el.innerHTML='<span>Removed '+ticker+'</span>'
+    +'<button class="toast-undo-btn" onclick="_undoRemove()">Undo</button>';
+  el.classList.add('toast-undo-mode','show');
+  _undoTimer=setTimeout(()=>_commitPendingUndo(),UNDO_DURATION);
 }
 
-// Dismiss the toast and commit the removal permanently.
 function _commitPendingUndo(){
   if(_undoTimer){clearTimeout(_undoTimer);_undoTimer=null;}
   _undoTicker=null;
-  const el=document.getElementById('undo-toast');
-  if(el)el.classList.remove('show');
+  const el=document.getElementById('toast');
+  if(!el)return;
+  el.classList.remove('toast-undo-mode','show');
+  el.textContent='';
 }
 
-// Called by the Undo button -- puts the ticker back and dismisses the toast.
 function _undoRemove(){
   if(!_undoTicker)return;
   const ticker=_undoTicker;
-  // Clear timer and state first so _commitPendingUndo is a no-op if called again.
-  if(_undoTimer){clearTimeout(_undoTimer);_undoTimer=null;}
-  _undoTicker=null;
-  const el=document.getElementById('undo-toast');
-  if(el)el.classList.remove('show');
-  // Re-insert at the end of the watchlist and persist.
+  _commitPendingUndo();
   if(!watchlist.includes(ticker)){
     watchlist.push(ticker);
     S.set('watchlist',watchlist);
@@ -93,14 +81,22 @@ function renderWatchlist(){
   if(!watchlist.length){el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CB;</div>Watchlist is empty</div>';return;}
   const sorted=getSortedWatchlist();
   el.innerHTML=sorted.map(t=>{
-    const c=S.get('snap_'+t);const price=c?`$${c.price.toFixed(2)}`:'--';
-    const chg=c?c.change:0,chgPct=c?c.changePct:0;const cc=chg>=0?'var(--green)':'var(--red)';
+    const c=S.get('snap_'+t);
+    const price=c?'$'+c.price.toFixed(2):'--';
+    const chg=c?c.change:0,chgPct=c?c.changePct:0;
+    const cc=chg>=0?'var(--green)':'var(--red)';
     const age=c?relAge(c.ts):'';
-    return `<div class="watchlist-item" onclick="selectTickerFromWatchlist('${t}')">
-      <div><div class="watchlist-ticker">${t}</div>${c?`<div class="watchlist-ts">${c.ts}${age?' ('+age+')':''}</div>`:''}</div>
-      <div style="text-align:right"><div class="watchlist-price">${price}</div>${c?`<div class="watchlist-change" style="color:${cc}">${chg>=0?'+':''}${chg.toFixed(2)} (${chgPct>=0?'+':''}${chgPct.toFixed(2)}%)</div>`:''}</div>
-      <button class="watchlist-remove" onclick="removeTicker(event,'${t}')">&#x2715;</button>
-    </div>`;
+    return '<div class="watchlist-item" onclick="selectTickerFromWatchlist(\''+t+'\')">'+
+      '<div>'+
+        '<div class="watchlist-ticker">'+t+'</div>'+
+        (c?'<div class="watchlist-ts">'+c.ts+(age?' ('+age+')':'')+'</div>':'')+
+      '</div>'+
+      '<div style="text-align:right">'+
+        '<div class="watchlist-price">'+price+'</div>'+
+        (c?'<div class="watchlist-change" style="color:'+cc+'">'+(chg>=0?'+':'')+chg.toFixed(2)+' ('+(chgPct>=0?'+':'')+chgPct.toFixed(2)+'%)</div>':'')+
+      '</div>'+
+      '<button class="watchlist-remove" onclick="removeTicker(event,\''+t+'\')">&#x2715;</button>'+
+    '</div>';
   }).join('');
 }
 
@@ -123,10 +119,6 @@ function addTicker(){
 
 function removeTicker(e,t){
   e.stopPropagation();
-  // Remove from the live watchlist and persist immediately -- the undo window
-  // lets the user reverse this, but the data is not held in a pending state.
-  // This matches the "never lose data silently" principle: the removal is real,
-  // the undo just adds it back.
   watchlist=watchlist.filter(x=>x!==t);
   S.set('watchlist',watchlist);
   renderWatchlist();
@@ -135,7 +127,7 @@ function removeTicker(e,t){
 }
 
 function populateSelects(){
-  const opts='<option value="">-- Select --</option>'+watchlist.map(t=>`<option value="${t}">${t}</option>`).join('');
+  const opts='<option value="">-- Select --</option>'+watchlist.map(t=>'<option value="'+t+'">'+t+'</option>').join('');
   document.getElementById('ticker-select').innerHTML=opts;
   document.getElementById('options-ticker-select').innerHTML=opts;
 }

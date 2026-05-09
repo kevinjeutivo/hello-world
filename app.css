@@ -104,6 +104,11 @@ select.input{cursor:pointer}
 .progress-bar{height:100%;background:var(--accent);border-radius:2px;transition:width 0.3s}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:10px 16px;border-radius:var(--radius);z-index:999;opacity:0;transition:opacity 0.3s;white-space:nowrap;pointer-events:none;max-width:90vw;text-align:center}
 .toast.show{opacity:1}
+/* Undo toast -- watchlist removal only, intentionally loud */
+.toast-undo{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#e65100;border:2px solid #ff8a50;color:#fff;font-family:var(--mono);font-size:14px;font-weight:600;padding:14px 18px;border-radius:12px;z-index:1000;opacity:0;transition:opacity 0.25s,transform 0.25s;pointer-events:none;max-width:92vw;width:320px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 4px 24px rgba(0,0,0,0.5)}
+.toast-undo.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+.toast-undo-msg{flex:1}
+.toast-undo-btn{background:#fff;color:#e65100;border:none;border-radius:7px;padding:7px 14px;font-family:var(--mono);font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;-webkit-tap-highlight-color:transparent}
 .settings-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:300;backdrop-filter:blur(4px)}
 .settings-overlay.open{display:flex;align-items:flex-end}
 .settings-sheet{background:var(--surface);border-top:1px solid var(--border);border-radius:20px 20px 0 0;padding:20px 16px 40px;width:100%;max-height:85vh;overflow-y:auto}

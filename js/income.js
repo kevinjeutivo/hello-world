@@ -200,9 +200,10 @@ function _getTargetAPY(){
 // ── Calculation engine ────────────────────────────────────────────────────────
 
 function _calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targetAPY){
+  const tbillTEY=tbillYield!=null?tbillYield/(1-CA_STATE_TAX_RATE):null;
   const fdlxxTEY=fdlxxYield!=null?fdlxxYield/(1-CA_STATE_TAX_RATE):null;
 
-  const tbillIncome=(inp.tbillAmt*(tbillYield??0))/100;
+  const tbillIncome=(inp.tbillAmt*(tbillTEY??0))/100;
   const fdlxxIncome=(inp.fdlxxAmt*(fdlxxTEY??0))/100;
   const spaxxIncome=(inp.spaxxAmt*(spaxxYield??0))/100;
   const l1Capital  =inp.tbillAmt+inp.fdlxxAmt+inp.spaxxAmt;
@@ -210,7 +211,8 @@ function _calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targ
   const l1Yield    =l1Capital>0?l1Income/l1Capital*100:0;
 
   const l1Components=[
-    {label:'T-Bills (3-month)', amt:inp.tbillAmt, yld:tbillYield, income:tbillIncome, note:null},
+    {label:'T-Bills (3-month)', amt:inp.tbillAmt, yld:tbillTEY, income:tbillIncome,
+      note:tbillYield!=null?`Raw: ${tbillYield.toFixed(2)}% → TEY: ${tbillTEY.toFixed(2)}% (+${(tbillTEY-tbillYield).toFixed(2)}% CA benefit)`:null},
     {label:'FDLXX',             amt:inp.fdlxxAmt, yld:fdlxxTEY,   income:fdlxxIncome,
       note:fdlxxYield!=null?`Raw: ${fdlxxYield.toFixed(2)}% → TEY: ${fdlxxTEY.toFixed(2)}% (+${(fdlxxTEY-fdlxxYield).toFixed(2)}% CA benefit)`:null},
     {label:'SPAXX / Free cash', amt:inp.spaxxAmt, yld:spaxxYield, income:spaxxIncome, note:null},
@@ -248,7 +250,7 @@ function _calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targ
     l2:{capital:l2Capital,income:l2Income,yield:l2Yield,components:l2Components},
     l3:{income:l3Income,lift:l3Lift,components:l3Components,targetAPY},
     blended:{yield:blendedYield,capital:totalCapital,annualIncome:totalIncome,monthlyIncome:totalIncome/12},
-    yields:{tbill:tbillYield,fdlxx:fdlxxYield,fdlxxTEY,spaxx:spaxxYield},
+    yields:{tbill:tbillYield,tbillTEY,fdlxx:fdlxxYield,fdlxxTEY,spaxx:spaxxYield},
   };
 }
 
@@ -365,8 +367,8 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta){
   });
 
   const mmfStatusNote=(()=>{
-    const parts=['FDLXX yield shown as CA state tax-equivalent (raw ÷ (1 − 9.3%)).'];
-    parts.push('T-bill yield sourced from Market tab cache (^IRX).');
+    const parts=['T-bills and FDLXX yields shown as CA state tax-equivalent (raw ÷ (1 − 9.3%)) — both are exempt from CA state income tax.'];
+    parts.push('T-bill yield sourced from Market tab cache (^IRX). Refresh the Market tab to update it.');
     if(!fdlxxNeedsManual&&!spaxxNeedsManual&&mmfTs){
       parts.push('MMF yields: '+(mmfFromCache?'cached':'live')+' as of '
         +new Date(mmfTs).toLocaleDateString('en-US',{month:'short',day:'numeric'})+'.');

@@ -56,15 +56,30 @@ function _saveIncomeInputs(){
   return inp;
 }
 
+let _manualYieldDebounceTimer=null;
+
 function _saveManualYields(){
-  // Called when user edits the manual yield fields in the rendered output
+  // Save immediately so the value is persisted even if the user navigates away.
   const existing=S.get(INCOME_STORAGE_KEY)||{};
   const fdlxxEl=document.getElementById('inc-fdlxx-yield-manual');
   const spaxxEl=document.getElementById('inc-spaxx-yield-manual');
   if(fdlxxEl){const v=parseFloat(fdlxxEl.value);existing.fdlxxYieldManual=isNaN(v)||v<=0?null:v;}
   if(spaxxEl){const v=parseFloat(spaxxEl.value);existing.spaxxYieldManual=isNaN(v)||v<=0?null:v;}
   S.set(INCOME_STORAGE_KEY,existing);
-  recalcIncome();
+  // Debounce the re-render -- if we rebuild the DOM on every keystroke the
+  // input field loses focus immediately after each character is typed.
+  // Wait 700ms after the last keystroke before re-rendering.
+  clearTimeout(_manualYieldDebounceTimer);
+  _manualYieldDebounceTimer=setTimeout(()=>{
+    // Re-render but restore focus to whichever field was active
+    const activeId=document.activeElement?.id;
+    recalcIncome();
+    // After re-render, restore focus and move cursor to end
+    if(activeId){
+      const el=document.getElementById(activeId);
+      if(el){el.focus();const len=el.value.length;el.setSelectionRange(len,len);}
+    }
+  },700);
 }
 
 function _numVal(id){

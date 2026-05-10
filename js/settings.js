@@ -316,6 +316,8 @@ function clearAllDataConfirmed(){
 }
 
 function forceAppRefresh(){
-  if('caches'in window){caches.keys().then(keys=>{Promise.all(keys.map(k=>caches.delete(k))).then(()=>{toast('Cache cleared -- reloading...',2500);setTimeout(()=>window.location.reload(true),2500);});});}
-  else{window.location.reload(true);}
+  // reload() without true so the SW intercepts the reload and serves
+  // files from its fresh cache. reload(true) bypasses the SW on iOS Safari.
+  if('caches'in window){caches.keys().then(keys=>{Promise.all(keys.map(k=>caches.delete(k))).then(()=>{toast('Cache cleared -- reloading...',2500);setTimeout(()=>window.location.reload(),2500);});});}
+  else{window.location.reload();}
 }

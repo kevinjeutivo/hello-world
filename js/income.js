@@ -56,30 +56,17 @@ function _saveIncomeInputs(){
   return inp;
 }
 
-let _manualYieldDebounceTimer=null;
-
 function _saveManualYields(){
-  // Save immediately so the value is persisted even if the user navigates away.
+  // Persist the entered values immediately.
+  // Recalculation is triggered by onblur (when user taps outside the field)
+  // rather than oninput, so the user can type freely without interruption.
   const existing=S.get(INCOME_STORAGE_KEY)||{};
   const fdlxxEl=document.getElementById('inc-fdlxx-yield-manual');
   const spaxxEl=document.getElementById('inc-spaxx-yield-manual');
   if(fdlxxEl){const v=parseFloat(fdlxxEl.value);existing.fdlxxYieldManual=isNaN(v)||v<=0?null:v;}
   if(spaxxEl){const v=parseFloat(spaxxEl.value);existing.spaxxYieldManual=isNaN(v)||v<=0?null:v;}
   S.set(INCOME_STORAGE_KEY,existing);
-  // Debounce the re-render -- if we rebuild the DOM on every keystroke the
-  // input field loses focus immediately after each character is typed.
-  // Wait 700ms after the last keystroke before re-rendering.
-  clearTimeout(_manualYieldDebounceTimer);
-  _manualYieldDebounceTimer=setTimeout(()=>{
-    // Re-render but restore focus to whichever field was active
-    const activeId=document.activeElement?.id;
-    recalcIncome();
-    // After re-render, restore focus and move cursor to end
-    if(activeId){
-      const el=document.getElementById(activeId);
-      if(el){el.focus();const len=el.value.length;el.setSelectionRange(len,len);}
-    }
-  },700);
+  recalcIncome();
 }
 
 function _numVal(id){
@@ -293,7 +280,7 @@ function _manualYieldInput(id,savedVal,placeholder,fetchFailed){
     +'<input id="'+id+'" type="number" step="0.01" min="0" max="20" value="'+val+'" placeholder="'+placeholder+'"'
     +' style="width:72px;background:var(--surface2);border:1px solid '+borderColor+';border-radius:6px;'
     +'color:var(--text);font-family:var(--mono);font-size:13px;padding:5px 7px;outline:none"'
-    +' oninput="_saveManualYields()">'
+    +' onblur="_saveManualYields()">'
     +'<span style="font-family:var(--mono);font-size:11px;color:var(--text3)">%</span>'
     +'</div>'
     +'</div>';

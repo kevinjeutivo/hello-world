@@ -188,7 +188,6 @@ async function measureStorage(){
   const el=document.getElementById('storage-display');
   if(!el)return;
   el.textContent='Measuring...';
-  // Get quota via Storage API
   let usedMB='?',quotaMB='?',pct=0;
   try{
     const est=await navigator.storage.estimate();
@@ -196,7 +195,6 @@ async function measureStorage(){
     quotaMB=(est.quota/1048576).toFixed(0);
     pct=Math.round(est.usage/est.quota*100);
   }catch{}
-  // Break down by category + key count
   const cats={options:0,history:0,snap:0,news:0,other:0};
   const keyCounts={options:0,history:0,snap:0,news:0,other:0};
   for(let i=0;i<localStorage.length;i++){
@@ -228,7 +226,6 @@ async function workerHealthCheck(){
   el.textContent='Testing Worker...';
   const t0=Date.now();
   try{
-    // Ping the Worker with a lightweight quote request for a well-known ticker
     const r=await fetch(WORKER_URL+'/?ticker=SPY&type=quote',{signal:AbortSignal.timeout(8000)});
     const latency=Date.now()-t0;
     if(!r.ok){el.innerHTML='<span style="color:var(--red)">Worker returned HTTP '+r.status+' ('+latency+'ms)</span>';return;}
@@ -283,12 +280,10 @@ function saveSettings(){
   closeSettings();
   renderWatchlist();
   populateSelects();
-  // Restore selected ticker in dropdowns after rebuilding option elements
   if(currentTicker){
     document.getElementById('ticker-select').value=currentTicker;
     document.getElementById('options-ticker-select').value=currentTicker;
   }
-  // Immediately re-format all timestamp chips in the newly selected timezone
   refreshTsChipAges();
   toast('Settings saved');
 }

@@ -10,162 +10,7 @@
 <link rel="apple-touch-startup-image" href="apple-touch-icon.png">
 <title>PutSeller Pro</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap');
-:root{
-  --base-font:18px;
-  --bg:#0a0c0f;--surface:#111318;--surface2:#1a1d24;--surface3:#22262f;
-  --border:#2a2e38;--accent:#00d4aa;--accent2:#ff6b35;--accent3:#7c6af7;
-  --danger:#ff4757;--warn:#ffa502;--text:#e8eaf0;--text2:#8b8fa8;--text3:#555870;
-  --green:#00c896;--red:#ff4757;--yellow:#ffd32a;
-  --mono:'DM Mono',monospace;--sans:'Syne',sans-serif;
-  --radius:10px;--radius-lg:16px;
-}
-*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-html,body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:var(--base-font);min-height:100vh;overscroll-behavior:none}
-#app{display:flex;flex-direction:column;min-height:100vh}
-/* Market status banner */
-#market-status-banner{font-family:var(--mono);font-size:12px;font-weight:600;padding:6px 16px;text-align:center;position:sticky;top:0;z-index:200;transition:background 0.5s}
-.mkt-open{background:rgba(0,200,150,0.9);color:#000}
-.mkt-prepost{background:rgba(255,165,2,0.9);color:#000}
-.mkt-closed{background:rgba(255,71,87,0.85);color:#fff}
-/* Header */
-#top-progress-bar{position:fixed;top:0;left:0;right:0;height:3px;z-index:9999;background:transparent;pointer-events:none}
-#top-progress-bar .top-bar-fill{height:3px;width:0%;background:linear-gradient(90deg,#00d4aa,#4fc3f7);transition:width 0.3s ease;border-radius:0 2px 2px 0}
-#top-progress-bar.active .top-bar-fill{box-shadow:0 0 8px rgba(0,212,170,0.6)}
-.header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px 8px;position:sticky;top:36px;z-index:100;display:flex;align-items:center;justify-content:space-between}
-.header-left{display:flex;flex-direction:column;gap:2px}
-.header-title{font-family:var(--sans);font-size:18px;font-weight:800;letter-spacing:-0.5px;color:var(--accent)}
-.header-sub{font-family:var(--mono);font-size:10px;color:var(--text3);display:flex;align-items:center;gap:6px}
-.online-dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex-shrink:0}
-.online-dot-on{background:var(--green)}
-.online-dot-off{background:var(--red)}
-.settings-btn{background:var(--surface3);border:1px solid var(--border);color:var(--text2);border-radius:8px;padding:7px 11px;font-size:13px;cursor:pointer;font-family:var(--mono)}
-/* VIX status banner in header */
-#vix-status-banner{display:none;font-family:var(--mono);font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;margin-top:3px;width:fit-content}
-.vix-status-elevated{background:rgba(255,165,2,0.2);color:var(--warn);border:1px solid rgba(255,165,2,0.4)}
-.vix-status-high{background:rgba(255,71,87,0.2);color:var(--red);border:1px solid rgba(255,71,87,0.4)}
-.vix-status-extreme{background:rgba(124,106,247,0.2);color:#b39ddb;border:1px solid rgba(124,106,247,0.4)}
-/* Nav tabs */
-.nav-tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;position:sticky;top:94px;z-index:99}
-.nav-tabs::-webkit-scrollbar{display:none}
-.nav-tab{flex:0 0 auto;padding:10px 13px;font-family:var(--mono);font-size:11px;color:var(--text3);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all 0.2s}
-.nav-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
-.vix-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:4px;vertical-align:middle;position:relative;top:-1px}
-.vix-dot-elevated{background:var(--warn)}
-.vix-dot-high{background:var(--red)}
-.vix-dot-extreme{background:#b39ddb;animation:vixpulse 1.4s ease-in-out infinite}
-@keyframes vixpulse{0%,100%{opacity:1}50%{opacity:0.3}}
-/* Offline banner */
-.offline-banner{position:fixed;top:0;left:0;right:0;background:rgba(255,165,2,0.95);color:#000;font-family:var(--mono);font-size:12px;padding:10px 16px;text-align:center;z-index:500;transform:translateY(-100%);transition:transform 0.3s;font-weight:600}
-.offline-banner.show{transform:translateY(0)}
-/* Offline mode overlay */
-#offline-mode-bar{display:none;background:rgba(124,106,247,0.15);border-bottom:1px solid rgba(124,106,247,0.3);font-family:var(--mono);font-size:10px;color:#b39ddb;padding:4px 16px;text-align:center}
-/* Layout */
-.main{flex:1;padding:14px}
-.tab-panel{display:none}
-.tab-panel.active{display:block}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px;margin-bottom:12px}
-.card-title{font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);margin-bottom:12px;display:flex;align-items:center;gap:6px}
-.card-title .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:var(--radius);padding:11px 16px;font-family:var(--mono);font-size:12px;font-weight:500;cursor:pointer;transition:all 0.15s;width:100%;margin-bottom:8px}
-.btn-primary{background:var(--accent);color:#000}
-.btn-success{background:#00897b;color:#fff}
-.btn-secondary{background:var(--surface3);color:var(--text);border:1px solid var(--border)}
-.btn-danger{background:var(--danger);color:#fff}
-.btn-sm{padding:7px 12px;font-size:11px;width:auto;margin-bottom:0}
-.btn:disabled{opacity:0.4;cursor:not-allowed}
-.input-group{margin-bottom:12px}
-.input-label{font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:5px;display:block}
-.input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:13px;padding:10px 12px;outline:none;transition:border-color 0.2s;-webkit-appearance:none}
-.input:focus{border-color:var(--accent)}
-select.input{cursor:pointer}
-.metrics-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
-.metric-tile{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px}
-.metric-label{font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:3px}
-.metric-value{font-family:var(--mono);font-size:16px;font-weight:500;color:var(--text)}
-.metric-sub{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px;line-height:1.4}
-.watchlist-item{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px;cursor:pointer}
-.watchlist-ticker{font-family:var(--mono);font-size:14px;font-weight:500;color:var(--accent)}
-.watchlist-price{font-family:var(--mono);font-size:13px;color:var(--text);text-align:right}
-.watchlist-change{font-family:var(--mono);font-size:10px;margin-top:1px}
-.watchlist-ts{font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:1px}
-.watchlist-remove{background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:4px 8px;margin-left:8px;flex-shrink:0}
-.options-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-.options-table{width:100%;border-collapse:collapse;min-width:480px}
-.options-table th{font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.7px;padding:6px 8px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}
-.options-table th:first-child{text-align:left}
-.options-table td{font-family:var(--mono);font-size:11px;color:var(--text);padding:7px 8px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}
-.options-table td:first-child{text-align:left;color:var(--text2)}
-.options-table tr.highlighted td{background:rgba(0,212,170,0.22)}
-.options-table tr.highlighted td:first-child{border-left:3px solid var(--accent)}
-.apy-cell{color:var(--accent)!important;font-weight:500}
-.apy-cell.great{color:var(--green)!important}
-.chart-wrap{position:relative;height:200px;margin-bottom:8px}
-.ivr-badge{display:inline-block;font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;font-weight:500}
-.ivr-low{background:rgba(33,150,243,0.2);color:#64b5f6}
-.ivr-normal{background:rgba(0,200,150,0.2);color:var(--green)}
-.ivr-elevated{background:rgba(255,165,2,0.2);color:var(--warn)}
-.ivr-high{background:rgba(255,71,87,0.2);color:var(--red)}
-.ts-chip{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:2px 6px;margin-bottom:8px}
-.ts-chip.live{color:var(--green);border-color:rgba(0,200,150,0.3)}
-.ts-chip.stale{color:var(--warn);border-color:rgba(255,165,2,0.3)}
-.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0}
-@keyframes spin{to{transform:rotate(360deg)}}
-.progress-bar-wrap{height:3px;background:var(--surface3);border-radius:2px;overflow:hidden;margin-bottom:8px}
-.progress-bar{height:100%;background:var(--accent);border-radius:2px;transition:width 0.3s}
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:10px 16px;border-radius:var(--radius);z-index:999;opacity:0;transition:opacity 0.3s;white-space:nowrap;pointer-events:none;max-width:90vw;text-align:center}
-.toast.show{opacity:1}
-.settings-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:300;backdrop-filter:blur(4px)}
-.settings-overlay.open{display:flex;align-items:flex-end}
-.settings-sheet{background:var(--surface);border-top:1px solid var(--border);border-radius:20px 20px 0 0;padding:20px 16px 40px;width:100%;max-height:85vh;overflow-y:auto}
-.settings-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 18px}
-.settings-title{font-family:var(--sans);font-size:16px;font-weight:700;margin-bottom:16px}
-/* Offline confirm modal */
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:400;align-items:center;justify-content:center;padding:20px}
-.modal-overlay.open{display:flex}
-.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;max-width:340px;width:100%}
-.modal-title{font-family:var(--sans);font-size:16px;font-weight:700;color:var(--danger);margin-bottom:12px}
-.modal-body{font-family:var(--mono);font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:16px}
-.exp-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
-.exp-chip{font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer;transition:all 0.15s}
-.exp-chip.selected{background:rgba(0,212,170,0.15);border-color:var(--accent);color:var(--accent)}
-.mode-toggle{display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:12px}
-.mode-btn{flex:1;padding:9px;font-family:var(--mono);font-size:11px;border:none;background:none;color:var(--text3);cursor:pointer;transition:all 0.2s}
-.mode-btn.active{background:var(--accent);color:#000;font-weight:500}
-.slider-wrap{margin-bottom:12px}
-.slider-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
-.slider-label{font-family:var(--mono);font-size:11px;color:var(--text2)}
-.slider-val{font-family:var(--mono);font-size:11px;color:var(--accent)}
-input[type=range]{-webkit-appearance:none;width:100%;height:4px;background:var(--surface3);border-radius:2px;outline:none}
-input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--accent);cursor:pointer}
-.commentary{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.7;white-space:pre-wrap;word-break:break-word}
-.empty{text-align:center;padding:40px 20px;color:var(--text3);font-family:var(--mono);font-size:12px}
-.empty-icon{font-size:32px;margin-bottom:10px}
-.divider{border:none;border-top:1px solid var(--border);margin:14px 0}
-.row{display:flex;gap:8px;align-items:center}
-.row .input{flex:1}
-.earnings-warn{background:rgba(255,165,2,0.1);border:1px solid rgba(255,165,2,0.3);border-radius:var(--radius);padding:10px 12px;font-family:var(--mono);font-size:11px;color:var(--warn);margin-bottom:10px;line-height:1.5}
-.oi-empty-box{background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.3);border-radius:var(--radius);padding:12px;font-family:var(--mono);font-size:11px;color:var(--warn);line-height:1.6;margin-top:8px}
-.vix-banner{border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
-.vix-banner-label{font-family:var(--sans);font-size:13px;font-weight:700}
-.vix-banner-value{font-family:var(--mono);font-size:22px;font-weight:500}
-.vix-low{background:rgba(33,150,243,0.15);border:1px solid rgba(33,150,243,0.4)}
-.vix-normal{background:rgba(0,200,150,0.15);border:1px solid rgba(0,200,150,0.4)}
-.vix-elevated{background:rgba(255,165,2,0.15);border:1px solid rgba(255,165,2,0.4)}
-.vix-high{background:rgba(255,71,87,0.15);border:1px solid rgba(255,71,87,0.4)}
-.vix-extreme{background:rgba(124,106,247,0.15);border:1px solid rgba(124,106,247,0.4)}
-.news-item{padding:10px 0;border-bottom:1px solid var(--border)}
-.news-item:last-child{border-bottom:none}
-.news-headline{font-family:var(--sans);font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;line-height:1.4}
-.news-meta{font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:4px}
-.news-summary{font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.5}
-.earnings-card{border-radius:var(--radius-lg);padding:14px;margin-bottom:12px;cursor:pointer}
-.earnings-card-urgent{background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.3);border-left:4px solid rgba(255,71,87,0.7)}
-.earnings-card-soon{background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.3);border-left:4px solid rgba(255,165,2,0.7)}
-.earnings-card-normal{background:rgba(0,212,170,0.05);border:1px solid var(--border);border-left:4px solid rgba(0,212,170,0.4)}
-a{color:inherit}
-</style>
+<link rel="stylesheet" href="app.css">
 </head>
 <body>
 <div class="offline-banner" id="offline-banner">No network -- showing cached data</div>
@@ -257,7 +102,7 @@ a{color:inherit}
     <div class="row"><input class="input" type="text" id="new-ticker-input" placeholder="e.g. AAPL" style="text-transform:uppercase"><button class="btn btn-secondary btn-sm" onclick="addTicker()">Add</button></div>
     <div style="display:flex;gap:6px;margin-bottom:6px">
       <button class="btn btn-secondary" id="wl-sort-manual" onclick="setWatchlistSort('manual')" style="font-size:10px;padding:3px 8px">Manual</button>
-      <button class="btn btn-secondary" id="wl-sort-alpha" onclick="setWatchlistSort('alpha')" style="font-size:10px;padding:3px 8px;opacity:0.4">A→Z</button>
+      <button class="btn btn-secondary" id="wl-sort-alpha" onclick="setWatchlistSort('alpha')" style="font-size:10px;padding:3px 8px;opacity:0.4">A&#x2192;Z</button>
       <button class="btn btn-secondary" id="wl-sort-opp" onclick="setWatchlistSort('opportunity')" style="font-size:10px;padding:3px 8px;opacity:0.4">By Score</button>
     </div>
     <button class="btn btn-secondary" id="prefetch-btn" onclick="prefetchAll()">Prefetch All Ticker Data</button>
@@ -429,172 +274,6 @@ Version: v2.7.0</div>
     <button class="btn btn-secondary" onclick="document.getElementById('disclaimer-modal').style.display='block'">View Disclaimer &amp; Terms</button>
     <button class="btn btn-secondary" onclick="closeSettings()" style="margin-top:6px">Cancel</button>
     <hr class="divider">
-    <div class="card-title" style="font-size:12px;margin-bottom:6px"><span class="dot" style="background:var(--green)"></span>Flight Mode Readiness</div>
-    <div id="flight-mode-display" style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6">Tap Check to audit all cached data before a flight.</div>
-    <button class="btn btn-secondary" onclick="checkFlightModeReady()" style="margin-top:6px;width:100%">Check Flight Mode Readiness</button>
-    <hr class="divider">
-    <div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:var(--accent2)"></span>Conviction Factor Weights</div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px;line-height:1.6">Multipliers per scoring factor (0.0 = ignore, 1.0 = default, 2.0 = double). Takes effect on next dashboard run.</div>
-    <div id="weight-sliders">
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">IVR (implied vol rank)</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-ivr" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-ivr" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-ivr" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-ivr" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-ivr').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-ivr');const b=document.getElementById('weight-info-ivr');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['ivr']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-ivr" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-ivr" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">RSI (momentum)</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-rsi" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-rsi" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-rsi" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-rsi" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-rsi').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-rsi');const b=document.getElementById('weight-info-rsi');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['rsi']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-rsi" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-rsi" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">Range (52W position)</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-range" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-range" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-range" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-range" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-range').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-range');const b=document.getElementById('weight-info-range');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['range']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-range" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-range" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">APY (yield vs target)</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-apy" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-apy" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-apy" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-apy" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-apy').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-apy');const b=document.getElementById('weight-info-apy');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['apy']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-apy" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-apy" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">Earnings (penalty)</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-earnings" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-earnings" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-earnings" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-earnings" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-earnings').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-earnings');const b=document.getElementById('weight-info-earnings');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['earnings']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-earnings" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-earnings" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">MA (trend confirmation)</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-ma" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-ma" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-ma" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-ma" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-ma').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-ma');const b=document.getElementById('weight-info-ma');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['ma']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-ma" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-ma" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">Analyst Upside</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-upside" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-upside" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-upside" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-upside" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-upside').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-upside');const b=document.getElementById('weight-info-upside');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['upside']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-upside" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-upside" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">Beta (high-beta penalty)</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-beta" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-beta" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-beta" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-beta" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-beta').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-beta');const b=document.getElementById('weight-info-beta');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['beta']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-beta" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-beta" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">OI Gravity Gap</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-oiGap" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-oiGap" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-oiGap" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-oiGap" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-oiGap').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-oiGap');const b=document.getElementById('weight-info-oiGap');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['oiGap']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-oiGap" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-oiGap" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-    </div>
-    <div style="display:flex;gap:8px;margin-top:4px;margin-bottom:12px">
-      <button class="btn btn-primary" onclick="saveConvictionWeights()" style="flex:1">Save Weights</button>
-      <button class="btn btn-secondary" onclick="resetConvictionWeights()" style="flex:1">Reset Defaults</button>
-    </div>
-    <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent)"></span>App Updates</div>
     <button class="btn btn-secondary" onclick="forceAppRefresh()">Force App Refresh</button>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Clears page cache, reloads latest version from GitHub. Your data is preserved.</div>
@@ -612,161 +291,138 @@ Version: v2.7.0</div>
       <button class="btn btn-secondary" onclick="workerHealthCheck()" style="margin-top:6px;width:100%">Test Worker Connection</button>
     </div>
     <hr class="divider">
-    <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px">v2.7.0 -- 2026-05-08
-- Conviction scoring rebalanced: IVR now correctly weighted as most important factor (max +3 pts, was +1). APY now contributes to raw score (was display-only). Two new factors: Analyst Target Upside and Beta adjustment.
-- Dynamic factor weights: Settings panel now has 8 sliders (0.0x to 3.0x) for each conviction factor. Defaults reproduce the new balanced algorithm. Save/Reset buttons. Weights persisted in localStorage.
-- Ghost variable cleanup: removed stale rec2/upgrades2 references in loadTicker. Removed unused Finnhub /stock/price-target call (price targets now from Yahoo quoteSummary, free tier).
-- Removed old scorePuts/scoreCalls from index.html -- now exclusively in js/scoring.js.
+    <div class="card-title" style="margin-bottom:10px">
+      <span class="dot" style="background:var(--accent3)"></span>
+      Release Notes
+    </div>
+    <a class="btn btn-secondary" href="./release-notes.html" style="text-decoration:none">
+      View Release Notes
+    </a>
+    <hr class="divider">
+    <div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:var(--accent)"></span>Conviction Scoring Weights</div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Adjust how much each factor contributes to the conviction score. 0x = disabled, 3x = maximum weight.</div>
+    <div id="conviction-weights-section">
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <span class="input-label" style="margin-bottom:0">IV Rank</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--accent)" id="weight-val-ivr">1.0x</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="weight-ivr" min="0" max="3" step="0.1" value="1.0" style="flex:1" oninput="document.getElementById('weight-val-ivr').textContent=parseFloat(this.value).toFixed(1)+'x';updateWeightShares()">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text3);width:28px;text-align:right" id="weight-share-ivr">--</span>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-top:3px"><div id="weight-bar-ivr" style="background:var(--accent);height:3px;border-radius:2px;width:0%"></div></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <span class="input-label" style="margin-bottom:0">RSI</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--accent)" id="weight-val-rsi">1.0x</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="weight-rsi" min="0" max="3" step="0.1" value="1.0" style="flex:1" oninput="document.getElementById('weight-val-rsi').textContent=parseFloat(this.value).toFixed(1)+'x';updateWeightShares()">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text3);width:28px;text-align:right" id="weight-share-rsi">--</span>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-top:3px"><div id="weight-bar-rsi" style="background:var(--accent);height:3px;border-radius:2px;width:0%"></div></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <span class="input-label" style="margin-bottom:0">52W Range</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--accent)" id="weight-val-range">1.0x</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="weight-range" min="0" max="3" step="0.1" value="1.0" style="flex:1" oninput="document.getElementById('weight-val-range').textContent=parseFloat(this.value).toFixed(1)+'x';updateWeightShares()">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text3);width:28px;text-align:right" id="weight-share-range">--</span>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-top:3px"><div id="weight-bar-range" style="background:var(--accent);height:3px;border-radius:2px;width:0%"></div></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <span class="input-label" style="margin-bottom:0">Est. APY</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--accent)" id="weight-val-apy">1.0x</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="weight-apy" min="0" max="3" step="0.1" value="1.0" style="flex:1" oninput="document.getElementById('weight-val-apy').textContent=parseFloat(this.value).toFixed(1)+'x';updateWeightShares()">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text3);width:28px;text-align:right" id="weight-share-apy">--</span>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-top:3px"><div id="weight-bar-apy" style="background:var(--accent);height:3px;border-radius:2px;width:0%"></div></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <span class="input-label" style="margin-bottom:0">Earnings Risk</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--accent)" id="weight-val-earnings">1.0x</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="weight-earnings" min="0" max="3" step="0.1" value="1.0" style="flex:1" oninput="document.getElementById('weight-val-earnings').textContent=parseFloat(this.value).toFixed(1)+'x';updateWeightShares()">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text3);width:28px;text-align:right" id="weight-share-earnings">--</span>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-top:3px"><div id="weight-bar-earnings" style="background:var(--accent);height:3px;border-radius:2px;width:0%"></div></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <span class="input-label" style="margin-bottom:0">Moving Averages</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--accent)" id="weight-val-ma">1.0x</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="weight-ma" min="0" max="3" step="0.1" value="1.0" style="flex:1" oninput="document.getElementById('weight-val-ma').textContent=parseFloat(this.value).toFixed(1)+'x';updateWeightShares()">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text3);width:28px;text-align:right" id="weight-share-ma">--</span>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-top:3px"><div id="weight-bar-ma" style="background:var(--accent);height:3px;border-radius:2px;width:0%"></div></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <span class="input-label" style="margin-bottom:0">Analyst Upside</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--accent)" id="weight-val-upside">1.0x</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="weight-upside" min="0" max="3" step="0.1" value="1.0" style="flex:1" oninput="document.getElementById('weight-val-upside').textContent=parseFloat(this.value).toFixed(1)+'x';updateWeightShares()">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text3);width:28px;text-align:right" id="weight-share-upside">--</span>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-top:3px"><div id="weight-bar-upside" style="background:var(--accent);height:3px;border-radius:2px;width:0%"></div></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <span class="input-label" style="margin-bottom:0">Beta</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--accent)" id="weight-val-beta">1.0x</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="weight-beta" min="0" max="3" step="0.1" value="1.0" style="flex:1" oninput="document.getElementById('weight-val-beta').textContent=parseFloat(this.value).toFixed(1)+'x';updateWeightShares()">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text3);width:28px;text-align:right" id="weight-share-beta">--</span>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-top:3px"><div id="weight-bar-beta" style="background:var(--accent);height:3px;border-radius:2px;width:0%"></div></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <span class="input-label" style="margin-bottom:0">OI Gap</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--accent)" id="weight-val-oiGap">1.0x</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" id="weight-oiGap" min="0" max="3" step="0.1" value="1.0" style="flex:1" oninput="document.getElementById('weight-val-oiGap').textContent=parseFloat(this.value).toFixed(1)+'x';updateWeightShares()">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text3);width:28px;text-align:right" id="weight-share-oiGap">--</span>
+        </div>
+        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-top:3px"><div id="weight-bar-oiGap" style="background:var(--accent);height:3px;border-radius:2px;width:0%"></div></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button class="btn btn-primary btn-sm" style="flex:1" onclick="saveConvictionWeights()">Save Weights</button>
+      <button class="btn btn-secondary btn-sm" onclick="resetConvictionWeights()">Reset</button>
+    </div>
+    <hr class="divider">
+    <div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:var(--accent2)"></span>Flight Mode Readiness</div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.6">Check whether your cached data is fresh enough for offline use on a flight.</div>
+    <div id="flight-mode-display" style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6;margin-bottom:8px">Tap Check to see readiness status</div>
+    <button class="btn btn-secondary" onclick="checkFlightModeReady()" style="width:100%">Check Flight Readiness</button>
+  </div>
+</div>
 
-v2.6.2 -- 2026-05-04
-- Earnings tab: fixed timezone boundary bug where BMO tickers disappeared the evening before their earnings date. Filter now uses daysUntilDate() (calendar date comparison in local timezone) instead of raw UTC millisecond math. Tickers now stay visible throughout their entire earnings day.
-- Fed Rate Outlook card: removed from Market tab. It was an imprecise proxy (2Y vs 3M Treasury spread) that conflicted with the more accurate CME Fed Funds Futures card. The Futures card is the authoritative source for rate direction.
-
-v2.6.1 -- 2026-05-04
-- CME Fed Funds Futures: fixed ticker format from ZQK26=F to ZQK26.CBT (Yahoo Finance CBOT format). Card should now appear on Market tab.
-- Font sizes: added 2XL (26px), 3XL (30px), and 4XL (36px) options to Settings dropdown. Useful for low-visibility conditions. Note: text scales via CSS variable; some fixed-px layout elements do not scale proportionally.
-
-v2.6.0 -- 2026-05-04
-- About card: version number updated (v2.6.0).
-- Ordinal suffix: ordinal() utility function added. IVR percentile now shows "23rd pct", "42nd pct" etc. with correct English suffixes. Replaces hardcoded "th" throughout.
-- Market tab: index fetches (sp500, nasdaq, treasury2y) made independent so one failure no longer blocks the others.
-- Fed Rate Outlook card: treasury2y now falls back to ^TNX (10-year) live quote if ^USGG2YR returns all-null closes. Card should now appear reliably.
-- CME Fed Funds Futures card: new card on Market tab showing 30-day futures implied rates for next 6 months. Price, implied rate (100 minus price), and delta vs near-month contract in basis points. Summary line shows market consensus on rate direction.
-
-v2.5.0 -- 2026-05-04
-- Extended hours display: pre-market and after-hours prices now suppressed during REGULAR market session. Only shown in PRE, POST, POSTPOST, or CLOSED states.
-- S&P 500 / Nasdaq: switched to live quote fetch (?type=quote) for current price and prev close. History closes for index tickers are unreliable (often null). Live prices cached to mkt_sp_live / mkt_nq_live keys.
-- VIX live price: live quote injected into last history close after fetch, replacing stale prior-day close. VIX chart and indicator now reflect intraday value.
-- Earnings tab EPS estimate: Yahoo earningsTrend (current quarter epsMean) used as fallback when Finnhub returns null on free tier.
-- Earnings tab TODAY label: fixed timezone boundary bug. daysUntilDate() utility compares calendar dates in user timezone -- no more UTC midnight rounding issues.
-- Timezone audit: daysUntilDate() applied to earnings banner in options table and conviction scoring earnings timing (2 locations). Options DTE was already safe (uses noon UTC).
-- About card: updated data sources and version number. FRED references removed.
-- Release notes: dates now reflect actual generation date.
-
-v2.4.0 -- 2026-04-29
-- fetchQuoteSummary: single Yahoo quoteSummary call fetches financialData + defaultKeyStatistics + earningsTrend + recommendationTrend in one round trip.
-- PEG ratio tile: color-coded (<1 green, 1-2 neutral, >2 red). From Yahoo defaultKeyStatistics.
-- EV/EBITDA tile: with qualitative label. From Yahoo defaultKeyStatistics.
-- Short interest: switched to Yahoo shortPercentOfFloat and shortRatio (reliable on free tier). Finnhub used as fallback only.
-- Analyst Price Target card: moved below Analyst Coverage. Now a full card with consensus, low, high, and spread tiles.
-- Earnings Estimates card: EPS and revenue estimates for current quarter, next quarter, current year, next year with growth rate. From Yahoo earningsTrend.
-- Recommendation Trend card: buy/hold/sell percentages for last 3 months from Yahoo recommendationTrend. Free tier -- more reliable than Finnhub.
-- Disclaimer modal: accessible via "View Disclaimer & Terms" button in Settings. Non-blocking -- appears as overlay.
-
-v2.3.0 -- 2026-04-29
-- Analyst price targets: consensus mean, high, and low target from Finnhub /stock/price-target displayed as a full-width tile on the Ticker tab. Shows % upside/downside from current price and spread between high/low targets. Fetched in loadTicker, prefetchAll, and refreshSingleTicker.
-- Watchlist sort: three modes -- Manual (default, original entry order), A→Z (alphabetical), By Score (conviction score descending from last dashboard run). Buttons above Prefetch All. Mode persists in localStorage.
-- Settings: localStorage key count added to storage display alongside KB breakdown.
-- Settings: Worker health check pings the Worker with a SPY quote request and reports latency, HTTP status, and whether Yahoo auth is working.
-
-v2.2.0 -- 2026-04-29
-- Options table: bid and ask stacked in single Bid/Ask column to save horizontal space on narrow screens.
-- Conviction dashboard: numeric score (0-100) displayed inline with conviction level. Component bar strip (IVR/RSI/Range/APY/Earn in descending weight) shows color-coded performance per factor.
-- Header status dot: green = data fresh, amber = stale, blue pulse = refresh in progress.
-- Dashboard tab: "Last full refresh" timestamp persists below the Full Refresh button.
-- ETF charts: 6M/1Y toggle. Total return line and metrics now cached to localStorage and rendered from cache on app wake / airplane mode.
-- ETF return tiles: update dynamically when time span toggles.
-- Income engine Layer 2: per-ETF risk premium (SPYI and NBOS separately vs T-bills). Yield labeled as TTM.
-- Ticker BB/RSI chart: 6M/1Y toggle using already-cached history data.
-
-v2.1.0 -- 2026-04-29
-- Single-ticker refresh button on Ticker tab: fetches all data for selected ticker including 3 options expirations. Same offline safeguards. Does not affect conviction dashboard.
-- Storage display in Settings: shows Storage API usage vs quota with progress bar, plus localStorage breakdown by category (options/history/snaps/news). Tap "Measure Storage" to update.
-- Additional data slimming: top-level options cache, news (ticker + market), history timestamps stored as Unix integers. Reduces total storage ~60%.
-- EPS from Yahoo quote endpoint (epsTrailingTwelveMonths field) -- more reliable than Finnhub on free tier.
-- Analyst recommendations and upgrade/downgrade history now fetched in prefetchAll -- available offline after pre-flight refresh.
-- Market tab: timestamp saved to localStorage so ts-chip persists across sessions.
-
-v2.0.0 -- 2026-04-29
-- Font size setting in Settings: Small/Medium/Default/Large/Extra Large. Applied instantly via CSS variable.
-- EPS (TTM) and YoY EPS growth added to Ticker tab metrics grid. Red when negative (not profitable).
-- Analyst upgrade/downgrade history: recent 90 days from Finnhub with firm name, action, and grade transition.
-- ETF total return overlay: yellow dashed line on price chart showing price + cumulative distributions. Price return % and total return % printed as metric tiles for direct comparison.
-- Fed rate outlook card on Market tab: 2-year Treasury yield vs 3-month T-bill spread with plain-English interpretation of implied Fed rate path. Tailwind/headwind signal for equity valuations.
-- Conviction dashboard offline safety: if ALL tickers return errors (network failure), cached results are preserved and restored. No more accidental wipe in airplane mode.
-- prefetchAll: now fetches 3 monthly expirations per ticker (was 2). Also fetches Yahoo quote data to cache forwardPE and after-hours price.
-- Options tab: warning shown when options chain is freshly fetched but ticker price is stale (>30 min old).
-
-v1.9.0 -- 2026-04-29
-- Forward P/E added to Ticker tab metrics grid with direction indicator
-- Rule of 40 added to Ticker tab (revenue growth % + FCF/operating margin %). Color-coded score with context note that it applies to software/SaaS companies
-- Earnings date: now filters to earliest future date from Finnhub array. Window extended to 180 days. Prevents showing past earnings or far-future date when near-term date was in the array
-- Options table: expiration group header row at top of each month with date, DTE, and color matching OI chart stacked bars
-- Options table: earnings banner inserted at the correct position relative to expirations (between groups or inside group if earnings falls within that window). Shows date and BMO/AMC timing
-- Options table: dollar signs use HTML entity to avoid template literal conflicts
-- OI chart: now cleared immediately when ticker changes before new data loads
-- runDashboards: accepts skipOnlineCheck=true parameter for programmatic calls
-- fullRefreshEverything: now 6 steps including ETF and Market tab refresh. Passes skipOnlineCheck=true to runDashboards
-- Income engine summary: Layer 3 APY reads from target-apy setting on Dashboard tab
-- T-bill card title: FRED reference removed, now shows ^IRX / ^FVX
-- refreshTsChipAges: called in restoreVIXFromCache, restoreTickerFromCache, restoreETFFromCache so chips show correct stale state on first tab visit
-
-v1.8.1 -- 2026-04-29
-- Settings save: ticker dropdown selection now restored after saving settings. Previously populateSelects() rebuilt the option elements and the browser reset the dropdown to blank.
-- Settings save: refreshTsChipAges() now called immediately after saving so timezone change is reflected in all visible timestamp chips without needing to switch tabs.
-
-v1.8.0 -- 2026-04-29
-- Options tab live controls: expiration chips, OTM sliders, and APY threshold now all instantly redraw the options table and OI chart when a chain is already loaded. No need to press Load/Refresh again after adjusting any control.
-
-v1.7.9 -- 2026-04-29
-- Timestamp chips: refreshTsChipAges() now flips chip from green (live) to amber (cached) when data is older than 15 minutes. Fixes contradiction where ETF tab showed green "live" for hour-old data.
-- Options separator: completely rewritten with correct unified logic. In ascending strike order, the separator always appears before the first strike above the current price -- identical for both puts and calls mode. Previous version had swapped conditions causing puts separator to appear at top.
-
-v1.7.8 -- 2026-04-29
-- After-hours/pre-market price: now uses Yahoo Finance quote endpoint (?type=quote) via Worker -- same data source as Python yfinance stock.info. Shows change and % alongside extended price.
-- PWA icon: apple-touch-icon link tags added. Drop a 180x180 apple-touch-icon.png in the repo root whenever ready.
-- Options mode toggle: switching between Sell Puts and Sell Calls now auto-rebuilds the table and OI chart instantly without requiring a second button tap. Button renamed to "Load / Refresh Options Chain".
-- Options separator: puts mode separator now correctly appears between ITM puts (strike above price) and OTM puts (strike below price). Previous version incorrectly placed it at the top of each group.
-
-v1.7.7 -- 2026-04-29
-- Market banner: fixed next-open time calculation. Previous version constructed 9:30 AM ET incorrectly by guessing UTC offset from midnight -- which gave wrong results depending on DST. New approach uses make930ET() which tries both EDT (UTC-4) and EST (UTC-5), then verifies with Intl.DateTimeFormat that the resulting UTC timestamp actually corresponds to 9:30 AM ET before using it.
-
-v1.7.6 -- 2026-04-29
-- Volume Profile: VP bars now drawn as overlay on price chart using yAxis.getPixelForValue() -- guarantees pixel-perfect alignment with price axis. No more separate panel.
-- Volume Profile: removed separate horizontal bar chart panel. VP bars integrated into right margin of price chart, color-coded by volume magnitude.
-- Options table: current price separator row injected at the strike crossing point within each expiration group.
-- After-hours price: now also shows pre-market price when available; handles all extended-hours session states.
-- Short interest: improved field detection; shows "not reported" instead of "N/A" when data is genuinely unavailable.
-- Offline guard: all refresh/run buttons (dashboards, earnings, VIX, prefetch, ETF, market) now check connectivity before attempting fetch. Cached data is preserved.
-- Timestamp chips: age ("3h ago") refreshed on every tab switch so values never show "just now" for stale data.
-- ETF charts: SPYI chart now renders reliably using sequential requestAnimationFrame instead of setTimeout.
-
-v1.7.5 -- 2026-04-29
-- Options sliders: loadOptionsPrefs() now called whenever a new ticker is loaded in Options tab, so slider positions always reflect saved values rather than drifting
-- Volume Profile: both panels now share the same Y-axis min/max so price levels align horizontally across the price chart and volume bar chart
-- Volume Profile: chart container is now a horizontal scroll wrapper -- swipe left to see full volume bar panel on narrow screens
-
-v1.7.4 -- 2026-04-29
-- Market banner: fixed incorrect open/closed determination by using Intl.DateTimeFormat.formatToParts() instead of unreliable locale string parsing (Safari iOS incompatibility)
-- Market banner: close/open times now displayed in your selected timezone (PT/local/UTC) instead of hardcoded ET
-- Market banner: countdown shows "closes in 2h 30m (at 1:00 PM PT)" format
-
-v1.7.3 -- 2026-04-29
-- T-bill yields: switched to Yahoo Finance ^IRX (3-month) and ^FVX (5-year) via existing Worker history proxy. Avoids Treasury FiscalData SSL failures on Cloudflare Workers and FRED key requirement.
-
-v1.7.2 -- 2026-04-29
-- T-bill yields: switched from FRED API (requires key -- 400 error) to US Treasury FiscalData API (fully public, no key needed, routed via Worker)
-- ETF distributions and T-bill data now route correctly through Cloudflare Worker
-
-v1.7.1 -- 2026-04-29
-- Market banner timezone fix: respects PT/local/UTC setting from Settings
-- T-bill yields now routed through Cloudflare Worker (fixes N/A -- FRED CORS issue)
-- ETF distributions now fetched from Yahoo Finance via Worker (fixes N/A -- wrong Finnhub endpoint)
-- ETF trailing yield now computed correctly from Yahoo dividend event data
-
-v1.7 -- 2026-04-29
-- Live market status banner: green (open with countdown), red (closed), amber (pre/post market). Second-level precision in final 10 minutes. NYSE holiday aware.
-- Timezone preference in Settings: Pacific / Local Device / UTC. All timestamps use selected zone plus relative age (e.g. "3h ago")
-- Mode-specific slider persistence: puts and calls each remember their own OTM range and APY threshold settings
-- OI empty state: amber info box when OI data unavailable (typical overnight condition) with explanation and last-known-good timestamp
-- Analyst coverage on Ticker tab: analyst count, consensus label, recommendation mean, buy/hold/sell breakdown with visual bar
-- Treasury bill yields on Market tab: 3-month and 6-month T-bill yield history from FRED API, 1-year chart, spread analysis, income engine summary panel
-- ETF and Market tabs: auto-restore from cache on app wake, timestamps throughout
-- Online/offline indicator dot in header
-- Offline Mode toggle in Settings: skips all network fetches when enabled (for flights)
-- Clear All safety guard: strong warning with offline detection prevents accidental data loss on airplane
-- Offline detection: fleeting banner when network fails, persists as indicator dot</div>
+<!-- WATCHLIST REMOVE CONFIRMATION MODAL -->
+<div class="modal-overlay" id="watchlist-remove-modal">
+  <div class="modal-box">
+    <div class="modal-title" id="wrm-title">Remove ticker?</div>
+    <div class="modal-body" id="wrm-body"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-secondary btn-sm" id="wrm-cancel">Cancel</button>
+      <button class="btn btn-danger btn-sm" id="wrm-confirm">Remove</button>
+    </div>
   </div>
 </div>
 
@@ -793,27 +449,28 @@ v1.7 -- 2026-04-29
 </div>
 
 <div class="toast" id="toast"></div>
+
 <script src="./js/storage.js"></script>
 <script src="./js/helpers.js"></script>
 <script src="./js/ui.js"></script>
+<script src="./js/utils.js"></script>
 <script src="./js/api.js"></script>
 <script src="./js/scoring.js"></script>
-<script src="./js/settings.js"></script>
-<script src="./js/watchlist.js"></script>
+<script src="./js/market.js"></script>
 <script src="./js/dashboard.js"></script>
+<script src="./js/watchlist.js"></script>
 <script src="./js/ticker.js"></script>
 <script src="./js/options.js"></script>
-<script src="./js/earnings.js"></script>
 <script src="./js/vix.js"></script>
+<script src="./js/earnings.js"></script>
 <script src="./js/etf.js"></script>
-<script src="./js/market.js"></script>
+<script src="./js/settings.js"></script>
 <script src="./js/prefetch.js"></script>
 <script src="./js/income.js"></script>
 
 <script>
-// ═══ GLOBAL CONFIG & STATE ═══
-// S object defined in storage.js
 
+// ═══ CONFIG ═══
 let FINNHUB_KEY=S.get('finnhub_key')||'';
 let watchlist=S.get('watchlist')||['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
 let currentMode='puts';
@@ -825,21 +482,121 @@ let vixThreshold=parseInt(S.get('vix_threshold')||'20');
 let tzPref=S.get('tz_pref')||'PT';
 let offlineMode=S.get('offline_mode')==='true';
 let fontSize=S.get('font_size')||'19';
-applyFontSize(fontSize);
-let watchlistSort=S.get('watchlist_sort')||'manual'; // manual | alpha | opportunity
+let watchlistSort=S.get('watchlist_sort')||'manual';
 
 const DEFAULT_WATCHLIST=['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
 const WORKER_URL='https://wheel.kevinjeu.workers.dev';
 const EXP_COLORS=['#00d4aa','#ff6b35','#7c6af7','#ffa502'];
-
-// ─── Ticker tab state ───
-let _lastLiveRenderTicker='';let _lastLiveRenderTime=0;
-
-// ─── Options tab state ───
-let currentExpirations=[],selectedExpirations=[],currentOptionsData=null;
 let cachedOIRows=null;
 
+// Apply saved font size immediately on startup
+applyFontSize(fontSize);
 
+// ═══ ONLINE/OFFLINE DETECTION ═══
+window.addEventListener('online',()=>{updateOnlineIndicator();toast('Back online');});
+window.addEventListener('offline',()=>{updateOnlineIndicator();toast('Offline -- using cached data',3000);});
+
+// ═══ OPTIONS PREFS ═══
+function saveOptionsPrefs(){
+  S.set(`opts_pct_below_${currentMode}`,document.getElementById('pct-below').value);
+  S.set(`opts_pct_above_${currentMode}`,document.getElementById('pct-above').value);
+  S.set(`opts_hl_apy_${currentMode}`,document.getElementById('highlight-apy').value);
+}
+function loadOptionsPrefs(){
+  const defBelow=currentMode==='puts'?'20':'5';
+  const defAbove=currentMode==='puts'?'5':'20';
+  const pb=S.get(`opts_pct_below_${currentMode}`)||defBelow;
+  const pa=S.get(`opts_pct_above_${currentMode}`)||defAbove;
+  const ha=S.get(`opts_hl_apy_${currentMode}`)||'12';
+  document.getElementById('pct-below').value=pb;
+  document.getElementById('pct-below-val').textContent=pb+'%';
+  document.getElementById('pct-above').value=pa;
+  document.getElementById('pct-above-val').textContent=pa+'%';
+  document.getElementById('highlight-apy').value=ha;
+}
+function updateSlider(id){
+  document.getElementById(id+'-val').textContent=document.getElementById(id).value+'%';
+  saveOptionsPrefs();
+  const optSelT=document.getElementById('options-ticker-select')?.value||'';
+  if(currentOptionsData&&lastOptionsTickerLoaded&&optSelT===lastOptionsTickerLoaded)buildOptionsTable();
+}
+
+// ═══ API HELPERS ═══
+async function yahooHistory(symbol,range='6mo',interval='1d'){
+  if(offlineMode)throw new Error('offline mode');
+  const url=`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=history&range=${range}&interval=${interval}`;
+  const r=await fetch(url);if(!r.ok)throw new Error(`History proxy ${r.status}`);
+  const d=await r.json();if(d.error)throw new Error(d.error);
+  const result=d.chart?.result?.[0];if(!result)throw new Error('No history data');
+  return{timestamps:result.timestamp.map(t=>new Date(t*1000)),closes:result.indicators.quote[0].close,volumes:result.indicators.quote[0].volume||[]};
+}
+function slimOptionsData(json){
+  const result=json?.optionChain?.result?.[0];
+  if(!result)return json;
+  const slimContract=c=>({strike:c.strike,bid:c.bid,ask:c.ask,lastPrice:c.lastPrice,openInterest:c.openInterest,volume:c.volume,impliedVolatility:c.impliedVolatility,inTheMoney:c.inTheMoney,expiration:c.expiration});
+  const slimOptions=(result.options||[]).map(o=>({expirationDate:o.expirationDate,hasMiniOptions:o.hasMiniOptions,puts:(o.puts||[]).map(slimContract),calls:(o.calls||[]).map(slimContract)}));
+  return{optionChain:{result:[{underlyingSymbol:result.underlyingSymbol,expirationDates:result.expirationDates,strikes:result.strikes,hasMiniOptions:result.hasMiniOptions,quote:{regularMarketPrice:result.quote?.regularMarketPrice},options:slimOptions}],error:null}};
+}
+async function yahooOptionsViaProxy(symbol,expiration){
+  if(offlineMode)throw new Error('offline mode');
+  let url=`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=options`;
+  if(expiration)url+=`&expiration=${expiration}`;
+  const r=await fetch(url);
+  if(!r.ok){const errText=await r.text().catch(()=>'');throw new Error(`Options proxy ${r.status}: ${errText.slice(0,80)}`);}
+  const json=await r.json();
+  return slimOptionsData(json);
+}
+async function fetchQuoteSummary(symbol){
+  if(offlineMode)return null;
+  try{
+    const modules='financialData,defaultKeyStatistics,earningsTrend,recommendationTrend';
+    const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=summary&modules=${encodeURIComponent(modules)}`);
+    if(!r.ok)return null;
+    const d=await r.json();
+    const res=d.quoteSummary?.result?.[0];if(!res)return null;
+    const fd=res.financialData||{};const ks=res.defaultKeyStatistics||{};
+    const et=res.earningsTrend?.trend||[];const rt=res.recommendationTrend?.trend||[];
+    return{ptMean:fd.targetMeanPrice?.raw||null,ptHigh:fd.targetHighPrice?.raw||null,ptLow:fd.targetLowPrice?.raw||null,ptAnalysts:fd.numberOfAnalystOpinions?.raw||null,pegRatio:ks.pegRatio?.raw||null,evToEbitda:ks.enterpriseToEbitda?.raw||null,shortPctFloat:ks.shortPercentOfFloat?.raw||null,shortRatioYahoo:ks.shortRatio?.raw||null,sharesShort:ks.sharesShort?.raw||null,earningsTrend:et.slice(0,4).map(p=>({period:p.period,epsMean:p.earningsEstimate?.avg?.raw||null,epsLow:p.earningsEstimate?.low?.raw||null,epsHigh:p.earningsEstimate?.high?.raw||null,revenueAvg:p.revenueEstimate?.avg?.raw||null,epsRevUp:p.earningsEstimate?.numberOfAnalystsWithEstimate?.raw||null,growth:p.growth?.raw||null,endDate:p.endDate})),recTrend:rt.slice(0,3).map(m=>({period:m.period,strongBuy:m.strongBuy,buy:m.buy,hold:m.hold,sell:m.sell,strongSell:m.strongSell}))};
+  }catch{return null;}
+}
+async function fetchPriceTarget(symbol){const qs=await fetchQuoteSummary(symbol);return qs?{ptMean:qs.ptMean,ptHigh:qs.ptHigh,ptLow:qs.ptLow,ptAnalysts:qs.ptAnalysts}:null;}
+async function fetchAfterHoursPrice(symbol){
+  if(offlineMode)return null;
+  try{
+    const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=quote`);
+    if(!r.ok)return null;
+    const d=await r.json();const q=d.quoteResponse?.result?.[0];if(!q)return null;
+    const marketState=q.marketState||'';
+    const postPrice=q.postMarketPrice||null;const prePrice=q.preMarketPrice||null;
+    const extPrice=(marketState==='PRE'?prePrice:postPrice)||prePrice||postPrice;
+    return{postMarketPrice:extPrice,postMarketChange:marketState==='PRE'?q.preMarketChange:q.postMarketChange,postMarketChangePct:marketState==='PRE'?q.preMarketChangePercent:q.postMarketChangePercent,marketState,hasExtended:!!extPrice,forwardPE:q.forwardPE||null,trailingEps:q.epsTrailingTwelveMonths||q.trailingEps||null,epsGrowth:null,ptMean:null,ptHigh:null,ptLow:null,ptAnalysts:null};
+  }catch{return null;}
+}
+async function fetchNews(ticker){const to=fmtDate(new Date());const from=fmtDate(addDays(new Date(),-7));return fh(`/company-news?symbol=${ticker}&from=${from}&to=${to}`);}
+async function fetchFedFundsFutures(){
+  if(offlineMode)return null;
+  try{
+    const now=new Date();const yr=now.getFullYear();const mo=now.getMonth();
+    const codes=['F','G','H','J','K','M','N','Q','U','V','X','Z'];
+    const tickers=[];
+    for(let i=0;i<6;i++){const d=new Date(yr,mo+i,1);const y=d.getFullYear().toString().slice(2);const c=codes[d.getMonth()];tickers.push(`ZQ${c}${y}.CBT`);}
+    const results=await Promise.all(tickers.map(t=>fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(t)}&type=quote`).then(r=>r.json()).catch(()=>null)));
+    const contracts=[];
+    results.forEach((d,i)=>{const q=d?.quoteResponse?.result?.[0];if(!q)return;const price=q.regularMarketPrice||null;if(!price||price<90)return;const impliedRate=parseFloat((100-price).toFixed(3));const contractDate=new Date(yr,mo+i,1);contracts.push({ticker:tickers[i],month:contractDate.toLocaleDateString('en-US',{month:'short',year:'numeric'}),price,impliedRate});});
+    if(!contracts.length)return null;
+    return contracts;
+  }catch{return null;}
+}
+async function fetchTBills(){
+  const[hist3m,hist5y]=await Promise.all([yahooHistory('^IRX','1y','1d'),yahooHistory('^FVX','1y','1d')]);
+  function normalizeYield(closes){const valid=closes.filter(c=>c!==null&&c>0);if(!valid.length)return closes;const median=valid.sort((a,b)=>a-b)[Math.floor(valid.length/2)];const factor=median>20?10:1;return closes.map(c=>c!==null?c/factor:null);}
+  const norm3m=normalizeYield(hist3m.closes);const norm5y=normalizeYield(hist5y.closes);
+  const tbill3m=hist3m.timestamps.map((ts,i)=>({date:ts.toISOString().split('T')[0],value:norm3m[i]})).filter(d=>d.value!==null);
+  const tbill6m=hist5y.timestamps.map((ts,i)=>({date:ts.toISOString().split('T')[0],value:norm5y[i]})).filter(d=>d.value!==null);
+  return{tbill3m,tbill6m,label3m:'3-Month T-Bill (^IRX)',label6m:'5-Year Treasury (^FVX)'};
+}
+
+// ═══ INIT ═══
 function init(){
   loadOptionsPrefs();
   updateOfflineModeBar();
@@ -847,7 +604,6 @@ function init(){
   if(cp){renderDashTable('put-dashboard-content',cp.results,cp.ts,false);document.getElementById('put-dash-ts').innerHTML=tsChip(cp.ts,false);}
   if(cc){renderDashTable('cc-dashboard-content',cc.results,cc.ts,false);document.getElementById('cc-dash-ts').innerHTML=tsChip(cc.ts,false);}
   renderWatchlist();populateSelects();
-  // Apply saved sort mode button state
   setWatchlistSort(watchlistSort);
   const lt=S.get('last_ticker');
   if(lt){currentTicker=lt;document.getElementById('ticker-select').value=lt;document.getElementById('options-ticker-select').value=lt;restoreTickerFromCache(lt);}
@@ -855,28 +611,17 @@ function init(){
   const cv=S.get('vix_hist');if(cv?.closes){const c=cv.closes.filter(x=>x!==null);if(c.length)updateVIXIndicator(c[c.length-1]);}
   const ce=S.get('earnings_data');if(ce?.data){const today=new Date();earningsAllData=ce.data.map(e=>({...e,daysUntil:daysUntilDate(e.earningsDate)??Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);}
   updateOnlineIndicator();
-  // Start market status banner ticker -- every second
-  try{updateMarketBanner();}catch(e){console.error('Banner error:',e);}
-  setInterval(function(){try{updateMarketBanner();}catch(e){console.error('Banner interval error:',e);}},1000);
+  updateMarketBanner();
+  setInterval(()=>{try{updateMarketBanner();}catch(e){console.warn("Banner error:",e.message);}},1000);
   updateHeaderStatus();
   setInterval(()=>{try{updateHeaderStatus();}catch(e){console.warn('Header:',e.message);}},60000);
   applyFontSize(fontSize);
   if(!FINNHUB_KEY)setTimeout(()=>toast('Add your Finnhub API key in Settings to get started',4000),500);
 }
-
-// Call init when DOM is ready -- with fallback
-if(document.readyState==='loading'){
-  document.addEventListener('DOMContentLoaded', function(){
-    try{init();}catch(e){console.error('Init error:',e);toast('App init error: '+e.message,5000);}
-  });
-}else{
-  // DOM already ready (e.g. script at end of body)
-  try{init();}catch(e){console.error('Init error:',e);toast('App init error: '+e.message,5000);}
-}
-
-if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').then(reg=>{window._swReg=reg;}).catch(err=>console.warn('SW:',err));});
-}
+init();
 </script>
-
+<script>
+if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').then(reg=>{window._swReg=reg;}).catch(err=>console.warn('SW:',err));});}
+</script>
 </body>
 </html>

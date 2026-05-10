@@ -262,13 +262,19 @@ function _fmtDollar(n){
 }
 function _fmtPct(n,dec=2){return n==null||isNaN(n)?'--':n.toFixed(dec)+'%';}
 
-function _manualYieldInput(id,savedVal,placeholder){
+function _manualYieldInput(id,savedVal,placeholder,fetchFailed){
+  // Always rendered -- labeled as "override" when auto-fetch succeeded,
+  // "failed" with amber warning when it did not.
   const val=savedVal!=null?savedVal:'';
+  const borderColor=fetchFailed?'rgba(255,165,2,0.5)':'rgba(85,88,112,0.5)';
+  const label=fetchFailed
+    ?'<span style="font-family:var(--mono);font-size:10px;color:var(--warn)">&#x26A0; Auto-fetch failed — enter yield:</span>'
+    :'<span style="font-family:var(--mono);font-size:10px;color:var(--text3)">Manual override (optional):</span>';
   return '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap">'
-    +'<span style="font-family:var(--mono);font-size:10px;color:var(--warn)">&#x26A0; Auto-fetch failed — enter yield:</span>'
+    +label
     +'<div style="display:flex;align-items:center;gap:4px">'
     +'<input id="'+id+'" type="number" step="0.01" min="0" max="20" value="'+val+'" placeholder="'+placeholder+'"'
-    +' style="width:72px;background:var(--surface2);border:1px solid rgba(255,165,2,0.5);border-radius:6px;'
+    +' style="width:72px;background:var(--surface2);border:1px solid '+borderColor+';border-radius:6px;'
     +'color:var(--text);font-family:var(--mono);font-size:13px;padding:5px 7px;outline:none"'
     +' oninput="_saveManualYields()">'
     +'<span style="font-family:var(--mono);font-size:11px;color:var(--text3)">%</span>'
@@ -342,14 +348,18 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta){
 
   // ── Layer 1 with manual fallbacks ─────────────────────────────────────────
   const l1ComponentsWithFallback=l1.components.map(c=>{
-    if(c.label==='FDLXX'&&fdlxxNeedsManual){
+    if(c.label==='FDLXX'){
+      // yld: use auto-fetched TEY if available, otherwise manual TEY
       const manualTEY=inp.fdlxxYieldManual!=null?inp.fdlxxYieldManual/(1-CA_STATE_TAX_RATE):null;
-      return{...c,yld:manualTEY,
-        manualInput:_manualYieldInput('inc-fdlxx-yield-manual',inp.fdlxxYieldManual,'e.g. 4.50')};
+      const displayYld=c.yld!=null?c.yld:manualTEY;
+      return{...c,yld:displayYld,
+        manualInput:_manualYieldInput('inc-fdlxx-yield-manual',inp.fdlxxYieldManual,'e.g. 4.50',fdlxxNeedsManual)};
     }
-    if(c.label==='SPAXX / Free cash'&&spaxxNeedsManual){
-      return{...c,yld:inp.spaxxYieldManual??null,
-        manualInput:_manualYieldInput('inc-spaxx-yield-manual',inp.spaxxYieldManual,'e.g. 4.25')};
+    if(c.label==='SPAXX / Free cash'){
+      // yld: use auto-fetched yield if available, otherwise manual
+      const displayYld=c.yld!=null?c.yld:(inp.spaxxYieldManual??null);
+      return{...c,yld:displayYld,
+        manualInput:_manualYieldInput('inc-spaxx-yield-manual',inp.spaxxYieldManual,'e.g. 4.25',spaxxNeedsManual)};
     }
     return c;
   });

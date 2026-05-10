@@ -185,30 +185,28 @@
 
 <!-- INCOME TAB -->
 <div id="tab-income" class="tab-panel">
-  <div class="main">
-    <div class="card" style="border-left:4px solid rgba(0,212,170,0.5)">
-      <div class="card-title"><span class="dot" style="background:#00d4aa"></span>Income Engine Calculator</div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:14px">Three-layer blended yield on your Fidelity income sleeve. Inputs saved automatically.</div>
-      <!-- Layer 1 -->
-      <div style="font-family:var(--mono);font-size:9px;color:#64b5f6;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Layer 1 &mdash; Fixed Income</div>
-      <div class="input-group"><label class="input-label">T-Bills allocated ($)</label><input class="input" id="inc-tbill-amt" type="number" min="0" placeholder="e.g. 50000" oninput="recalcIncome()"></div>
-      <div class="input-group"><label class="input-label">FDLXX ($)</label><input class="input" id="inc-fdlxx-amt" type="number" min="0" placeholder="e.g. 25000" oninput="recalcIncome()"></div>
-      <div class="input-group"><label class="input-label">SPAXX / Free cash ($)</label><input class="input" id="inc-spaxx-amt" type="number" min="0" placeholder="e.g. 10000" oninput="recalcIncome()"></div>
-      <!-- Layer 2 -->
-      <div style="font-family:var(--mono);font-size:9px;color:#ff6b35;text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px">Layer 2 &mdash; ETF Income</div>
-      <div class="input-group"><label class="input-label">SPYI shares held</label><input class="input" id="inc-spyi-shares" type="number" min="0" placeholder="e.g. 200" oninput="recalcIncome()"></div>
-      <div class="input-group"><label class="input-label">NBOS shares held</label><input class="input" id="inc-nbos-shares" type="number" min="0" placeholder="e.g. 150" oninput="recalcIncome()"></div>
-      <!-- Layer 3 -->
-      <div style="font-family:var(--mono);font-size:9px;color:#00d4aa;text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px">Layer 3 &mdash; Wheel Strategy</div>
-      <div class="input-group"><label class="input-label">Written puts &mdash; total notional ($)</label><input class="input" id="inc-puts-notional" type="number" min="0" placeholder="e.g. 140000" oninput="recalcIncome()"></div>
-      <div class="input-group"><label class="input-label">Stock held for CC writing ($)</label><input class="input" id="inc-cc-stock-amt" type="number" min="0" placeholder="e.g. 30000" oninput="recalcIncome()"></div>
-      <div style="display:flex;gap:8px;margin-top:4px">
-        <button class="btn btn-primary" style="flex:2" onclick="recalcIncome()">Calculate</button>
-        <button class="btn btn-secondary" style="flex:1" onclick="refreshIncomeYields()">Refresh Yields</button>
-      </div>
+  <div class="card" style="border-left:4px solid rgba(0,212,170,0.5)">
+    <div class="card-title"><span class="dot" style="background:#00d4aa"></span>Income Engine Calculator</div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:14px">Three-layer blended yield on your Fidelity income sleeve. Inputs saved automatically.</div>
+    <!-- Layer 1 -->
+    <div style="font-family:var(--mono);font-size:9px;color:#64b5f6;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Layer 1 &mdash; Fixed Income</div>
+    <div class="input-group"><label class="input-label">T-Bills allocated ($)</label><input class="input" id="inc-tbill-amt" type="number" min="0" placeholder="e.g. 50000" oninput="recalcIncome()"></div>
+    <div class="input-group"><label class="input-label">FDLXX ($)</label><input class="input" id="inc-fdlxx-amt" type="number" min="0" placeholder="e.g. 25000" oninput="recalcIncome()"></div>
+    <div class="input-group"><label class="input-label">SPAXX / Free cash ($)</label><input class="input" id="inc-spaxx-amt" type="number" min="0" placeholder="e.g. 10000" oninput="recalcIncome()"></div>
+    <!-- Layer 2 -->
+    <div style="font-family:var(--mono);font-size:9px;color:#ff6b35;text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px">Layer 2 &mdash; ETF Income</div>
+    <div class="input-group"><label class="input-label">SPYI shares held</label><input class="input" id="inc-spyi-shares" type="number" min="0" placeholder="e.g. 200" oninput="recalcIncome()"></div>
+    <div class="input-group"><label class="input-label">NBOS shares held</label><input class="input" id="inc-nbos-shares" type="number" min="0" placeholder="e.g. 150" oninput="recalcIncome()"></div>
+    <!-- Layer 3 -->
+    <div style="font-family:var(--mono);font-size:9px;color:#00d4aa;text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px">Layer 3 &mdash; Wheel Strategy</div>
+    <div class="input-group"><label class="input-label">Written puts &mdash; total notional ($)</label><input class="input" id="inc-puts-notional" type="number" min="0" placeholder="e.g. 140000" oninput="recalcIncome()"></div>
+    <div class="input-group"><label class="input-label">Stock held for CC writing ($)</label><input class="input" id="inc-cc-stock-amt" type="number" min="0" placeholder="e.g. 30000" oninput="recalcIncome()"></div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn btn-primary" style="flex:2" onclick="recalcIncome()">Calculate</button>
+      <button class="btn btn-secondary" style="flex:1" onclick="refreshIncomeYields()">Refresh Yields</button>
     </div>
-    <div id="income-results"></div>
   </div>
+  <div id="income-results"></div>
 </div>
 
 <!-- GUIDE TAB -->
@@ -428,6 +426,18 @@ Version: v2.7.0</div>
   </div>
 </div>
 
+<!-- WATCHLIST REMOVE CONFIRMATION MODAL -->
+<div class="modal-overlay" id="watchlist-remove-modal">
+  <div class="modal-box">
+    <div class="modal-title" id="wrm-title">Remove ticker?</div>
+    <div class="modal-body" id="wrm-body"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-secondary btn-sm" id="wrm-cancel">Cancel</button>
+      <button class="btn btn-danger btn-sm" id="wrm-confirm">Remove</button>
+    </div>
+  </div>
+</div>
+
 <!-- OFFLINE CONFIRM MODAL -->
 <div class="modal-overlay" id="offline-confirm-modal">
   <div class="modal-box">
@@ -442,6 +452,7 @@ Version: v2.7.0</div>
 
 <script src="./js/storage.js"></script>
 <script src="./js/helpers.js"></script>
+<script src="./js/ui.js"></script>
 <script src="./js/utils.js"></script>
 <script src="./js/api.js"></script>
 <script src="./js/scoring.js"></script>
@@ -455,7 +466,6 @@ Version: v2.7.0</div>
 <script src="./js/etf.js"></script>
 <script src="./js/settings.js"></script>
 <script src="./js/prefetch.js"></script>
-<script src="./js/ui.js"></script>
 <script src="./js/income.js"></script>
 
 <script>
@@ -605,6 +615,7 @@ function init(){
   setInterval(()=>{try{updateMarketBanner();}catch(e){console.warn("Banner error:",e.message);}},1000);
   updateHeaderStatus();
   setInterval(()=>{try{updateHeaderStatus();}catch(e){console.warn('Header:',e.message);}},60000);
+  applyFontSize(fontSize);
   if(!FINNHUB_KEY)setTimeout(()=>toast('Add your Finnhub API key in Settings to get started',4000),500);
 }
 init();

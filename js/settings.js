@@ -311,18 +311,8 @@ function clearAllDataConfirmed(){
 }
 
 function forceAppRefresh(){
-  // Use reload() without the hard-reload argument so the service worker
-  // intercepts the navigation and serves files from its fresh cache.
-  // reload(true) bypasses the SW on iOS Safari, causing a mixed old/new
-  // file state where the banner interval can be killed by stale code.
-  if('caches'in window){
-    caches.keys()
-      .then(keys=>Promise.all(keys.map(k=>caches.delete(k))))
-      .then(()=>{
-        toast('Cache cleared -- reloading...',2500);
-        setTimeout(()=>window.location.reload(),2500);
-      });
-  }else{
-    window.location.reload();
-  }
+  // reload() without true so the SW intercepts the reload and serves
+  // files from its fresh cache. reload(true) bypasses the SW on iOS Safari.
+  if('caches'in window){caches.keys().then(keys=>{Promise.all(keys.map(k=>caches.delete(k))).then(()=>{toast('Cache cleared -- reloading...',2500);setTimeout(()=>window.location.reload(),2500);});});}
+  else{window.location.reload();}
 }

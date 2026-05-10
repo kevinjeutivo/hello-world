@@ -489,9 +489,9 @@ function init(){
   const ce=S.get('earnings_data');if(ce?.data){const today=new Date();earningsAllData=ce.data.map(e=>({...e,daysUntil:daysUntilDate(e.earningsDate)??Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);}
   updateOnlineIndicator();
   updateMarketBanner();
-  setInterval(updateMarketBanner,1000);
+  setInterval(()=>{try{updateMarketBanner();}catch(e){console.warn('Banner error:',e.message);}},1000);
   updateHeaderStatus();
-  setInterval(updateHeaderStatus,60000);
+  setInterval(()=>{try{updateHeaderStatus();}catch(e){console.warn('Header status error:',e.message);}},60000);
   if(!FINNHUB_KEY)setTimeout(()=>toast('Add your Finnhub API key in Settings to get started',4000),500);
 }
 init();

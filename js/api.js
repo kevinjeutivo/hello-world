@@ -134,13 +134,16 @@ async function fetchAfterHoursPrice(symbol){
     if(!q)return null;
     const marketState=q.marketState||'';
     // postMarketPrice populated after 4pm ET, preMarketPrice before 9:30am ET
+    // During REGULAR session, suppress extended-hours price entirely --
+    // Yahoo often returns a stale prior-session value which must not be shown.
     const postPrice=q.postMarketPrice||null;
     const prePrice=q.preMarketPrice||null;
-    const extPrice=(marketState==='PRE'?prePrice:postPrice)||prePrice||postPrice;
+    const isExtended=marketState==='PRE'||marketState==='POST'||marketState==='POSTPOST';
+    const extPrice=isExtended?(marketState==='PRE'?prePrice:postPrice):null;
     return{
       postMarketPrice:extPrice,
-      postMarketChange:marketState==='PRE'?q.preMarketChange:q.postMarketChange,
-      postMarketChangePct:marketState==='PRE'?q.preMarketChangePercent:q.postMarketChangePercent,
+      postMarketChange:isExtended?(marketState==='PRE'?q.preMarketChange:q.postMarketChange):null,
+      postMarketChangePct:isExtended?(marketState==='PRE'?q.preMarketChangePercent:q.postMarketChangePercent):null,
       marketState,
       hasExtended:!!extPrice,
       forwardPE:q.forwardPE||null,

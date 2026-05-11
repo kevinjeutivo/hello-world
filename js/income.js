@@ -31,6 +31,8 @@ function _defaultIncomeInputs(){
     putsNotional:0,ccStockAmt:0,
     fdlxxYieldManual:null,
     spaxxYieldManual:null,
+    fdlxxUseManual:false,   // toggle: true = manual value overrides fetched yield
+    spaxxUseManual:false,
   };
 }
 
@@ -48,9 +50,11 @@ function _saveIncomeInputs(){
     nbosShares:  _numVal('inc-nbos-shares'),
     putsNotional:_numVal('inc-puts-notional'),
     ccStockAmt:  _numVal('inc-cc-stock-amt'),
-    // Preserve manual yield overrides
+    // Preserve manual yield overrides and toggle states
     fdlxxYieldManual:existing.fdlxxYieldManual??null,
     spaxxYieldManual:existing.spaxxYieldManual??null,
+    fdlxxUseManual:existing.fdlxxUseManual??false,
+    spaxxUseManual:existing.spaxxUseManual??false,
   };
   S.set(INCOME_STORAGE_KEY,inp);
   return inp;
@@ -65,6 +69,10 @@ function _saveManualYields(){
   const spaxxEl=document.getElementById('inc-spaxx-yield-manual');
   if(fdlxxEl){const v=parseFloat(fdlxxEl.value);existing.fdlxxYieldManual=isNaN(v)||v<=0?null:v;}
   if(spaxxEl){const v=parseFloat(spaxxEl.value);existing.spaxxYieldManual=isNaN(v)||v<=0?null:v;}
+  const fdlxxToggle=document.getElementById('inc-fdlxx-use-manual');
+  const spaxxToggle=document.getElementById('inc-spaxx-use-manual');
+  if(fdlxxToggle)existing.fdlxxUseManual=fdlxxToggle.checked;
+  if(spaxxToggle)existing.spaxxUseManual=spaxxToggle.checked;
   S.set(INCOME_STORAGE_KEY,existing);
   recalcIncome();
 }
@@ -266,24 +274,57 @@ function _fmtDollar(n){
 }
 function _fmtPct(n,dec=2){return n==null||isNaN(n)?'--':n.toFixed(dec)+'%';}
 
-function _manualYieldInput(id,savedVal,placeholder,fetchFailed){
-  // Always rendered -- labeled as "override" when auto-fetch succeeded,
-  // "failed" with amber warning when it did not.
+function _manualYieldInput(id,savedVal,placeholder,fetchFailed,useManual,fetchedVal){
+  // Always rendered.
+  // When auto-fetch succeeded: shows toggle + dimmed/active input based on toggle state.
+  // When auto-fetch failed: amber warning, input always active, no toggle needed.
   const val=savedVal!=null?savedVal:'';
-  const borderColor=fetchFailed?'rgba(255,165,2,0.5)':'rgba(85,88,112,0.5)';
-  const label=fetchFailed
-    ?'<span style="font-family:var(--mono);font-size:10px;color:var(--warn)">&#x26A0; Auto-fetch failed — enter yield:</span>'
-    :'<span style="font-family:var(--mono);font-size:10px;color:var(--text3)">Manual override (optional):</span>';
-  return '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap">'
-    +label
-    +'<div style="display:flex;align-items:center;gap:4px">'
-    +'<input id="'+id+'" type="number" step="0.01" min="0" max="20" value="'+val+'" placeholder="'+placeholder+'"'
-    +' style="width:72px;background:var(--surface2);border:1px solid '+borderColor+';border-radius:6px;'
-    +'color:var(--text);font-family:var(--mono);font-size:13px;padding:5px 7px;outline:none"'
-    +' onblur="_saveManualYields()">'
-    +'<span style="font-family:var(--mono);font-size:11px;color:var(--text3)">%</span>'
+  const toggleId=id+'-use-manual';
+
+  if(fetchFailed){
+    // No fetched value -- input is always the only source, no toggle needed
+    return '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap">'
+      +'<span style="font-family:var(--mono);font-size:10px;color:var(--warn)">&#x26A0; Auto-fetch failed — enter yield:</span>'
+      +'<div style="display:flex;align-items:center;gap:4px">'
+      +'<input id="'+id+'" type="number" step="0.01" min="0" max="20" value="'+val+'" placeholder="'+placeholder+'"'
+      +' style="width:72px;background:var(--surface2);border:1px solid rgba(255,165,2,0.5);border-radius:6px;'
+      +'color:var(--text);font-family:var(--mono);font-size:13px;padding:5px 7px;outline:none"'
+      +' onblur="_saveManualYields()">'
+      +'<span style="font-family:var(--mono);font-size:11px;color:var(--text3)">%</span>'
+      +'</div></div>';
+  }
+
+  // Auto-fetch succeeded -- show toggle to optionally override
+  const inputOpacity=useManual?'1':'0.35';
+  const inputBorder=useManual?'rgba(255,165,2,0.6)':'rgba(85,88,112,0.4)';
+  const activeLabel=useManual
+    ?'<span style="font-family:var(--mono);font-size:10px;color:var(--warn);font-weight:600">Manual active</span>'
+    :'<span style="font-family:var(--mono);font-size:10px;color:var(--text3)">Manual override:</span>';
+  const fetchedDisplay=fetchedVal!=null?'<span style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-left:4px">(fetched: '+fetchedVal.toFixed(2)+'%)</span>':''
+
+  return '<div style="margin-top:8px">'
+    // Toggle row
+    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+      +'<label style="position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0">'
+        +'<input type="checkbox" id="'+toggleId+'" '+( useManual?'checked':'' )+' style="opacity:0;width:0;height:0"'
+        +' onchange="_saveManualYields()">'
+        +'<span style="position:absolute;cursor:pointer;inset:0;background:'+( useManual?'var(--warn)':'var(--surface3)')+';'
+        +'border-radius:20px;transition:0.2s">'
+        +'<span style="position:absolute;height:14px;width:14px;left:'+( useManual?'19px':'3px')+';bottom:3px;'
+        +'background:#fff;border-radius:50%;transition:0.2s"></span></span>'
+      +'</label>'
+      +activeLabel
+      +fetchedDisplay
     +'</div>'
-    +'</div>';
+    // Input row
+    +'<div style="display:flex;align-items:center;gap:4px">'
+      +'<input id="'+id+'" type="number" step="0.01" min="0" max="20" value="'+val+'" placeholder="'+placeholder+'"'
+      +' style="width:72px;background:var(--surface2);border:1px solid '+inputBorder+';border-radius:6px;'
+      +'color:var(--text);font-family:var(--mono);font-size:13px;padding:5px 7px;outline:none;opacity:'+inputOpacity+'"'
+      +' onblur="_saveManualYields()">'
+      +'<span style="font-family:var(--mono);font-size:11px;color:var(--text3)">%</span>'
+    +'</div>'
+  +'</div>';
 }
 
 function _layerCard({bg,border,accentColor,title,layerNum,capitalStr,yieldStr,incomeStr,components,note}){
@@ -353,17 +394,23 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta){
   // ── Layer 1 with manual fallbacks ─────────────────────────────────────────
   const l1ComponentsWithFallback=l1.components.map(c=>{
     if(c.label==='FDLXX'){
-      // yld: use auto-fetched TEY if available, otherwise manual TEY
+      const fetchedRaw=result.yields.fdlxx; // raw fetched yield (pre-TEY)
       const manualTEY=inp.fdlxxYieldManual!=null?inp.fdlxxYieldManual/(1-CA_STATE_TAX_RATE):null;
-      const displayYld=c.yld!=null?c.yld:manualTEY;
+      // Display TEY: if toggle active and manual set, use manualTEY; else use auto-fetched TEY
+      const displayYld=(inp.fdlxxUseManual&&manualTEY!=null)?manualTEY:(c.yld??manualTEY);
       return{...c,yld:displayYld,
-        manualInput:_manualYieldInput('inc-fdlxx-yield-manual',inp.fdlxxYieldManual,'e.g. 4.50',fdlxxNeedsManual)};
+        manualInput:_manualYieldInput(
+          'inc-fdlxx-yield-manual',inp.fdlxxYieldManual,'e.g. 4.50',
+          fdlxxNeedsManual,inp.fdlxxUseManual,fetchedRaw)};
     }
     if(c.label==='SPAXX / Free cash'){
-      // yld: use auto-fetched yield if available, otherwise manual
-      const displayYld=c.yld!=null?c.yld:(inp.spaxxYieldManual??null);
+      const fetchedRaw=result.yields.spaxx;
+      const displayYld=(inp.spaxxUseManual&&inp.spaxxYieldManual!=null)
+        ?inp.spaxxYieldManual:(c.yld??(inp.spaxxYieldManual??null));
       return{...c,yld:displayYld,
-        manualInput:_manualYieldInput('inc-spaxx-yield-manual',inp.spaxxYieldManual,'e.g. 4.25',spaxxNeedsManual)};
+        manualInput:_manualYieldInput(
+          'inc-spaxx-yield-manual',inp.spaxxYieldManual,'e.g. 4.25',
+          spaxxNeedsManual,inp.spaxxUseManual,fetchedRaw)};
     }
     return c;
   });
@@ -375,6 +422,8 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta){
       parts.push('MMF yields: '+(mmfFromCache?'cached':'live')+' as of '
         +new Date(mmfTs).toLocaleDateString('en-US',{month:'short',day:'numeric'})+'.');
     }
+    if(inp.fdlxxUseManual&&inp.fdlxxYieldManual!=null)parts.push('FDLXX: using your manual yield of '+inp.fdlxxYieldManual.toFixed(2)+'%.');
+    if(inp.spaxxUseManual&&inp.spaxxYieldManual!=null)parts.push('SPAXX: using your manual yield of '+inp.spaxxYieldManual.toFixed(2)+'%.');
     if(fdlxxNeedsManual||spaxxNeedsManual){
       const which=fdlxxNeedsManual&&spaxxNeedsManual?'FDLXX and SPAXX':fdlxxNeedsManual?'FDLXX':'SPAXX';
       parts.push('Auto-fetch unavailable for '+which+' — enter yield % manually above, or tap Refresh Yields to retry. Check fidelity.com for current 7-day yield.');
@@ -444,11 +493,18 @@ function _buildAndRender(inp,mmf){
   const nbosData  =_getETFYield('NBOS');
   const targetAPY =_getTargetAPY();
 
-  // Resolve effective yields: auto-fetched → manual override → null
-  const fdlxxYield=mmf.fdlxx!=null?mmf.fdlxx
-    :(inp.fdlxxYieldManual!=null?inp.fdlxxYieldManual:null);
-  const spaxxYield=mmf.spaxx!=null?mmf.spaxx
-    :(inp.spaxxYieldManual!=null?inp.spaxxYieldManual:null);
+  // Resolve effective yields respecting toggle state:
+  //   auto-fetch failed → manual is only option
+  //   auto-fetch succeeded + toggle on → manual overrides fetched
+  //   auto-fetch succeeded + toggle off → use fetched value
+  const fdlxxFetched=mmf.fdlxx;
+  const spaxxFetched=mmf.spaxx;
+  const fdlxxYield=(fdlxxFetched==null)
+    ?(inp.fdlxxYieldManual??null)
+    :(inp.fdlxxUseManual&&inp.fdlxxYieldManual!=null?inp.fdlxxYieldManual:fdlxxFetched);
+  const spaxxYield=(spaxxFetched==null)
+    ?(inp.spaxxYieldManual??null)
+    :(inp.spaxxUseManual&&inp.spaxxYieldManual!=null?inp.spaxxYieldManual:spaxxFetched);
 
   const result=_calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targetAPY);
   const el=document.getElementById('income-results');

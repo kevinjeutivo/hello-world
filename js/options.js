@@ -8,6 +8,7 @@ function updateSlider(id){
   const label=document.getElementById(id+'-val');
   if(!slider||!label)return;
   label.textContent=slider.value+'%';
+  saveOptionsPrefs();
   if(currentOptionsData)buildOptionsTable();
 }
 

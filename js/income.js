@@ -274,12 +274,11 @@ function _fmtDollar(n){
 }
 function _fmtPct(n,dec=2){return n==null||isNaN(n)?'--':n.toFixed(dec)+'%';}
 
-function _manualYieldInput(id,savedVal,placeholder,fetchFailed,useManual,fetchedVal){
+function _manualYieldInput(id,toggleId,savedVal,placeholder,fetchFailed,useManual,fetchedVal){
   // Always rendered.
   // When auto-fetch succeeded: shows toggle + dimmed/active input based on toggle state.
   // When auto-fetch failed: amber warning, input always active, no toggle needed.
   const val=savedVal!=null?savedVal:'';
-  const toggleId=id+'-use-manual';
 
   if(fetchFailed){
     // No fetched value -- input is always the only source, no toggle needed
@@ -400,7 +399,7 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta){
       const displayYld=(inp.fdlxxUseManual&&manualTEY!=null)?manualTEY:(c.yld??manualTEY);
       return{...c,yld:displayYld,
         manualInput:_manualYieldInput(
-          'inc-fdlxx-yield-manual',inp.fdlxxYieldManual,'e.g. 4.50',
+          'inc-fdlxx-yield-manual','inc-fdlxx-use-manual',inp.fdlxxYieldManual,'e.g. 4.50',
           fdlxxNeedsManual,inp.fdlxxUseManual,fetchedRaw)};
     }
     if(c.label==='SPAXX / Free cash'){
@@ -409,7 +408,7 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta){
         ?inp.spaxxYieldManual:(c.yld??(inp.spaxxYieldManual??null));
       return{...c,yld:displayYld,
         manualInput:_manualYieldInput(
-          'inc-spaxx-yield-manual',inp.spaxxYieldManual,'e.g. 4.25',
+          'inc-spaxx-yield-manual','inc-spaxx-use-manual',inp.spaxxYieldManual,'e.g. 4.25',
           spaxxNeedsManual,inp.spaxxUseManual,fetchedRaw)};
     }
     return c;

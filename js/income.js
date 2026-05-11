@@ -365,7 +365,7 @@ function _layerCard({bg,border,accentColor,title,layerNum,capitalStr,yieldStr,in
   +'</div>';
 }
 
-function _renderResults(result,mmfTs,mmfFromCache,mmfMeta){
+function _renderResults(result,mmfTs,mmfFromCache,mmfMeta,rawFetched){
   const{l1,l2,l3,blended}=result;
   const noCapital=blended.capital<=0;
   const inp=_loadIncomeInputs();
@@ -393,7 +393,7 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta){
   // ── Layer 1 with manual fallbacks ─────────────────────────────────────────
   const l1ComponentsWithFallback=l1.components.map(c=>{
     if(c.label==='FDLXX'){
-      const fetchedRaw=result.yields.fdlxx; // raw fetched yield (pre-TEY)
+      const fetchedRaw=rawFetched?.fdlxx??null; // raw fetched yield (pre-TEY), always from MMF cache
       const manualTEY=inp.fdlxxYieldManual!=null?inp.fdlxxYieldManual/(1-CA_STATE_TAX_RATE):null;
       // Display TEY: if toggle active and manual set, use manualTEY; else use auto-fetched TEY
       const displayYld=(inp.fdlxxUseManual&&manualTEY!=null)?manualTEY:(c.yld??manualTEY);
@@ -403,7 +403,7 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta){
           fdlxxNeedsManual,inp.fdlxxUseManual,fetchedRaw)};
     }
     if(c.label==='SPAXX / Free cash'){
-      const fetchedRaw=result.yields.spaxx;
+      const fetchedRaw=rawFetched?.spaxx??null;
       const displayYld=(inp.spaxxUseManual&&inp.spaxxYieldManual!=null)
         ?inp.spaxxYieldManual:(c.yld??(inp.spaxxYieldManual??null));
       return{...c,yld:displayYld,
@@ -507,7 +507,7 @@ function _buildAndRender(inp,mmf){
 
   const result=_calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targetAPY);
   const el=document.getElementById('income-results');
-  if(el)el.innerHTML=_renderResults(result,mmf.ts,mmf.fromCache,mmf);
+  if(el)el.innerHTML=_renderResults(result,mmf.ts,mmf.fromCache,mmf,{fdlxx:mmf.fdlxx,spaxx:mmf.spaxx});
   S.set('income_ts',new Date().toISOString());
 }
 

@@ -245,6 +245,18 @@ function renderWatchlist(){
     return;
   }
   const sorted=getSortedWatchlist();
+  // IVR legend -- only shown when IVR heatmap is active
+  const legendHtml=_heatmapMode==='ivr'?
+    '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding:8px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">'
+    +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);width:100%;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.5px">IVR Heatmap — each ticker vs its own 52W IV range</div>'
+    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(255,107,53,0.22)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR ≥ 70 — rich premium</span></div>'
+    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(255,193,7,0.18)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR 50–69 — elevated</span></div>'
+    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(100,181,246,0.12)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR 30–49 — normal</span></div>'
+    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(85,88,112,0.08);border:1px solid var(--border)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR &lt; 30 or no data — thin</span></div>'
+    +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);width:100%;margin-top:2px">Run conviction dashboards to populate IVR data.</div>'
+    +'</div>'
+    :'';
+
   el.innerHTML=sorted.map(t=>{
     const c=S.get('snap_'+t);
     const price=c?'$'+c.price.toFixed(2):'--';
@@ -265,7 +277,7 @@ function renderWatchlist(){
       '</div>'+
       '<button class="watchlist-remove" onclick="event.stopPropagation();_openRemoveModal(\''+t+'\')">&#x2715;</button>'+
     '</div>';
-  }).join('');
+  }).join('')+legendHtml;
 }
 
 function selectTickerFromWatchlist(t){

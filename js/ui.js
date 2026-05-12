@@ -164,6 +164,35 @@ function getMarketState(){
   return{state:'closed',reason:'overnight',now,sec};
 }
 
+// Returns the closing time of the NYSE session in ET minutes since midnight.
+// Normal close: 960 (4:00pm ET). Early close: 780 (1:00pm ET).
+// Early close days are always the trading day immediately before certain holidays:
+// Independence Day (Jul 4), Thanksgiving (day after), Christmas (Dec 25), New Year's.
+function _getSessionCloseMins(etDateObj){
+  const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',month:'numeric',day:'numeric',year:'numeric'});
+  const parts=fmt.formatToParts(etDateObj);
+  const mo=parseInt(parts.find(p=>p.type==='month').value);
+  const dy=parseInt(parts.find(p=>p.type==='day').value);
+  const yr=parseInt(parts.find(p=>p.type==='year').value);
+  // Check if this date is an early close day (day before a holiday)
+  // Early close is 1pm ET = 780 mins
+  // Day before Independence Day (Jul 3, or Fri if Jul 4 is Sat, or Mon if Jul 4 is Sun -- but market doesn't close early on Mon, just Jul 3/Fri)
+  const dow=etDateObj.toLocaleDateString('en-US',{timeZone:'America/New_York',weekday:'short'});
+  // Jul 3 (or Fri before Jul 5 when Jul 4 is Sat) -- early close
+  if(mo===7&&dy===3)return 780;
+  if(mo===7&&dy===2&&dow==='Fri')return 780; // Fri when Jul 4 is Sun observed Mon
+  // Black Friday (day after Thanksgiving) -- always Fri
+  const thanksgiving=_computeNYSEHolidays(yr).find(h=>h.month===11&&h.name==='Thanksgiving');
+  if(thanksgiving){const tf=new Date(yr,10,thanksgiving.day+1);if(mo===11&&dy===thanksgiving.day+1)return 780;}
+  // Christmas Eve (Dec 24, or Fri if Dec 25 is Sat)
+  if(mo===12&&dy===24)return 780;
+  if(mo===12&&dy===23&&dow==='Fri')return 780;
+  // New Year's Eve (Dec 31, or Fri if Jan 1 is Sat)
+  if(mo===12&&dy===31)return 780;
+  if(mo===12&&dy===30&&dow==='Fri')return 780;
+  return 960; // normal close 4pm ET
+}
+
 function minsToHHMM(m){const h=Math.floor(m/60);const mm=m%60;return h>0?`${h}h ${mm}m`:`${mm}m`;}
 
 function secsToMMSS(s){return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;}

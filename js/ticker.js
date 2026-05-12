@@ -23,7 +23,7 @@ async function loadTicker(){
       recData=rec&&rec.length?rec[0]:null;
       const upgradeData=upgrades&&upgrades.length?upgrades.slice(0,6):[];
       S.set('snap_'+t,snap);S.set('rec_'+t,{data:recData||null,ts:nowPT()});S.set('upgrades_'+t,{data:upgradeData||[],ts:nowPT()});
-      try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;
+      try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;if(ah.intradayVolume!=null)snap.intradayVolume=ah.intradayVolume;
       }}catch{}
       // Fetch enriched data from Yahoo quoteSummary (4 modules in one call)
       try{

@@ -1,13 +1,11 @@
 // PutSeller Pro -- watchlist.js
 // Watchlist tab: render, add, remove (with confirmation modal), sort.
+// Heatmap: daily % change or IVR coloring on chips.
+// Volume badge: 🔥 VOL when unusual volume detected in final 2h of session or lingers overnight.
 // Globals used: watchlist, watchlistSort, currentTicker, S
 // Dependencies: helpers.js, storage.js, ui.js
 
 // ── Removal confirmation modal ────────────────────────────────────────────────
-// Uses the same .modal-overlay / .modal-box pattern as the "Clear All Cached
-// Data" confirmation -- already styled in app.css, proven to work on iPhone.
-// The modal is created once and reused; the ticker being confirmed is tracked
-// in _pendingRemoveTicker.
 
 let _pendingRemoveTicker=null;
 
@@ -29,7 +27,6 @@ function _ensureRemoveModal(){
     document.body.appendChild(el);
     document.getElementById('wrm-cancel').addEventListener('click',_closeRemoveModal);
     document.getElementById('wrm-confirm').addEventListener('click',_confirmRemove);
-    // Tap outside the box to cancel
     el.addEventListener('click',function(e){if(e.target===el)_closeRemoveModal();});
   }
   return el;
@@ -55,12 +52,160 @@ function _confirmRemove(){
   if(!ticker)return;
   watchlist=watchlist.filter(x=>x!==ticker);
   S.set('watchlist',watchlist);
-  // Clear the ticker's cached snapshot so stale data doesn't re-appear
-  // if the user re-adds the ticker later.
   S.del('snap_'+ticker);
+  const vbs=S.get('vol_badge_state')||{};
+  delete vbs[ticker];
+  S.set('vol_badge_state',vbs);
   renderWatchlist();
   populateSelects();
   toast('Removed '+ticker);
+}
+
+// ── Heatmap ───────────────────────────────────────────────────────────────────
+
+let _heatmapMode='off'; // 'off' | 'change' | 'ivr'
+
+function setHeatmap(mode){
+  _heatmapMode=mode;
+  ['off','change','ivr'].forEach(m=>{
+    const btn=document.getElementById('hm-'+m);
+    if(btn)btn.style.opacity=m===mode?'1':'0.4';
+  });
+  renderWatchlist();
+}
+
+function _heatmapBg(t){
+  if(_heatmapMode==='off')return null;
+  const snap=S.get('snap_'+t);
+  if(!snap)return null;
+
+  if(_heatmapMode==='change'){
+    const pct=snap.changePct||0;
+    const intensity=Math.min(Math.abs(pct)/5,1); // 5% move = full intensity
+    if(pct>0){
+      const g=Math.round(80+intensity*100);
+      return'rgba(0,'+g+',80,'+(0.12+intensity*0.25)+')';
+    }else{
+      const r=Math.round(160+intensity*80);
+      return'rgba('+r+',30,30,'+(0.12+intensity*0.25)+')';
+    }
+  }
+
+  if(_heatmapMode==='ivr'){
+    const ivr=snap.ivrVal;
+    if(ivr==null)return'rgba(85,88,112,0.08)';
+    if(ivr>=70)return'rgba(255,107,53,0.22)';
+    if(ivr>=50)return'rgba(255,193,7,0.18)';
+    if(ivr>=30)return'rgba(100,181,246,0.12)';
+    return'rgba(85,88,112,0.08)';
+  }
+  return null;
+}
+
+// ── Volume badge ──────────────────────────────────────────────────────────────
+
+const VOL_THRESHOLD_ORANGE=1.5;
+const VOL_THRESHOLD_HOT=2.0;
+const VOL_AVG_DAYS=20;
+const VOL_WINDOW_MINS=120;
+
+function _checkVolumeBadge(ticker){
+  const KEY='vol_badge_state';
+  const etDate=new Date();
+  const today=etDate.toLocaleDateString('en-US',{timeZone:'America/New_York'});
+
+  function _getAvgVol(){
+    const hist=S.get('hist_'+ticker)||S.get('hist1y_'+ticker);
+    if(!hist?.volumes?.length)return null;
+    const vols=hist.volumes.filter(v=>v>0);
+    if(vols.length<VOL_AVG_DAYS+1)return null;
+    // Use all but the last entry for avg (last = today or most recent session)
+    return vols.slice(-VOL_AVG_DAYS-1,-1).reduce((s,v)=>s+v,0)/VOL_AVG_DAYS;
+  }
+
+  // Retroactive path: last completed session volume from history cache
+  function _retroCheck(){
+    const hist=S.get('hist_'+ticker)||S.get('hist1y_'+ticker);
+    if(!hist?.volumes?.length)return null;
+    const vols=hist.volumes.filter(v=>v>0);
+    if(vols.length<VOL_AVG_DAYS+1)return null;
+    const lastVol=vols[vols.length-1];
+    const avgVol=vols.slice(-VOL_AVG_DAYS-1,-1).reduce((s,v)=>s+v,0)/VOL_AVG_DAYS;
+    if(avgVol<=0)return null;
+    const mult=lastVol/avgVol;
+    return mult>=VOL_THRESHOLD_ORANGE?{multiplier:mult,date:today}:null;
+  }
+
+  // Live intraday path: only in final 2h of session
+  function _liveCheck(){
+    const ms=getMarketState();
+    if(ms.state!=='open')return null;
+    const sessionClose=_getSessionCloseMins(ms.now);
+    const windowStart=sessionClose-VOL_WINDOW_MINS;
+    if(ms.totalMins<windowStart)return null;
+    const snap=S.get('snap_'+ticker);
+    const intradayVol=snap?.intradayVolume||null;
+    if(!intradayVol)return null;
+    const elapsed=ms.totalMins-570; // mins since 9:30am open
+    const sessionLen=sessionClose-570;
+    if(elapsed<=0||sessionLen<=0)return null;
+    const projectedVol=Math.round(intradayVol*(sessionLen/elapsed));
+    const avgVol=_getAvgVol();
+    if(!avgVol)return null;
+    const mult=projectedVol/avgVol;
+    return mult>=VOL_THRESHOLD_ORANGE?{multiplier:mult,date:today}:null;
+  }
+
+  const ms=getMarketState();
+
+  // Premarket: clear yesterday's badge, show nothing
+  if(ms.state==='premarket'){
+    const vbs=S.get(KEY)||{};
+    if(vbs[ticker]?.date&&vbs[ticker].date!==today){
+      delete vbs[ticker];
+      S.set(KEY,vbs);
+    }
+    return null;
+  }
+
+  // During open session
+  if(ms.state==='open'){
+    const live=_liveCheck();
+    if(live){
+      const vbs=S.get(KEY)||{};
+      vbs[ticker]={multiplier:live.multiplier,date:live.date};
+      S.set(KEY,vbs);
+      return live;
+    }
+    // Outside the 2h window: show if already triggered earlier this session
+    const vbs=S.get(KEY)||{};
+    if(vbs[ticker]?.date===today)return vbs[ticker];
+    return null;
+  }
+
+  // After-hours, overnight, weekend: show persisted badge or retroactive
+  const vbs=S.get(KEY)||{};
+  if(vbs[ticker]?.date===today)return vbs[ticker];
+
+  // Retroactive check (handles nuclear option rebuild on weekend etc.)
+  const retro=_retroCheck();
+  if(retro){
+    vbs[ticker]={multiplier:retro.multiplier,date:retro.date};
+    S.set(KEY,vbs);
+    return retro;
+  }
+  return null;
+}
+
+function _volBadgeHtml(badgeData){
+  if(!badgeData)return'';
+  const hot=badgeData.multiplier>=VOL_THRESHOLD_HOT;
+  const bg=hot?'rgba(255,71,87,0.9)':'rgba(255,165,2,0.9)';
+  const multStr=badgeData.multiplier!=null?(' '+badgeData.multiplier.toFixed(1)+'x'):'';
+  return'<span style="display:inline-flex;align-items:center;gap:2px;background:'+bg+';'
+    +'color:#fff;font-family:var(--mono);font-size:9px;font-weight:700;'
+    +'padding:2px 5px;border-radius:4px;margin-left:5px;vertical-align:middle;'
+    +'letter-spacing:0.3px">🔥 VOL'+multStr+'</span>';
 }
 
 // ── Watchlist core ────────────────────────────────────────────────────────────
@@ -106,9 +251,12 @@ function renderWatchlist(){
     const chg=c?c.change:0,chgPct=c?c.changePct:0;
     const cc=chg>=0?'var(--green)':'var(--red)';
     const age=c?relAge(c.ts):'';
-    return '<div class="watchlist-item" onclick="selectTickerFromWatchlist(\''+t+'\')">'+
+    const hmBg=_heatmapBg(t);
+    const bgStyle=hmBg?'background:'+hmBg+';':'';
+    const volBadge=_volBadgeHtml(_checkVolumeBadge(t));
+    return '<div class="watchlist-item" style="'+bgStyle+'" onclick="selectTickerFromWatchlist(\''+t+'\')">'+
       '<div>'+
-        '<div class="watchlist-ticker">'+t+'</div>'+
+        '<div class="watchlist-ticker">'+t+volBadge+'</div>'+
         (c?'<div class="watchlist-ts">'+c.ts+(age?' ('+age+')':'')+'</div>':'')+
       '</div>'+
       '<div style="text-align:right">'+

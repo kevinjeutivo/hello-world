@@ -146,6 +146,7 @@ async function fetchAfterHoursPrice(symbol){
       postMarketChangePct:isExtended?(marketState==='PRE'?q.preMarketChangePercent:q.postMarketChangePercent):null,
       marketState,
       hasExtended:!!extPrice,
+      intradayVolume:q.regularMarketVolume||null,
       forwardPE:q.forwardPE||null,
       trailingEps:q.epsTrailingTwelveMonths||q.trailingEps||null,
       epsGrowth:null,

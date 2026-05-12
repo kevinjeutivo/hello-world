@@ -82,7 +82,18 @@ async function runDashboards(skipOnlineCheck=false){
     document.getElementById('dash-progress-label').textContent=`Scoring ${t} (${i+1}/${watchlist.length})...`;
     try{
       const[quote,metrics,earnings]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)]);
-      const price=quote.c,w52h=metrics.metric?.['52WeekHigh'],w52l=metrics.metric?.['52WeekLow'];
+      const price=quote.c;
+      let w52h=metrics.metric?.['52WeekHigh'],w52l=metrics.metric?.['52WeekLow'];
+      // Sanity-check: Finnhub occasionally returns TWD-denominated values for ADRs like TSM.
+      // If the 52W values are implausible relative to current price, discard them --
+      // they will be recomputed from Yahoo 1Y history below (always USD-denominated).
+      if(w52h&&w52l&&price){
+        const hiRatio=w52h/price,loRatio=price/w52l;
+        if(hiRatio>5||loRatio>5||w52h<price*0.5||w52l>price*1.5){
+          console.warn(t+': implausible 52W range from Finnhub ('+w52l+'–'+w52h+' vs price '+price+'), will use history');
+          w52h=null;w52l=null;
+        }
+      }
       const futureEarnings2=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
       const earningsDate=futureEarnings2[0]?.date||null;const earningsHour=futureEarnings2[0]?.hour||null;
       let rsiVal=null,ma50=null,ma200=null,rangePos=null;

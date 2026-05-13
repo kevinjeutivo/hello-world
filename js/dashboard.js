@@ -97,7 +97,10 @@ async function runDashboards(skipOnlineCheck=false){
       const futureEarnings2=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
       const earningsDate=futureEarnings2[0]?.date||null;const earningsHour=futureEarnings2[0]?.hour||null;
       let rsiVal=null,ma50=null,ma200=null,rangePos=null;
-      try{const hist=await yahooHistory(t,'1y','1d');const closes=hist.closes.filter(c=>c!==null);const rsi=computeRSI(closes);rsiVal=rsi[rsi.length-1];ma50=avg(closes.slice(-50));ma200=avg(closes.slice(-200));if(w52h&&w52l&&w52h>w52l)rangePos=(price-w52l)/(w52h-w52l);}catch{}
+      try{const hist=await yahooHistory(t,'1y','1d');const closes=hist.closes.filter(c=>c!==null);const rsi=computeRSI(closes);rsiVal=rsi[rsi.length-1];ma50=avg(closes.slice(-50));ma200=avg(closes.slice(-200));
+        // Backfill 52W range from Yahoo history if Finnhub values are null or were cleared
+        if(!w52h||!w52l){w52h=w52h||Math.max(...closes);w52l=w52l||Math.min(...closes);}
+        if(w52h&&w52l&&w52h>w52l)rangePos=(price-w52l)/(w52h-w52l);}catch{}
       const ivrVal=computeIVR(t,w52h,w52l,price);const ivr=ivrInfo(ivrVal);
       const snap=S.get('snap_'+t)||{};
       // Persist ivrVal to snap so watchlist IVR heatmap can read it without a full dashboard render

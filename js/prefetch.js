@@ -7,6 +7,11 @@ async function prefetchAll(){
   if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');return;}
   if(!navigator.onLine&&!offlineMode){toast('Offline -- cached data unchanged',3000);return;}
   if(offlineMode){toast('Offline mode enabled -- disable in Settings to fetch',3000);return;}
+  // Warn if fetching options outside market hours -- IV and OI may be synthetic
+  const _pms=getMarketState().state;
+  if(_pms!=='open'&&_pms!=='afterhours'){
+    toast('Note: options data fetched outside market hours may have synthetic IV. Fetch again during market hours for accurate IVR.',6000);
+  }
   const btn=document.getElementById('prefetch-btn');if(btn)btn.disabled=true;
   const progressEl=document.getElementById('prefetch-progress');const barEl=document.getElementById('prefetch-progress-bar');const labelEl=document.getElementById('prefetch-label');
   if(progressEl)progressEl.style.display='block';
@@ -20,12 +25,40 @@ async function prefetchAll(){
       try{priceTarget2=await fh(`/stock/price-target?symbol=${t}`);}catch{}S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});}catch{}
     try{const h6=await yahooHistory(t,'6mo','1d');S.set('hist_'+t,{timestamps:h6.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h6.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h6.volumes.map(v=>v||0),ts:nowPT()});}catch{}
     try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});}catch{}
-    try{const opts=await yahooOptionsViaProxy(t);S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT()});const yr=opts?.optionChain?.result?.[0];const rawTs2=yr?.expirationDates||[];
-      const allExpPairs2=rawTs2.map(ts=>({ts,date:new Date(ts*1000).toISOString().split('T')[0]}));
-      let monthlyPairs2=allExpPairs2.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
-      if(monthlyPairs2.length===0){const tw=Date.now()+14*86400000;monthlyPairs2=allExpPairs2.filter(p=>p.ts*1000>=tw).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);}
-      if(monthlyPairs2.length===0)monthlyPairs2=allExpPairs2.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
-      for(const pair of monthlyPairs2){try{S.set('options_exp_'+t+'_'+pair.date,await yahooOptionsViaProxy(t,String(pair.ts)));}catch{}}}catch{}
+    try{const opts=await yahooOptionsViaProxy(t);
+      // Validate before caching -- reject synthetic/after-hours data
+      const _pv=_validateOptionsData(opts);
+      if(_pv.valid){
+        S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT()});
+      }else if(!S.get('options_'+t)){
+        console.warn(t+': prefetch options quality issue ('+_pv.reason+'), saving as only available data');
+        S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),synthetic:true});
+      }else{
+        console.warn(t+': prefetch rejecting options ('+_pv.reason+'), preserving existing cache');
+      }
+      const _savedOpts=S.get('options_'+t);
+      if(_savedOpts){
+        const yr=opts?.optionChain?.result?.[0];const rawTs2=yr?.expirationDates||[];
+        const allExpPairs2=rawTs2.map(ts=>({ts,date:new Date(ts*1000).toISOString().split('T')[0]}));
+        let monthlyPairs2=allExpPairs2.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
+        if(monthlyPairs2.length===0){const tw=Date.now()+14*86400000;monthlyPairs2=allExpPairs2.filter(p=>p.ts*1000>=tw).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);}
+        if(monthlyPairs2.length===0)monthlyPairs2=allExpPairs2.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
+        for(const pair of monthlyPairs2){
+          try{
+            const expData=await yahooOptionsViaProxy(t,String(pair.ts));
+            const _ev=_validateOptionsData(expData);
+            if(_ev.valid){
+              S.set('options_exp_'+t+'_'+pair.date,expData);
+            }else if(!S.get('options_exp_'+t+'_'+pair.date)){
+              console.warn(t+' '+pair.date+': prefetch exp options synthetic ('+_ev.reason+'), saving as fallback');
+              S.set('options_exp_'+t+'_'+pair.date,{...expData,synthetic:true});
+            }else{
+              console.warn(t+' '+pair.date+': prefetch exp rejected ('+_ev.reason+'), preserving cache');
+            }
+          }catch{}
+        }
+      }
+    }catch{}
     // Also fetch quote data for after-hours price and forwardPE
     try{const ah=await fetchAfterHoursPrice(t);if(ah){const snap=S.get('snap_'+t);if(snap){snap.postMarketPrice=ah.postMarketPrice||null;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState||null;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;S.set('snap_'+t,snap);}}}catch{}
     try{const qs=await fetchQuoteSummary(t);if(qs){const sn=S.get('snap_'+t);if(sn){

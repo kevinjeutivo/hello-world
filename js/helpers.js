@@ -122,7 +122,15 @@ function getRoundNumbers(price,w=0.25){const low=price*(1-w),high=price*(1+w);co
 
 function computeIVR(ticker,w52h,w52l,price){try{const cached=S.get('options_'+ticker);const res=cached?.data?.optionChain?.result?.[0];if(!res)return null;const opts=res.options?.[0];if(!opts)return null;const atm=[...(opts.puts||[]),...(opts.calls||[])].filter(o=>Math.abs(o.strike-price)/price<0.05&&o.impliedVolatility>0);if(!atm.length)return null;const currentIV=avg(atm.map(o=>o.impliedVolatility));if(!w52h||!w52l||w52h<=w52l)return null;const rangeVol=(w52h-w52l)/w52l;return Math.min(100,Math.max(0,(currentIV/(rangeVol*0.6))*50));}catch{return null;}}
 
-function ivrInfo(val){if(val===null)return{badge:'',guidance:'IV rank not available -- fetch options data to compute.'};if(val<30)return{badge:`<span class="ivr-badge ivr-low">Low IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: Options historically cheap. Premiums thin -- consider waiting for a volatility uptick.`};if(val<60)return{badge:`<span class="ivr-badge ivr-normal">Normal IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: Normal historical IV. Standard conditions for premium collection.`};if(val<80)return{badge:`<span class="ivr-badge ivr-elevated">Elevated IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: IV elevated -- above-average premium opportunity. Good time to sell options.`};return{badge:`<span class="ivr-badge ivr-high">High IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: IV very high. Exceptional premiums -- driven by recent volatility or upcoming event.`};}
+function ivrInfo(val){
+  // Unified IVR scale used throughout the app:
+  // <30 Low | 30-49 Normal | 50-69 Elevated | >=70 High
+  if(val===null)return{badge:'',guidance:'IV rank not available -- fetch options data to compute.'};
+  if(val<30)return{badge:`<span class="ivr-badge ivr-low">Low IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: Options historically cheap. Premiums thin -- consider waiting for a volatility uptick.`};
+  if(val<50)return{badge:`<span class="ivr-badge ivr-normal">Normal IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: Normal historical IV. Standard conditions for premium collection.`};
+  if(val<70)return{badge:`<span class="ivr-badge ivr-elevated">Elevated IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: IV elevated -- above-average premium opportunity. Good time to sell options.`};
+  return{badge:`<span class="ivr-badge ivr-high">High IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: IV very high. Exceptional premiums -- driven by recent volatility or upcoming event.`};
+}
 
 const POS_WORDS=['beat','beats','surge','surges','upgrade','upgrades','raises','record','strong','soar','gain','rally','top'];
 const NEG_WORDS=['miss','misses','cut','cuts','downgrade','downgrades','warning','weak','fall','drop','investigation','recall','decline','loss'];

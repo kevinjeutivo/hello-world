@@ -1,4 +1,40 @@
 // PutSeller Pro -- options.js
+
+// Validate options data before caching -- rejects synthetic/after-hours placeholder data.
+// Yahoo returns geometric IV values (50%, 25%, 12.5%...) and zero OI when market is closed.
+function _validateOptionsData(data){
+  const result=data?.optionChain?.result?.[0];
+  if(!result)return{valid:false,reason:'no result'};
+  const opts=result.options?.[0];
+  if(!opts)return{valid:false,reason:'no options'};
+  const puts=opts.puts||[];
+  const calls=opts.calls||[];
+  const allContracts=[...puts,...calls];
+  if(!allContracts.length)return{valid:false,reason:'empty chain'};
+
+  // Check total open interest across all contracts
+  const totalOI=allContracts.reduce((s,c)=>s+(c.openInterest||0),0);
+  if(totalOI===0)return{valid:false,reason:'zero OI -- likely after-hours synthetic data'};
+
+  // Check for synthetic halving IV pattern
+  // Synthetic IVs are exact powers of 0.5: 0.5, 0.25, 0.125, 0.0625...
+  // Real IVs are irregular decimals like 0.3241, 0.4178 etc.
+  const ivValues=allContracts
+    .map(c=>c.impliedVolatility)
+    .filter(v=>v!=null&&v>0);
+  if(ivValues.length>=3){
+    const syntheticCount=ivValues.filter(v=>{
+      // Check if v is a power of 0.5 within 0.1% tolerance
+      const log=Math.log2(v); // powers of 0.5 have integer log2
+      return Math.abs(log-Math.round(log))<0.01;
+    }).length;
+    const syntheticRatio=syntheticCount/ivValues.length;
+    if(syntheticRatio>0.5)return{valid:false,reason:'synthetic IV pattern detected ('+Math.round(syntheticRatio*100)+'% halving sequence)'};
+  }
+
+  return{valid:true,reason:'ok'};
+}
+
 // Options tab: load, build table, OI chart.
 // Globals used: currentTicker, currentMode, selectedExpirations, currentOptionsData, WORKER_URL, S
 // Dependencies: helpers.js, api.js, storage.js
@@ -78,9 +114,18 @@ async function loadOptionsForTicker(){
   try{
     let data,isLive=true,fetchTs=nowPT();
     try{data=await yahooOptionsViaProxy(t);
-      // Preserve good OI: only save if new data has OI or no prior cache exists
-      const topOI=(data?.optionChain?.result?.[0]?.options?.[0]?.puts||[]).reduce((s,p)=>s+(p.openInterest||0),0);
-      if(topOI>0||!S.get('options_'+t)){S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs});}}
+      // Validate before caching -- reject synthetic/after-hours data
+      const _optVal=_validateOptionsData(data);
+      if(_optVal.valid){
+        S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs});
+      }else if(!S.get('options_'+t)){
+        // No prior cache exists -- save anyway with a warning flag
+        console.warn(t+': options data quality issue ('+_optVal.reason+'), saving as only available data');
+        S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs,synthetic:true});
+      }else{
+        console.warn(t+': rejecting new options fetch ('+_optVal.reason+'), preserving existing cache');
+        data=S.get('options_'+t).data; // use existing good data for this session
+      }}
     catch{const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;showOfflineBanner(cached.ts);}else throw new Error('No options data available');}
     currentOptionsData=data;
     const yr=data?.optionChain?.result?.[0];
@@ -111,16 +156,18 @@ async function loadOptionsForTicker(){
           return sum+(o.puts||[]).reduce((s,p)=>s+(p.openInterest||0),0)
                    +(o.calls||[]).reduce((s,c)=>s+(c.openInterest||0),0);
         },0);
-        if(newOI>0){
+        const _expVal=_validateOptionsData(ed);
+        if(_expVal.valid){
           S.set('options_exp_'+t+'_'+pair.date,ed);
         }else{
           const existing=S.get('options_exp_'+t+'_'+pair.date);
-          const existingOI=(existing?.optionChain?.result?.[0]?.options||[]).reduce((sum,o)=>{
-            return sum+(o.puts||[]).reduce((s,p)=>s+(p.openInterest||0),0)
-                     +(o.calls||[]).reduce((s,c)=>s+(c.openInterest||0),0);
-          },0);
-          if(!existingOI)S.set('options_exp_'+t+'_'+pair.date,ed); // no prior good data, save anyway
-          // else: preserve existing good OI cache silently
+          const existingValid=existing&&!existing.synthetic;
+          if(!existingValid){
+            console.warn(t+' '+pair.date+': saving synthetic options ('+_expVal.reason+') -- no prior good cache');
+            S.set('options_exp_'+t+'_'+pair.date,{...ed,synthetic:true});
+          }else{
+            console.warn(t+' '+pair.date+': rejecting synthetic options ('+_expVal.reason+'), preserving cache');
+          }
         }
       }catch(e){
         // silently skip -- cached data preserved if any

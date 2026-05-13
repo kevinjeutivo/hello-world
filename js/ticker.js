@@ -256,6 +256,22 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive){
   const rsiVal=parseFloat(rsiStr);
   const rsiColor=rsiVal>=70?'var(--red)':rsiVal<=30?'var(--green)':'var(--text)';
   const rsiLabel=rsiVal>=70?'Overbought -- consider covered calls':rsiVal<=30?'Oversold -- favorable for put selling':'Neutral';
+
+  // ── Volume computation ────────────────────────────────────────────────────
+  const todayVol=snap.intradayVolume||null;
+  let avgVol20=null;
+  if(hist1y?.volumes?.length>=21){
+    const _ms=typeof getMarketState==='function'?getMarketState().state:'closed';
+    const vols=hist1y.volumes.filter(v=>v>0);
+    // Exclude last entry if market is open (partial day would skew the average)
+    const sliceEnd=_ms==='open'?vols.length-1:vols.length;
+    const slice=vols.slice(Math.max(0,sliceEnd-20),sliceEnd);
+    if(slice.length>=10)avgVol20=slice.reduce((s,v)=>s+v,0)/slice.length;
+  }
+  const volRatio=todayVol&&avgVol20?todayVol/avgVol20:null;
+  const volRatioLabel=volRatio==null?'':volRatio>=2?'🔥 Unusual':volRatio>=1.5?'🔥 High':volRatio>=1.2?'Elevated':'Normal';
+  const volRatioColor=volRatio==null?'var(--text3)':volRatio>=2?'var(--red)':volRatio>=1.5?'rgba(255,165,2,1)':volRatio>=1.2?'var(--warn)':'var(--text2)';
+  function fmtVol(v){if(v==null)return'N/A';if(v>=1e9)return(v/1e9).toFixed(2)+'B';if(v>=1e6)return(v/1e6).toFixed(2)+'M';if(v>=1e3)return(v/1e3).toFixed(0)+'K';return v.toFixed(0);}
   const earningsTiming=snap.earningsHour==='bmo'?' (before open)':snap.earningsHour==='amc'?' (after close)':'';
   const earningsStr=snap.earningsDate?`<div class="earnings-warn" style="margin-top:10px">Earnings: ${snap.earningsDate}${earningsTiming}</div>`:'';
   const ivrVal=computeIVR(snap.ticker,snap.week52High,snap.week52Low,snap.price);
@@ -320,6 +336,24 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive){
 
       ${buildR40Tile(snap)}
       ${analystHtml}
+      <div class="metric-tile" style="grid-column:span 2">
+        <div class="metric-label">Volume</div>
+        <div style="display:flex;gap:16px;align-items:baseline;margin-top:4px;flex-wrap:wrap">
+          <div>
+            <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Today</div>
+            <div style="font-family:var(--mono);font-size:16px;font-weight:600;color:var(--text)">${fmtVol(todayVol)}</div>
+          </div>
+          <div>
+            <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">20D Avg</div>
+            <div style="font-family:var(--mono);font-size:16px;font-weight:600;color:var(--text2)">${fmtVol(avgVol20)}</div>
+          </div>
+          ${volRatio!=null?`<div>
+            <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Ratio</div>
+            <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:${volRatioColor}">${volRatio.toFixed(2)}× <span style="font-size:11px">${volRatioLabel}</span></div>
+          </div>`:''}
+        </div>
+        ${todayVol==null?'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px">Refresh ticker to load today's volume</div>':''}
+      </div>
       <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">IV Rank (approx)</div><div style="margin-top:4px">${ivr.badge||'N/A'}</div><div class="metric-sub" style="margin-top:4px;font-size:10px;line-height:1.4">${ivr.guidance}</div></div>
       ${impliedMoveStr!=='N/A'?`<div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Implied Move (from options)</div><div class="metric-value" style="font-size:13px">${impliedMoveStr}</div><div class="metric-sub">ATM straddle-implied move. Use to gauge how far OTM your strike should be.</div></div>`:''}
     </div>

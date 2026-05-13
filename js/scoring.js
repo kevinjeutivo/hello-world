@@ -26,12 +26,13 @@ function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expi
   if(ma50&&ma200&&price){if(price>ma50&&price>ma200){score+=1;reasons.push('Above 50 & 200-day MA');details.push('Above both MAs');}else if(price<ma50&&price<ma200){score-=1;details.push('Below both MAs -- caution');}else{details.push('Mixed vs MAs');}}
   if(rangePos!==null){const pct=(rangePos*100).toFixed(0);if(rangePos<0.35){score+=2;reasons.push(`Lower 52W range (${pct}%)`);details.push(`${pct}% of 52W range -- near lows, favorable`);}else if(rangePos<0.55){score+=1;details.push(`${pct}% of 52W range -- lower half`);}else if(rangePos>0.85){score-=1;details.push(`${pct}% of 52W range -- near highs, caution`);}else{details.push(`${pct}% of 52W range`);}}
   if(earningsDate){const ed=new Date(earningsDate.split(' ')[0]);const days=Math.round((ed-today)/86400000);if(days>=0&&days<35){score-=2;reasons.push(`Earnings in ${days}d`);details.push(`Earnings in ${days} days -- avoid straddling`);}else if(days>=35&&days<60){details.push(`Earnings in ${days} days -- monitor`);}}
-  if(ivrVal!==null&&!isNaN(ivrVal)){if(ivrVal>=60){score+=1;details.push(`IV ${ordinal(ivrVal)} pct -- elevated premium`);}else if(ivrVal<30){details.push(`IV ${ordinal(ivrVal)} pct -- thin premiums`);}else{details.push(`IV ${ordinal(ivrVal)} pct -- normal`);}}
+  if(ivrVal!==null&&!isNaN(ivrVal)){if(ivrVal>=70){score+=1;details.push(`IV ${ordinal(ivrVal)} pct -- high, rich premium`);}else if(ivrVal>=50){score+=1;details.push(`IV ${ordinal(ivrVal)} pct -- elevated premium`);}else if(ivrVal<30){details.push(`IV ${ordinal(ivrVal)} pct -- thin premiums`);}else{details.push(`IV ${ordinal(ivrVal)} pct -- normal`);}}
   if(estApy&&recStrike){details.push(`Rec ${recStrike} @ ${estApy} (${expiration})`);}
   const signal=score>=3?'high':score>=1?'medium':'low';
 
   // ── Per-component scores (−1 negative, 0 neutral, 1 low, 2 good, 3 best) ──
-  const ivrScore  = ivrVal===null?0:(ivrVal>=60?3:ivrVal>=40?2:ivrVal>=20?1:-1);
+  // Unified IVR scale: <30 Low | 30-49 Normal | 50-69 Elevated | >=70 High
+  const ivrScore  = ivrVal===null?0:(ivrVal>=70?3:ivrVal>=50?2:ivrVal>=30?1:-1);
   const rsiScore  = rsiVal===null?0:(rsiVal<35?3:rsiVal<50?2:rsiVal>70?-1:rsiVal>60?0:1);
   const rangeScore= rangePos===null?0:(rangePos<0.35?3:rangePos<0.55?2:rangePos>0.85?-1:1);
   const apyScore  = !estApy?0:(parseFloat(estApy)>=12?3:parseFloat(estApy)>=8?2:parseFloat(estApy)>=5?1:0);
@@ -66,12 +67,13 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
   if(ma50&&ma200&&price){if(price>ma50&&price>ma200){score+=1;reasons.push('Above 50 & 200-day MA');details.push('Above both MAs -- momentum');}else if(price<ma50&&price<ma200){score-=1;details.push('Below both MAs -- avoid capping upside');}else{details.push('Mixed vs MAs');}}
   if(rangePos!==null){const pct=(rangePos*100).toFixed(0);if(rangePos>0.80){score+=2;reasons.push(`Upper 52W range (${pct}%)`);details.push(`${pct}% of 52W range -- near highs, favorable for calls`);}else if(rangePos>0.60){score+=1;details.push(`${pct}% of 52W range -- upper half`);}else if(rangePos<0.30){score-=2;details.push(`${pct}% of 52W range -- near lows, avoid calls`);}else if(rangePos<0.50){score-=1;details.push(`${pct}% of 52W range -- lower half`);}else{details.push(`${pct}% of 52W range`);}}
   if(earningsDate){const ed=new Date(earningsDate.split(' ')[0]);const days=Math.round((ed-today)/86400000);if(days>=0&&days<35){score-=2;reasons.push(`Earnings in ${days}d`);details.push(`Earnings in ${days} days -- gap-up risk`);}else if(days>=35&&days<60){details.push(`Earnings in ${days} days -- monitor`);}}
-  if(ivrVal!==null&&!isNaN(ivrVal)){if(ivrVal>=60){score+=1;details.push(`IV ${ordinal(ivrVal)} pct -- elevated premium`);}else if(ivrVal<30){details.push(`IV ${ordinal(ivrVal)} pct -- thin premiums`);}else{details.push(`IV ${ordinal(ivrVal)} pct -- normal`);}}
+  if(ivrVal!==null&&!isNaN(ivrVal)){if(ivrVal>=70){score+=1;details.push(`IV ${ordinal(ivrVal)} pct -- high, rich premium`);}else if(ivrVal>=50){score+=1;details.push(`IV ${ordinal(ivrVal)} pct -- elevated premium`);}else if(ivrVal<30){details.push(`IV ${ordinal(ivrVal)} pct -- thin premiums`);}else{details.push(`IV ${ordinal(ivrVal)} pct -- normal`);}}
   if(estApy&&recStrike){details.push(`Rec ${recStrike} @ ${estApy} (${expiration})`);}
   const signal=score>=3?'high':score>=1?'medium':'low';
 
   // ── Per-component scores for calls (inverted logic vs puts for RSI/range) ──
-  const ivrScore  = ivrVal===null?0:(ivrVal>=60?3:ivrVal>=40?2:ivrVal>=20?1:-1);
+  // Unified IVR scale: <30 Low | 30-49 Normal | 50-69 Elevated | >=70 High
+  const ivrScore  = ivrVal===null?0:(ivrVal>=70?3:ivrVal>=50?2:ivrVal>=30?1:-1);
   const rsiScore  = rsiVal===null?0:(rsiVal>70?3:rsiVal>60?2:rsiVal<35?-1:rsiVal<50?0:1);
   const rangeScore= rangePos===null?0:(rangePos>0.80?3:rangePos>0.60?2:rangePos<0.30?-1:rangePos<0.50?0:1);
   const apyScore  = !estApy?0:(parseFloat(estApy)>=12?3:parseFloat(estApy)>=8?2:parseFloat(estApy)>=5?1:0);

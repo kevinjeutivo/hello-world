@@ -54,6 +54,17 @@ async function loadTicker(){
     catch{const ch=S.get('hist_'+t);if(ch){hist6mo={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes};if(!isLive)showOfflineBanner(ch.ts);}}
     try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});hist1y=h1;}
     catch{const ch=S.get('hist1y_'+t);if(ch)hist1y={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes};}
+    // Backfill 52W high/low from Yahoo history when Finnhub values are null or were cleared as implausible
+    if((!snap.week52High||!snap.week52Low)&&hist1y?.closes?.length){
+      const valid=hist1y.closes.filter(c=>c!=null&&c>0);
+      if(valid.length){
+        const histHigh=Math.max(...valid),histLow=Math.min(...valid);
+        if(!snap.week52High)snap.week52High=histHigh;
+        if(!snap.week52Low)snap.week52Low=histLow;
+        S.set('snap_'+t,{...S.get('snap_'+t)||snap,week52High:snap.week52High,week52Low:snap.week52Low});
+        console.log(t+': backfilled 52W range from history: '+histLow+'-'+histHigh);
+      }
+    }
     try{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}
     catch{const cn=S.get('news_'+t);if(cn)news=cn.items;}
     const upgradesData=S.get('upgrades_'+t)?.data||[];

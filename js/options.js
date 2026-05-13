@@ -16,20 +16,18 @@ function _validateOptionsData(data){
   const totalOI=allContracts.reduce((s,c)=>s+(c.openInterest||0),0);
   if(totalOI===0)return{valid:false,reason:'zero OI -- likely after-hours synthetic data'};
 
-  // Check for synthetic halving IV pattern
-  // Synthetic IVs are exact powers of 0.5: 0.5, 0.25, 0.125, 0.0625...
-  // Real IVs are irregular decimals like 0.3241, 0.4178 etc.
+  // Check for synthetic halving IV pattern using exact value matching.
+  // Yahoo returns exactly 0.5, 0.25, 0.125, 0.0625, 0.03125 as placeholders.
+  // Real IV values are never exactly these values to 6 decimal places.
+  const SYNTH_IV_VALS=new Set([0.5,0.25,0.125,0.0625,0.03125,0.015625]);
   const ivValues=allContracts
     .map(c=>c.impliedVolatility)
     .filter(v=>v!=null&&v>0);
   if(ivValues.length>=3){
-    const syntheticCount=ivValues.filter(v=>{
-      // Check if v is a power of 0.5 within 0.1% tolerance
-      const log=Math.log2(v); // powers of 0.5 have integer log2
-      return Math.abs(log-Math.round(log))<0.01;
-    }).length;
+    // Round to 6dp to match Yahoo's precision before checking
+    const syntheticCount=ivValues.filter(v=>SYNTH_IV_VALS.has(Math.round(v*1e6)/1e6)).length;
     const syntheticRatio=syntheticCount/ivValues.length;
-    if(syntheticRatio>0.5)return{valid:false,reason:'synthetic IV pattern detected ('+Math.round(syntheticRatio*100)+'% halving sequence)'};
+    if(syntheticRatio>0.6)return{valid:false,reason:'synthetic IV pattern detected ('+Math.round(syntheticRatio*100)+'% exact halving values)'};
   }
 
   return{valid:true,reason:'ok'};

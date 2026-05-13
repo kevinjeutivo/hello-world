@@ -197,7 +197,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v2.7.0</span>
+      <span>Options Income Strategy v2.8.0</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -407,7 +407,7 @@ VIX backwardation (VIX above VIX3M): historically strong time to sell puts</div>
 
 Offline: all data cached to localStorage -- full functionality after first prefetch
 Worker: configured in Settings (Cloudflare Worker proxy for Yahoo Finance)
-Version: v2.7.0</div>
+Version: v2.8.0</div>
   </div>
 </div>
 
@@ -620,6 +620,22 @@ Version: v2.7.0</div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
     <div class="commentary" style="font-size:12px;max-height:400px;overflow-y:auto">
+v2.8.0 -- 2026-05-12
+- Income Engine tab: three-layer blended yield calculator. Layer 1: T-Bills + FDLXX (CA state TEY) + SPAXX. Layer 2: SPYI + NBOS (TTM yield from ETF cache). Layer 3: written puts + CC stock at target APY. Hero displays blended yield %, annual income, and monthly income.
+- Income Engine: FDLXX and SPAXX yields auto-fetched via Yahoo Finance (summaryDetail → dividends TTM fallback). Manual override inputs always visible -- labeled "Manual override" when fetch succeeds, amber warning when it fails. Toggle switch per fund to prioritize manual value over fetched value when Yahoo data is suspected inaccurate.
+- Income Engine: T-Bills and FDLXX both treated with CA state tax-equivalent yield (raw ÷ (1 − 9.3%)). SPAXX excluded from TEY (partially state-taxable).
+- Income Engine: manual yield inputs use onblur trigger to avoid focus loss while typing decimals.
+- Watchlist heatmap: Heat toggle row added (Off / Daily % / IVR). Daily % colors chips green/red by price change intensity. IVR colors chips orange→amber→blue by implied volatility rank. IVR legend appears below chips when IVR mode active.
+- Watchlist heatmap: IVR values now persisted to snap cache during conviction dashboard run, enabling IVR heatmap without re-running dashboards.
+- Volume badge: 🔥 VOL badge appears on watchlist chips in final 2 hours of any trading session (including early close days) when projected volume exceeds 1.5× 20-day average. Amber at 1.5×–2×, red at 2×+. Badge lingers through after-hours and overnight. Clears at next premarket open. Retroactive detection from history cache survives nuclear option rebuild on weekends.
+- Early close detection: _getSessionCloseMins() computes correct session end time (1pm on early close days, 4pm normally) for volume badge window calculation.
+- Settings: Force App Refresh now uses window.location.reload() without hard-reload flag, preventing mixed old/new file state that caused market banner to freeze after refresh.
+- Release Notes: moved from separate release-notes.html page (which caused navigation-away banner regression) to inline scrollable section within Settings.
+- After-hours price: display guard now uses live getMarketState() instead of cached snap.marketState, preventing yesterday's after-hours price from lingering through next regular session.
+- 52-week high/low: sanity check detects Finnhub currency contamination (ADRs like TSM returning TWD values). Implausible values cleared and backfilled from Yahoo 1Y history. Same backfill applied in dashboard scoring loop.
+- Options sliders: % Below Price and % Above Price now correctly persist per mode via saveOptionsPrefs() call added to updateSlider().
+- Service worker: v18.
+
 v2.7.0 -- 2026-05-08
 - Conviction scoring rebalanced: IVR now correctly weighted as most important factor (max +3 pts, was +1). APY now contributes to raw score (was display-only). Two new factors: Analyst Target Upside and Beta adjustment.
 - Dynamic factor weights: Settings panel now has 8 sliders (0.0x to 3.0x) for each conviction factor. Defaults reproduce the new balanced algorithm. Save/Reset buttons. Weights persisted in localStorage.

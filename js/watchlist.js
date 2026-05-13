@@ -322,8 +322,10 @@ function removeTicker(e,t){
 }
 
 function populateSelects(){
+  // Dropdowns always alphabetical regardless of watchlist chip sort order
+  const sorted=[...watchlist].sort((a,b)=>a.localeCompare(b));
   const opts='<option value="">-- Select --</option>'+
-    watchlist.map(t=>'<option value="'+t+'">'+t+'</option>').join('');
+    sorted.map(t=>'<option value="'+t+'">'+t+'</option>').join('');
   document.getElementById('ticker-select').innerHTML=opts;
   document.getElementById('options-ticker-select').innerHTML=opts;
 }

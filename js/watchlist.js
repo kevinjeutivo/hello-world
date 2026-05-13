@@ -208,6 +208,24 @@ function _volBadgeHtml(badgeData){
     +'letter-spacing:0.3px">🔥 VOL'+multStr+'</span>';
 }
 
+// ── IVR badge ─────────────────────────────────────────────────────────────────
+// Always-on badge when IVR >= 50, independent of heatmap mode.
+// Color matches unified scale: 50-69 amber (elevated), >=70 orange (high).
+
+function _ivrBadgeHtml(ticker){
+  const snap=S.get('snap_'+ticker);
+  const ivr=snap?.ivrVal;
+  if(ivr==null||ivr<50)return'';
+  const high=ivr>=70;
+  const bg=high?'rgba(255,107,53,0.9)':'rgba(255,193,7,0.85)';
+  const textColor=high?'#fff':'#1a1a1a';
+  const label=high?'High':'Elev';
+  return'<span style="display:inline-flex;align-items:center;gap:2px;background:'+bg+';'
+    +'color:'+textColor+';font-family:var(--mono);font-size:9px;font-weight:700;'
+    +'padding:2px 5px;border-radius:4px;margin-left:5px;vertical-align:middle;'
+    +'letter-spacing:0.3px">IVR '+ivr.toFixed(0)+' '+label+'</span>';
+}
+
 // ── Watchlist core ────────────────────────────────────────────────────────────
 
 function setWatchlistSort(mode){
@@ -249,11 +267,11 @@ function renderWatchlist(){
   const legendHtml=_heatmapMode==='ivr'?
     '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding:8px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">'
     +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);width:100%;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.5px">IVR Heatmap — each ticker vs its own 52W IV range</div>'
-    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(255,107,53,0.22)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR ≥ 70 — rich premium</span></div>'
-    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(255,193,7,0.18)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR 50–69 — elevated</span></div>'
-    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(100,181,246,0.12)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR 30–49 — normal</span></div>'
-    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(85,88,112,0.08);border:1px solid var(--border)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR &lt; 30 or no data — thin</span></div>'
-    +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);width:100%;margin-top:2px">Run conviction dashboards to populate IVR data.</div>'
+    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(255,107,53,0.22)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR ≥ 70 — High (rich premium)</span></div>'
+    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(255,193,7,0.18)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR 50–69 — Elevated</span></div>'
+    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(100,181,246,0.12)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR 30–49 — Normal</span></div>'
+    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(85,88,112,0.08);border:1px solid var(--border)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR &lt; 30 or no data — Low/thin</span></div>'
+    +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);width:100%;margin-top:2px">IVR badge (orange/amber) appears on chips when IVR ≥ 50, independent of heatmap mode. Run conviction dashboards to populate IVR data.</div>'
     +'</div>'
     :'';
 
@@ -266,9 +284,10 @@ function renderWatchlist(){
     const hmBg=_heatmapBg(t);
     const bgStyle=hmBg?'background:'+hmBg+';':'';
     const volBadge=_volBadgeHtml(_checkVolumeBadge(t));
+    const ivrBadge=_ivrBadgeHtml(t);
     return '<div class="watchlist-item" style="'+bgStyle+'" onclick="selectTickerFromWatchlist(\''+t+'\')">'+
       '<div>'+
-        '<div class="watchlist-ticker">'+t+volBadge+'</div>'+
+        '<div class="watchlist-ticker">'+t+ivrBadge+volBadge+'</div>'+
         (c?'<div class="watchlist-ts">'+c.ts+(age?' ('+age+')':'')+'</div>':'')+
       '</div>'+
       '<div style="text-align:right">'+

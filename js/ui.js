@@ -182,8 +182,10 @@ function _getSessionCloseMins(etDateObj){
   if(mo===7&&dy===3)return 780;
   if(mo===7&&dy===2&&dow==='Fri')return 780; // Fri when Jul 4 is Sun observed Mon
   // Black Friday (day after Thanksgiving) -- always Fri
-  const thanksgiving=_computeNYSEHolidays(yr).find(h=>h.month===11&&h.name==='Thanksgiving');
-  if(thanksgiving){const tf=new Date(yr,10,thanksgiving.day+1);if(mo===11&&dy===thanksgiving.day+1)return 780;}
+  // Thanksgiving = 4th Thursday of November; compute directly (can't use Set.find)
+  const thanksgivingDate=_nthWeekday(yr,10,4,4);
+  const thanksgivingDay=thanksgivingDate.getUTCDate();
+  if(mo===11&&dy===thanksgivingDay+1)return 780;
   // Christmas Eve (Dec 24, or Fri if Dec 25 is Sat)
   if(mo===12&&dy===24)return 780;
   if(mo===12&&dy===23&&dow==='Fri')return 780;

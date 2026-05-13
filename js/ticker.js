@@ -352,7 +352,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive){
             <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:${volRatioColor}">${volRatio.toFixed(2)}× <span style="font-size:11px">${volRatioLabel}</span></div>
           </div>`:''}
         </div>
-        ${todayVol==null?'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px">Refresh ticker to load today's volume</div>':''}
+        ${todayVol==null?'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px">Refresh ticker to load today&#39;s volume</div>':''}
       </div>
       <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">IV Rank (approx)</div><div style="margin-top:4px">${ivr.badge||'N/A'}</div><div class="metric-sub" style="margin-top:4px;font-size:10px;line-height:1.4">${ivr.guidance}</div></div>
       ${impliedMoveStr!=='N/A'?`<div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Implied Move (from options)</div><div class="metric-value" style="font-size:13px">${impliedMoveStr}</div><div class="metric-sub">ATM straddle-implied move. Use to gauge how far OTM your strike should be.</div></div>`:''}

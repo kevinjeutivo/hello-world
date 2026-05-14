@@ -7,6 +7,11 @@
 // How old VIX cached data can be (minutes) before a tab switch triggers a
 // live refresh.  30 minutes matches the staleness threshold used elsewhere.
 const VIX_CACHE_FRESH_MINS=30;
+// During market hours use a shorter threshold so intraday VIX stays current
+function _vixEffectiveCacheMins(){
+  try{const ms=getMarketState().state;return(ms==='open'||ms==='premarket'||ms==='afterhours')?5:30;}
+  catch{return 30;}
+}
 
 // Returns the age in minutes of a stored timestamp string, or Infinity if
 // absent / unparseable.  Handles both bare strings and {ts:'...'} objects.
@@ -42,9 +47,49 @@ function restoreVIXFromCache(){
   // loadVIX() has its own offline guards at the top and wraps every S.set()
   // in a try block — it never zeros the cache on a failed fetch.
   const ageMins=_vixCacheAgeMins(cv?.ts);
-  if(ageMins>=VIX_CACHE_FRESH_MINS&&navigator.onLine&&!offlineMode){
-    loadVIX();
+  if(ageMins>=_vixEffectiveCacheMins()&&navigator.onLine&&!offlineMode){
+    try{const ms=getMarketState().state;
+      if((ms==='open'||ms==='afterhours')&&ageMins<30){
+        // Within 30 min of last full fetch: just update the intraday bar
+        _refreshVIXIntraday();
+      }else{
+        // Cache is old or market closed: do a full reload
+        loadVIX();
+      }
+    }catch{loadVIX();}
   }
+}
+
+// Lightweight intraday VIX refresh -- only updates the last bar in the
+// existing daily cache, no full year re-fetch. Called by restoreVIXFromCache
+// during market hours when the cache is stale but < 30 minutes old.
+async function _refreshVIXIntraday(){
+  const cv=S.get('vix_hist');
+  const cv3=S.get('vix3m_hist');
+  if(!cv)return; // no base cache to update
+  try{
+    const[vRes,v3Res]=await Promise.all([
+      fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX')}&type=history&range=1d&interval=5m`).then(r=>r.json()),
+      fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX3M')}&type=history&range=1d&interval=5m`).then(r=>r.json())
+    ]);
+    let updated=false;
+    const injectLive=(hist,res)=>{
+      const result=res?.chart?.result?.[0];
+      if(!result)return;
+      const closes=result.indicators?.quote?.[0]?.close||[];
+      const live=closes.filter(c=>c!=null).pop();
+      if(live&&hist.closes.length){hist.closes[hist.closes.length-1]=Math.round(live*100)/100;updated=true;}
+    };
+    const vixH={timestamps:cv.timestamps.map(d=>new Date(d)),closes:[...cv.closes]};
+    const vix3H=cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:[...cv3.closes]}:null;
+    injectLive(vixH,vRes);
+    if(vix3H)injectLive(vix3H,v3Res);
+    if(updated){
+      S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});
+      if(vix3H&&cv3)S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT()});
+      renderVIXContent(vixH,vix3H,true,nowPT());
+    }
+  }catch(e){console.warn('VIX intraday refresh failed:',e.message);}
 }
 
 async function loadVIX(){

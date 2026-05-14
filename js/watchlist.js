@@ -63,10 +63,11 @@ function _confirmRemove(){
 
 // ── Heatmap ───────────────────────────────────────────────────────────────────
 
-let _heatmapMode='off'; // 'off' | 'change' | 'ivr'
+let _heatmapMode=S.get('heatmap_mode')||'off'; // 'off' | 'change' | 'ivr'
 
 function setHeatmap(mode){
   _heatmapMode=mode;
+  S.set('heatmap_mode',mode);
   ['off','change','ivr'].forEach(m=>{
     const btn=document.getElementById('hm-'+m);
     if(btn)btn.style.opacity=m===mode?'1':'0.4';
@@ -271,6 +272,11 @@ function getSortedWatchlist(){
 }
 
 function renderWatchlist(){
+  // Sync heatmap button states with current mode on every render
+  ['off','change','ivr'].forEach(m=>{
+    const btn=document.getElementById('hm-'+m);
+    if(btn)btn.style.opacity=m===_heatmapMode?'1':'0.4';
+  });
   const el=document.getElementById('watchlist-items');
   if(!watchlist.length){
     el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CB;</div>Watchlist is empty</div>';

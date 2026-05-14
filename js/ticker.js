@@ -258,13 +258,22 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive){
   const rsiLabel=rsiVal>=70?'Overbought -- consider covered calls':rsiVal<=30?'Oversold -- favorable for put selling':'Neutral';
 
   // ── Volume computation ────────────────────────────────────────────────────
-  const todayVol=snap.intradayVolume||null;
+  const _volMs=typeof getMarketState==='function'?getMarketState().state:'closed';
+  const _volIsOpen=_volMs==='open';
+  // During market hours, prefer hist1y's last entry for today's volume --
+  // it accumulates throughout the day and is refreshed on every full refresh.
+  // snap.intradayVolume is a fallback for when hist1y isn't available.
+  let todayVol=null;
+  if(hist1y?.volumes?.length){
+    const _lastVol=hist1y.volumes[hist1y.volumes.length-1];
+    if(_lastVol>0)todayVol=_lastVol;
+  }
+  if(!todayVol)todayVol=snap.intradayVolume||null;
   let avgVol20=null;
   if(hist1y?.volumes?.length>=21){
-    const _ms=typeof getMarketState==='function'?getMarketState().state:'closed';
     const vols=hist1y.volumes.filter(v=>v>0);
     // Exclude last entry if market is open (partial day would skew the average)
-    const sliceEnd=_ms==='open'?vols.length-1:vols.length;
+    const sliceEnd=_volIsOpen?vols.length-1:vols.length;
     const slice=vols.slice(Math.max(0,sliceEnd-20),sliceEnd);
     if(slice.length>=10)avgVol20=slice.reduce((s,v)=>s+v,0)/slice.length;
   }

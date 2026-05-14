@@ -27,14 +27,20 @@ async function prefetchAll(){
     try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});}catch{}
     try{const opts=await yahooOptionsViaProxy(t);
       // Validate before caching -- reject synthetic/after-hours data
-      const _pv=_validateOptionsData(opts);
-      if(_pv.valid){
-        S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT()});
-      }else if(!S.get('options_'+t)){
-        console.warn(t+': prefetch options quality issue ('+_pv.reason+'), saving as only available data');
-        S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),synthetic:true});
+      const _pInWindow=_isOptionsLiveWindow();
+      const _pHasSameDay=_hasGoodSameDayCache('options_'+t);
+      if(!_pInWindow&&_pHasSameDay){
+        console.log(t+': prefetch outside live window, preserving same-day options cache');
       }else{
-        console.warn(t+': prefetch rejecting options ('+_pv.reason+'), preserving existing cache');
+        const _pv=_validateOptionsData(opts);
+        if(_pv.valid){
+          S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT()});
+        }else if(!S.get('options_'+t)){
+          console.warn(t+': prefetch options quality issue ('+_pv.reason+'), saving as only available data');
+          S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),synthetic:true});
+        }else{
+          console.warn(t+': prefetch rejecting options ('+_pv.reason+'), preserving existing cache');
+        }
       }
       const _savedOpts=S.get('options_'+t);
       if(_savedOpts){
@@ -46,14 +52,21 @@ async function prefetchAll(){
         for(const pair of monthlyPairs2){
           try{
             const expData=await yahooOptionsViaProxy(t,String(pair.ts));
-            const _ev=_validateOptionsData(expData);
-            if(_ev.valid){
-              S.set('options_exp_'+t+'_'+pair.date,expData);
-            }else if(!S.get('options_exp_'+t+'_'+pair.date)){
-              console.warn(t+' '+pair.date+': prefetch exp options synthetic ('+_ev.reason+'), saving as fallback');
-              S.set('options_exp_'+t+'_'+pair.date,{...expData,synthetic:true});
+            const _pExpKey='options_exp_'+t+'_'+pair.date;
+            const _pExpInWindow=_isOptionsLiveWindow();
+            const _pExpHasSameDay=_hasGoodSameDayCache(_pExpKey);
+            if(!_pExpInWindow&&_pExpHasSameDay){
+              console.log(t+' '+pair.date+': prefetch outside live window, preserving same-day exp cache');
             }else{
-              console.warn(t+' '+pair.date+': prefetch exp rejected ('+_ev.reason+'), preserving cache');
+              const _ev=_validateOptionsData(expData);
+              if(_ev.valid){
+                S.set(_pExpKey,expData);
+              }else if(!S.get(_pExpKey)){
+                console.warn(t+' '+pair.date+': prefetch exp options synthetic ('+_ev.reason+'), saving as fallback');
+                S.set(_pExpKey,{...expData,synthetic:true});
+              }else{
+                console.warn(t+' '+pair.date+': prefetch exp rejected ('+_ev.reason+'), preserving cache');
+              }
             }
           }catch{}
         }

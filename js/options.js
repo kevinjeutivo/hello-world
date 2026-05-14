@@ -33,6 +33,45 @@ function _validateOptionsData(data){
   return{valid:true,reason:'ok'};
 }
 
+// ── Options cache write-protection window ────────────────────────────────────
+// Returns true if the current ET time is within the live options window
+// (market open 9:30am ET through the user-configured cutoff hour, default 6pm ET).
+// Outside this window, existing same-day good cache is preserved.
+function _isOptionsLiveWindow(){
+  try{
+    const cutoffHourET=parseInt(S.get('options_cutoff_et')||'18');
+    const now=new Date();
+    const etFmt=new Intl.DateTimeFormat('en-US',{
+      timeZone:'America/New_York',
+      hour:'numeric',minute:'numeric',hour12:false
+    });
+    const parts=etFmt.formatToParts(now);
+    const etHour=parseInt(parts.find(p=>p.type==='hour').value);
+    const etMin=parseInt(parts.find(p=>p.type==='minute').value);
+    const etMins=etHour*60+etMin;
+    const openMins=9*60+30;   // 9:30am ET
+    const cutoffMins=cutoffHourET*60; // e.g. 18:00 ET
+    return etMins>=openMins&&etMins<cutoffMins;
+  }catch{return true;} // default to allowing write on error
+}
+
+// Returns true if the existing cached options were written during today's live window
+function _hasGoodSameDayCache(cacheKey){
+  const existing=S.get(cacheKey);
+  if(!existing||existing.synthetic)return false;
+  const ts=existing.ts;
+  if(!ts)return false;
+  try{
+    const written=new Date(String(ts).replace(/ PT$| UTC$| local$/,'').trim());
+    if(isNaN(written.getTime()))return false;
+    // Check if written timestamp is from today (ET calendar date)
+    const todayET=new Date().toLocaleDateString('en-US',{timeZone:'America/New_York'});
+    const writtenET=written.toLocaleDateString('en-US',{timeZone:'America/New_York'});
+    return todayET===writtenET;
+  }catch{return false;}
+}
+
+
 // Options tab: load, build table, OI chart.
 // Globals used: currentTicker, currentMode, selectedExpirations, currentOptionsData, WORKER_URL, S
 // Dependencies: helpers.js, api.js, storage.js
@@ -112,17 +151,25 @@ async function loadOptionsForTicker(){
   try{
     let data,isLive=true,fetchTs=nowPT();
     try{data=await yahooOptionsViaProxy(t);
-      // Validate before caching -- reject synthetic/after-hours data
-      const _optVal=_validateOptionsData(data);
-      if(_optVal.valid){
-        S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs});
-      }else if(!S.get('options_'+t)){
-        // No prior cache exists -- save anyway with a warning flag
-        console.warn(t+': options data quality issue ('+_optVal.reason+'), saving as only available data');
-        S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs,synthetic:true});
+      // Time-window guard: outside live window (9:30am-cutoff ET),
+      // preserve any same-day good cache rather than overwriting with
+      // potentially synthetic after-hours data.
+      const _inWindow=_isOptionsLiveWindow();
+      const _hasSameDay=_hasGoodSameDayCache('options_'+t);
+      if(!_inWindow&&_hasSameDay){
+        console.log(t+': outside live window, preserving same-day options cache');
+        data=S.get('options_'+t).data;
       }else{
-        console.warn(t+': rejecting new options fetch ('+_optVal.reason+'), preserving existing cache');
-        data=S.get('options_'+t).data; // use existing good data for this session
+        const _optVal=_validateOptionsData(data);
+        if(_optVal.valid){
+          S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs});
+        }else if(!S.get('options_'+t)){
+          console.warn(t+': options data quality issue ('+_optVal.reason+'), saving as only available data');
+          S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs,synthetic:true});
+        }else{
+          console.warn(t+': rejecting new options fetch ('+_optVal.reason+'), preserving existing cache');
+          data=S.get('options_'+t).data;
+        }
       }}
     catch{const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;showOfflineBanner(cached.ts);}else throw new Error('No options data available');}
     currentOptionsData=data;
@@ -154,17 +201,23 @@ async function loadOptionsForTicker(){
           return sum+(o.puts||[]).reduce((s,p)=>s+(p.openInterest||0),0)
                    +(o.calls||[]).reduce((s,c)=>s+(c.openInterest||0),0);
         },0);
-        const _expVal=_validateOptionsData(ed);
-        if(_expVal.valid){
-          S.set('options_exp_'+t+'_'+pair.date,ed);
+        const _expKey='options_exp_'+t+'_'+pair.date;
+        const _expInWindow=_isOptionsLiveWindow();
+        const _expHasSameDay=_hasGoodSameDayCache(_expKey);
+        if(!_expInWindow&&_expHasSameDay){
+          console.log(t+' '+pair.date+': outside live window, preserving same-day exp cache');
         }else{
-          const existing=S.get('options_exp_'+t+'_'+pair.date);
-          const existingValid=existing&&!existing.synthetic;
-          if(!existingValid){
-            console.warn(t+' '+pair.date+': saving synthetic options ('+_expVal.reason+') -- no prior good cache');
-            S.set('options_exp_'+t+'_'+pair.date,{...ed,synthetic:true});
+          const _expVal=_validateOptionsData(ed);
+          if(_expVal.valid){
+            S.set(_expKey,ed);
           }else{
-            console.warn(t+' '+pair.date+': rejecting synthetic options ('+_expVal.reason+'), preserving cache');
+            const existingValid=S.get(_expKey)&&!S.get(_expKey)?.synthetic;
+            if(!existingValid){
+              console.warn(t+' '+pair.date+': saving synthetic options ('+_expVal.reason+') -- no prior good cache');
+              S.set(_expKey,{...ed,synthetic:true});
+            }else{
+              console.warn(t+' '+pair.date+': rejecting synthetic options ('+_expVal.reason+'), preserving cache');
+            }
           }
         }
       }catch(e){

@@ -426,6 +426,8 @@ Version: v2.8.0</div>
     <div class="input-group"><label class="input-label">Font Size</label><select class="input" id="font-size-input"><option value="15">Small (15px)</option><option value="17">Medium (17px)</option><option value="19" selected>Default (19px)</option><option value="21">Large (21px)</option><option value="23">Extra Large (23px)</option><option value="26">2XL (26px)</option><option value="30">3XL (30px)</option><option value="36">4XL (36px)</option></select></div>
     <div class="input-group"><label class="input-label">Timestamp Display</label><select class="input" id="tz-pref-input"><option value="PT">Pacific Time (PT) -- home timezone</option><option value="local">Local Device Time</option><option value="UTC">UTC / GMT</option></select></div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">All timestamps throughout the app will use this timezone. Relative age (e.g. "3h ago") is always shown alongside.</div>
+    <div class="input-group"><label class="input-label">Options cache write cutoff</label><select class="input" id="options-cutoff-input"></select></div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">After this time, existing same-day options cache is preserved rather than overwritten with potentially synthetic after-hours data. Default: 6:00 PM ET.</div>
     <div class="input-group" style="display:flex;align-items:center;justify-content:space-between">
       <label class="input-label" style="margin-bottom:0">Offline Mode (skip all network fetches, serve from cache only)</label>
       <input type="checkbox" id="offline-mode-input" style="width:20px;height:20px;accent-color:var(--accent3)">
@@ -986,7 +988,8 @@ let tzPref=S.get('tz_pref')||'PT';
 let offlineMode=S.get('offline_mode')==='true';
 let fontSize=S.get('font_size')||'19';
 applyFontSize(fontSize);
-let watchlistSort=S.get('watchlist_sort')||'manual'; // manual | alpha | opportunity
+let watchlistSort=S.get('watchlist_sort')||'manual';
+if(!S.get('options_cutoff_et'))S.set('options_cutoff_et','18'); // default 6pm ET // manual | alpha | opportunity
 
 const DEFAULT_WATCHLIST=['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
 const WORKER_URL='https://wheel.kevinjeu.workers.dev';

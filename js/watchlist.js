@@ -143,8 +143,13 @@ function _checkVolumeBadge(ticker){
     const sessionClose=_getSessionCloseMins(ms.now);
     const windowStart=sessionClose-VOL_WINDOW_MINS;
     if(ms.totalMins<windowStart)return null;
+    // Prefer hist1y last volume entry (accumulates all day via full refresh)
+    // over snap.intradayVolume which only updates on explicit ticker refresh
+    const hist1yC=S.get('hist1y_'+ticker);
+    const histVols=hist1yC?.volumes?.filter(v=>v>0)||[];
+    const histLastVol=histVols.length?histVols[histVols.length-1]:null;
     const snap=S.get('snap_'+ticker);
-    const intradayVol=snap?.intradayVolume||null;
+    const intradayVol=histLastVol||snap?.intradayVolume||null;
     if(!intradayVol)return null;
     const elapsed=ms.totalMins-570; // mins since 9:30am open
     const sessionLen=sessionClose-570;
@@ -170,6 +175,13 @@ function _checkVolumeBadge(ticker){
 
   // During open session
   if(ms.state==='open'){
+    // Clear any stale badge from a prior session (handles case where
+    // app was never opened during premarket today)
+    const vbsOpen=S.get(KEY)||{};
+    if(vbsOpen[ticker]?.date&&vbsOpen[ticker].date!==today){
+      delete vbsOpen[ticker];
+      S.set(KEY,vbsOpen);
+    }
     const live=_liveCheck();
     if(live){
       const vbs=S.get(KEY)||{};
@@ -177,7 +189,7 @@ function _checkVolumeBadge(ticker){
       S.set(KEY,vbs);
       return live;
     }
-    // Outside the 2h window: show if already triggered earlier this session
+    // Outside the 2h window with no live trigger: show nothing
     const vbs=S.get(KEY)||{};
     if(vbs[ticker]?.date===today)return vbs[ticker];
     return null;

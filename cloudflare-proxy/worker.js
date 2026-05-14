@@ -43,6 +43,7 @@ export default {
     const expiration = url.searchParams.get('expiration');
     const range = url.searchParams.get('range') || '1y';
     const interval = url.searchParams.get('interval') || '1d';
+    const bustCache = url.searchParams.has('_t'); // cache-bust flag from client
 
     // T-bill yields: use ?ticker=%5EIRX&type=history for 3-month (^IRX)
     // and ?ticker=%5EFVX&type=history for 5-year proxy via existing history handler.
@@ -150,13 +151,15 @@ export default {
       const isIntradayHistory = type === 'history' && ['1m','2m','5m','15m','30m','60m','90m'].includes(interval);
       const isQuote = type === 'quote';
       const cacheTTL = (isIntradayHistory || isQuote) ? 60 : 300;
+      // If client sent _t cache-bust param, bypass all caching entirely
+      const cacheHeader = bustCache ? 'no-store' : `public, max-age=${cacheTTL}`;
 
       return new Response(JSON.stringify(data), {
         headers: {
           'Content-Type': 'application/json',
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, OPTIONS',
-          'Cache-Control': `public, max-age=${cacheTTL}`
+          'Cache-Control': cacheHeader
         }
       });
 

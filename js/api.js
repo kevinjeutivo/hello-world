@@ -127,7 +127,7 @@ async function fetchAfterHoursPrice(symbol){
   // The chart endpoint meta fields are unreliable for extended-hours data.
   if(offlineMode)return null;
   try{
-    const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=quote`);
+    const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=quote&_t=${Date.now()}`);
     if(!r.ok)return null;
     const d=await r.json();
     const q=d.quoteResponse?.result?.[0];
@@ -185,8 +185,9 @@ async function fetchFedFundsFutures(){
       tickers.push(`ZQ${c}${y}.CBT`);
     }
     // Fetch quotes for all 6 contracts in parallel
+    const _fft=Date.now();
     const results=await Promise.all(tickers.map(t=>
-      fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(t)}&type=quote`)
+      fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(t)}&type=quote&_t=${_fft}`)
         .then(r=>r.json())
         .catch(()=>null)
     ));

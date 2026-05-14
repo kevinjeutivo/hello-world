@@ -188,6 +188,7 @@ async function measureStorage(){
   const el=document.getElementById('storage-display');
   if(!el)return;
   el.textContent='Measuring...';
+  // Get quota via Storage API
   let usedMB='?',quotaMB='?',pct=0;
   try{
     const est=await navigator.storage.estimate();
@@ -195,6 +196,7 @@ async function measureStorage(){
     quotaMB=(est.quota/1048576).toFixed(0);
     pct=Math.round(est.usage/est.quota*100);
   }catch{}
+  // Break down by category + key count
   const cats={options:0,history:0,snap:0,news:0,other:0};
   const keyCounts={options:0,history:0,snap:0,news:0,other:0};
   for(let i=0;i<localStorage.length;i++){
@@ -226,6 +228,7 @@ async function workerHealthCheck(){
   el.textContent='Testing Worker...';
   const t0=Date.now();
   try{
+    // Ping the Worker with a lightweight quote request for a well-known ticker
     const r=await fetch(WORKER_URL+'/?ticker=SPY&type=quote',{signal:AbortSignal.timeout(8000)});
     const latency=Date.now()-t0;
     if(!r.ok){el.innerHTML='<span style="color:var(--red)">Worker returned HTTP '+r.status+' ('+latency+'ms)</span>';return;}
@@ -245,6 +248,34 @@ async function workerHealthCheck(){
   }
 }
 
+// Populate the options cache cutoff dropdown with hours 1pm-11pm ET
+// expressed in the currently selected timezone.
+function _populateCutoffSelect(){
+  const sel=document.getElementById('options-cutoff-input');
+  if(!sel)return;
+  const savedET=parseInt(S.get('options_cutoff_et')||'18');
+  // ET hours 13-23 (1pm-11pm)
+  const etHours=Array.from({length:11},(_,i)=>i+13);
+  // Compute offset from ET to display timezone
+  // ET = America/New_York; get current offset difference
+  function etToDisplay(etHour){
+    // Create a date with that ET hour today
+    const now=new Date();
+    const etStr=now.toLocaleDateString('en-US',{timeZone:'America/New_York'});
+    const [m,d,y]=etStr.split('/');
+    const pad=n=>String(n).padStart(2,'0');
+    // Build ISO string in ET
+    const etDate=new Date(`${y}-${pad(m)}-${pad(d)}T${pad(etHour)}:00:00`);
+    // Get display in selected timezone
+    const tz=document.getElementById('tz-pref-input')?.value||tzPref||'PT';
+    const tzName=tz==='PT'?'America/Los_Angeles':tz==='UTC'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const label=etDate.toLocaleTimeString('en-US',{timeZone:tzName,hour:'numeric',minute:'2-digit',hour12:true});
+    const tzLabel=tz==='PT'?'PT':tz==='UTC'?'UTC':'local';
+    return label+' '+tzLabel;
+  }
+  sel.innerHTML=etHours.map(h=>`<option value="${h}"${h===savedET?' selected':''}>${etToDisplay(h)}</option>`).join('');
+}
+
 function openSettings(){
   document.getElementById('finnhub-key-input').value=FINNHUB_KEY;
   document.getElementById('default-watchlist-input').value=watchlist.join(',');
@@ -253,6 +284,7 @@ function openSettings(){
   document.getElementById('offline-mode-input').checked=offlineMode;
   document.getElementById('font-size-input').value=fontSize;
   loadWeightSliders();
+  _populateCutoffSelect();
   document.getElementById('settings-overlay').classList.add('open');
 }
 
@@ -269,21 +301,27 @@ function saveSettings(){
   S.set('vix_threshold',String(vixThreshold));
   tzPref=document.getElementById('tz-pref-input').value;
   S.set('tz_pref',tzPref);
+  const cutoffET=parseInt(document.getElementById('options-cutoff-input')?.value)||18;
+  S.set('options_cutoff_et',String(cutoffET));
   offlineMode=document.getElementById('offline-mode-input').checked;
   S.set('offline_mode',String(offlineMode));
   updateOfflineModeBar();
   fontSize=document.getElementById('font-size-input').value||'19';
   S.set('font_size',fontSize);
   applyFontSize(fontSize);
+  // Re-populate cutoff select so labels reflect new timezone
+  _populateCutoffSelect();
   const cv=S.get('vix_hist');
   if(cv?.closes){const c=cv.closes.filter(x=>x!==null);if(c.length)updateVIXIndicator(c[c.length-1]);}
   closeSettings();
   renderWatchlist();
   populateSelects();
+  // Restore selected ticker in dropdowns after rebuilding option elements
   if(currentTicker){
     document.getElementById('ticker-select').value=currentTicker;
     document.getElementById('options-ticker-select').value=currentTicker;
   }
+  // Immediately re-format all timestamp chips in the newly selected timezone
   refreshTsChipAges();
   toast('Settings saved');
 }

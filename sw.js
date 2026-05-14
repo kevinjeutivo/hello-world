@@ -5,14 +5,13 @@
 // Version bump this string to force a refresh
 // of the cache when you deploy a new version.
 // ============================================
-const CACHE_NAME = 'putseller-v29';
+const CACHE_NAME = 'putseller-v30';
 
 // Files to cache on install — the app shell
 const APP_SHELL = [
   './',
   './index.html',
   './app.css',
-  './release-notes.html',
   './js/api.js',
   './js/dashboard.js',
   './js/earnings.js',

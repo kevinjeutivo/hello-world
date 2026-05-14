@@ -68,22 +68,25 @@ async function _refreshVIXIntraday(){
   const cv3=S.get('vix3m_hist');
   if(!cv)return; // no base cache to update
   try{
-    const[vRes,v3Res]=await Promise.all([
-      fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX')}&type=history&range=1d&interval=5m`).then(r=>r.json()),
-      fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX3M')}&type=history&range=1d&interval=5m`).then(r=>r.json())
+    // Use quote endpoint for reliable live index values -- 5-min bars
+    // often return null closes for ^VIX and ^VIX3M index tickers.
+    const[vQuote,v3Quote]=await Promise.all([
+      fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX')}&type=quote`).then(r=>r.json()),
+      fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX3M')}&type=quote`).then(r=>r.json())
     ]);
+    const vLive=vQuote?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
+    const v3Live=v3Quote?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
     let updated=false;
-    const injectLive=(hist,res)=>{
-      const result=res?.chart?.result?.[0];
-      if(!result)return;
-      const closes=result.indicators?.quote?.[0]?.close||[];
-      const live=closes.filter(c=>c!=null).pop();
-      if(live&&hist.closes.length){hist.closes[hist.closes.length-1]=Math.round(live*100)/100;updated=true;}
-    };
     const vixH={timestamps:cv.timestamps.map(d=>new Date(d)),closes:[...cv.closes]};
     const vix3H=cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:[...cv3.closes]}:null;
-    injectLive(vixH,vRes);
-    if(vix3H)injectLive(vix3H,v3Res);
+    if(vLive&&vixH.closes.length){
+      vixH.closes[vixH.closes.length-1]=Math.round(vLive*100)/100;
+      updated=true;
+    }
+    if(v3Live&&vix3H?.closes.length){
+      vix3H.closes[vix3H.closes.length-1]=Math.round(v3Live*100)/100;
+      updated=true;
+    }
     if(updated){
       S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});
       if(vix3H&&cv3)S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT()});
@@ -100,18 +103,25 @@ async function loadVIX(){
   try{
     let vixH,vix3H,isLive=true;
     try{[vixH,vix3H]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT()});
-      // Inject intraday VIX via 5-minute bars (more reliable than quote endpoint for ^VIX)
+      // Inject live VIX value via quote endpoint -- more reliable than
+      // 5-minute bars which Yahoo sometimes returns as null for ^VIX index.
+      // Also fetch ^VIX3M live quote for accurate term structure.
       try{
-        const vIntra=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX')}&type=history&range=1d&interval=5m`).then(r=>r.json());
-        const vResult=vIntra?.chart?.result?.[0];
-        if(vResult){
-          const vCloses=vResult.indicators?.quote?.[0]?.close||[];
-          const vLive=vCloses.filter(c=>c!=null).slice(-1)[0]||null;
-          if(vLive){
-            const last=vixH.closes.length-1;
-            vixH.closes[last]=vLive;
-            S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});
-          }
+        const[vQuote,v3Quote]=await Promise.all([
+          fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX')}&type=quote`).then(r=>r.json()),
+          fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX3M')}&type=quote`).then(r=>r.json())
+        ]);
+        const vLive=vQuote?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
+        const v3Live=v3Quote?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
+        if(vLive){
+          const last=vixH.closes.length-1;
+          vixH.closes[last]=Math.round(vLive*100)/100;
+          S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});
+        }
+        if(v3Live&&vix3H){
+          const last3=vix3H.closes.length-1;
+          vix3H.closes[last3]=Math.round(v3Live*100)/100;
+          S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT()});
         }
       }catch{}}
     catch{const cv=S.get('vix_hist'),cv3=S.get('vix3m_hist');if(cv){vixH={timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes};vix3H=cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null;isLive=false;showOfflineBanner(cv.ts);}else throw new Error('No VIX data available');}

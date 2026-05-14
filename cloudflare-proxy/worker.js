@@ -141,12 +141,22 @@ export default {
 
       const data = await dataResponse.json();
 
+      // Cache TTL varies by request type and interval:
+      // - Intraday history (interval=1m/2m/5m/15m/30m/60m/90m): 60s -- live market data
+      // - Daily/weekly/monthly history: 300s (5min) -- bars don't change mid-session
+      // - Options chains: 300s -- refreshed explicitly by user
+      // - Quotes: 60s -- near real-time price data
+      // - Summary/dividends: 300s -- fundamental data, slow-changing
+      const isIntradayHistory = type === 'history' && ['1m','2m','5m','15m','30m','60m','90m'].includes(interval);
+      const isQuote = type === 'quote';
+      const cacheTTL = (isIntradayHistory || isQuote) ? 60 : 300;
+
       return new Response(JSON.stringify(data), {
         headers: {
           'Content-Type': 'application/json',
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, OPTIONS',
-          'Cache-Control': 'public, max-age=300'
+          'Cache-Control': `public, max-age=${cacheTTL}`
         }
       });
 

@@ -175,23 +175,24 @@ function _checkVolumeBadge(ticker){
 
   // During open session
   if(ms.state==='open'){
-    // Clear any stale badge from a prior session (handles case where
-    // app was never opened during premarket today)
+    // Clear any badge not explicitly triggered during today's live window.
+    // This handles both prior-day badges and retroactive badges set overnight
+    // (which have today's ET date but were not triggered by live intraday volume).
     const vbsOpen=S.get(KEY)||{};
-    if(vbsOpen[ticker]?.date&&vbsOpen[ticker].date!==today){
+    if(vbsOpen[ticker]&&!vbsOpen[ticker].liveTriggered){
       delete vbsOpen[ticker];
       S.set(KEY,vbsOpen);
     }
     const live=_liveCheck();
     if(live){
       const vbs=S.get(KEY)||{};
-      vbs[ticker]={multiplier:live.multiplier,date:live.date};
+      vbs[ticker]={multiplier:live.multiplier,date:live.date,liveTriggered:true};
       S.set(KEY,vbs);
       return live;
     }
-    // Outside the 2h window with no live trigger: show nothing
+    // Outside the 2h window with no live trigger yet: show nothing
     const vbs=S.get(KEY)||{};
-    if(vbs[ticker]?.date===today)return vbs[ticker];
+    if(vbs[ticker]?.liveTriggered)return vbs[ticker];
     return null;
   }
 
@@ -200,9 +201,10 @@ function _checkVolumeBadge(ticker){
   if(vbs[ticker]?.date===today)return vbs[ticker];
 
   // Retroactive check (handles nuclear option rebuild on weekend etc.)
+  // liveTriggered:false ensures this badge is cleared when market opens
   const retro=_retroCheck();
   if(retro){
-    vbs[ticker]={multiplier:retro.multiplier,date:retro.date};
+    vbs[ticker]={multiplier:retro.multiplier,date:retro.date,liveTriggered:false};
     S.set(KEY,vbs);
     return retro;
   }

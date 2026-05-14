@@ -70,9 +70,10 @@ async function _refreshVIXIntraday(){
   try{
     // Use quote endpoint for reliable live index values -- 5-min bars
     // often return null closes for ^VIX and ^VIX3M index tickers.
+    const _vt=Date.now();
     const[vQuote,v3Quote]=await Promise.all([
-      fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX')}&type=quote`).then(r=>r.json()),
-      fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX3M')}&type=quote`).then(r=>r.json())
+      fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX')}&type=quote&_t=${_vt}`).then(r=>r.json()),
+      fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX3M')}&type=quote&_t=${_vt}`).then(r=>r.json())
     ]);
     const vLive=vQuote?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
     const v3Live=v3Quote?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
@@ -107,9 +108,10 @@ async function loadVIX(){
       // 5-minute bars which Yahoo sometimes returns as null for ^VIX index.
       // Also fetch ^VIX3M live quote for accurate term structure.
       try{
+        const _vt=Date.now();
         const[vQuote,v3Quote]=await Promise.all([
-          fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX')}&type=quote`).then(r=>r.json()),
-          fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX3M')}&type=quote`).then(r=>r.json())
+          fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX')}&type=quote&_t=${_vt}`).then(r=>r.json()),
+          fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX3M')}&type=quote&_t=${_vt}`).then(r=>r.json())
         ]);
         const vLive=vQuote?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
         const v3Live=v3Quote?.quoteResponse?.result?.[0]?.regularMarketPrice||null;

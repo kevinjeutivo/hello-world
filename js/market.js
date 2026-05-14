@@ -21,7 +21,7 @@ async function loadMarketTab(){
     }catch{
       // Try live quote for 2Y yield as fallback
       try{
-        const t2q=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^TNX')}&type=quote`).then(r=>r.json());
+        const t2q=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^TNX')}&type=quote&_t=${Date.now()}`).then(r=>r.json());
         const t2Live=t2q?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
         if(t2Live){
           // Create synthetic history with just the current value
@@ -37,8 +37,8 @@ async function loadMarketTab(){
     // Fetch live quotes for S&P 500 and Nasdaq -- history closes can be null for index tickers
     try{
       const[spQ,nqQ]=await Promise.all([
-        fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^GSPC')}&type=quote`).then(r=>r.json()),
-        fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^IXIC')}&type=quote`).then(r=>r.json())
+        fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^GSPC')}&type=quote&_t=${Date.now()}`).then(r=>r.json()),
+        fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^IXIC')}&type=quote&_t=${Date.now()}`).then(r=>r.json())
       ]);
       spLivePrice=spQ?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
       spPrevClose=spQ?.quoteResponse?.result?.[0]?.regularMarketPreviousClose||null;

@@ -241,12 +241,15 @@ function _calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targ
     {label:'NBOS', amt:nbosAmt, shares:inp.nbosShares, price:nbosData.price, yld:nbosData.yld, income:nbosIncome},
   ];
 
-  const putsIncome=(inp.putsNotional*targetAPY)/100;
+  // Positions tracker overrides manual puts notional when positions exist
+  const _posNotionalTotal=_activePosNotionalTotal();
+  const _effectivePutsNotional=_posNotionalTotal>0?_posNotionalTotal:inp.putsNotional;
+  const putsIncome=(_effectivePutsNotional*targetAPY)/100;
   const ccIncome  =(inp.ccStockAmt*targetAPY)/100;
   const l3Income  =putsIncome+ccIncome;
 
   const l3Components=[
-    {label:'Written puts (naked)', notional:inp.putsNotional, income:putsIncome, targetAPY},
+    {label:'Written puts (naked)', notional:_effectivePutsNotional, income:putsIncome, targetAPY, fromPositions:_posNotionalTotal>0},
     {label:'CC stock held',        notional:inp.ccStockAmt,   income:ccIncome,   targetAPY},
   ];
 
@@ -456,6 +459,7 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta,rawFetched){
   });
 
   // ── Layer 3 ───────────────────────────────────────────────────────────────
+  const _posList=_renderPositionList();
   const l3Card='<div style="background:'+L3_BG+';border:1px solid '+L3_BORDER+';border-left:4px solid '+L3_BORDER+';border-radius:var(--radius-lg);padding:14px;margin-bottom:10px">'
     +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
       +'<div>'
@@ -468,16 +472,26 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta,rawFetched){
         +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">on total capital</div>'
       +'</div>'
     +'</div>'
-    +l3.components.map(c=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05)">'
+    // Position list
+    +'<div style="border-top:1px solid rgba(0,212,170,0.15);padding-top:10px;margin-bottom:8px">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+        +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Put Positions</div>'
+        +'<button class="btn btn-secondary" style="font-size:10px;padding:3px 10px" onclick="_openAddPositionModal()">+ Add Position</button>'
+      +'</div>'
+      +_posList.html
+    +'</div>'
+    +l3.components.map(c=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid rgba(255,255,255,0.05)">'
       +'<div>'
         +'<div style="font-family:var(--mono);font-size:11px;color:var(--text2)">'+c.label+'</div>'
-        +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3)">'+_fmtDollar(c.notional)+' notional @ '+_fmtPct(c.targetAPY)+' target</div>'
+        +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3)">'+_fmtDollar(c.notional)+' notional @ '+_fmtPct(c.targetAPY)+' target'
+          +(c.fromPositions?' <span style="color:'+L3_TEXT+'">&#x2713; from positions</span>':'')+'</div>'
       +'</div>'
       +'<div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;color:'+L3_TEXT+'">'+_fmtDollar(c.income)+'/yr</div></div>'
     +'</div>').join('')
     +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:8px;line-height:1.5">'
       +'Premium income uses configured target APY ('+_fmtPct(l3.targetAPY)+'). '
-      +'Notional for puts and CC stock excluded from capital denominator — collateral already counted in Layer 1.'
+      +'Notional for puts and CC stock excluded from capital denominator — collateral already counted in Layer 1. '
+      +(l3.components[0]?.fromPositions?'Notional derived from '+_posList.html.match(/Active notional/)?'position tracker.':'position tracker.':'Manual notional used (add positions above to auto-calculate).')
     +'</div>'
   +'</div>';
 
@@ -549,4 +563,367 @@ function recalcIncome(){
 function refreshIncomeYields(){
   S.del(INCOME_MMF_CACHE_KEY);
   loadIncomeTab();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PUT POSITIONS TRACKER
+// Manages individual naked put positions for Layer 3 notional calculation.
+// Storage key: 'put_positions' → array of position objects:
+//   {id, ticker, strike, expDate, contracts, addedTs}
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const PUT_POS_KEY = 'put_positions';
+const POS_LINGER_DAYS = 7; // expired positions linger this many days before auto-removal
+
+// ── Position storage helpers ──────────────────────────────────────────────────
+
+function _loadPositions(){
+  return S.get(PUT_POS_KEY)||[];
+}
+
+function _savePositions(positions){
+  S.set(PUT_POS_KEY, positions);
+}
+
+function _posNotional(pos){
+  return pos.strike * 100 * pos.contracts;
+}
+
+function _posExpiryStatus(pos){
+  // Returns: 'active' | 'expiring-soon' | 'expiring-imminent' | 'expired-linger' | 'remove'
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const exp = new Date(pos.expDate + 'T12:00:00Z');
+  const daysUntil = Math.round((exp - today) / 86400000);
+  if(daysUntil < -POS_LINGER_DAYS) return 'remove';
+  if(daysUntil < 0)  return 'expired-linger';
+  if(daysUntil <= 2) return 'expiring-imminent';
+  if(daysUntil <= 7) return 'expiring-soon';
+  return 'active';
+}
+
+function _activePosNotionalTotal(){
+  const positions = _loadPositions();
+  // Auto-clean positions past linger period
+  const keep = positions.filter(p => _posExpiryStatus(p) !== 'remove');
+  if(keep.length !== positions.length) _savePositions(keep);
+  return keep
+    .filter(p => {
+      const s = _posExpiryStatus(p);
+      return s === 'active' || s === 'expiring-soon' || s === 'expiring-imminent';
+    })
+    .reduce((sum, p) => sum + _posNotional(p), 0);
+}
+
+// ── Monthly expiration detection from options cache ───────────────────────────
+
+function _getMonthlyExpirations(ticker){
+  const cache = S.get('options_' + ticker);
+  const result = cache?.data?.optionChain?.result?.[0];
+  if(!result) return [];
+  const rawTs = result.expirationDates || [];
+  const pairs = rawTs.map(ts => ({
+    ts,
+    date: new Date(ts * 1000).toISOString().split('T')[0]
+  }));
+  // Standard monthly: 3rd Fri (or Thu), day 15-21
+  const monthly = pairs.filter(p => {
+    const d = new Date(p.date + 'T12:00:00Z');
+    return (d.getUTCDay() === 5 || d.getUTCDay() === 4) &&
+           d.getUTCDate() >= 15 && d.getUTCDate() <= 21;
+  });
+  // Fallback: first 3 future expirations
+  const future = pairs.filter(p => new Date(p.date + 'T12:00:00Z') >= new Date());
+  const result2 = monthly.length ? monthly : future.slice(0,3);
+  return result2
+    .filter(p => new Date(p.date + 'T12:00:00Z') >= new Date())
+    .sort((a,b) => a.date.localeCompare(b.date))
+    .slice(0, 6); // up to 6 monthly expirations
+}
+
+function _getStrikesForExpiration(ticker, expDate){
+  const cache = S.get('options_exp_' + ticker + '_' + expDate);
+  const result = cache?.optionChain?.result?.[0];
+  if(!result) return [];
+  const puts = result.options?.[0]?.puts || [];
+  const snap = S.get('snap_' + ticker);
+  const price = snap?.price || 0;
+  // Filter to reasonable range: 50%-110% of current price
+  return puts
+    .filter(p => p.strike > 0 &&
+      (!price || (p.strike >= price * 0.5 && p.strike <= price * 1.1)))
+    .map(p => p.strike)
+    .filter((v,i,a) => a.indexOf(v) === i) // dedupe
+    .sort((a,b) => b - a); // descending (ITM first)
+}
+
+// ── Position add/remove UI ────────────────────────────────────────────────────
+
+function _openAddPositionModal(){
+  // Build modal HTML
+  const wl = [...watchlist].sort((a,b) => a.localeCompare(b));
+  if(!wl.length){toast('Add tickers to your watchlist first');return;}
+
+  let el = document.getElementById('pos-add-modal');
+  if(!el){
+    el = document.createElement('div');
+    el.className = 'modal-overlay';
+    el.id = 'pos-add-modal';
+    document.body.appendChild(el);
+    el.addEventListener('click', e => {if(e.target===el)_closePosModal();});
+  }
+
+  el.innerHTML =
+    '<div class="modal-box" style="max-width:340px">' +
+      '<div class="modal-title">Add Put Position</div>' +
+      '<div class="input-group" style="margin-bottom:10px">' +
+        '<label class="input-label">Ticker</label>' +
+        '<select class="input" id="pos-ticker-sel" onchange="_onPosTickerChange()">' +
+          '<option value="">-- Select ticker --</option>' +
+          wl.map(t => '<option value="'+t+'">'+t+'</option>').join('') +
+        '</select>' +
+      '</div>' +
+      '<div class="input-group" style="margin-bottom:10px" id="pos-exp-group">' +
+        '<label class="input-label">Expiration</label>' +
+        '<select class="input" id="pos-exp-sel" onchange="_onPosExpChange()" disabled>' +
+          '<option value="">-- Select ticker first --</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="input-group" style="margin-bottom:10px" id="pos-strike-group">' +
+        '<label class="input-label">Strike</label>' +
+        '<select class="input" id="pos-strike-sel" disabled>' +
+          '<option value="">-- Select expiration first --</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="input-group" style="margin-bottom:14px">' +
+        '<label class="input-label">Contracts</label>' +
+        '<input class="input" type="number" id="pos-contracts" min="1" value="1" placeholder="1">' +
+      '</div>' +
+      '<div id="pos-no-data-warn" style="font-family:var(--mono);font-size:10px;color:var(--warn);display:none;margin-bottom:10px">' +
+        '&#x26A0; No cached options for this ticker. Visit the Options tab to load data first.' +
+      '</div>' +
+      '<div style="display:flex;gap:8px">' +
+        '<button class="btn btn-secondary btn-sm" onclick="_closePosModal()">Cancel</button>' +
+        '<button class="btn btn-primary btn-sm" onclick="_confirmAddPosition()">Add Position</button>' +
+      '</div>' +
+    '</div>';
+
+  el.classList.add('open');
+}
+
+function _closePosModal(){
+  const el = document.getElementById('pos-add-modal');
+  if(el) el.classList.remove('open');
+}
+
+function _onPosTickerChange(){
+  const ticker = document.getElementById('pos-ticker-sel')?.value;
+  const expSel = document.getElementById('pos-exp-sel');
+  const strikeSel = document.getElementById('pos-strike-sel');
+  const warn = document.getElementById('pos-no-data-warn');
+  if(!expSel||!strikeSel) return;
+
+  expSel.innerHTML = '<option value="">-- Select expiration --</option>';
+  strikeSel.innerHTML = '<option value="">-- Select expiration first --</option>';
+  expSel.disabled = true;
+  strikeSel.disabled = true;
+  warn.style.display = 'none';
+
+  if(!ticker) return;
+  const exps = _getMonthlyExpirations(ticker);
+  if(!exps.length){
+    warn.style.display = 'block';
+    return;
+  }
+  exps.forEach(e => {
+    const opt = document.createElement('option');
+    opt.value = e.date;
+    // Display as e.g. "Jun 20, 2025"
+    opt.textContent = new Date(e.date+'T12:00:00Z')
+      .toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    expSel.appendChild(opt);
+  });
+  expSel.disabled = false;
+}
+
+function _onPosExpChange(){
+  const ticker = document.getElementById('pos-ticker-sel')?.value;
+  const expDate = document.getElementById('pos-exp-sel')?.value;
+  const strikeSel = document.getElementById('pos-strike-sel');
+  if(!strikeSel) return;
+
+  strikeSel.innerHTML = '<option value="">-- Select strike --</option>';
+  strikeSel.disabled = true;
+  if(!ticker || !expDate) return;
+
+  const strikes = _getStrikesForExpiration(ticker, expDate);
+  const snap = S.get('snap_'+ticker);
+  const price = snap?.price || 0;
+
+  if(!strikes.length){
+    strikeSel.innerHTML = '<option value="">No strikes cached for this expiration</option>';
+    return;
+  }
+  strikes.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s;
+    const otmPct = price > 0 ? ((price - s) / price * 100) : null;
+    const moneyness = otmPct !== null
+      ? (otmPct > 0 ? otmPct.toFixed(1)+'% OTM' : Math.abs(otmPct).toFixed(1)+'% ITM')
+      : '';
+    opt.textContent = '$' + s.toFixed(2) + (moneyness ? ' — ' + moneyness : '');
+    strikeSel.appendChild(opt);
+  });
+  strikeSel.disabled = false;
+}
+
+function _confirmAddPosition(){
+  const ticker   = document.getElementById('pos-ticker-sel')?.value;
+  const expDate  = document.getElementById('pos-exp-sel')?.value;
+  const strike   = parseFloat(document.getElementById('pos-strike-sel')?.value);
+  const contracts= Math.max(1, parseInt(document.getElementById('pos-contracts')?.value)||1);
+
+  if(!ticker || !expDate || !strike){
+    toast('Please select ticker, expiration and strike');
+    return;
+  }
+
+  const positions = _loadPositions();
+  const id = 'pos_' + Date.now();
+  positions.push({id, ticker, strike, expDate, contracts, addedTs: new Date().toISOString()});
+  _savePositions(positions);
+  _closePosModal();
+  recalcIncome();
+  toast('Position added: ' + ticker + ' $' + strike.toFixed(0) + ' x' + contracts);
+}
+
+let _pendingRemovePosId = null;
+
+function _openRemovePosModal(id){
+  _pendingRemovePosId = id;
+  const positions = _loadPositions();
+  const pos = positions.find(p => p.id === id);
+  if(!pos) return;
+
+  let el = document.getElementById('pos-remove-modal');
+  if(!el){
+    el = document.createElement('div');
+    el.className = 'modal-overlay';
+    el.id = 'pos-remove-modal';
+    el.innerHTML =
+      '<div class="modal-box">' +
+        '<div class="modal-title" id="prm-title">Remove position?</div>' +
+        '<div class="modal-body" id="prm-body"></div>' +
+        '<div style="display:flex;gap:8px">' +
+          '<button class="btn btn-secondary btn-sm" id="prm-cancel">Cancel</button>' +
+          '<button class="btn btn-danger btn-sm" id="prm-confirm">Remove</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(el);
+    document.getElementById('prm-cancel').addEventListener('click', () => {
+      _pendingRemovePosId = null;
+      el.classList.remove('open');
+    });
+    document.getElementById('prm-confirm').addEventListener('click', _confirmRemovePos);
+    el.addEventListener('click', e => {
+      if(e.target === el){ _pendingRemovePosId = null; el.classList.remove('open'); }
+    });
+  }
+  document.getElementById('prm-body').textContent =
+    'Remove ' + pos.ticker + ' $' + pos.strike.toFixed(0) +
+    ' put expiring ' + pos.expDate + ' (' + pos.contracts + ' contract' +
+    (pos.contracts > 1 ? 's' : '') + ')?';
+  el.classList.add('open');
+}
+
+function _confirmRemovePos(){
+  const id = _pendingRemovePosId;
+  _pendingRemovePosId = null;
+  document.getElementById('pos-remove-modal')?.classList.remove('open');
+  if(!id) return;
+  const positions = _loadPositions().filter(p => p.id !== id);
+  _savePositions(positions);
+  recalcIncome();
+  toast('Position removed');
+}
+
+// ── Position list renderer ────────────────────────────────────────────────────
+
+function _renderPositionList(){
+  const positions = _loadPositions();
+  // Auto-remove positions past linger period
+  const keep = positions.filter(p => _posExpiryStatus(p) !== 'remove');
+  if(keep.length !== positions.length) _savePositions(keep);
+
+  const activeNotional = keep
+    .filter(p => {
+      const s = _posExpiryStatus(p);
+      return s === 'active' || s === 'expiring-soon' || s === 'expiring-imminent';
+    })
+    .reduce((sum, p) => sum + _posNotional(p), 0);
+
+  const STATUS_STYLE = {
+    'active':             {border:'rgba(0,212,170,0.3)',  bg:'rgba(0,212,170,0.06)',  label:'',             labelColor:''},
+    'expiring-soon':      {border:'rgba(255,165,2,0.5)',  bg:'rgba(255,165,2,0.08)',  label:'Exp ≤7d',      labelColor:'var(--warn)'},
+    'expiring-imminent':  {border:'rgba(255,71,87,0.6)',  bg:'rgba(255,71,87,0.08)',  label:'Exp ≤2d',      labelColor:'var(--red)'},
+    'expired-linger':     {border:'rgba(85,88,112,0.3)',  bg:'rgba(85,88,112,0.06)',  label:'Expired',      labelColor:'var(--text3)'},
+  };
+
+  const clearExpiredBtn = keep.some(p => _posExpiryStatus(p) === 'expired-linger')
+    ? '<button class="btn btn-secondary" style="font-size:10px;padding:4px 10px;margin-top:6px" onclick="_clearExpiredPositions()">Clear Expired</button>'
+    : '';
+
+  const rows = keep.map(pos => {
+    const status = _posExpiryStatus(pos);
+    const ss = STATUS_STYLE[status];
+    const notional = _posNotional(pos);
+    const expired = status === 'expired-linger';
+    const today = new Date(); today.setHours(0,0,0,0);
+    const exp = new Date(pos.expDate + 'T12:00:00Z');
+    const daysUntil = Math.round((exp - today) / 86400000);
+    const daysStr = expired
+      ? 'Expired ' + Math.abs(daysUntil) + 'd ago'
+      : daysUntil === 0 ? 'Expires today' : 'Exp in ' + daysUntil + 'd';
+
+    return '<div style="background:'+ss.bg+';border:1px solid '+ss.border+';border-radius:8px;padding:10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;'+(expired?'opacity:0.5':'')+'">' +
+      '<div>' +
+        '<div style="font-family:var(--mono);font-size:13px;font-weight:700;color:'+(expired?'var(--text3)':'var(--accent)')+'">'+
+          pos.ticker+' $'+pos.strike.toFixed(0)+
+          (ss.label?'<span style="font-size:9px;color:'+ss.labelColor+';margin-left:6px;font-weight:400">'+ss.label+'</span>':'')+
+        '</div>'+
+        '<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">'+
+          pos.contracts+' contract'+(pos.contracts>1?'s':'')+' · '+pos.expDate+' · '+daysStr+
+        '</div>'+
+        '<div style="font-family:var(--mono);font-size:10px;color:'+(expired?'var(--text3)':L3_TEXT)+'">'+
+          _fmtDollar(notional)+' notional'+(expired?' (excluded)':'') +
+        '</div>'+
+      '</div>'+
+      '<button style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:4px 8px" '+
+        'onclick="_openRemovePosModal(\''+pos.id+'\')">&times;</button>'+
+    '</div>';
+  }).join('');
+
+  const emptyMsg = keep.length === 0
+    ? '<div style="font-family:var(--mono);font-size:11px;color:var(--text3);text-align:center;padding:12px 0">No positions entered. Tap Add Position to begin.</div>'
+    : '';
+
+  return {
+    html:
+      '<div style="margin-bottom:6px">' +
+        (keep.length > 0
+          ? '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">' +
+              'Active notional: <span style="color:'+L3_TEXT+';font-weight:600">'+_fmtDollar(activeNotional)+'</span>' +
+            '</div>'
+          : '') +
+        rows + emptyMsg + clearExpiredBtn +
+      '</div>',
+    activeNotional
+  };
+}
+
+function _clearExpiredPositions(){
+  const keep = _loadPositions().filter(p => _posExpiryStatus(p) !== 'expired-linger');
+  _savePositions(keep);
+  recalcIncome();
+  toast('Expired positions cleared');
 }

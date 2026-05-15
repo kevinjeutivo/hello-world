@@ -360,7 +360,7 @@ a{color:inherit}
     <div class="input-group"><label class="input-label">NBOS shares held</label><input class="input" id="inc-nbos-shares" type="number" min="0" placeholder="e.g. 150" oninput="recalcIncome()"></div>
     <!-- Layer 3 -->
     <div style="font-family:var(--mono);font-size:9px;color:#00d4aa;text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px">Layer 3 &mdash; Wheel Strategy</div>
-    <div class="input-group"><label class="input-label">Written puts &mdash; total notional ($)</label><input class="input" id="inc-puts-notional" type="number" min="0" placeholder="e.g. 140000" oninput="recalcIncome()"></div>
+    <div class="input-group"><label class="input-label">Written puts &mdash; manual notional ($) <span style="font-family:var(--mono);font-size:9px;color:var(--text3)">(overridden by position tracker)</span></label><input class="input" id="inc-puts-notional" type="number" min="0" placeholder="e.g. 140000" oninput="recalcIncome()"></div>
     <div class="input-group"><label class="input-label">Stock held for CC writing ($)</label><input class="input" id="inc-cc-stock-amt" type="number" min="0" placeholder="e.g. 30000" oninput="recalcIncome()"></div>
     <div style="display:flex;gap:8px;margin-top:4px">
       <button class="btn btn-primary" style="flex:2" onclick="recalcIncome()">Calculate</button>

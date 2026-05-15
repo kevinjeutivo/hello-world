@@ -55,7 +55,9 @@ function _isOptionsLiveWindow(){
   }catch{return true;} // default to allowing write on error
 }
 
-// Returns true if the existing cached options were written during today's live window
+// Returns true if the existing cached options were written during the most recent
+// trading session's live window. Protects good data written yesterday (or Friday)
+// from being overwritten during overnight/pre-market/weekend hours.
 function _hasGoodSameDayCache(cacheKey){
   const existing=S.get(cacheKey);
   if(!existing||existing.synthetic)return false;
@@ -64,10 +66,27 @@ function _hasGoodSameDayCache(cacheKey){
   try{
     const written=new Date(String(ts).replace(/ PT$| UTC$| local$/,'').trim());
     if(isNaN(written.getTime()))return false;
-    // Check if written timestamp is from today (ET calendar date)
-    const todayET=new Date().toLocaleDateString('en-US',{timeZone:'America/New_York'});
-    const writtenET=written.toLocaleDateString('en-US',{timeZone:'America/New_York'});
-    return todayET===writtenET;
+    // Good cache is valid until the NEXT trading session's live window opens
+    // (9:30am ET on the next trading day). Until then, preserve it.
+    // Strategy: if we are currently outside the live window, the cache written
+    // during any prior live window (up to 5 calendar days ago to cover weekends)
+    // is considered good and worth preserving.
+    const now=new Date();
+    const ageMs=now.getTime()-written.getTime();
+    const ageDays=ageMs/86400000;
+    // Cache older than 5 days is always stale (covers long weekends)
+    if(ageDays>5)return false;
+    // Cache written during a live window is good -- check it was written
+    // between 9:30am and the cutoff on its day
+    const writtenET=written.toLocaleTimeString('en-US',{
+      timeZone:'America/New_York',hour:'numeric',minute:'numeric',hour12:false
+    });
+    const parts=writtenET.split(':');
+    const wHour=parseInt(parts[0]),wMin=parseInt(parts[1]);
+    const wMins=wHour*60+wMin;
+    const cutoffHourET=parseInt(S.get('options_cutoff_et')||'18');
+    // Was it written during the live window on its day?
+    return wMins>=570&&wMins<(cutoffHourET*60);
   }catch{return false;}
 }
 

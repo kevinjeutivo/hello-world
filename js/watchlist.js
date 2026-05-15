@@ -50,6 +50,21 @@ function _confirmRemove(){
   const ticker=_pendingRemoveTicker;
   _closeRemoveModal();
   if(!ticker)return;
+  // Warn if active put positions exist for this ticker
+  try{
+    const positions=(S.get('put_positions')||[]);
+    const active=positions.filter(p=>p.ticker===ticker&&
+      !['expired-linger','remove'].includes(
+        (()=>{const today=new Date();today.setHours(0,0,0,0);
+          const exp=new Date(p.expDate+'T12:00:00Z');
+          const d=Math.round((exp-today)/86400000);
+          return d<-7?'remove':d<0?'expired-linger':d<=2?'expiring-imminent':d<=7?'expiring-soon':'active';
+        })()
+      ));
+    if(active.length){
+      toast('Note: '+ticker+' has '+active.length+' active put position'+(active.length>1?'s':'')+' in the Income tab.',4000);
+    }
+  }catch{}
   watchlist=watchlist.filter(x=>x!==ticker);
   S.set('watchlist',watchlist);
   S.del('snap_'+ticker);

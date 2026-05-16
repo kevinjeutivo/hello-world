@@ -465,68 +465,77 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta,rawFetched){
   // ── Layer 3 ───────────────────────────────────────────────────────────────
   const _posList=_renderPositionList();
   const _ccList=_renderCCPositionList();
-  const l3Card='<div style="background:'+L3_BG+';border:1px solid '+L3_BORDER+';border-left:4px solid '+L3_BORDER+';border-radius:var(--radius-lg);padding:14px;margin-bottom:10px">'
-    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
-      +'<div>'
-        +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px">LAYER 3</div>'
-        +'<div style="font-family:var(--sans);font-size:14px;font-weight:700;color:var(--text)">Wheel Strategy</div>'
-        +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">Options overlay — premium income only</div>'
-      +'</div>'
-      +'<div style="text-align:right">'
-        +'<div style="font-family:var(--mono);font-size:22px;font-weight:600;color:'+L3_TEXT+'">+'+_fmtPct(l3.lift)+' lift</div>'
-        +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">on total capital</div>'
-      +'</div>'
-    +'</div>'
-    // Position list -- sort toggle buttons pre-computed to avoid IIFE in string concat
-    +(()=>{
-      const _sm=_getPosSort();
-      const _btnStyle=(active)=>'font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:6px;border:1px solid var(--border);cursor:pointer;background:'+(active?'var(--accent)':'var(--surface2)')+';color:'+(active?'#000':'var(--text3)');
-      const _sortBtns=
-        '<button style="'+_btnStyle(_sm==='ticker')+'" onclick="setPosSort(&quot;ticker&quot;)">By Ticker</button>'+
-        '<button style="'+_btnStyle(_sm==='expiry')+'" onclick="setPosSort(&quot;expiry&quot;)">By Expiry</button>';
-      return '<div style="border-top:1px solid rgba(0,212,170,0.15);padding-top:10px;margin-bottom:8px">'+
+
+  // Pre-compute sort toggle buttons outside string concat to avoid scoping issues
+  const _pSm=_getPosSort();
+  const _pBtnBase='font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:6px;border:1px solid var(--border);cursor:pointer;';
+  const _pBtnA=_pBtnBase+'background:var(--accent);color:#000;';
+  const _pBtnI=_pBtnBase+'background:var(--surface2);color:var(--text3);';
+  const _putSortBtns=
+    '<button style="'+(_pSm==='ticker'?_pBtnA:_pBtnI)+'" onclick="setPosSort(&quot;ticker&quot;)">By Ticker</button>'+
+    '<button style="'+(_pSm==='expiry'?_pBtnA:_pBtnI)+'" onclick="setPosSort(&quot;expiry&quot;)">By Expiry</button>';
+
+  const _cSm=_getCCSort();
+  const _ccSortBtns=
+    '<button style="'+(_cSm==='ticker'?_pBtnA:_pBtnI)+'" onclick="setCCSort(&quot;ticker&quot;)">By Ticker</button>'+
+    '<button style="'+(_cSm==='expiry'?_pBtnA:_pBtnI)+'" onclick="setCCSort(&quot;expiry&quot;)">By Expiry</button>';
+
+  const l3Card=
+    '<div style="background:'+L3_BG+';border:1px solid '+L3_BORDER+';border-left:4px solid '+L3_BORDER+';border-radius:var(--radius-lg);padding:14px;margin-bottom:10px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'+
+        '<div>'+
+          '<div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px">LAYER 3</div>'+
+          '<div style="font-family:var(--sans);font-size:14px;font-weight:700;color:var(--text)">Wheel Strategy</div>'+
+          '<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">Options overlay — premium income only</div>'+
+        '</div>'+
+        '<div style="text-align:right">'+
+          '<div style="font-family:var(--mono);font-size:22px;font-weight:600;color:'+L3_TEXT+'">+'+_fmtPct(l3.lift)+' lift</div>'+
+          '<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">on total capital</div>'+
+        '</div>'+
+      '</div>'+
+      // ── Put positions section ──────────────────────────────────────────────
+      '<div style="border-top:1px solid rgba(0,212,170,0.15);padding-top:10px;margin-bottom:8px">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'+
           '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Put Positions</div>'+
           '<div style="display:flex;align-items:center;gap:6px">'+
-            '<div style="display:flex;gap:2px">'+_sortBtns+'</div>'+
+            '<div style="display:flex;gap:2px">'+_putSortBtns+'</div>'+
             '<button class="btn btn-secondary" style="font-size:10px;padding:3px 10px" onclick="_openAddPositionModal()">+ Add Position</button>'+
           '</div>'+
-        '</div>';
-    })()
-      +_posList.html+
-    // CC positions section
-    +(()=>{
-      const _csm=_getCCSort();
-      const _cbtnStyle=(active)=>'font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:6px;border:1px solid var(--border);cursor:pointer;background:'+(active?'var(--accent)':'var(--surface2)')+';color:'+(active?'#000':'var(--text3)');
-      const _cSortBtns=
-        '<button style="'+_cbtnStyle(_csm==='ticker')+'" onclick="setCCSort(\'ticker\')">By Ticker</button>'+
-        '<button style="'+_cbtnStyle(_csm==='expiry')+'" onclick="setCCSort(\'expiry\')">By Expiry</button>';
-      return '<div style="border-top:1px solid rgba(255,107,53,0.2);padding-top:10px;margin-top:4px">'+
+        '</div>'+
+        _posList.html+
+      '</div>'+
+      // ── CC positions section ───────────────────────────────────────────────
+      '<div style="border-top:1px solid rgba(255,107,53,0.2);padding-top:10px;margin-top:4px;margin-bottom:8px">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'+
           '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Covered Call Positions</div>'+
           '<div style="display:flex;align-items:center;gap:6px">'+
-            '<div style="display:flex;gap:2px">'+_cSortBtns+'</div>'+
+            '<div style="display:flex;gap:2px">'+_ccSortBtns+'</div>'+
             '<button class="btn btn-secondary" style="font-size:10px;padding:3px 10px" onclick="_openAddCCModal()">+ Add CC</button>'+
           '</div>'+
         '</div>'+
         _ccList.html+
-      '</div>';
-    })()
-    +'</div>'
-    +l3.components.map(c=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid rgba(255,255,255,0.05)">'
-      +'<div>'
-        +'<div style="font-family:var(--mono);font-size:11px;color:var(--text2)">'+c.label+'</div>'
-        +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3)">'+_fmtDollar(c.notional)+' notional @ '+_fmtPct(c.targetAPY)+' target'
-          +(c.fromPositions?' <span style="color:'+L3_TEXT+'">&#x2713; from put positions</span>':'')+(c.fromCCPositions?' <span style="color:'+L2_TEXT+'">&#x2713; from CC positions</span>':'')+'</div>'
-      +'</div>'
-      +'<div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;color:'+L3_TEXT+'">'+_fmtDollar(c.income)+'/yr</div></div>'
-    +'</div>').join('')
-    +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:8px;line-height:1.5">'
-      +'Premium income uses configured target APY ('+_fmtPct(l3.targetAPY)+'). '
-      +'Put notional excluded from capital denominator — collateral already counted in Layer 1. CC stock notional included in denominator as deployed capital. '
-      +(l3.components[0]?.fromPositions?'Notional derived from '+_posList.html.match(/Active notional/)?'position tracker.':'position tracker.':'Manual notional used (add positions above to auto-calculate).')
-    +'</div>'
-  +'</div>';
+      '</div>'+
+      // ── Component income rows ──────────────────────────────────────────────
+      l3.components.map(c=>
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid rgba(255,255,255,0.05)">'+
+          '<div>'+
+            '<div style="font-family:var(--mono);font-size:11px;color:var(--text2)">'+c.label+'</div>'+
+            '<div style="font-family:var(--mono);font-size:9px;color:var(--text3)">'+_fmtDollar(c.notional)+' notional @ '+_fmtPct(c.targetAPY)+' target'+
+              (c.fromPositions?' <span style="color:'+L3_TEXT+'">&#x2713; from put positions</span>':'')+
+              (c.fromCCPositions?' <span style="color:'+L2_TEXT+'">&#x2713; from CC positions</span>':'')+
+            '</div>'+
+          '</div>'+
+          '<div style="text-align:right">'+
+            '<div style="font-family:var(--mono);font-size:11px;color:'+L3_TEXT+'">'+_fmtDollar(c.income)+'/yr</div>'+
+          '</div>'+
+        '</div>'
+      ).join('')+
+      '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:8px;line-height:1.5">'+
+        'Premium income uses configured target APY ('+_fmtPct(l3.targetAPY)+'). '+
+        'Put notional excluded from capital denominator — collateral already counted in Layer 1. CC stock notional included in denominator as deployed capital. '+
+        (l3.components[0]?.fromPositions?'Notional derived from position tracker.':'Manual notional used — add positions above to auto-calculate.')+
+      '</div>'+
+    '</div>';
 
   return heroHtml+l1Card+l2Card+l3Card;
 }

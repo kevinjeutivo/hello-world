@@ -472,14 +472,24 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta,rawFetched){
         +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">on total capital</div>'
       +'</div>'
     +'</div>'
-    // Position list
-    +'<div style="border-top:1px solid rgba(0,212,170,0.15);padding-top:10px;margin-bottom:8px">'
-      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
-        +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Put Positions</div>'
-        +'<button class="btn btn-secondary" style="font-size:10px;padding:3px 10px" onclick="_openAddPositionModal()">+ Add Position</button>'
-      +'</div>'
-      +_posList.html
-    +'</div>'
+    // Position list -- sort toggle buttons pre-computed to avoid IIFE in string concat
+    +(()=>{
+      const _sm=_getPosSort();
+      const _btnStyle=(active)=>'font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:6px;border:1px solid var(--border);cursor:pointer;background:'+(active?'var(--accent)':'var(--surface2)')+';color:'+(active?'#000':'var(--text3)');
+      const _sortBtns=
+        '<button style="'+_btnStyle(_sm==='ticker')+'" onclick="setPosSort(&quot;ticker&quot;)">By Ticker</button>'+
+        '<button style="'+_btnStyle(_sm==='expiry')+'" onclick="setPosSort(&quot;expiry&quot;)">By Expiry</button>';
+      return '<div style="border-top:1px solid rgba(0,212,170,0.15);padding-top:10px;margin-bottom:8px">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'+
+          '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Put Positions</div>'+
+          '<div style="display:flex;align-items:center;gap:6px">'+
+            '<div style="display:flex;gap:2px">'+_sortBtns+'</div>'+
+            '<button class="btn btn-secondary" style="font-size:10px;padding:3px 10px" onclick="_openAddPositionModal()">+ Add Position</button>'+
+          '</div>'+
+        '</div>';
+    })()
+      +_posList.html+
+    '</div>'
     +l3.components.map(c=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid rgba(255,255,255,0.05)">'
       +'<div>'
         +'<div style="font-family:var(--mono);font-size:11px;color:var(--text2)">'+c.label+'</div>'
@@ -573,7 +583,34 @@ function refreshIncomeYields(){
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const PUT_POS_KEY = 'put_positions';
+const PUT_POS_SORT_KEY = 'put_pos_sort'; // 'ticker' | 'expiry'
 const POS_LINGER_DAYS = 7; // expired positions linger this many days before auto-removal
+
+// ── Position sort ────────────────────────────────────────────────────────────
+
+function _getPosSort(){
+  return S.get(PUT_POS_SORT_KEY)||'ticker';
+}
+
+function setPosSort(mode){
+  S.set(PUT_POS_SORT_KEY, mode);
+  recalcIncome();
+}
+
+function _sortPositions(positions){
+  const mode = _getPosSort();
+  const active = positions.filter(p => {
+    const s = _posExpiryStatus(p);
+    return s === 'active' || s === 'expiring-soon' || s === 'expiring-imminent';
+  });
+  const expired = positions.filter(p => _posExpiryStatus(p) === 'expired-linger');
+
+  const cmp = mode === 'expiry'
+    ? (a,b) => a.expDate.localeCompare(b.expDate) || a.ticker.localeCompare(b.ticker) || a.strike - b.strike
+    : (a,b) => a.ticker.localeCompare(b.ticker) || a.strike - b.strike || a.expDate.localeCompare(b.expDate);
+
+  return [...active.sort(cmp), ...expired.sort(cmp)];
+}
 
 // ── Position storage helpers ──────────────────────────────────────────────────
 
@@ -862,6 +899,7 @@ function _renderPositionList(){
     })
     .reduce((sum, p) => sum + _posNotional(p), 0);
 
+  const sorted = _sortPositions(keep);
   const STATUS_STYLE = {
     'active':             {border:'rgba(0,212,170,0.3)',  bg:'rgba(0,212,170,0.06)',  label:'',             labelColor:''},
     'expiring-soon':      {border:'rgba(255,165,2,0.5)',  bg:'rgba(255,165,2,0.08)',  label:'Exp ≤7d',      labelColor:'var(--warn)'},
@@ -873,7 +911,7 @@ function _renderPositionList(){
     ? '<button class="btn btn-secondary" style="font-size:10px;padding:4px 10px;margin-top:6px" onclick="_clearExpiredPositions()">Clear Expired</button>'
     : '';
 
-  const rows = keep.map(pos => {
+  const rows = sorted.map(pos => {
     const status = _posExpiryStatus(pos);
     const ss = STATUS_STYLE[status];
     const notional = _posNotional(pos);

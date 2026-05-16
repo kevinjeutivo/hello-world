@@ -241,16 +241,18 @@ function _calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targ
     {label:'NBOS', amt:nbosAmt, shares:inp.nbosShares, price:nbosData.price, yld:nbosData.yld, income:nbosIncome},
   ];
 
-  // Positions tracker overrides manual puts notional when positions exist
+  // Positions trackers override manual notional fields when positions exist
   const _posNotionalTotal=_activePosNotionalTotal();
   const _effectivePutsNotional=_posNotionalTotal>0?_posNotionalTotal:inp.putsNotional;
+  const _ccNotionalTotal=_activeCCNotionalTotal();
+  const _effectiveCCNotional=_ccNotionalTotal>0?_ccNotionalTotal:inp.ccStockAmt;
   const putsIncome=(_effectivePutsNotional*targetAPY)/100;
-  const ccIncome  =(inp.ccStockAmt*targetAPY)/100;
+  const ccIncome  =(_effectiveCCNotional  *targetAPY)/100;
   const l3Income  =putsIncome+ccIncome;
 
   const l3Components=[
     {label:'Written puts (naked)', notional:_effectivePutsNotional, income:putsIncome, targetAPY, fromPositions:_posNotionalTotal>0},
-    {label:'CC stock held',        notional:inp.ccStockAmt,   income:ccIncome,   targetAPY},
+    {label:'CC stock held',        notional:_effectiveCCNotional, income:ccIncome, targetAPY, fromCCPositions:_ccNotionalTotal>0},
   ];
 
   const totalCapital =l1Capital+l2Capital;
@@ -460,6 +462,7 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta,rawFetched){
 
   // ── Layer 3 ───────────────────────────────────────────────────────────────
   const _posList=_renderPositionList();
+  const _ccList=_renderCCPositionList();
   const l3Card='<div style="background:'+L3_BG+';border:1px solid '+L3_BORDER+';border-left:4px solid '+L3_BORDER+';border-radius:var(--radius-lg);padding:14px;margin-bottom:10px">'
     +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
       +'<div>'
@@ -489,12 +492,30 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta,rawFetched){
         '</div>';
     })()
       +_posList.html+
-    '</div>'
+    // CC positions section
+    +(()=>{
+      const _csm=_getCCSort();
+      const _cbtnStyle=(active)=>'font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:6px;border:1px solid var(--border);cursor:pointer;background:'+(active?'var(--accent)':'var(--surface2)')+';color:'+(active?'#000':'var(--text3)');
+      const _cSortBtns=
+        '<button style="'+_cbtnStyle(_csm==='ticker')+'" onclick="setCCSort(\'ticker\')">By Ticker</button>'+
+        '<button style="'+_cbtnStyle(_csm==='expiry')+'" onclick="setCCSort(\'expiry\')">By Expiry</button>';
+      return '<div style="border-top:1px solid rgba(255,107,53,0.2);padding-top:10px;margin-top:4px">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'+
+          '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Covered Call Positions</div>'+
+          '<div style="display:flex;align-items:center;gap:6px">'+
+            '<div style="display:flex;gap:2px">'+_cSortBtns+'</div>'+
+            '<button class="btn btn-secondary" style="font-size:10px;padding:3px 10px" onclick="_openAddCCModal()">+ Add CC</button>'+
+          '</div>'+
+        '</div>'+
+        _ccList.html+
+      '</div>';
+    })()
+    +'</div>'
     +l3.components.map(c=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid rgba(255,255,255,0.05)">'
       +'<div>'
         +'<div style="font-family:var(--mono);font-size:11px;color:var(--text2)">'+c.label+'</div>'
         +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3)">'+_fmtDollar(c.notional)+' notional @ '+_fmtPct(c.targetAPY)+' target'
-          +(c.fromPositions?' <span style="color:'+L3_TEXT+'">&#x2713; from positions</span>':'')+'</div>'
+          +(c.fromPositions?' <span style="color:'+L3_TEXT+'">&#x2713; from put positions</span>':'')+(c.fromCCPositions?' <span style="color:'+L2_TEXT+'">&#x2713; from CC positions</span>':'')+'</div>'
       +'</div>'
       +'<div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;color:'+L3_TEXT+'">'+_fmtDollar(c.income)+'/yr</div></div>'
     +'</div>').join('')
@@ -964,4 +985,390 @@ function _clearExpiredPositions(){
   _savePositions(keep);
   recalcIncome();
   toast('Expired positions cleared');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// COVERED CALL POSITIONS TRACKER
+// Mirrors put positions tracker for Layer 3 CC stock notional.
+// Storage key: 'cc_positions' → array of position objects:
+//   {id, ticker, strike, expDate, contracts, stockPriceAtWrite, addedTs}
+// Notional per position: stockPriceAtWrite × 100 × contracts
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const CC_POS_KEY      = 'cc_positions';
+const CC_POS_SORT_KEY = 'cc_pos_sort'; // 'ticker' | 'expiry'
+
+// ── CC sort ───────────────────────────────────────────────────────────────────
+
+function _getCCSort(){
+  return S.get(CC_POS_SORT_KEY)||'ticker';
+}
+
+function setCCSort(mode){
+  S.set(CC_POS_SORT_KEY, mode);
+  recalcIncome();
+}
+
+function _sortCCPositions(positions){
+  const mode = _getCCSort();
+  const active = positions.filter(p => {
+    const s = _posExpiryStatus(p);
+    return s === 'active' || s === 'expiring-soon' || s === 'expiring-imminent';
+  });
+  const expired = positions.filter(p => _posExpiryStatus(p) === 'expired-linger');
+  const cmp = mode === 'expiry'
+    ? (a,b) => a.expDate.localeCompare(b.expDate) || a.ticker.localeCompare(b.ticker) || a.strike - b.strike
+    : (a,b) => a.ticker.localeCompare(b.ticker) || a.strike - b.strike || a.expDate.localeCompare(b.expDate);
+  return [...active.sort(cmp), ...expired.sort(cmp)];
+}
+
+// ── CC storage helpers ────────────────────────────────────────────────────────
+
+function _loadCCPositions(){
+  return S.get(CC_POS_KEY)||[];
+}
+
+function _saveCCPositions(positions){
+  S.set(CC_POS_KEY, positions);
+}
+
+function _ccPosNotional(pos){
+  return (pos.stockPriceAtWrite||0) * 100 * pos.contracts;
+}
+
+function _activeCCNotionalTotal(){
+  const positions = _loadCCPositions();
+  const keep = positions.filter(p => _posExpiryStatus(p) !== 'remove');
+  if(keep.length !== positions.length) _saveCCPositions(keep);
+  return keep
+    .filter(p => {
+      const s = _posExpiryStatus(p);
+      return s === 'active' || s === 'expiring-soon' || s === 'expiring-imminent';
+    })
+    .reduce((sum, p) => sum + _ccPosNotional(p), 0);
+}
+
+// ── CC strike helper — call strikes ──────────────────────────────────────────
+
+function _getCallStrikesForExpiration(ticker, expDate){
+  const cache = S.get('options_exp_' + ticker + '_' + expDate);
+  const result = cache?.optionChain?.result?.[0];
+  if(!result) return [];
+  const calls = result.options?.[0]?.calls || [];
+  const snap = S.get('snap_' + ticker);
+  const price = snap?.price || 0;
+  // Show strikes from 95% of current price upward (allows for slightly ITM CCs)
+  return calls
+    .filter(c => c.strike > 0 && (!price || c.strike >= price * 0.95))
+    .map(c => c.strike)
+    .filter((v,i,a) => a.indexOf(v) === i)
+    .sort((a,b) => a - b); // ascending (OTM first for calls)
+}
+
+// ── CC add/remove UI ──────────────────────────────────────────────────────────
+
+function _openAddCCModal(){
+  const wl = [...watchlist].sort((a,b) => a.localeCompare(b));
+  if(!wl.length){toast('Add tickers to your watchlist first');return;}
+
+  let el = document.getElementById('cc-add-modal');
+  if(!el){
+    el = document.createElement('div');
+    el.className = 'modal-overlay';
+    el.id = 'cc-add-modal';
+    document.body.appendChild(el);
+    el.addEventListener('click', e => {if(e.target===el)_closeAddCCModal();});
+  }
+
+  el.innerHTML =
+    '<div class="modal-box" style="max-width:340px">' +
+      '<div class="modal-title">Add Covered Call Position</div>' +
+      '<div class="input-group" style="margin-bottom:10px">' +
+        '<label class="input-label">Ticker</label>' +
+        '<select class="input" id="cc-ticker-sel" onchange="_onCCTickerChange()">' +
+          '<option value="">-- Select ticker --</option>' +
+          wl.map(t => '<option value="'+t+'">'+t+'</option>').join('') +
+        '</select>' +
+      '</div>' +
+      '<div class="input-group" style="margin-bottom:10px">' +
+        '<label class="input-label">Expiration</label>' +
+        '<select class="input" id="cc-exp-sel" onchange="_onCCExpChange()" disabled>' +
+          '<option value="">-- Select ticker first --</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="input-group" style="margin-bottom:10px">' +
+        '<label class="input-label">Strike (call)</label>' +
+        '<select class="input" id="cc-strike-sel" onchange="_onCCStrikeChange()" disabled>' +
+          '<option value="">-- Select expiration first --</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="input-group" style="margin-bottom:10px">' +
+        '<label class="input-label">Contracts</label>' +
+        '<input class="input" type="number" id="cc-contracts" min="1" value="1" placeholder="1">' +
+      '</div>' +
+      '<div class="input-group" style="margin-bottom:14px">' +
+        '<label class="input-label">Stock price at time of writing ($)</label>' +
+        '<input class="input" type="number" id="cc-stock-price-at-write" min="0" step="0.01" placeholder="e.g. 150.00">' +
+        '<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:3px">Pre-filled with current cached price. Edit if writing at a different price.</div>' +
+      '</div>' +
+      '<div id="cc-no-data-warn" style="font-family:var(--mono);font-size:10px;color:var(--warn);display:none;margin-bottom:10px">' +
+        '&#x26A0; No cached options for this ticker. Visit the Options tab to load data first.' +
+      '</div>' +
+      '<div style="display:flex;gap:8px">' +
+        '<button class="btn btn-secondary btn-sm" onclick="_closeAddCCModal()">Cancel</button>' +
+        '<button class="btn btn-primary btn-sm" onclick="_confirmAddCC()">Add Position</button>' +
+      '</div>' +
+    '</div>';
+
+  el.classList.add('open');
+}
+
+function _closeAddCCModal(){
+  const el = document.getElementById('cc-add-modal');
+  if(el) el.classList.remove('open');
+}
+
+function _onCCTickerChange(){
+  const ticker = document.getElementById('cc-ticker-sel')?.value;
+  const expSel = document.getElementById('cc-exp-sel');
+  const strikeSel = document.getElementById('cc-strike-sel');
+  const warn = document.getElementById('cc-no-data-warn');
+  const priceEl = document.getElementById('cc-stock-price-at-write');
+  if(!expSel||!strikeSel) return;
+
+  expSel.innerHTML = '<option value="">-- Select expiration --</option>';
+  strikeSel.innerHTML = '<option value="">-- Select expiration first --</option>';
+  expSel.disabled = true;
+  strikeSel.disabled = true;
+  warn.style.display = 'none';
+  if(priceEl) priceEl.value = '';
+
+  if(!ticker) return;
+
+  // Pre-fill current stock price
+  if(priceEl){
+    const snap = S.get('snap_'+ticker);
+    if(snap?.price) priceEl.value = snap.price.toFixed(2);
+  }
+
+  const exps = _getMonthlyExpirations(ticker);
+  if(!exps.length){
+    warn.style.display = 'block';
+    return;
+  }
+  exps.forEach(e => {
+    const opt = document.createElement('option');
+    opt.value = e.date;
+    opt.textContent = new Date(e.date+'T12:00:00Z')
+      .toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    expSel.appendChild(opt);
+  });
+  expSel.disabled = false;
+}
+
+function _onCCExpChange(){
+  const ticker   = document.getElementById('cc-ticker-sel')?.value;
+  const expDate  = document.getElementById('cc-exp-sel')?.value;
+  const strikeSel= document.getElementById('cc-strike-sel');
+  if(!strikeSel) return;
+
+  strikeSel.innerHTML = '<option value="">-- Select strike --</option>';
+  strikeSel.disabled = true;
+  if(!ticker||!expDate) return;
+
+  const strikes = _getCallStrikesForExpiration(ticker, expDate);
+  const snap = S.get('snap_'+ticker);
+  const price = snap?.price || 0;
+
+  if(!strikes.length){
+    strikeSel.innerHTML = '<option value="">No call strikes cached for this expiration</option>';
+    return;
+  }
+  strikes.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s;
+    const otmPct = price > 0 ? ((s - price) / price * 100) : null;
+    const moneyness = otmPct !== null
+      ? (otmPct >= 0 ? otmPct.toFixed(1)+'% OTM' : Math.abs(otmPct).toFixed(1)+'% ITM')
+      : '';
+    opt.textContent = '$' + s.toFixed(2) + (moneyness ? ' — ' + moneyness : '');
+    strikeSel.appendChild(opt);
+  });
+  strikeSel.disabled = false;
+}
+
+function _onCCStrikeChange(){
+  // Nothing extra needed -- stock price is already pre-filled on ticker change
+}
+
+function _confirmAddCC(){
+  const ticker          = document.getElementById('cc-ticker-sel')?.value;
+  const expDate         = document.getElementById('cc-exp-sel')?.value;
+  const strike          = parseFloat(document.getElementById('cc-strike-sel')?.value);
+  const contracts       = Math.max(1, parseInt(document.getElementById('cc-contracts')?.value)||1);
+  const stockPriceAtWrite = parseFloat(document.getElementById('cc-stock-price-at-write')?.value);
+
+  if(!ticker||!expDate||!strike){
+    toast('Please select ticker, expiration and strike');
+    return;
+  }
+  if(!stockPriceAtWrite||stockPriceAtWrite<=0){
+    toast('Please enter the stock price at time of writing');
+    return;
+  }
+
+  const positions = _loadCCPositions();
+  const id = 'cc_' + Date.now();
+  positions.push({id, ticker, strike, expDate, contracts, stockPriceAtWrite, addedTs: new Date().toISOString()});
+  _saveCCPositions(positions);
+  _closeAddCCModal();
+  recalcIncome();
+  toast('CC position added: ' + ticker + ' $' + strike.toFixed(0) + ' call x' + contracts);
+}
+
+let _pendingRemoveCCId = null;
+
+function _openRemoveCCModal(id){
+  _pendingRemoveCCId = id;
+  const pos = _loadCCPositions().find(p => p.id === id);
+  if(!pos) return;
+
+  let el = document.getElementById('cc-remove-modal');
+  if(!el){
+    el = document.createElement('div');
+    el.className = 'modal-overlay';
+    el.id = 'cc-remove-modal';
+    el.innerHTML =
+      '<div class="modal-box">' +
+        '<div class="modal-title">Remove CC position?</div>' +
+        '<div class="modal-body" id="crm-body"></div>' +
+        '<div style="display:flex;gap:8px">' +
+          '<button class="btn btn-secondary btn-sm" id="crm-cancel">Cancel</button>' +
+          '<button class="btn btn-danger btn-sm" id="crm-confirm">Remove</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(el);
+    document.getElementById('crm-cancel').addEventListener('click', () => {
+      _pendingRemoveCCId = null;
+      el.classList.remove('open');
+    });
+    document.getElementById('crm-confirm').addEventListener('click', _confirmRemoveCC);
+    el.addEventListener('click', e => {
+      if(e.target===el){_pendingRemoveCCId=null;el.classList.remove('open');}
+    });
+  }
+  document.getElementById('crm-body').textContent =
+    'Remove ' + pos.ticker + ' $' + pos.strike.toFixed(0) +
+    ' call expiring ' + pos.expDate + ' (' + pos.contracts + ' contract' +
+    (pos.contracts>1?'s':'')+', stock at $'+pos.stockPriceAtWrite.toFixed(2)+' at write)?';
+  el.classList.add('open');
+}
+
+function _confirmRemoveCC(){
+  const id = _pendingRemoveCCId;
+  _pendingRemoveCCId = null;
+  document.getElementById('cc-remove-modal')?.classList.remove('open');
+  if(!id) return;
+  _saveCCPositions(_loadCCPositions().filter(p => p.id !== id));
+  recalcIncome();
+  toast('CC position removed');
+}
+
+// ── CC position list renderer ─────────────────────────────────────────────────
+
+function _renderCCPositionList(){
+  const positions = _loadCCPositions();
+  const keep = positions.filter(p => _posExpiryStatus(p) !== 'remove');
+  if(keep.length !== positions.length) _saveCCPositions(keep);
+
+  const activeNotional = keep
+    .filter(p => {
+      const s = _posExpiryStatus(p);
+      return s==='active'||s==='expiring-soon'||s==='expiring-imminent';
+    })
+    .reduce((sum,p) => sum + _ccPosNotional(p), 0);
+
+  const STATUS_STYLE = {
+    'active':            {border:'rgba(0,212,170,0.3)', bg:'rgba(0,212,170,0.06)', label:'',        labelColor:''},
+    'expiring-soon':     {border:'rgba(255,165,2,0.5)', bg:'rgba(255,165,2,0.08)', label:'Exp ≤7d', labelColor:'var(--warn)'},
+    'expiring-imminent': {border:'rgba(255,71,87,0.6)', bg:'rgba(255,71,87,0.08)', label:'Exp ≤2d', labelColor:'var(--red)'},
+    'expired-linger':    {border:'rgba(85,88,112,0.3)', bg:'rgba(85,88,112,0.06)', label:'Expired', labelColor:'var(--text3)'},
+  };
+
+  const clearExpiredBtn = keep.some(p => _posExpiryStatus(p)==='expired-linger')
+    ? '<button class="btn btn-secondary" style="font-size:10px;padding:4px 10px;margin-top:6px" onclick="_clearExpiredCCPositions()">Clear Expired</button>'
+    : '';
+
+  const sorted = _sortCCPositions(keep);
+
+  const rows = sorted.map(pos => {
+    const status = _posExpiryStatus(pos);
+    const ss = STATUS_STYLE[status];
+    const notional = _ccPosNotional(pos);
+    const expired = status === 'expired-linger';
+    const today = new Date(); today.setHours(0,0,0,0);
+    const exp = new Date(pos.expDate+'T12:00:00Z');
+    const daysUntil = Math.round((exp-today)/86400000);
+    const daysStr = expired
+      ? 'Expired '+Math.abs(daysUntil)+'d ago'
+      : daysUntil===0?'Expires today':'Exp in '+daysUntil+'d';
+    const snap = S.get('snap_'+pos.ticker);
+    const currentPrice = snap?.price||null;
+    const priceDiff = currentPrice&&pos.stockPriceAtWrite
+      ? ((currentPrice-pos.stockPriceAtWrite)/pos.stockPriceAtWrite*100)
+      : null;
+    const nearStrike = currentPrice&&pos.strike
+      ? ((pos.strike-currentPrice)/currentPrice*100)
+      : null;
+
+    return '<div style="background:'+ss.bg+';border:1px solid '+ss.border+';border-radius:8px;padding:10px;margin-bottom:6px;'+(expired?'opacity:0.5':'')+'">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start">' +
+        '<div style="flex:1">' +
+          '<div style="font-family:var(--mono);font-size:13px;font-weight:700;color:'+(expired?'var(--text3)':L2_TEXT)+'">'+
+            pos.ticker+' $'+pos.strike.toFixed(0)+' call'+
+            (ss.label?'<span style="font-size:9px;color:'+ss.labelColor+';margin-left:6px;font-weight:400">'+ss.label+'</span>':'')+
+          '</div>'+
+          '<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">'+
+            pos.contracts+' contract'+(pos.contracts>1?'s':'')+' · '+pos.expDate+' · '+daysStr+
+          '</div>'+
+          '<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">'+
+            'Written @ $'+pos.stockPriceAtWrite.toFixed(2)+
+            (priceDiff!==null?' · now $'+currentPrice.toFixed(2)+(priceDiff>=0?' <span style="color:var(--green)">+'+priceDiff.toFixed(1)+'%</span>':' <span style="color:var(--red)">'+priceDiff.toFixed(1)+'%</span>'):'')+'</div>'+
+          (nearStrike!==null&&!expired?
+            '<div style="font-family:var(--mono);font-size:9px;color:'+(nearStrike<=5?'var(--warn)':'var(--text3)')+'">'+
+              'Strike '+(nearStrike>=0?nearStrike.toFixed(1)+'% above':Math.abs(nearStrike).toFixed(1)+'% below')+' current price'+
+              (nearStrike<=5&&nearStrike>=0?' &#x26A0; Call-away risk':'')+(nearStrike<0?' &#x26A0; ITM':'')+
+            '</div>':'')+
+          '<div style="font-family:var(--mono);font-size:10px;color:'+(expired?'var(--text3)':L2_TEXT)+'">'+
+            _fmtDollar(notional)+' notional'+(expired?' (excluded)':'')+
+          '</div>'+
+        '</div>'+
+        '<button style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:4px 8px" '+
+          'onclick="_openRemoveCCModal(\''+pos.id+'\')">&times;</button>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+
+  const emptyMsg = keep.length===0
+    ? '<div style="font-family:var(--mono);font-size:11px;color:var(--text3);text-align:center;padding:12px 0">No CC positions entered. Tap Add CC Position to begin.</div>'
+    : '';
+
+  return {
+    html:
+      '<div style="margin-bottom:6px">'+
+        (keep.length>0
+          ?'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">'+
+              'Active notional: <span style="color:'+L2_TEXT+';font-weight:600">'+_fmtDollar(activeNotional)+'</span>'+
+            '</div>'
+          :'')+
+        rows+emptyMsg+clearExpiredBtn+
+      '</div>',
+    activeNotional
+  };
+}
+
+function _clearExpiredCCPositions(){
+  _saveCCPositions(_loadCCPositions().filter(p => _posExpiryStatus(p)!=='expired-linger'));
+  recalcIncome();
+  toast('Expired CC positions cleared');
 }

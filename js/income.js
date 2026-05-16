@@ -255,7 +255,9 @@ function _calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targ
     {label:'CC stock held',        notional:_effectiveCCNotional, income:ccIncome, targetAPY, fromCCPositions:_ccNotionalTotal>0},
   ];
 
-  const totalCapital =l1Capital+l2Capital;
+  // CC stock is deployed capital (actually owned shares) so belongs in denominator.
+  // Put notional stays excluded -- collateral already counted in Layer 1.
+  const totalCapital =l1Capital+l2Capital+_effectiveCCNotional;
   const totalIncome  =l1Income+l2Income+l3Income;
   const blendedYield =totalCapital>0?totalIncome/totalCapital*100:0;
   const l3Lift       =totalCapital>0?l3Income/totalCapital*100:0;
@@ -521,7 +523,7 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta,rawFetched){
     +'</div>').join('')
     +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:8px;line-height:1.5">'
       +'Premium income uses configured target APY ('+_fmtPct(l3.targetAPY)+'). '
-      +'Notional for puts and CC stock excluded from capital denominator — collateral already counted in Layer 1. '
+      +'Put notional excluded from capital denominator — collateral already counted in Layer 1. CC stock notional included in denominator as deployed capital. '
       +(l3.components[0]?.fromPositions?'Notional derived from '+_posList.html.match(/Active notional/)?'position tracker.':'position tracker.':'Manual notional used (add positions above to auto-calculate).')
     +'</div>'
   +'</div>';

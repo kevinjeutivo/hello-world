@@ -146,7 +146,8 @@ async function runDashboards(skipOnlineCheck=false){
   document.getElementById('dash-progress-label').textContent='Done!';
   setTimeout(()=>{document.getElementById('dashboard-progress').style.display='none';},1500);
   btn.disabled=false;
-  putResults.sort((a,b)=>b.score-a.score);ccResults.sort((a,b)=>b.score-a.score);
+  const _cmpConviction=(a,b)=>b.score-a.score||(b.ivrVal||0)-(a.ivrVal||0)||a.ticker.localeCompare(b.ticker);
+  putResults.sort(_cmpConviction);ccResults.sort(_cmpConviction);
   const validPuts=putResults.filter(r=>r.signal!=='error');
   const validCC=ccResults.filter(r=>r.signal!=='error');
   if(validPuts.length===0&&validCC.length===0){

@@ -80,8 +80,8 @@ async function loadTicker(){
     // Re-read snap from localStorage to pick up fetchQuoteSummary enrichment
     // (ptMean, pegRatio, earningsTrend etc. are saved there by fetchQuoteSummary)
     const snapFinal=S.get('snap_'+t)||snap;
-    const _h2=S.get('hist2y_'+t);const _hist2y=_h2?{timestamps:_h2.timestamps.map(d=>new Date(d)),closes:_h2.closes}:null;
-    const _sp2=S.get('hist2y_sp500');const _hist2ySP=_sp2?{timestamps:_sp2.timestamps.map(d=>new Date(d)),closes:_sp2.closes}:null;
+    const _h2=S.get('hist2y_'+t);const _hist2y=_h2?{timestamps:_h2.timestamps.map(d=>new Date(d*1000)),closes:_h2.closes}:null;
+    const _sp2=S.get('hist2y_sp500');const _hist2ySP=_sp2?{timestamps:_sp2.timestamps.map(d=>new Date(d*1000)),closes:_sp2.closes}:null;
     const _ehc=S.get('earnings_hist_'+t);const _earningsHistory=_ehc?.data||null;
     renderTickerContent(snapFinal,hist6mo,hist1y,news,recData,upgradesData,isLive,_hist2y,_hist2ySP,_earningsHistory);renderWatchlist();
   }catch(err){document.getElementById('ticker-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
@@ -95,8 +95,8 @@ function restoreTickerFromCache(t){
   const snap=S.get('snap_'+t);if(!snap)return;
   const ch=S.get('hist_'+t);const hist6mo=ch?{timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes}:null;
   const ch1=S.get('hist1y_'+t);const hist1y=ch1?{timestamps:ch1.timestamps.map(d=>new Date(d)),closes:ch1.closes,volumes:ch1.volumes}:null;
-  const ch2=S.get('hist2y_'+t);const hist2y=ch2?{timestamps:ch2.timestamps.map(d=>new Date(d)),closes:ch2.closes}:null;
-  const sp2c=S.get('hist2y_sp500');const hist2ySP=sp2c?{timestamps:sp2c.timestamps.map(d=>new Date(d)),closes:sp2c.closes}:null;
+  const ch2=S.get('hist2y_'+t);const hist2y=ch2?{timestamps:ch2.timestamps.map(d=>new Date(d*1000)),closes:ch2.closes}:null;
+  const sp2c=S.get('hist2y_sp500');const hist2ySP=sp2c?{timestamps:sp2c.timestamps.map(d=>new Date(d*1000)),closes:sp2c.closes}:null;
   const ehc=S.get('earnings_hist_'+t);const earningsHistory=ehc?.data||null;
   const cn=S.get('news_'+t);const cr=S.get('rec_'+t);
   const cu=S.get('upgrades_'+t);
@@ -423,8 +423,8 @@ function toggleRelPerfEarnings(){
   const ctx=document.getElementById('rp-chart')?.getContext('2d');
   if(!ctx)return;
   const t=currentTicker;
-  const h2c=S.get('hist2y_'+t);const h2=h2c?{timestamps:h2c.timestamps.map(d=>new Date(d)),closes:h2c.closes}:null;
-  const spc=S.get('hist2y_sp500');const sp=spc?{timestamps:spc.timestamps.map(d=>new Date(d)),closes:spc.closes}:null;
+  const h2c=S.get('hist2y_'+t);const h2=h2c?{timestamps:h2c.timestamps.map(d=>new Date(d*1000)),closes:h2c.closes}:null;
+  const spc=S.get('hist2y_sp500');const sp=spc?{timestamps:spc.timestamps.map(d=>new Date(d*1000)),closes:spc.closes}:null;
   const ehc=S.get('earnings_hist_'+t);
   if(h2&&sp)renderRelPerfChart(t,h2,sp,ehc?.data||null);
   // Update button
@@ -454,14 +454,13 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory){
   if(!ctx)return;
 
   // Align series by date -- find common date range
-  const stockDates=hist2y.timestamps.map(d=>{
-    if(!(d instanceof Date))d=new Date(d instanceof Object?d:d*1000);
-    return d.toISOString().split('T')[0];
-  });
-  const spDates=hist2ySP.timestamps.map(d=>{
-    if(!(d instanceof Date))d=new Date(d instanceof Object?d:d*1000);
-    return d.toISOString().split('T')[0];
-  });
+  const _toDateStr=d=>{
+    if(d instanceof Date)return d.toISOString().split('T')[0];
+    // Stored as Unix seconds -- multiply by 1000
+    return new Date(d*1000).toISOString().split('T')[0];
+  };
+  const stockDates=hist2y.timestamps.map(_toDateStr);
+  const spDates=hist2ySP.timestamps.map(_toDateStr);
 
   // Build date-keyed maps
   const stockMap={};stockDates.forEach((d,i)=>{if(hist2y.closes[i]!=null)stockMap[d]=hist2y.closes[i];});

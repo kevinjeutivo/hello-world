@@ -1,4 +1,5 @@
 // PutSeller Pro -- ticker.js
+let currentBBSpan='2y'; // default timeframe for BB and rel perf charts
 // Ticker tab: load, render, restore from cache, chart functions.
 // Globals used: currentTicker, WORKER_URL, S, offlineMode
 // Dependencies: helpers.js, api.js, storage.js
@@ -253,6 +254,7 @@ function buildUpgradeTable(upgrades){
 }
 
 function toggleBBSpan(span){
+  currentBBSpan=span; // persist selected span globally
   const btn6=document.getElementById('bb-btn-6m');
   const btn1=document.getElementById('bb-btn-1y');
   const btn2=document.getElementById('bb-btn-2y');
@@ -1002,4 +1004,3 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
-  

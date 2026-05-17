@@ -29,19 +29,19 @@ async function prefetchAll(){
       try{priceTarget2=await fh(`/stock/price-target?symbol=${t}`);}catch{}S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});}catch{}
     try{const h6=await yahooHistory(t,'6mo','1d');S.set('hist_'+t,{timestamps:h6.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h6.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h6.volumes.map(v=>v||0),ts:nowPT()});}catch{}
     try{const h2=await yahooHistory(t,'2y','1d');S.set('hist2y_'+t,{timestamps:h2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h2.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:nowPT()});}catch{}
-    // Historical earnings -- chunked 90-day requests (Finnhub free tier limit)
+    // Historical earnings dates via Yahoo earningsHistory module (single fast call)
     try{
-      const _today=new Date();const _allE=[];const _seen=new Set();
-      for(let _i=0;_i<8;_i++){
-        const _to=new Date(_today);_to.setDate(_to.getDate()-_i*90);
-        const _from=new Date(_to);_from.setDate(_from.getDate()-90);
-        try{const _c=await fh('/calendar/earnings?symbol='+t+'&from='+fmtDate(_from)+'&to='+fmtDate(_to));
-          (_c?.earningsCalendar||[]).filter(e=>e.date&&!_seen.has(e.date)).forEach(e=>{_seen.add(e.date);_allE.push(e);});
-        }catch{}
-        await sleep(150);
+      const _ehR=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(t)}&type=summary&modules=earningsHistory&_t=${Date.now()}`);
+      if(_ehR.ok){
+        const _ehJ=await _ehR.json();
+        const _hist=_ehJ?.quoteSummary?.result?.[0]?.earningsHistory?.history||[];
+        const _past=_hist
+          .filter(q=>q.quarter?.raw)
+          .map(q=>{const ts=q.earningsDate?.raw||q.quarter.raw;const d=new Date(ts*1000);return{date:d.toISOString().split('T')[0],hour:null,epsActual:q.epsActual?.raw||null,epsEstimate:q.epsEstimate?.raw||null};})
+          .filter(e=>e.date<fmtDate(new Date()))
+          .sort((a,b)=>a.date.localeCompare(b.date));
+        if(_past.length)S.set('earnings_hist_'+t,{data:_past,ts:nowPT()});
       }
-      const _past=_allE.filter(e=>e.date<fmtDate(_today)).sort((a,b)=>a.date.localeCompare(b.date));
-      if(_past.length)S.set('earnings_hist_'+t,{data:_past,ts:nowPT()});
     }catch{}
     try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});}catch{}
     try{const opts=await yahooOptionsViaProxy(t);

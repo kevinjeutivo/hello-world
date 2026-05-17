@@ -61,25 +61,70 @@ async function loadTicker(){
     try{const cacheAge=(Date.now()-(S.get('hist2y_sp500')?.ts||0))/3600000;
       if(cacheAge>4){const sp2=await yahooHistory('^GSPC','2y','1d');S.set('hist2y_sp500',{timestamps:sp2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:sp2.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});}
     }catch{}
-    // Historical earnings dates via Yahoo Finance earningsHistory module.
-    // Returns actual announcement quarters with timestamps -- reliable back 2+ years.
+    // Historical earnings dates: extrapolate backwards from confirmed next earnings date
+    // using ~91-day quarterly cadence, then refine each estimate by finding the
+    // largest price gap within a ±10 trading day window around each estimate.
     try{
-      const ehRes=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(t)}&type=summary&modules=earningsHistory&_t=${Date.now()}`);
-      if(ehRes.ok){
-        const ehJson=await ehRes.json();
-        const hist=ehJson?.quoteSummary?.result?.[0]?.earningsHistory?.history||[];
-        const past=hist
-          .filter(q=>q.quarter?.raw)
-          .map(q=>{
-            // quarter.raw is Unix timestamp of quarter end; use as approximate earnings date
-            // Yahoo also provides earningsDate in some responses -- use if available
-            const ts=q.earningsDate?.raw||q.quarter.raw;
-            const d=new Date(ts*1000);
-            return{date:d.toISOString().split('T')[0],hour:null,epsActual:q.epsActual?.raw||null,epsEstimate:q.epsEstimate?.raw||null};
-          })
-          .filter(e=>e.date<fmtDate(new Date()))
+      const h2raw=S.get('hist2y_'+t);
+      const nextEarnings=snap.earningsDate; // confirmed future date from Finnhub
+      if(h2raw?.closes?.length>=60&&nextEarnings){
+        const closes=h2raw.closes;
+        const timestamps=h2raw.timestamps;
+        const closeDates=timestamps.map(ts=>new Date(ts*1000).toISOString().split('T')[0]);
+        const today=fmtDate(new Date());
+
+        // Build gap map: date -> {gapPct, direction}
+        const gapMap={};
+        for(let gi=1;gi<closes.length;gi++){
+          const prev=closes[gi-1],curr=closes[gi];
+          if(!prev||!curr)continue;
+          const gapPct=Math.abs((curr-prev)/prev*100);
+          if(gapPct>=2){
+            const d=closeDates[gi];
+            if(!gapMap[d]||gapPct>gapMap[d].gapPct)
+              gapMap[d]={gapPct,direction:curr>prev?'up':'down',idx:gi};
+          }
+        }
+
+        // Step backwards from next earnings in 91-day increments for 8 quarters
+        const results=[];
+        let anchor=new Date(nextEarnings+'T12:00:00Z');
+        for(let q=0;q<8;q++){
+          anchor=new Date(anchor.getTime()-91*86400000);
+          const est=anchor.toISOString().split('T')[0];
+          if(est>=today)continue; // skip if still in future
+
+          // Find the closest trading date to our estimate
+          const estIdx=closeDates.reduce((best,d,i)=>
+            Math.abs(new Date(d)-new Date(est))<Math.abs(new Date(closeDates[best])-new Date(est))?i:best,0);
+
+          // Search ±10 trading days around estimate for largest gap
+          const winStart=Math.max(1,estIdx-10);
+          const winEnd=Math.min(closeDates.length-1,estIdx+10);
+          let bestGap=null;
+          for(let wi=winStart;wi<=winEnd;wi++){
+            const wd=closeDates[wi];
+            if(gapMap[wd]&&(!bestGap||gapMap[wd].gapPct>bestGap.gapPct)){
+              bestGap={date:wd,...gapMap[wd]};
+            }
+          }
+
+          if(bestGap&&bestGap.gapPct>=3){
+            // Gap found within window -- use actual gap date (confirmed)
+            results.push({date:bestGap.date,hour:null,gapPct:bestGap.gapPct,direction:bestGap.direction,source:'gap-confirmed'});
+          }else{
+            // No significant gap found -- use the closest trading date to estimate
+            const fallbackDate=closeDates[estIdx];
+            if(fallbackDate&&fallbackDate<today){
+              results.push({date:fallbackDate,hour:null,gapPct:null,direction:null,source:'estimated'});
+            }
+          }
+        }
+
+        const sorted=results
+          .filter((r,i,a)=>a.findIndex(x=>x.date===r.date)===i) // dedupe
           .sort((a,b)=>a.date.localeCompare(b.date));
-        if(past.length)S.set('earnings_hist_'+t,{data:past,ts:nowPT()});
+        if(sorted.length)S.set('earnings_hist_'+t,{data:sorted,ts:nowPT()});
       }
     }catch{}
     // Backfill 52W high/low from Yahoo history when Finnhub values are null or were cleared as implausible
@@ -496,13 +541,14 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
     const spDayOf=spMap[eDate];
     const spPost5=post5Date?spMap[post5Date]:null;
 
-    // BMO: reaction is prior close → day-of open (use day-of close as proxy)
-    // AMC: reaction is day-of close → next open (use next close as proxy)
+    // Use gap detection direction if available, otherwise compute from prices
     const hour=e.hour||'';
     const isAMC=hour==='amc';
-    const reactionClose=isAMC?nextClose:dayOfClose;
-    const reactionPct=reactionClose?((reactionClose-priorClose)/priorClose*100):null;
-    const spReactionClose=isAMC?(spMap[nextDate]||null):spDayOf;
+    // If from gap-detection, gapPct and direction are already computed
+    const reactionClose=e.gapPct!=null?null:(isAMC?nextClose:dayOfClose);
+    const reactionPct=e.gapPct!=null?(e.direction==='up'?e.gapPct:-e.gapPct):(reactionClose?((reactionClose-priorClose)/priorClose*100):null);
+    const reactionCloseForSP=isAMC?(nextClose||dayOfClose):dayOfClose;
+    const spReactionClose=isAMC?(spMap[nextDate]||spDayOf):spDayOf;
     const spReactionPct=(spReactionClose&&spPrior)?((spReactionClose-spPrior)/spPrior*100):null;
     const excessReaction=reactionPct!=null&&spReactionPct!=null?reactionPct-spReactionPct:null;
 
@@ -577,7 +623,7 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
     <div id="rp-legend" style="display:flex;gap:12px;margin-top:6px">
       <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:var(--accent)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">${ticker}</span></div>
       <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:#8b8fa8"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">S&P 500</span></div>
-      ${earningsHistory?.length?'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:2px;height:12px;background:rgba(255,165,2,0.7)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">Earnings</span></div>':''}
+      ${earningsHistory?.length?'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:2px;height:12px;background:rgba(255,165,2,0.75)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">Earnings (solid=confirmed gap, dashed=estimated)</span></div>':''}
     </div>
     ${earnSummary?`<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">${earnSummary}</div>`:''}
   </div>`;
@@ -619,9 +665,9 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory){
 
   // Earnings vertical line annotations
   const showEarnings=getRelPerfEarningsToggle();
-  const earningsDates=new Set();
+  const earningsDateMap=new Map();
   if(showEarnings&&earningsHistory?.length){
-    earningsHistory.forEach(e=>{if(e.date)earningsDates.add(e.date);});
+    earningsHistory.forEach(e=>{if(e.date)earningsDateMap.set(e.date,e);});
   }
 
   if(window._rpChart)window._rpChart.destroy();
@@ -639,14 +685,18 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory){
       c.strokeStyle='rgba(255,255,255,0.15)';
       c.beginPath();c.moveTo(xs.left,y100);c.lineTo(xs.right,y100);c.stroke();
       c.setLineDash([]);
-      // Earnings vertical lines
-      if(earningsDates.size>0){
+      // Earnings vertical lines: solid amber = gap-confirmed, dashed = estimated
+      if(earningsDateMap.size>0){
         commonDates.forEach((d,i)=>{
-          if(!earningsDates.has(d))return;
+          if(!earningsDateMap.has(d))return;
+          const ev=earningsDateMap.get(d);
           const xPx=xs.getPixelForValue(i);
-          c.strokeStyle='rgba(255,165,2,0.6)';
-          c.lineWidth=1;
+          const confirmed=ev.source==='gap-confirmed'||ev.gapPct>=3;
+          c.strokeStyle=confirmed?'rgba(255,165,2,0.75)':'rgba(255,165,2,0.35)';
+          c.lineWidth=confirmed?1.5:1;
+          c.setLineDash(confirmed?[]:[3,3]);
           c.beginPath();c.moveTo(xPx,ys.top);c.lineTo(xPx,ys.bottom);c.stroke();
+          c.setLineDash([]);
         });
       }
       c.restore();

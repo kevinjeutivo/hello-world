@@ -61,8 +61,15 @@ async function loadTicker(){
     try{const cacheAge=(Date.now()-(S.get('hist2y_sp500')?.ts||0))/3600000;
       if(cacheAge>4){const sp2=await yahooHistory('^GSPC','2y','1d');S.set('hist2y_sp500',{timestamps:sp2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:sp2.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});}
     }catch{}
-    // Historical earnings dates from Finnhub (limit=8 = ~2 years of quarters)
-    try{const eh=await fh('/stock/earnings?symbol='+t+'&limit=8');if(eh&&eh.length)S.set('earnings_hist_'+t,{data:eh,ts:nowPT()});}catch{}
+    // Historical earnings dates -- use calendar endpoint for actual announcement dates
+    try{
+      const twoYearsAgo=new Date();twoYearsAgo.setFullYear(twoYearsAgo.getFullYear()-2);
+      const ehFrom=fmtDate(twoYearsAgo);
+      const ehTo=fmtDate(new Date());
+      const eh=await fh('/calendar/earnings?symbol='+t+'&from='+ehFrom+'&to='+ehTo);
+      const past=(eh?.earningsCalendar||[]).filter(e=>e.date&&e.date<ehTo).sort((a,b)=>a.date.localeCompare(b.date));
+      if(past.length)S.set('earnings_hist_'+t,{data:past,ts:nowPT()});
+    }catch{}
     // Backfill 52W high/low from Yahoo history when Finnhub values are null or were cleared as implausible
     if((!snap.week52High||!snap.week52Low)&&hist1y?.closes?.length){
       const valid=hist1y.closes.filter(c=>c!=null&&c>0);
@@ -432,8 +439,122 @@ function toggleRelPerfEarnings(){
   if(btn)btn.style.opacity=getRelPerfEarningsToggle()?'1':'0.4';
 }
 
+function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
+  if(!earningsHistory?.length||!hist2y?.closes?.length)return null;
+
+  // Build date-keyed price maps for stock and S&P
+  const _toDate=d=>d instanceof Date?d:new Date(d*1000);
+  const stockMap={},spMap={};
+  hist2y.timestamps.forEach((d,i)=>{
+    if(hist2y.closes[i]!=null)stockMap[_toDate(d).toISOString().split('T')[0]]=hist2y.closes[i];
+  });
+  if(hist2ySP){
+    hist2ySP.timestamps.forEach((d,i)=>{
+      if(hist2ySP.closes[i]!=null)spMap[_toDate(d).toISOString().split('T')[0]]=hist2ySP.closes[i];
+    });
+  }
+  const allDates=Object.keys(stockMap).sort();
+
+  // For each past earnings date, compute moves
+  const events=[];
+  earningsHistory.forEach(e=>{
+    const eDate=e.date;
+    if(!eDate||!stockMap[eDate])return;
+    const idx=allDates.indexOf(eDate);
+    if(idx<5)return; // not enough prior data
+
+    // Prior close (day before earnings)
+    const priorDate=allDates[idx-1];
+    const priorClose=stockMap[priorDate];
+    if(!priorClose)return;
+
+    // Day-of close
+    const dayOfClose=stockMap[eDate];
+
+    // Next day close (for AMC gap)
+    const nextDate=allDates[idx+1];
+    const nextClose=nextDate?stockMap[nextDate]:null;
+
+    // 5-day post close
+    const post5Date=allDates[idx+5];
+    const post5Close=post5Date?stockMap[post5Date]:null;
+
+    // S&P moves for same windows
+    const spPrior=spMap[priorDate];
+    const spDayOf=spMap[eDate];
+    const spPost5=post5Date?spMap[post5Date]:null;
+
+    // BMO: reaction is prior close → day-of open (use day-of close as proxy)
+    // AMC: reaction is day-of close → next open (use next close as proxy)
+    const hour=e.hour||'';
+    const isAMC=hour==='amc';
+    const reactionClose=isAMC?nextClose:dayOfClose;
+    const reactionPct=reactionClose?((reactionClose-priorClose)/priorClose*100):null;
+    const spReactionClose=isAMC?(spMap[nextDate]||null):spDayOf;
+    const spReactionPct=(spReactionClose&&spPrior)?((spReactionClose-spPrior)/spPrior*100):null;
+    const excessReaction=reactionPct!=null&&spReactionPct!=null?reactionPct-spReactionPct:null;
+
+    // 5-day post excess return
+    const post5Pct=post5Close?((post5Close-reactionClose)/reactionClose*100):null;
+    const spPost5Pct=(spPost5&&spReactionClose)?((spPost5-spReactionClose)/spReactionClose*100):null;
+    const excessPost5=post5Pct!=null&&spPost5Pct!=null?post5Pct-spPost5Pct:null;
+
+    events.push({
+      date:eDate,hour,
+      reactionPct,spReactionPct,excessReaction,
+      post5Pct,spPost5Pct,excessPost5,
+      beat:e.epsActual!=null&&e.epsEstimate!=null?e.epsActual>e.epsEstimate:null
+    });
+  });
+
+  if(!events.length)return null;
+
+  // Aggregate
+  const validReaction=events.filter(e=>e.reactionPct!=null);
+  const validExcess=events.filter(e=>e.excessReaction!=null);
+  const validPost5=events.filter(e=>e.excessPost5!=null);
+
+  if(!validReaction.length)return null;
+
+  const avg=arr=>arr.reduce((s,v)=>s+v,0)/arr.length;
+  const avgReaction=avg(validReaction.map(e=>e.reactionPct));
+  const avgAbsReaction=avg(validReaction.map(e=>Math.abs(e.reactionPct)));
+  const avgExcess=validExcess.length?avg(validExcess.map(e=>e.excessReaction)):null;
+  const avgExcessPost5=validPost5.length?avg(validPost5.map(e=>e.excessPost5)):null;
+  const upCount=validReaction.filter(e=>e.reactionPct>0).length;
+  const downCount=validReaction.filter(e=>e.reactionPct<0).length;
+  const n=validReaction.length;
+
+  // Build summary text
+  const fmtPct=v=>(v>=0?'+':'')+v.toFixed(1)+'%';
+  const dirText=avgReaction>1?'tends to rally':avgReaction<-1?'tends to fall':'shows mixed reaction';
+  const excessText=avgExcess!=null?(avgExcess>1?', outperforming the S&P by avg '+fmtPct(avgExcess):avgExcess<-1?', underperforming the S&P by avg '+fmtPct(Math.abs(avgExcess)):''):'' ;
+  const post5Text=avgExcessPost5!=null&&validPost5.length>=3?(avgExcessPost5>1?' Post-earnings drift: +'+avgExcessPost5.toFixed(1)+'% excess vs S&P over following 5 days.':avgExcessPost5<-1?' Post-earnings drift: '+avgExcessPost5.toFixed(1)+'% excess vs S&P over following 5 days.':''):'';
+
+  const rows=events.slice(-4).reverse().map(e=>{
+    const col=e.reactionPct==null?'var(--text3)':e.reactionPct>0?'var(--green)':'var(--red)';
+    const rxStr=e.reactionPct!=null?fmtPct(e.reactionPct):'N/A';
+    const exStr=e.excessReaction!=null?fmtPct(e.excessReaction):'';
+    return `<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+      <span style="color:var(--text3)">${e.date} ${e.hour?'('+e.hour+')':''}</span>
+      <span style="color:${col}">${rxStr}${exStr?' <span style="color:var(--text3);font-size:9px">exc '+exStr+'</span>':''}</span>
+    </div>`;
+  }).join('');
+
+  return `<div style="font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.6;margin-bottom:8px">
+    <strong style="color:var(--text)">${ticker} earnings pattern (${n} events):</strong>
+    ${dirText} on earnings day — avg ${fmtPct(avgReaction)} (±${avgAbsReaction.toFixed(1)}% typical move)${excessText}. Up ${upCount}/${n} times.${post5Text}
+  </div>
+  <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">Recent earnings reactions (stock move, excess vs S&P):</div>
+  ${rows}
+  <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:4px">Based on ${n} quarters of daily price data. Small sample — use as context, not prediction.</div>`;
+}
+
 function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
   const earnToggleOpacity=getRelPerfEarningsToggle()?'1':'0.4';
+  // Compute earnings pattern summary
+  const earnSummary=_computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory);
+
   return `<div class="card">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
       <span><span class="dot" style="background:var(--accent)"></span>Relative Performance vs S&P 500 (2Y)</span>
@@ -446,6 +567,7 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
       <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:#8b8fa8"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">S&P 500</span></div>
       ${earningsHistory?.length?'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:2px;height:12px;background:rgba(255,165,2,0.7)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">Earnings</span></div>':''}
     </div>
+    ${earnSummary?`<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">${earnSummary}</div>`:''}
   </div>`;
 }
 
@@ -786,3 +908,4 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
+      

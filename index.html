@@ -197,7 +197,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v2.8.0</span>
+      <span>Options Income Strategy v2.9.0</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -361,7 +361,7 @@ a{color:inherit}
     <!-- Layer 3 -->
     <div style="font-family:var(--mono);font-size:9px;color:#00d4aa;text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px">Layer 3 &mdash; Wheel Strategy</div>
     <div class="input-group"><label class="input-label">Written puts &mdash; manual notional ($) <span style="font-family:var(--mono);font-size:9px;color:var(--text3)">(overridden by position tracker)</span></label><input class="input" id="inc-puts-notional" type="number" min="0" placeholder="e.g. 140000" oninput="recalcIncome()"></div>
-    <div class="input-group"><label class="input-label">Stock held for CC writing ($)</label><input class="input" id="inc-cc-stock-amt" type="number" min="0" placeholder="e.g. 30000" oninput="recalcIncome()"></div>
+    <div class="input-group"><label class="input-label">Stock held for CC writing ($) <span style="font-family:var(--mono);font-size:9px;color:var(--text3)">(overridden by position tracker)</span></label><input class="input" id="inc-cc-stock-amt" type="number" min="0" placeholder="e.g. 30000" oninput="recalcIncome()"></div>
     <div style="display:flex;gap:8px;margin-top:4px">
       <button class="btn btn-primary" style="flex:2" onclick="recalcIncome()">Calculate</button>
       <button class="btn btn-secondary" style="flex:1" onclick="refreshIncomeYields()">Refresh Yields</button>
@@ -407,7 +407,7 @@ VIX backwardation (VIX above VIX3M): historically strong time to sell puts</div>
 
 Offline: all data cached to localStorage -- full functionality after first prefetch
 Worker: configured in Settings (Cloudflare Worker proxy for Yahoo Finance)
-Version: v2.8.0</div>
+Version: v2.9.0</div>
   </div>
 </div>
 
@@ -622,6 +622,16 @@ Version: v2.8.0</div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
     <div class="commentary" style="font-size:12px;max-height:400px;overflow-y:auto">
+v2.9.0 -- 2026-05-17
+- Relative Performance vs S&P 500 chart: new dedicated card on ticker page showing stock vs ^GSPC normalized to 100 at start of 2-year window. Teal line = ticker, gray dashed = S&P 500. Toggle earnings vertical lines (amber) on/off -- defaults to on when earnings history is available.
+- 2-year price history: all watchlist tickers now fetch 2Y daily OHLCV alongside existing 6M and 1Y history. Powers the relative performance chart and improves MA200 accuracy across the full 1Y chart period.
+- ^GSPC 2Y history: fetched once per prefetch run and cached separately, shared across all ticker relative performance charts.
+- Historical earnings dates: Finnhub /stock/earnings (limit=8, ~2 years of quarters) now fetched and cached per ticker. Powers earnings vertical lines on the relative performance chart. Foundation for future earnings pattern analysis.
+- BB chart 2Y toggle: Bollinger Band chart now has a third timeframe button (2Y) alongside existing 6M and 1Y.
+- Covered call positions: "Stock held for CC writing ($)" manual field now shows "(overridden by position tracker)" label, matching the puts notional field.
+- Income tab: CC stock notional (from position tracker or manual field) now correctly included in the blended yield denominator as deployed capital.
+- Service worker: v45
+
 v2.8.0 -- 2026-05-12
 - Income Engine tab: three-layer blended yield calculator. Layer 1: T-Bills + FDLXX (CA state TEY) + SPAXX. Layer 2: SPYI + NBOS (TTM yield from ETF cache). Layer 3: written puts + CC stock at target APY. Hero displays blended yield %, annual income, and monthly income.
 - Income Engine: FDLXX and SPAXX yields auto-fetched via Yahoo Finance (summaryDetail → dividends TTM fallback). Manual override inputs always visible -- labeled "Manual override" when fetch succeeds, amber warning when it fails. Toggle switch per fund to prioritize manual value over fetched value when Yahoo data is suspected inaccurate.

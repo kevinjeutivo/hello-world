@@ -282,6 +282,11 @@ function toggleBBSpan(span){
     bbData={timestamps:hist.timestamps,closes:fullCloses,sma20,upper,lower};
   }
   if(bbData)renderBBChart(bbData,hist);
+  // Also update rel perf chart to match selected timeframe
+  const _h2=S.get('hist2y_'+t);
+  const _sp=S.get('hist2y_sp500');
+  const _eh=S.get('earnings_hist_'+t);
+  if(_h2&&_sp)renderRelPerfChart(t,_h2,_sp,_eh?.data||null,span);
 }
 
 function buildR40Tile(snap){
@@ -460,7 +465,7 @@ RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red
   ${snap.recTrend&&snap.recTrend.length?buildRecTrendCard(snap.recTrend):''}`;
   if(bbData)renderBBChart(bbData,hist);
   if(hist1y)renderVPChart(hist1y,snap.price,snap.week52High,snap.week52Low);
-  if(hist2y&&hist2ySP)_initRelPerfChart(snap.ticker,hist2y,hist2ySP,earningsHistory);
+  if(hist2y&&hist2ySP)_initRelPerfChart(snap.ticker,hist2y,hist2ySP,earningsHistory,currentBBSpan||'2y');
 }
 
 function renderBBChart(bbData,hist){
@@ -490,7 +495,7 @@ function toggleRelPerfEarnings(){
   const h2c=S.get('hist2y_'+t);const h2=h2c?{timestamps:h2c.timestamps.map(d=>new Date(d*1000)),closes:h2c.closes}:null;
   const spc=S.get('hist2y_sp500');const sp=spc?{timestamps:spc.timestamps.map(d=>new Date(d*1000)),closes:spc.closes}:null;
   const ehc=S.get('earnings_hist_'+t);
-  if(h2&&sp)renderRelPerfChart(t,h2,sp,ehc?.data||null);
+  if(h2&&sp)renderRelPerfChart(t,h2,sp,ehc?.data||null,currentBBSpan||'2y');
   // Update button
   const btn=document.getElementById('rp-earn-btn');
   if(btn)btn.style.opacity=getRelPerfEarningsToggle()?'1':'0.4';
@@ -545,15 +550,19 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
     const hour=e.hour||'';
     const isAMC=hour==='amc';
     // If from gap-detection, gapPct and direction are already computed
-    const reactionClose=e.gapPct!=null?null:(isAMC?nextClose:dayOfClose);
-    const reactionPct=e.gapPct!=null?(e.direction==='up'?e.gapPct:-e.gapPct):(reactionClose?((reactionClose-priorClose)/priorClose*100):null);
-    const reactionCloseForSP=isAMC?(nextClose||dayOfClose):dayOfClose;
+    // For gap-detected events, use actual day-of close as base for post5 calculation
+    // reactionClose: the price we use as the base for post5 drift calculation
+    // For gap-detected events, use dayOfClose (or nextClose for AMC) from price map
+    const reactionClose=isAMC?(nextClose||dayOfClose):dayOfClose;
+    const reactionPct=e.gapPct!=null
+      ?(e.direction==='up'?e.gapPct:-e.gapPct)
+      :(reactionClose&&priorClose?((reactionClose-priorClose)/priorClose*100):null);
     const spReactionClose=isAMC?(spMap[nextDate]||spDayOf):spDayOf;
     const spReactionPct=(spReactionClose&&spPrior)?((spReactionClose-spPrior)/spPrior*100):null;
     const excessReaction=reactionPct!=null&&spReactionPct!=null?reactionPct-spReactionPct:null;
 
-    // 5-day post excess return
-    const post5Pct=post5Close?((post5Close-reactionClose)/reactionClose*100):null;
+    // 5-day post excess return -- guard against null/zero base
+    const post5Pct=(post5Close&&reactionClose&&reactionClose>0)?((post5Close-reactionClose)/reactionClose*100):null;
     const spPost5Pct=(spPost5&&spReactionClose)?((spPost5-spReactionClose)/spReactionClose*100):null;
     const excessPost5=post5Pct!=null&&spPost5Pct!=null?post5Pct-spPost5Pct:null;
 
@@ -629,9 +638,14 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
   </div>`;
 }
 
-function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory){
+function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
   const ctx=document.getElementById('rp-chart')?.getContext('2d');
   if(!ctx)return;
+
+  // Compute cutoff date from span param (default 2Y)
+  const _span=span||currentBBSpan||'2y';
+  const cutoffDays=_span==='6m'?183:_span==='1y'?365:730;
+  const cutoff=new Date(Date.now()-cutoffDays*86400000);
 
   // Align series by date -- find common date range
   const _toDateStr=d=>{
@@ -639,15 +653,33 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory){
     // Stored as Unix seconds -- multiply by 1000
     return new Date(d*1000).toISOString().split('T')[0];
   };
-  const stockDates=hist2y.timestamps.map(_toDateStr);
-  const spDates=hist2ySP.timestamps.map(_toDateStr);
+  // Filter timestamps to the selected timeframe window
+  const stockDates=hist2y.timestamps
+    .map((d,i)=>({d:_toDateStr(d),i}))
+    .filter(({d})=>new Date(d+'T00:00:00Z')>=cutoff)
+    .map(({d})=>d);
+  const spDates=hist2ySP.timestamps
+    .map((d,i)=>({d:_toDateStr(d),i}))
+    .filter(({d})=>new Date(d+'T00:00:00Z')>=cutoff)
+    .map(({d})=>d);
+  // Rebuild closes aligned to filtered dates
+  const _stockFiltered=hist2y.timestamps
+    .map((d,i)=>({d:_toDateStr(d),c:hist2y.closes[i]}))
+    .filter(({d})=>new Date(d+'T00:00:00Z')>=cutoff);
+  const _spFiltered=hist2ySP.timestamps
+    .map((d,i)=>({d:_toDateStr(d),c:hist2ySP.closes[i]}))
+    .filter(({d})=>new Date(d+'T00:00:00Z')>=cutoff);
 
-  // Build date-keyed maps
-  const stockMap={};stockDates.forEach((d,i)=>{if(hist2y.closes[i]!=null)stockMap[d]=hist2y.closes[i];});
-  const spMap={};spDates.forEach((d,i)=>{if(hist2ySP.closes[i]!=null)spMap[d]=hist2ySP.closes[i];});
+  // Build date-keyed maps from filtered data
+  const stockMap={};_stockFiltered.forEach(({d,c})=>{if(c!=null)stockMap[d]=c;});
+  const spMap={};_spFiltered.forEach(({d,c})=>{if(c!=null)spMap[d]=c;});
 
-  // Common dates only
-  const commonDates=stockDates.filter(d=>stockMap[d]!=null&&spMap[d]!=null).sort();
+  // Filter to selected span before finding common dates
+  const _spanDays={'6m':183,'1y':365,'2y':730}[span||'2y']||730;
+  const _cutoff=new Date(Date.now()-_spanDays*86400000).toISOString().split('T')[0];
+
+  // Common dates only, filtered to span
+  const commonDates=stockDates.filter(d=>stockMap[d]!=null&&spMap[d]!=null&&d>=_cutoff).sort();
   if(commonDates.length<10)return;
 
   // Normalize both to 100 at first common date
@@ -733,8 +765,8 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory){
 }
 
 // Called after renderTickerContent to render the rel perf chart
-function _initRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory){
-  if(hist2y&&hist2ySP)renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory);
+function _initRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
+  if(hist2y&&hist2ySP)renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span||'2y');
 }
 
 function renderVPChart(hist1y,currentPrice,w52h,w52l){
@@ -970,3 +1002,4 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
+  

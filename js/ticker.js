@@ -61,24 +61,26 @@ async function loadTicker(){
     try{const cacheAge=(Date.now()-(S.get('hist2y_sp500')?.ts||0))/3600000;
       if(cacheAge>4){const sp2=await yahooHistory('^GSPC','2y','1d');S.set('hist2y_sp500',{timestamps:sp2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:sp2.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});}
     }catch{}
-    // Historical earnings dates -- Finnhub calendar endpoint max range ~3 months per call.
-    // Fetch 8 quarters in chunks of 90 days going back 2 years.
+    // Historical earnings dates via Yahoo Finance earningsHistory module.
+    // Returns actual announcement quarters with timestamps -- reliable back 2+ years.
     try{
-      const today=new Date();
-      const allEarnings=[];
-      const seen=new Set();
-      for(let i=0;i<8;i++){
-        const chunkTo=new Date(today);chunkTo.setDate(chunkTo.getDate()-i*90);
-        const chunkFrom=new Date(chunkTo);chunkFrom.setDate(chunkFrom.getDate()-90);
-        try{
-          const chunk=await fh('/calendar/earnings?symbol='+t+'&from='+fmtDate(chunkFrom)+'&to='+fmtDate(chunkTo));
-          const items=(chunk?.earningsCalendar||[]).filter(e=>e.date&&!seen.has(e.date));
-          items.forEach(e=>{seen.add(e.date);allEarnings.push(e);});
-        }catch{}
-        await sleep(150); // avoid rate limiting
+      const ehRes=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(t)}&type=summary&modules=earningsHistory&_t=${Date.now()}`);
+      if(ehRes.ok){
+        const ehJson=await ehRes.json();
+        const hist=ehJson?.quoteSummary?.result?.[0]?.earningsHistory?.history||[];
+        const past=hist
+          .filter(q=>q.quarter?.raw)
+          .map(q=>{
+            // quarter.raw is Unix timestamp of quarter end; use as approximate earnings date
+            // Yahoo also provides earningsDate in some responses -- use if available
+            const ts=q.earningsDate?.raw||q.quarter.raw;
+            const d=new Date(ts*1000);
+            return{date:d.toISOString().split('T')[0],hour:null,epsActual:q.epsActual?.raw||null,epsEstimate:q.epsEstimate?.raw||null};
+          })
+          .filter(e=>e.date<fmtDate(new Date()))
+          .sort((a,b)=>a.date.localeCompare(b.date));
+        if(past.length)S.set('earnings_hist_'+t,{data:past,ts:nowPT()});
       }
-      const past=allEarnings.filter(e=>e.date<fmtDate(today)).sort((a,b)=>a.date.localeCompare(b.date));
-      if(past.length)S.set('earnings_hist_'+t,{data:past,ts:nowPT()});
     }catch{}
     // Backfill 52W high/low from Yahoo history when Finnhub values are null or were cleared as implausible
     if((!snap.week52High||!snap.week52Low)&&hist1y?.closes?.length){

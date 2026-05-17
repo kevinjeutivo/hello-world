@@ -1,5 +1,5 @@
 // PutSeller Pro -- ticker.js
-let currentBBSpan='2y'; // default timeframe for BB chart
+// currentBBSpan declared as global in index.html
 // Ticker tab: load, render, restore from cache, chart functions.
 // Globals used: currentTicker, WORKER_URL, S, offlineMode
 // Dependencies: helpers.js, api.js, storage.js
@@ -1007,4 +1007,3 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
-                         

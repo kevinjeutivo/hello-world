@@ -1,5 +1,5 @@
 // PutSeller Pro -- ticker.js
-let currentBBSpan='2y'; // default timeframe for BB and rel perf charts
+let currentBBSpan='2y'; // default timeframe for BB chart
 // Ticker tab: load, render, restore from cache, chart functions.
 // Globals used: currentTicker, WORKER_URL, S, offlineMode
 // Dependencies: helpers.js, api.js, storage.js
@@ -284,11 +284,6 @@ function toggleBBSpan(span){
     bbData={timestamps:hist.timestamps,closes:fullCloses,sma20,upper,lower};
   }
   if(bbData)renderBBChart(bbData,hist);
-  // Also update rel perf chart to match selected timeframe
-  const _h2=S.get('hist2y_'+t);
-  const _sp=S.get('hist2y_sp500');
-  const _eh=S.get('earnings_hist_'+t);
-  if(_h2&&_sp)renderRelPerfChart(t,_h2,_sp,_eh?.data||null,span);
 }
 
 function buildR40Tile(snap){
@@ -467,7 +462,7 @@ RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red
   ${snap.recTrend&&snap.recTrend.length?buildRecTrendCard(snap.recTrend):''}`;
   if(bbData)renderBBChart(bbData,hist);
   if(hist1y)renderVPChart(hist1y,snap.price,snap.week52High,snap.week52Low);
-  if(hist2y&&hist2ySP)_initRelPerfChart(snap.ticker,hist2y,hist2ySP,earningsHistory,currentBBSpan||'2y');
+  if(hist2y&&hist2ySP)_initRelPerfChart(snap.ticker,hist2y,hist2ySP,earningsHistory,currentRPSpan||'2y');
 }
 
 function renderBBChart(bbData,hist){
@@ -600,12 +595,14 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
   const excessText=avgExcess!=null?(avgExcess>1?', outperforming the S&P by avg '+fmtPct(avgExcess):avgExcess<-1?', underperforming the S&P by avg '+fmtPct(Math.abs(avgExcess)):''):'' ;
   const post5Text=avgExcessPost5!=null&&validPost5.length>=3?(avgExcessPost5>1?' Post-earnings drift: +'+avgExcessPost5.toFixed(1)+'% excess vs S&P over following 5 days.':avgExcessPost5<-1?' Post-earnings drift: '+avgExcessPost5.toFixed(1)+'% excess vs S&P over following 5 days.':''):'';
 
-  const rows=events.slice(-4).reverse().map(e=>{
+  // Show all events newest-first in a scrollable area
+  const rows=events.slice().reverse().map(e=>{
     const col=e.reactionPct==null?'var(--text3)':e.reactionPct>0?'var(--green)':'var(--red)';
     const rxStr=e.reactionPct!=null?fmtPct(e.reactionPct):'N/A';
     const exStr=e.excessReaction!=null?fmtPct(e.excessReaction):'';
-    return `<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
-      <span style="color:var(--text3)">${e.date} ${e.hour?'('+e.hour+')':''}</span>
+    const srcLabel=e.source==='gap-confirmed'?'':'<span style="color:var(--text3);font-size:8px"> ~est</span>';
+    return `<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+      <span style="color:var(--text3)">${e.date}${e.hour?' ('+e.hour+')':''}${srcLabel}</span>
       <span style="color:${col}">${rxStr}${exStr?' <span style="color:var(--text3);font-size:9px">exc '+exStr+'</span>':''}</span>
     </div>`;
   }).join('');
@@ -614,8 +611,8 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
     <strong style="color:var(--text)">${ticker} earnings pattern (${n} events):</strong>
     ${dirText} on earnings day — avg ${fmtPct(avgReaction)} (±${avgAbsReaction.toFixed(1)}% typical move)${excessText}. Up ${upCount}/${n} times.${post5Text}
   </div>
-  <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">Recent earnings reactions (stock move, excess vs S&P):</div>
-  ${rows}
+  <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">Earnings reactions — stock move &amp; excess vs S&P (&#x25CF; gap-confirmed, ~est = estimated):</div>
+  <div style="max-height:180px;overflow-y:auto;">${rows}</div>
   <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:4px">Based on ${n} quarters of daily price data. Small sample — use as context, not prediction.</div>`;
 }
 
@@ -624,12 +621,18 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
   // Compute earnings pattern summary
   const earnSummary=_computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory);
 
+  const _rpSpan=currentRPSpan||'2y';
+  const _rpSpanLabel=_rpSpan==='6m'?'6 Months':_rpSpan==='1y'?'1 Year':'2 Years';
+  const _rpBtn=(s,lbl)=>'<button class="btn btn-secondary" id="rp-btn-'+s+'" onclick="toggleRPSpan(\''+s+'\')" style="font-size:10px;padding:2px 8px;opacity:'+(s===_rpSpan?'1':'0.4')+'">'+lbl+'</button>';
   return `<div class="card">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-      <span><span class="dot" style="background:var(--accent)"></span>Relative Performance vs S&P 500 (2Y)</span>
+      <span id="rp-title-span"><span class="dot" style="background:var(--accent)"></span>Relative Performance vs S&P 500 (${_rpSpanLabel})</span>
       <button id="rp-earn-btn" class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${earnToggleOpacity}" onclick="toggleRelPerfEarnings()">Earnings</button>
     </div>
-    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">Both indexed to 100 at start of 2-year window. Above 100 = outperforming S&P 500.</div>
+    <div style="display:flex;gap:4px;margin-bottom:6px">
+      ${_rpBtn('6m','6M')+_rpBtn('1y','1Y')+_rpBtn('2y','2Y')}
+    </div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">Both indexed to 100 at start of window. Above 100 = outperforming S&amp;P 500.</div>
     <div class="chart-wrap" style="height:200px"><canvas id="rp-chart"></canvas></div>
     <div id="rp-legend" style="display:flex;gap:12px;margin-top:6px">
       <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:var(--accent)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">${ticker}</span></div>
@@ -645,7 +648,7 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
   if(!ctx)return;
 
   // Compute cutoff date from span param (default 2Y)
-  const _span=span||currentBBSpan||'2y';
+  const _span=span||currentRPSpan||'2y';
   const cutoffDays=_span==='6m'?183:_span==='1y'?365:730;
   const cutoff=new Date(Date.now()-cutoffDays*86400000);
 
@@ -1004,3 +1007,4 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
+                         

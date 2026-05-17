@@ -61,13 +61,23 @@ async function loadTicker(){
     try{const cacheAge=(Date.now()-(S.get('hist2y_sp500')?.ts||0))/3600000;
       if(cacheAge>4){const sp2=await yahooHistory('^GSPC','2y','1d');S.set('hist2y_sp500',{timestamps:sp2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:sp2.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});}
     }catch{}
-    // Historical earnings dates -- use calendar endpoint for actual announcement dates
+    // Historical earnings dates -- Finnhub calendar endpoint max range ~3 months per call.
+    // Fetch 8 quarters in chunks of 90 days going back 2 years.
     try{
-      const twoYearsAgo=new Date();twoYearsAgo.setFullYear(twoYearsAgo.getFullYear()-2);
-      const ehFrom=fmtDate(twoYearsAgo);
-      const ehTo=fmtDate(new Date());
-      const eh=await fh('/calendar/earnings?symbol='+t+'&from='+ehFrom+'&to='+ehTo);
-      const past=(eh?.earningsCalendar||[]).filter(e=>e.date&&e.date<ehTo).sort((a,b)=>a.date.localeCompare(b.date));
+      const today=new Date();
+      const allEarnings=[];
+      const seen=new Set();
+      for(let i=0;i<8;i++){
+        const chunkTo=new Date(today);chunkTo.setDate(chunkTo.getDate()-i*90);
+        const chunkFrom=new Date(chunkTo);chunkFrom.setDate(chunkFrom.getDate()-90);
+        try{
+          const chunk=await fh('/calendar/earnings?symbol='+t+'&from='+fmtDate(chunkFrom)+'&to='+fmtDate(chunkTo));
+          const items=(chunk?.earningsCalendar||[]).filter(e=>e.date&&!seen.has(e.date));
+          items.forEach(e=>{seen.add(e.date);allEarnings.push(e);});
+        }catch{}
+        await sleep(150); // avoid rate limiting
+      }
+      const past=allEarnings.filter(e=>e.date<fmtDate(today)).sort((a,b)=>a.date.localeCompare(b.date));
       if(past.length)S.set('earnings_hist_'+t,{data:past,ts:nowPT()});
     }catch{}
     // Backfill 52W high/low from Yahoo history when Finnhub values are null or were cleared as implausible
@@ -908,4 +918,3 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
-      

@@ -54,6 +54,15 @@ async function loadTicker(){
     catch{const ch=S.get('hist_'+t);if(ch){hist6mo={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes};if(!isLive)showOfflineBanner(ch.ts);}}
     try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});hist1y=h1;}
     catch{const ch=S.get('hist1y_'+t);if(ch)hist1y={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes};}
+    // 2Y history for relative performance chart and earnings pattern analysis
+    try{const h2=await yahooHistory(t,'2y','1d');S.set('hist2y_'+t,{timestamps:h2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h2.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:nowPT()});}
+    catch{}
+    // ^GSPC 2Y history for relative performance chart (shared across tickers)
+    try{const cacheAge=(Date.now()-(S.get('hist2y_sp500')?.ts||0))/3600000;
+      if(cacheAge>4){const sp2=await yahooHistory('^GSPC','2y','1d');S.set('hist2y_sp500',{timestamps:sp2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:sp2.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});}
+    }catch{}
+    // Historical earnings dates from Finnhub (limit=8 = ~2 years of quarters)
+    try{const eh=await fh('/stock/earnings?symbol='+t+'&limit=8');if(eh&&eh.length)S.set('earnings_hist_'+t,{data:eh,ts:nowPT()});}catch{}
     // Backfill 52W high/low from Yahoo history when Finnhub values are null or were cleared as implausible
     if((!snap.week52High||!snap.week52Low)&&hist1y?.closes?.length){
       const valid=hist1y.closes.filter(c=>c!=null&&c>0);
@@ -71,7 +80,10 @@ async function loadTicker(){
     // Re-read snap from localStorage to pick up fetchQuoteSummary enrichment
     // (ptMean, pegRatio, earningsTrend etc. are saved there by fetchQuoteSummary)
     const snapFinal=S.get('snap_'+t)||snap;
-    renderTickerContent(snapFinal,hist6mo,hist1y,news,recData,upgradesData,isLive);renderWatchlist();
+    const _h2=S.get('hist2y_'+t);const _hist2y=_h2?{timestamps:_h2.timestamps.map(d=>new Date(d)),closes:_h2.closes}:null;
+    const _sp2=S.get('hist2y_sp500');const _hist2ySP=_sp2?{timestamps:_sp2.timestamps.map(d=>new Date(d)),closes:_sp2.closes}:null;
+    const _ehc=S.get('earnings_hist_'+t);const _earningsHistory=_ehc?.data||null;
+    renderTickerContent(snapFinal,hist6mo,hist1y,news,recData,upgradesData,isLive,_hist2y,_hist2ySP,_earningsHistory);renderWatchlist();
   }catch(err){document.getElementById('ticker-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
 }
 
@@ -83,9 +95,12 @@ function restoreTickerFromCache(t){
   const snap=S.get('snap_'+t);if(!snap)return;
   const ch=S.get('hist_'+t);const hist6mo=ch?{timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes}:null;
   const ch1=S.get('hist1y_'+t);const hist1y=ch1?{timestamps:ch1.timestamps.map(d=>new Date(d)),closes:ch1.closes,volumes:ch1.volumes}:null;
+  const ch2=S.get('hist2y_'+t);const hist2y=ch2?{timestamps:ch2.timestamps.map(d=>new Date(d)),closes:ch2.closes}:null;
+  const sp2c=S.get('hist2y_sp500');const hist2ySP=sp2c?{timestamps:sp2c.timestamps.map(d=>new Date(d)),closes:sp2c.closes}:null;
+  const ehc=S.get('earnings_hist_'+t);const earningsHistory=ehc?.data||null;
   const cn=S.get('news_'+t);const cr=S.get('rec_'+t);
   const cu=S.get('upgrades_'+t);
-  renderTickerContent(snap,hist6mo,hist1y,cn?cn.items:null,cr?cr.data:null,cu?cu.data:[],false);
+  renderTickerContent(snap,hist6mo,hist1y,cn?cn.items:null,cr?cr.data:null,cu?cu.data:[],false,hist2y,hist2ySP,earningsHistory);
   setTimeout(refreshTsChipAges,50);
 }
 
@@ -176,11 +191,13 @@ function buildUpgradeTable(upgrades){
 function toggleBBSpan(span){
   const btn6=document.getElementById('bb-btn-6m');
   const btn1=document.getElementById('bb-btn-1y');
+  const btn2=document.getElementById('bb-btn-2y');
   if(btn6)btn6.style.opacity=span==='6m'?'1':'0.4';
   if(btn1)btn1.style.opacity=span==='1y'?'1':'0.4';
+  if(btn2)btn2.style.opacity=span==='2y'?'1':'0.4';
   const t=document.getElementById('ticker-select').value;
   if(!t)return;
-  const cacheKey=span==='6m'?'hist_'+t:'hist1y_'+t;
+  const cacheKey=span==='6m'?'hist_'+t:(span==='2y'?'hist2y_'+t:'hist1y_'+t);
   const h=S.get(cacheKey);
   if(!h){toast((span==='1y'?'1Y':'6M')+' history not cached -- run full refresh',2500);return;}
   const hist={
@@ -238,7 +255,7 @@ function buildR40Tile(snap){
     +'</div>';
 }
 
-function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive){
+function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,hist2y,hist2ySP,earningsHistory){
   if(isLive){_lastLiveRenderTicker=snap.ticker;_lastLiveRenderTime=Date.now();}
   const el=document.getElementById('ticker-content');
   const chgColor=snap.change>=0?'var(--green)':'var(--red)';const chgSign=snap.change>=0?'+':'';
@@ -368,10 +385,10 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive){
     </div>
     ${earningsStr}
   </div>
-  ${hist?`<div class="card"><div class="card-title"><span class="dot"></span>Bollinger Bands + RSI</div><div style="display:flex;gap:6px;margin-bottom:4px"><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" id="bb-btn-6m" onclick="toggleBBSpan(\'6m\')">6M</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-1y" onclick="toggleBBSpan(\'1y\')">1Y</button></div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility.
+  ${hist?`<div class="card"><div class="card-title"><span class="dot"></span>Bollinger Bands + RSI</div><div style="display:flex;gap:6px;margin-bottom:4px"><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" id="bb-btn-6m" onclick="toggleBBSpan(\'6m\')">6M</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-1y" onclick="toggleBBSpan(\'1y\')">1Y</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-2y" onclick="toggleBBSpan(\'2y\')">2Y</button></div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility.
 
 RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red shading) = overbought, favorable for covered calls.</div></div>`:''}
-  ${hist1y?`<div class="card"><div class="card-title"><span class="dot" style="background:teal"></span>Volume Profile -- Support / Resistance (1Y)</div><div class="chart-wrap" style="height:300px"><canvas id="vp-chart"></canvas></div><div id="vp-analysis"></div></div>`:''}
+  ${(hist2y&&hist2ySP)?renderRelPerfCard(snap.ticker,hist2y,hist2ySP,earningsHistory):''}  ${hist1y?`<div class="card"><div class="card-title"><span class="dot" style="background:teal"></span>Volume Profile -- Support / Resistance (1Y)</div><div class="chart-wrap" style="height:300px"><canvas id="vp-chart"></canvas></div><div id="vp-analysis"></div></div>`:''}
   <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Recent News (7 days)</div><div id="news-section">${renderNewsItems(news)}</div></div>
   ${upgradesData&&upgradesData.length?buildUpgradeTable(upgradesData):''}
   ${snap.ptMean?buildPriceTargetCard(snap):''}
@@ -379,6 +396,7 @@ RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red
   ${snap.recTrend&&snap.recTrend.length?buildRecTrendCard(snap.recTrend):''}`;
   if(bbData)renderBBChart(bbData,hist);
   if(hist1y)renderVPChart(hist1y,snap.price,snap.week52High,snap.week52Low);
+  if(hist2y&&hist2ySP)_initRelPerfChart(snap.ticker,hist2y,hist2ySP,earningsHistory);
 }
 
 function renderBBChart(bbData,hist){
@@ -393,6 +411,147 @@ function renderBBChart(bbData,hist){
     if(window._rsiChart)window._rsiChart.destroy();
     window._rsiChart=new Chart(rsiCtx,{type:'line',data:{labels:rsiLabels,datasets:[{data:ob,borderColor:'transparent',backgroundColor:'rgba(255,71,87,0.25)',fill:{target:{value:70},above:'rgba(255,71,87,0.25)',below:'transparent'},pointRadius:0,tension:0.2,spanGaps:false},{data:os,borderColor:'transparent',backgroundColor:'rgba(0,200,150,0.25)',fill:{target:{value:30},above:'transparent',below:'rgba(0,200,150,0.25)'},pointRadius:0,tension:0.2,spanGaps:false},{label:'RSI',data:rsiVals,borderColor:'#7c6af7',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{display:false},grid:{color:'#2a2e38'}},y:{min:0,max:100,ticks:{color:'#555870',font:{size:9},stepSize:30},grid:{color:'#2a2e38'}}}},plugins:[{id:'rsiLines',afterDraw(chart){const c=chart.ctx,x=chart.scales.x,y=chart.scales.y;const y70=y.getPixelForValue(70),y30=y.getPixelForValue(30);c.save();c.setLineDash([4,3]);c.lineWidth=1;c.strokeStyle='rgba(255,71,87,0.7)';c.beginPath();c.moveTo(x.left,y70);c.lineTo(x.right,y70);c.stroke();c.strokeStyle='rgba(0,200,150,0.7)';c.beginPath();c.moveTo(x.left,y30);c.lineTo(x.right,y30);c.stroke();c.setLineDash([]);c.font='9px DM Mono,monospace';c.fillStyle='rgba(255,71,87,0.9)';c.fillText('70',x.right+3,y70+3);c.fillStyle='rgba(0,200,150,0.9)';c.fillText('30',x.right+3,y30+3);c.restore();}}]});
   }
+}
+
+// ── Relative Performance Chart vs S&P 500 ────────────────────────────────────
+
+// State for earnings overlay toggle -- persisted to localStorage
+function getRelPerfEarningsToggle(){return S.get('rp_earnings_toggle')!=='off';}
+function toggleRelPerfEarnings(){
+  S.set('rp_earnings_toggle',getRelPerfEarningsToggle()?'off':'on');
+  // Re-render by triggering chart update
+  const ctx=document.getElementById('rp-chart')?.getContext('2d');
+  if(!ctx)return;
+  const t=currentTicker;
+  const h2c=S.get('hist2y_'+t);const h2=h2c?{timestamps:h2c.timestamps.map(d=>new Date(d)),closes:h2c.closes}:null;
+  const spc=S.get('hist2y_sp500');const sp=spc?{timestamps:spc.timestamps.map(d=>new Date(d)),closes:spc.closes}:null;
+  const ehc=S.get('earnings_hist_'+t);
+  if(h2&&sp)renderRelPerfChart(t,h2,sp,ehc?.data||null);
+  // Update button
+  const btn=document.getElementById('rp-earn-btn');
+  if(btn)btn.style.opacity=getRelPerfEarningsToggle()?'1':'0.4';
+}
+
+function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
+  const earnToggleOpacity=getRelPerfEarningsToggle()?'1':'0.4';
+  return `<div class="card">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span><span class="dot" style="background:var(--accent)"></span>Relative Performance vs S&P 500 (2Y)</span>
+      <button id="rp-earn-btn" class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${earnToggleOpacity}" onclick="toggleRelPerfEarnings()">Earnings</button>
+    </div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">Both indexed to 100 at start of 2-year window. Above 100 = outperforming S&P 500.</div>
+    <div class="chart-wrap" style="height:200px"><canvas id="rp-chart"></canvas></div>
+    <div id="rp-legend" style="display:flex;gap:12px;margin-top:6px">
+      <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:var(--accent)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">${ticker}</span></div>
+      <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:#8b8fa8"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">S&P 500</span></div>
+      ${earningsHistory?.length?'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:2px;height:12px;background:rgba(255,165,2,0.7)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">Earnings</span></div>':''}
+    </div>
+  </div>`;
+}
+
+function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory){
+  const ctx=document.getElementById('rp-chart')?.getContext('2d');
+  if(!ctx)return;
+
+  // Align series by date -- find common date range
+  const stockDates=hist2y.timestamps.map(d=>{
+    if(!(d instanceof Date))d=new Date(d instanceof Object?d:d*1000);
+    return d.toISOString().split('T')[0];
+  });
+  const spDates=hist2ySP.timestamps.map(d=>{
+    if(!(d instanceof Date))d=new Date(d instanceof Object?d:d*1000);
+    return d.toISOString().split('T')[0];
+  });
+
+  // Build date-keyed maps
+  const stockMap={};stockDates.forEach((d,i)=>{if(hist2y.closes[i]!=null)stockMap[d]=hist2y.closes[i];});
+  const spMap={};spDates.forEach((d,i)=>{if(hist2ySP.closes[i]!=null)spMap[d]=hist2ySP.closes[i];});
+
+  // Common dates only
+  const commonDates=stockDates.filter(d=>stockMap[d]!=null&&spMap[d]!=null).sort();
+  if(commonDates.length<10)return;
+
+  // Normalize both to 100 at first common date
+  const base=commonDates[0];
+  const stockBase=stockMap[base];
+  const spBase=spMap[base];
+
+  const stockNorm=commonDates.map(d=>Math.round(stockMap[d]/stockBase*10000)/100);
+  const spNorm=commonDates.map(d=>Math.round(spMap[d]/spBase*10000)/100);
+
+  const labels=commonDates.map(d=>{
+    const dt=new Date(d+'T12:00:00Z');
+    return dt.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  });
+
+  // Earnings vertical line annotations
+  const showEarnings=getRelPerfEarningsToggle();
+  const earningsDates=new Set();
+  if(showEarnings&&earningsHistory?.length){
+    earningsHistory.forEach(e=>{if(e.date)earningsDates.add(e.date);});
+  }
+
+  if(window._rpChart)window._rpChart.destroy();
+
+  // Custom plugin for vertical earnings lines and baseline
+  const earningsPlugin={
+    id:'rpAnnotations',
+    afterDraw(chart){
+      const c=chart.ctx,xs=chart.scales.x,ys=chart.scales.y;
+      // Baseline at 100
+      const y100=ys.getPixelForValue(100);
+      c.save();
+      c.setLineDash([4,3]);
+      c.lineWidth=1;
+      c.strokeStyle='rgba(255,255,255,0.15)';
+      c.beginPath();c.moveTo(xs.left,y100);c.lineTo(xs.right,y100);c.stroke();
+      c.setLineDash([]);
+      // Earnings vertical lines
+      if(earningsDates.size>0){
+        commonDates.forEach((d,i)=>{
+          if(!earningsDates.has(d))return;
+          const xPx=xs.getPixelForValue(i);
+          c.strokeStyle='rgba(255,165,2,0.6)';
+          c.lineWidth=1;
+          c.beginPath();c.moveTo(xPx,ys.top);c.lineTo(xPx,ys.bottom);c.stroke();
+        });
+      }
+      c.restore();
+    }
+  };
+
+  window._rpChart=new Chart(ctx,{
+    type:'line',
+    data:{
+      labels,
+      datasets:[
+        {label:ticker,data:stockNorm,borderColor:'#00d4aa',borderWidth:2,pointRadius:0,tension:0.2,fill:false},
+        {label:'S&P 500',data:spNorm,borderColor:'#8b8fa8',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false,borderDash:[3,2]}
+      ]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          callbacks:{
+            label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} (${(ctx.parsed.y-100).toFixed(1)}%)`
+          }
+        }
+      },
+      scales:{
+        x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:8},grid:{color:'#2a2e38'}},
+        y:{ticks:{color:'#555870',font:{size:9},callback:v=>v.toFixed(0)},grid:{color:'#2a2e38'}}
+      }
+    },
+    plugins:[earningsPlugin]
+  });
+}
+
+// Called after renderTickerContent to render the rel perf chart
+function _initRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory){
+  if(hist2y&&hist2ySP)renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory);
 }
 
 function renderVPChart(hist1y,currentPrice,w52h,w52l){

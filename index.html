@@ -999,6 +999,8 @@ let offlineMode=S.get('offline_mode')==='true';
 let fontSize=S.get('font_size')||'19';
 applyFontSize(fontSize);
 let watchlistSort=S.get('watchlist_sort')||'manual';
+let currentBBSpan='2y'; // timeframe for Bollinger Band chart
+let currentRPSpan='2y';  // timeframe for Relative Performance chart (independent)
 if(!S.get('options_cutoff_et'))S.set('options_cutoff_et','18'); // default 6pm ET // manual | alpha | opportunity
 
 const DEFAULT_WATCHLIST=['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];

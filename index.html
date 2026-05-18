@@ -608,6 +608,8 @@ Version: v2.9.0</div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Clears page cache, reloads latest version from GitHub. Your data is preserved.</div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--danger)"></span>Danger Zone</div>
+    <button class="btn btn-secondary" onclick="clearMarketDataCache()" style="margin-bottom:8px;width:100%">Clear Market Data Cache</button>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px;line-height:1.5">Clears options chains, price history, and ticker snapshots only. Preserves your watchlist, positions, earnings overrides, income inputs, and all settings.</div>
     <button class="btn btn-danger" onclick="clearAllDataWithGuard()">Clear All Cached Data</button>
     <div style="margin-top:12px">
       <div class="card-title" style="font-size:12px;margin-bottom:6px"><span class="dot" style="background:var(--accent3)"></span>Storage Usage</div>
@@ -1055,3 +1057,4 @@ if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.se
 
 </body>
 </html>
+  

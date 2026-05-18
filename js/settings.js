@@ -348,9 +348,46 @@ function clearAllDataConfirmed(){
   toast('All data cleared');renderWatchlist();updateVIXIndicator(null);updateOfflineModeBar();
 }
 
+function clearMarketDataCache(){
+  // Keys to preserve -- manually entered data and settings
+  const PRESERVE=new Set([
+    'watchlist','finnhub_key','tz_pref','font_size','vix_threshold','offline_mode',
+    'watchlist_sort','heatmap_mode','put_pos_sort','cc_pos_sort',
+    'options_cutoff_et','rp_earnings_toggle','rp_span','bb_span',
+    'income_inputs','income_mmf_yields','put_positions','cc_positions',
+    'vol_badge_state','conviction_weights','last_ticker',
+  ]);
+  // Also preserve earnings_hist (contains overrides) and income/settings related keys
+  const toDelete=[];
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    if(!k)continue;
+    // Preserve earnings_hist (has overrides inside), income, settings
+    if(PRESERVE.has(k))continue;
+    if(k.startsWith('earnings_hist_'))continue; // has manual override data
+    if(k.startsWith('income_'))continue;
+    if(k.startsWith('conviction_'))continue;
+    if(k.startsWith('put_pos'))continue;
+    if(k.startsWith('cc_pos'))continue;
+    if(k.startsWith('vol_badge'))continue;
+    // Clear all market data keys
+    if(k.startsWith('snap_')||k.startsWith('hist_')||k.startsWith('hist1y_')||
+       k.startsWith('hist2y_')||k.startsWith('options_')||k.startsWith('news_')||
+       k.startsWith('rec_')||k.startsWith('upgrades_')||k.startsWith('earnings_confirmed_')||
+       k.startsWith('mkt_')||k.startsWith('tbills_')||k.startsWith('vix')||
+       k.startsWith('div_')||k==='market_news'||k==='fed_futures'||
+       k==='hist2y_sp500'||k==='income_ts'){
+      toDelete.push(k);
+    }
+  }
+  toDelete.forEach(k=>localStorage.removeItem(k));
+  toast('Market data cache cleared ('+toDelete.length+' keys). Run a full refresh to repopulate.',4000);
+}
+
 function forceAppRefresh(){
   // reload() without true so the SW intercepts the reload and serves
   // files from its fresh cache. reload(true) bypasses the SW on iOS Safari.
   if('caches'in window){caches.keys().then(keys=>{Promise.all(keys.map(k=>caches.delete(k))).then(()=>{toast('Cache cleared -- reloading...',2500);setTimeout(()=>window.location.reload(),2500);});});}
   else{window.location.reload();}
 }
+    

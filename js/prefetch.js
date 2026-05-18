@@ -57,7 +57,16 @@ async function prefetchAll(){
           else{const _fd=_cd[_ei];if(_fd&&_fd<_today)_res.push({date:_fd,hour:null,gapPct:null,direction:null,source:'estimated'});}
         }
         const _sorted=_res.filter((r,i,a)=>a.findIndex(x=>x.date===r.date)===i).sort((a,b)=>a.date.localeCompare(b.date));
-        if(_sorted.length)S.set('earnings_hist_'+t,{data:_sorted,ts:nowPT()});
+        if(_sorted.length){
+          // Preserve manual overrides from prior cache
+          const _prev=S.get('earnings_hist_'+t);
+          const _prevData=_prev?.data||[];
+          _sorted.forEach(entry=>{
+            const match=_prevData.find(old=>old.override&&Math.abs(new Date(old.override.date)-new Date(entry.date))<26*86400000);
+            if(match?.override)entry.override=match.override;
+          });
+          S.set('earnings_hist_'+t,{data:_sorted,ts:nowPT()});
+        }
       }
     }catch{}
     try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});}catch{}

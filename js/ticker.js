@@ -496,7 +496,7 @@ function toggleRPSpan(span){
   if(h2c&&spc)renderRelPerfChart(t,
     {timestamps:h2c.timestamps,closes:h2c.closes},
     {timestamps:spc.timestamps,closes:spc.closes},
-    ehc?.data||null,span);
+    _getEarningsWithOverrides(t),span);
   const titleEl=document.getElementById('rp-title-span');
   if(titleEl){
     const label=span==='6m'?'6 Months':span==='1y'?'1 Year':'2 Years';
@@ -513,10 +513,154 @@ function toggleRelPerfEarnings(){
   const h2c=S.get('hist2y_'+t);const h2=h2c?{timestamps:h2c.timestamps.map(d=>new Date(d*1000)),closes:h2c.closes}:null;
   const spc=S.get('hist2y_sp500');const sp=spc?{timestamps:spc.timestamps.map(d=>new Date(d*1000)),closes:spc.closes}:null;
   const ehc=S.get('earnings_hist_'+t);
-  if(h2&&sp)renderRelPerfChart(t,h2,sp,ehc?.data||null,currentBBSpan||'2y');
+  if(h2&&sp)renderRelPerfChart(t,h2,sp,_getEarningsWithOverrides(t),currentRPSpan||'2y');
   // Update button
   const btn=document.getElementById('rp-earn-btn');
   if(btn)btn.style.opacity=getRelPerfEarningsToggle()?'1':'0.4';
+}
+
+// ── Earnings date manual overrides ───────────────────────────────────────────
+// Each estimated earnings entry can have an optional user override:
+//   {date:'YYYY-MM-DD', hour:'bmo'|'amc'|null, addedTs:string}
+// Overrides are stored inside each entry's .override field in earnings_hist_TICKER.
+// Auto-purge: entries older than 730 days are removed on read.
+
+function _getEarningsWithOverrides(ticker){
+  const cache=S.get('earnings_hist_'+ticker);
+  if(!cache?.data)return[];
+  const cutoff=new Date();cutoff.setDate(cutoff.getDate()-730);
+  const cutoffStr=cutoff.toISOString().split('T')[0];
+  // Purge old entries
+  const fresh=cache.data.filter(e=>{
+    const d=e.override?.date||e.date;
+    return d>=cutoffStr;
+  });
+  if(fresh.length!==cache.data.length)
+    S.set('earnings_hist_'+ticker,{...cache,data:fresh});
+  return fresh;
+}
+
+function _effectiveEarningsDate(e){
+  // Returns the date and hour to actually use for chart/analysis
+  return{
+    date:e.override?.date||e.date,
+    hour:e.override?.hour!=null?e.override.hour:e.hour,
+    isOverride:!!e.override,
+    source:e.source
+  };
+}
+
+let _overrideModalTicker=null;
+let _overrideModalIdx=null;
+
+function openEarningsOverrideModal(ticker,idx){
+  _overrideModalTicker=ticker;
+  _overrideModalIdx=idx;
+  const entries=_getEarningsWithOverrides(ticker);
+  const entry=entries[idx];
+  if(!entry)return;
+
+  const eff=_effectiveEarningsDate(entry);
+  const existingOverride=entry.override;
+
+  let el=document.getElementById('earn-override-modal');
+  if(!el){
+    el=document.createElement('div');
+    el.className='modal-overlay';
+    el.id='earn-override-modal';
+    document.body.appendChild(el);
+    el.addEventListener('click',e=>{if(e.target===el)_closeEarningsOverrideModal();});
+  }
+
+  el.innerHTML=
+    '<div class="modal-box" style="max-width:360px">'+
+      '<div class="modal-title">Override Earnings Date</div>'+
+      '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">'+
+        'Enter the actual US Eastern date of the earnings announcement.<br>'+
+        'Use the date shown on financial sites such as Earnings Whispers or Yahoo Finance — '+
+        'this should be the ET calendar date, which may differ from your local date for late-evening announcements.'+
+      '</div>'+
+      '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:4px">'+
+        'Estimated date: <span style="color:var(--text2)">'+entry.date+'</span>'+
+        (entry.source==='gap-confirmed'?' (gap-confirmed)':' (estimated)')+'</div>'+
+      '<div class="input-group" style="margin-bottom:10px">'+
+        '<label class="input-label">Actual earnings date (ET)</label>'+
+        '<input class="input" type="date" id="earn-override-date" value="'+(existingOverride?.date||entry.date)+'">'+
+      '</div>'+
+      '<div class="input-group" style="margin-bottom:14px">'+
+        '<label class="input-label">Announcement timing (optional)</label>'+
+        '<div style="display:flex;gap:6px;margin-top:4px">'+
+          '<button id="earn-hour-bmo" class="btn btn-secondary" style="flex:1;font-size:11px;'+(eff.hour==='bmo'?'opacity:1':'opacity:0.4')+'" onclick="_setEarnHourBtn(&quot;bmo&quot;)">BMO</button>'+
+          '<button id="earn-hour-amc" class="btn btn-secondary" style="flex:1;font-size:11px;'+(eff.hour==='amc'?'opacity:1':'opacity:0.4')+'" onclick="_setEarnHourBtn(&quot;amc&quot;)">AMC</button>'+
+          '<button id="earn-hour-unk" class="btn btn-secondary" style="flex:1;font-size:11px;'+(eff.hour==null?'opacity:1':'opacity:0.4')+'" onclick="_setEarnHourBtn(null)">Unknown</button>'+
+        '</div>'+
+        '<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:4px">BMO = Before Market Open &nbsp;·&nbsp; AMC = After Market Close</div>'+
+      '</div>'+
+      (existingOverride?
+        '<div style="margin-bottom:10px">'+
+          '<button class="btn btn-secondary" style="font-size:10px;color:var(--warn)" onclick="_clearEarningsOverride()">Clear override — revert to estimate</button>'+
+        '</div>':'')+
+      '<div style="display:flex;gap:8px">'+
+        '<button class="btn btn-secondary btn-sm" onclick="_closeEarningsOverrideModal()">Cancel</button>'+
+        '<button class="btn btn-primary btn-sm" onclick="_saveEarningsOverride()">Save Override</button>'+
+      '</div>'+
+    '</div>';
+
+  // Store selected hour in a data attr on the modal for easy retrieval
+  el.dataset.hour=eff.hour!=null?eff.hour:'';
+  el.classList.add('open');
+}
+
+function _setEarnHourBtn(val){
+  const el=document.getElementById('earn-override-modal');
+  if(!el)return;
+  el.dataset.hour=val!=null?val:'';
+  ['bmo','amc','unk'].forEach(k=>{
+    const btn=document.getElementById('earn-hour-'+k);
+    if(btn)btn.style.opacity=(
+      (k==='bmo'&&val==='bmo')||(k==='amc'&&val==='amc')||(k==='unk'&&val==null)
+    )?'1':'0.4';
+  });
+}
+
+function _closeEarningsOverrideModal(){
+  _overrideModalTicker=null;_overrideModalIdx=null;
+  document.getElementById('earn-override-modal')?.classList.remove('open');
+}
+
+function _saveEarningsOverride(){
+  const ticker=_overrideModalTicker;const idx=_overrideModalIdx;
+  if(!ticker||idx==null){_closeEarningsOverrideModal();return;}
+  const dateEl=document.getElementById('earn-override-date');
+  const el=document.getElementById('earn-override-modal');
+  const dateVal=dateEl?.value;
+  if(!dateVal){toast('Please enter a date');return;}
+  const hourRaw=el?.dataset.hour||'';
+  const hour=hourRaw==='bmo'?'bmo':hourRaw==='amc'?'amc':null;
+
+  const cache=S.get('earnings_hist_'+ticker);
+  if(!cache?.data){_closeEarningsOverrideModal();return;}
+  const data=[...cache.data];
+  data[idx]={...data[idx],override:{date:dateVal,hour,addedTs:nowPT()}};
+  S.set('earnings_hist_'+ticker,{...cache,data});
+  _closeEarningsOverrideModal();
+  toast('Earnings date override saved');
+  // Re-render ticker to pick up new override
+  if(currentTicker===ticker)restoreTickerFromCache(ticker);
+}
+
+function _clearEarningsOverride(){
+  const ticker=_overrideModalTicker;const idx=_overrideModalIdx;
+  if(!ticker||idx==null){_closeEarningsOverrideModal();return;}
+  const cache=S.get('earnings_hist_'+ticker);
+  if(!cache?.data){_closeEarningsOverrideModal();return;}
+  const data=[...cache.data];
+  const {override,...rest}=data[idx];
+  data[idx]=rest;
+  S.set('earnings_hist_'+ticker,{...cache,data});
+  _closeEarningsOverrideModal();
+  toast('Override cleared — reverted to estimate');
+  if(currentTicker===ticker)restoreTickerFromCache(ticker);
 }
 
 function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
@@ -640,7 +784,9 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
 function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
   const earnToggleOpacity=getRelPerfEarningsToggle()?'1':'0.4';
   // Compute earnings pattern summary
-  const earnSummary=_computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory);
+  const earningsWithOvr=_getEarningsWithOverrides(ticker);
+  const effectiveHistory=earningsWithOvr.map(e=>({..._effectiveEarningsDate(e),gapPct:e.gapPct,_idx:earningsWithOvr.indexOf(e)}));
+  const earnSummary=_computeEarningsPatternSummary(ticker,hist2y,hist2ySP,effectiveHistory);
 
   const _rpSpan=currentRPSpan||'2y';
   const _rpSpanLabel=_rpSpan==='6m'?'6 Months':_rpSpan==='1y'?'1 Year':'2 Years';
@@ -658,9 +804,32 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
     <div id="rp-legend" style="display:flex;gap:12px;margin-top:6px">
       <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:var(--accent)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">${ticker}</span></div>
       <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:#8b8fa8"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">S&P 500</span></div>
-      ${earningsHistory?.length?'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:2px;height:12px;background:rgba(255,165,2,0.75)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">Earnings (solid=confirmed gap, dashed=estimated)</span></div>':''}
+      ${earningsWithOvr?.length?'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:2px;height:12px;background:rgba(255,165,2,0.75)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">Solid=confirmed · Dashed=estimated · Teal=overridden</span></div>':''}
     </div>
     ${earnSummary?`<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">${earnSummary}</div>`:''}
+    ${earningsWithOvr.length?`<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">EARNINGS DATES — tap to override any estimated date with the actual date</div>
+      <div style="max-height:200px;overflow-y:auto">
+        ${earningsWithOvr.slice().reverse().map((e,ri)=>{
+          const idx=earningsWithOvr.length-1-ri;
+          const eff=_effectiveEarningsDate(e);
+          const hasOvr=!!e.override;
+          const srcLabel=hasOvr?'<span style="color:var(--accent);font-size:8px">overridden</span>':
+            e.source==='gap-confirmed'?'<span style="color:var(--warn);font-size:8px">confirmed</span>':
+            '<span style="color:var(--text3);font-size:8px">estimated</span>';
+          const hourLabel=eff.hour==='bmo'?' BMO':eff.hour==='amc'?' AMC':'';
+          const estRef=hasOvr?'<span style="color:var(--text3);font-size:8px;text-decoration:line-through">'+e.date+'</span> ':'';
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)">'+
+            '<div style="font-family:var(--mono);font-size:10px">'+
+              estRef+'<span style="color:'+(hasOvr?'var(--accent)':'var(--text2)')+'">'+eff.date+hourLabel+'</span> '+srcLabel+
+            '</div>'+
+            '<button onclick="openEarningsOverrideModal(&quot;'+ticker+'&quot;,'+idx+')" style="font-family:var(--mono);font-size:9px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);padding:2px 6px;cursor:pointer">'+
+              (hasOvr?'Edit':'Override')+
+            '</button>'+
+          '</div>';
+        }).join('')}
+      </div>
+    </div>`:''}
   </div>`;
 }
 
@@ -723,9 +892,14 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
 
   // Earnings vertical line annotations
   const showEarnings=getRelPerfEarningsToggle();
+  // Build effective earnings map using overrides where available
   const earningsDateMap=new Map();
   if(showEarnings&&earningsHistory?.length){
-    earningsHistory.forEach(e=>{if(e.date)earningsDateMap.set(e.date,e);});
+    const _withOvr=_getEarningsWithOverrides(ticker);
+    (_withOvr.length?_withOvr:earningsHistory).forEach(e=>{
+      const eff=_withOvr.length?_effectiveEarningsDate(e):e;
+      if(eff.date)earningsDateMap.set(eff.date,eff);
+    });
   }
 
   if(window._rpChart)window._rpChart.destroy();
@@ -749,10 +923,11 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
           if(!earningsDateMap.has(d))return;
           const ev=earningsDateMap.get(d);
           const xPx=xs.getPixelForValue(i);
-          const confirmed=ev.source==='gap-confirmed'||ev.gapPct>=3;
-          c.strokeStyle=confirmed?'rgba(255,165,2,0.75)':'rgba(255,165,2,0.35)';
-          c.lineWidth=confirmed?1.5:1;
-          c.setLineDash(confirmed?[]:[3,3]);
+          const isOverride=!!ev.isOverride;
+          const confirmed=ev.source==='gap-confirmed'||(ev.gapPct!=null&&ev.gapPct>=3);
+          c.strokeStyle=isOverride?'rgba(0,212,170,0.85)':confirmed?'rgba(255,165,2,0.75)':'rgba(255,165,2,0.35)';
+          c.lineWidth=isOverride?2:confirmed?1.5:1;
+          c.setLineDash(isOverride?[]:(confirmed?[]:[3,3]));
           c.beginPath();c.moveTo(xPx,ys.top);c.lineTo(xPx,ys.bottom);c.stroke();
           c.setLineDash([]);
         });

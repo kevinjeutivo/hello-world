@@ -125,7 +125,17 @@ async function loadTicker(){
         const sorted=results
           .filter((r,i,a)=>a.findIndex(x=>x.date===r.date)===i) // dedupe
           .sort((a,b)=>a.date.localeCompare(b.date));
-        if(sorted.length)S.set('earnings_hist_'+t,{data:sorted,ts:nowPT()});
+        if(sorted.length){
+          // Preserve any existing manual overrides before overwriting
+          const _existing=S.get('earnings_hist_'+t);
+          const _existingData=_existing?.data||[];
+          // Match overrides by approximate date proximity (±5 days)
+          sorted.forEach(entry=>{
+            const match=_existingData.find(old=>old.override&&Math.abs(new Date(old.override.date)-new Date(entry.date))<26*86400000);
+            if(match?.override)entry.override=match.override;
+          });
+          S.set('earnings_hist_'+t,{data:sorted,ts:nowPT()});
+        }
       }
     }catch{}
     // Backfill 52W high/low from Yahoo history when Finnhub values are null or were cleared as implausible

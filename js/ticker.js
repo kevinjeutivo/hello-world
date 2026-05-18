@@ -483,6 +483,27 @@ function renderBBChart(bbData,hist){
 
 // State for earnings overlay toggle -- persisted to localStorage
 function getRelPerfEarningsToggle(){return S.get('rp_earnings_toggle')!=='off';}
+function toggleRPSpan(span){
+  currentRPSpan=span;
+  ['6m','1y','2y'].forEach(s=>{
+    const btn=document.getElementById('rp-btn-'+s);
+    if(btn)btn.style.opacity=s===span?'1':'0.4';
+  });
+  const t=currentTicker;
+  const h2c=S.get('hist2y_'+t);
+  const spc=S.get('hist2y_sp500');
+  const ehc=S.get('earnings_hist_'+t);
+  if(h2c&&spc)renderRelPerfChart(t,
+    {timestamps:h2c.timestamps,closes:h2c.closes},
+    {timestamps:spc.timestamps,closes:spc.closes},
+    ehc?.data||null,span);
+  const titleEl=document.getElementById('rp-title-span');
+  if(titleEl){
+    const label=span==='6m'?'6 Months':span==='1y'?'1 Year':'2 Years';
+    titleEl.textContent='Relative Performance vs S\u0026P 500 ('+label+')';
+  }
+}
+
 function toggleRelPerfEarnings(){
   S.set('rp_earnings_toggle',getRelPerfEarningsToggle()?'off':'on');
   // Re-render by triggering chart update

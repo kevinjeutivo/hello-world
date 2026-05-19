@@ -561,6 +561,18 @@ function previewImport(){
   if(keys.tz_pref)lines.push('<div style="color:var(--text2);padding-left:10px">Timezone: '+keys.tz_pref+'</div>');
   if(keys.font_size)lines.push('<div style="color:var(--text2);padding-left:10px">Font size: '+keys.font_size+'px</div>');
   if(keys.finnhub_key)lines.push('<div style="color:var(--text2);padding-left:10px">Finnhub key: '+keys.finnhub_key.slice(0,6)+'••••••</div>');
+  if(keys.options_cutoff_et){
+    const cutoffHour=parseInt(keys.options_cutoff_et);
+    const cutoffLabel=cutoffHour>=12?(cutoffHour===12?'12:00 PM ET':((cutoffHour-12)+':00 PM ET')):(cutoffHour+':00 AM ET');
+    lines.push('<div style="color:var(--text2);padding-left:10px">Options cache cutoff: '+cutoffLabel+'</div>');
+  }
+  if(keys.conviction_weights){
+    try{
+      const cw=JSON.parse(keys.conviction_weights);
+      const cwStr=Object.entries(cw).map(([k,v])=>k+':'+v).join(', ');
+      lines.push('<div style="color:var(--text2);padding-left:10px">Conviction weights: '+cwStr+'</div>');
+    }catch{}
+  }
   lines.push('</div>');
 
   // Total key count

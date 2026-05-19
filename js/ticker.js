@@ -795,7 +795,7 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
   const earnToggleOpacity=getRelPerfEarningsToggle()?'1':'0.4';
   // Compute earnings pattern summary
   const earningsWithOvr=_getEarningsWithOverrides(ticker);
-  const effectiveHistory=earningsWithOvr.map(e=>({..._effectiveEarningsDate(e),gapPct:e.gapPct,_idx:earningsWithOvr.indexOf(e)}));
+  const effectiveHistory=earningsWithOvr.map(e=>({..._effectiveEarningsDate(e),gapPct:e.gapPct,direction:e.direction,_idx:earningsWithOvr.indexOf(e)}));
   const earnSummary=_computeEarningsPatternSummary(ticker,hist2y,hist2ySP,effectiveHistory);
 
   const _rpSpan=currentRPSpan||'2y';

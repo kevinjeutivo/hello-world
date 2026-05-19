@@ -607,6 +607,10 @@ Version: v2.9.0</div>
     <button class="btn btn-secondary" onclick="forceAppRefresh()">Force App Refresh</button>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Clears page cache, reloads latest version from GitHub. Your data is preserved.</div>
     <hr class="divider">
+    <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:#64b5f6"></span>Data Portability</div>
+    <button class="btn btn-secondary" onclick="openDataPortabilityModal()" style="width:100%;margin-bottom:6px">Export / Import App Data</button>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.5">Export your positions, earnings overrides, income inputs, and settings to a portable JSON backup. Import a previous backup to restore.</div>
+    <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--danger)"></span>Danger Zone</div>
     <button class="btn btn-secondary" onclick="clearMarketDataCache()" style="margin-bottom:8px;width:100%">Clear Market Data Cache</button>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px;line-height:1.5">Clears options chains, price history, and ticker snapshots only. Preserves your watchlist, positions, earnings overrides, income inputs, and all settings.</div>
@@ -804,6 +808,43 @@ v1.7 -- 2026-04-29
 - Offline Mode toggle in Settings: skips all network fetches when enabled (for flights)
 - Clear All safety guard: strong warning with offline detection prevents accidental data loss on airplane
 - Offline detection: fleeting banner when network fails, persists as indicator dot</div>
+  </div>
+</div>
+
+<!-- DATA PORTABILITY MODAL -->
+<div class="modal-overlay" id="data-portability-modal">
+  <div class="modal-box" style="max-width:480px;max-height:85vh;overflow-y:auto">
+    <div class="modal-title">Export / Import App Data</div>
+
+    <!-- EXPORT SECTION -->
+    <div style="margin-bottom:16px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Export</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.5">Your positions, earnings overrides, income inputs, and settings as portable JSON. Save to Notes, Files, or any app.</div>
+      <textarea id="export-textarea" readonly style="width:100%;height:100px;font-family:var(--mono);font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text3);padding:8px;resize:none;box-sizing:border-box" placeholder="Tap Generate Export to create your backup..."></textarea>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <button class="btn btn-secondary" style="flex:1;font-size:11px" onclick="generateExport()">Generate Export</button>
+        <button class="btn btn-secondary" style="flex:1;font-size:11px" id="copy-export-btn" onclick="copyExportToClipboard()" disabled>Copy to Clipboard</button>
+        <button class="btn btn-secondary" style="flex:1;font-size:11px" id="share-export-btn" onclick="shareExport()" disabled>Share...</button>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <!-- IMPORT SECTION -->
+    <div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Import</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.5">Paste a previously exported backup below, then preview before restoring.</div>
+      <textarea id="import-textarea" style="width:100%;height:100px;font-family:var(--mono);font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;resize:none;box-sizing:border-box" placeholder="Paste JSON backup here..."></textarea>
+      <div style="display:flex;gap:6px;margin-top:6px;margin-bottom:10px">
+        <button class="btn btn-secondary" style="flex:1;font-size:11px" onclick="previewImport()">Preview Import</button>
+        <button class="btn btn-primary" style="flex:1;font-size:11px" id="restore-btn" onclick="confirmImport()" disabled>Restore Data</button>
+      </div>
+      <div id="import-preview" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:var(--mono);font-size:10px;line-height:1.7"></div>
+    </div>
+
+    <div style="margin-top:12px">
+      <button class="btn btn-secondary" onclick="closeDataPortabilityModal()" style="width:100%">Close</button>
+    </div>
   </div>
 </div>
 
@@ -1057,4 +1098,4 @@ if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.se
 
 </body>
 </html>
-  
+        

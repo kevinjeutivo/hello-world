@@ -561,9 +561,21 @@ function previewImport(){
   if(keys.tz_pref)lines.push('<div style="color:var(--text2);padding-left:10px">Timezone: '+keys.tz_pref+'</div>');
   if(keys.font_size)lines.push('<div style="color:var(--text2);padding-left:10px">Font size: '+keys.font_size+'px</div>');
   if(keys.options_cutoff_et){
-    const cutoffHour=typeof keys.options_cutoff_et==='number'?keys.options_cutoff_et:parseInt(String(keys.options_cutoff_et));
-    const cutoffLabel=cutoffHour>=12?(cutoffHour===12?'12:00 PM ET':((cutoffHour-12)+':00 PM ET')):(cutoffHour+':00 AM ET');
-    lines.push('<div style="color:var(--text2);padding-left:10px">Options cache cutoff: '+cutoffLabel+'</div>');
+    const cutoffHourET=typeof keys.options_cutoff_et==='number'?keys.options_cutoff_et:parseInt(String(keys.options_cutoff_et));
+    // Display in user's timezone (same as Settings dropdown), not raw ET
+    try{
+      const _tz=typeof tzPref!=='undefined'?(tzPref==='PT'?'America/Los_Angeles':tzPref==='UTC'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone):'America/Los_Angeles';
+      const _tzLabel=typeof tzPref!=='undefined'?(tzPref==='UTC'?'UTC':tzPref==='local'?'local':'PT'):'PT';
+      const now=new Date();
+      const etStr=now.toLocaleDateString('en-US',{timeZone:'America/New_York'});
+      const [m,d,y]=etStr.split('/');
+      const pad=n=>String(n).padStart(2,'0');
+      const etDate=new Date(y+'-'+pad(m)+'-'+pad(d)+'T'+pad(cutoffHourET)+':00:00');
+      const displayLabel=etDate.toLocaleTimeString('en-US',{timeZone:_tz,hour:'numeric',minute:'2-digit',hour12:true});
+      lines.push('<div style="color:var(--text2);padding-left:10px">Options cache cutoff: '+displayLabel+' '+_tzLabel+'</div>');
+    }catch{
+      lines.push('<div style="color:var(--text2);padding-left:10px">Options cache cutoff: ET hour '+cutoffHourET+'</div>');
+    }
   }
   if(keys.conviction_weights){
     try{

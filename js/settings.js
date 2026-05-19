@@ -351,7 +351,7 @@ function clearAllDataConfirmed(){
 function clearMarketDataCache(){
   // Keys to preserve -- manually entered data and settings
   const PRESERVE=new Set([
-    'watchlist','finnhub_key','tz_pref','font_size','vix_threshold','offline_mode',
+    'watchlist','tz_pref','font_size','vix_threshold','offline_mode',
     'watchlist_sort','heatmap_mode','put_pos_sort','cc_pos_sort',
     'options_cutoff_et','rp_earnings_toggle','rp_span','bb_span',
     'income_inputs','income_mmf_yields','put_positions','cc_positions',
@@ -387,7 +387,7 @@ function clearMarketDataCache(){
 // ── Data Portability: Export / Import ────────────────────────────────────────
 
 const EXPORT_KEYS_STATIC=[
-  'watchlist','finnhub_key','tz_pref','font_size','vix_threshold',
+  'watchlist','tz_pref','font_size','vix_threshold',
   'offline_mode','watchlist_sort','heatmap_mode','put_pos_sort','cc_pos_sort',
   'options_cutoff_et','rp_earnings_toggle','conviction_weights',
   'put_positions','cc_positions','vol_badge_state','last_ticker',
@@ -560,7 +560,6 @@ function previewImport(){
   lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">SETTINGS</span>');
   if(keys.tz_pref)lines.push('<div style="color:var(--text2);padding-left:10px">Timezone: '+keys.tz_pref+'</div>');
   if(keys.font_size)lines.push('<div style="color:var(--text2);padding-left:10px">Font size: '+keys.font_size+'px</div>');
-  if(keys.finnhub_key)lines.push('<div style="color:var(--text2);padding-left:10px">Finnhub key: '+keys.finnhub_key.slice(0,6)+'••••••</div>');
   if(keys.options_cutoff_et){
     const cutoffHour=parseInt(keys.options_cutoff_et);
     const cutoffLabel=cutoffHour>=12?(cutoffHour===12?'12:00 PM ET':((cutoffHour-12)+':00 PM ET')):(cutoffHour+':00 AM ET');

@@ -396,15 +396,15 @@ const EXPORT_KEYS_STATIC=[
 
 function _buildExportData(){
   const data={_version:'1.0',_exportedAt:new Date().toISOString(),keys:{}};
-  // Static keys
+  // Use S.get which JSON.parses the stored value -- avoids double-stringified values
   EXPORT_KEYS_STATIC.forEach(k=>{
-    const v=localStorage.getItem(k);
+    const v=S.get(k);
     if(v!=null)data.keys[k]=v;
   });
   // Per-ticker earnings history (contains overrides)
   const wl=S.get('watchlist')||[];
   wl.forEach(t=>{
-    const eh=localStorage.getItem('earnings_hist_'+t);
+    const eh=S.get('earnings_hist_'+t);
     if(eh!=null)data.keys['earnings_hist_'+t]=eh;
   });
   return data;
@@ -482,7 +482,7 @@ function previewImport(){
 
   // Watchlist
   try{
-    const wl=JSON.parse(keys.watchlist||'[]');
+    const wl=Array.isArray(keys.watchlist)?keys.watchlist:(JSON.parse(keys.watchlist||'[]'));
     lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">WATCHLIST ('+wl.length+' tickers)</span>');
     lines.push('<div style="color:var(--text2);padding-left:10px">'+wl.join(', ')+'</div></div>');
   }catch{}
@@ -493,7 +493,7 @@ function previewImport(){
     if(!k.startsWith('earnings_hist_'))return;
     const ticker=k.replace('earnings_hist_','');
     try{
-      const hist=JSON.parse(v);
+      const hist=(v&&typeof v==='object')?v:JSON.parse(v);
       const overrides=(hist.data||[]).filter(e=>e.override);
       if(overrides.length){
         earningsSummary.push('<div style="color:var(--text2);padding-left:10px">'+
@@ -511,7 +511,7 @@ function previewImport(){
 
   // Put positions
   try{
-    const puts=JSON.parse(keys.put_positions||'[]');
+    const puts=Array.isArray(keys.put_positions)?keys.put_positions:(JSON.parse(keys.put_positions||'[]'));
     if(puts.length){
       lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">PUT POSITIONS ('+puts.length+')</span>');
       puts.forEach(p=>{
@@ -525,7 +525,7 @@ function previewImport(){
 
   // CC positions
   try{
-    const ccs=JSON.parse(keys.cc_positions||'[]');
+    const ccs=Array.isArray(keys.cc_positions)?keys.cc_positions:(JSON.parse(keys.cc_positions||'[]'));
     if(ccs.length){
       lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">COVERED CALL POSITIONS ('+ccs.length+')</span>');
       ccs.forEach(p=>{
@@ -540,7 +540,7 @@ function previewImport(){
 
   // Income inputs
   try{
-    const inc=JSON.parse(keys.income_inputs||'{}');
+    const inc=(keys.income_inputs&&typeof keys.income_inputs==='object')?keys.income_inputs:(JSON.parse(keys.income_inputs||'{}'));
     const hasIncome=inc.tbillAmt||inc.fdlxxAmt||inc.spaxxAmt||inc.spyiShares||inc.nbosShares;
     if(hasIncome){
       lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">INCOME ENGINE</span>');
@@ -561,13 +561,13 @@ function previewImport(){
   if(keys.tz_pref)lines.push('<div style="color:var(--text2);padding-left:10px">Timezone: '+keys.tz_pref+'</div>');
   if(keys.font_size)lines.push('<div style="color:var(--text2);padding-left:10px">Font size: '+keys.font_size+'px</div>');
   if(keys.options_cutoff_et){
-    const cutoffHour=parseInt(keys.options_cutoff_et);
+    const cutoffHour=typeof keys.options_cutoff_et==='number'?keys.options_cutoff_et:parseInt(String(keys.options_cutoff_et));
     const cutoffLabel=cutoffHour>=12?(cutoffHour===12?'12:00 PM ET':((cutoffHour-12)+':00 PM ET')):(cutoffHour+':00 AM ET');
     lines.push('<div style="color:var(--text2);padding-left:10px">Options cache cutoff: '+cutoffLabel+'</div>');
   }
   if(keys.conviction_weights){
     try{
-      const cw=JSON.parse(keys.conviction_weights);
+      const cw=(keys.conviction_weights&&typeof keys.conviction_weights==='object')?keys.conviction_weights:JSON.parse(keys.conviction_weights);
       const cwStr=Object.entries(cw).map(([k,v])=>k+':'+v).join(', ');
       lines.push('<div style="color:var(--text2);padding-left:10px">Conviction weights: '+cwStr+'</div>');
     }catch{}
@@ -589,7 +589,7 @@ function confirmImport(){
   const keys=_parsedImportData.keys;
   let count=0;
   Object.entries(keys).forEach(([k,v])=>{
-    try{localStorage.setItem(k,v);count++;}catch(e){console.warn('Import failed for key',k,e);}
+    try{S.set(k,v);count++;}catch(e){console.warn('Import failed for key',k,e);}
   });
   _parsedImportData=null;
   document.getElementById('restore-btn').disabled=true;

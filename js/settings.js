@@ -384,10 +384,213 @@ function clearMarketDataCache(){
   toast('Market data cache cleared ('+toDelete.length+' keys). Run a full refresh to repopulate.',4000);
 }
 
+// ── Data Portability: Export / Import ────────────────────────────────────────
+
+const EXPORT_KEYS_STATIC=[
+  'watchlist','finnhub_key','tz_pref','font_size','vix_threshold',
+  'offline_mode','watchlist_sort','heatmap_mode','put_pos_sort','cc_pos_sort',
+  'options_cutoff_et','rp_earnings_toggle','conviction_weights',
+  'put_positions','cc_positions','vol_badge_state','last_ticker',
+  'income_inputs','income_mmf_yields','income_ts',
+];
+
+function _buildExportData(){
+  const data={_version:'1.0',_exportedAt:new Date().toISOString(),keys:{}};
+  // Static keys
+  EXPORT_KEYS_STATIC.forEach(k=>{
+    const v=localStorage.getItem(k);
+    if(v!=null)data.keys[k]=v;
+  });
+  // Per-ticker earnings history (contains overrides)
+  const wl=S.get('watchlist')||[];
+  wl.forEach(t=>{
+    const eh=localStorage.getItem('earnings_hist_'+t);
+    if(eh!=null)data.keys['earnings_hist_'+t]=eh;
+  });
+  return data;
+}
+
+function openDataPortabilityModal(){
+  // Reset state
+  document.getElementById('export-textarea').value='';
+  document.getElementById('import-textarea').value='';
+  document.getElementById('import-preview').style.display='none';
+  document.getElementById('import-preview').innerHTML='';
+  document.getElementById('restore-btn').disabled=true;
+  document.getElementById('copy-export-btn').disabled=true;
+  document.getElementById('share-export-btn').disabled=true;
+  document.getElementById('data-portability-modal').classList.add('open');
+}
+
+function closeDataPortabilityModal(){
+  document.getElementById('data-portability-modal').classList.remove('open');
+}
+
+function generateExport(){
+  const data=_buildExportData();
+  const json=JSON.stringify(data,null,2);
+  const ta=document.getElementById('export-textarea');
+  ta.value=json;
+  const keyCount=Object.keys(data.keys).length;
+  document.getElementById('copy-export-btn').disabled=false;
+  document.getElementById('share-export-btn').disabled=false;
+  toast('Export ready — '+keyCount+' keys',2500);
+}
+
+function copyExportToClipboard(){
+  const json=document.getElementById('export-textarea').value;
+  if(!json){toast('Generate export first');return;}
+  navigator.clipboard.writeText(json).then(()=>toast('Copied to clipboard ✓',2500)).catch(()=>{
+    // Fallback: select all text in textarea
+    const ta=document.getElementById('export-textarea');
+    ta.select();ta.setSelectionRange(0,999999);
+    document.execCommand('copy');
+    toast('Copied to clipboard ✓',2500);
+  });
+}
+
+function shareExport(){
+  const json=document.getElementById('export-textarea').value;
+  if(!json){toast('Generate export first');return;}
+  const ts=new Date().toISOString().split('T')[0];
+  if(navigator.share){
+    navigator.share({title:'PutSeller Pro Backup '+ts,text:json})
+      .catch(e=>{if(e.name!=='AbortError')toast('Share failed: '+e.message);});
+  }else{
+    toast('Share not available — use Copy to Clipboard instead');
+  }
+}
+
+// ── Import preview ────────────────────────────────────────────────────────────
+
+let _parsedImportData=null;
+
+function previewImport(){
+  const raw=document.getElementById('import-textarea').value.trim();
+  if(!raw){toast('Paste JSON backup first');return;}
+  let parsed;
+  try{parsed=JSON.parse(raw);}catch(e){toast('Invalid JSON — could not parse backup');return;}
+  if(!parsed.keys||typeof parsed.keys!=='object'){toast('Invalid backup format — missing keys');return;}
+  _parsedImportData=parsed;
+
+  const keys=parsed.keys;
+  const lines=[];
+
+  // Header
+  const exportedAt=parsed._exportedAt?new Date(parsed._exportedAt).toLocaleString('en-US',{timeZone:tzPref==='PT'?'America/Los_Angeles':tzPref==='UTC'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone}):'unknown';
+  lines.push('<div style="color:var(--accent);font-weight:700;margin-bottom:8px">Backup from: '+exportedAt+'</div>');
+
+  // Watchlist
+  try{
+    const wl=JSON.parse(keys.watchlist||'[]');
+    lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">WATCHLIST ('+wl.length+' tickers)</span>');
+    lines.push('<div style="color:var(--text2);padding-left:10px">'+wl.join(', ')+'</div></div>');
+  }catch{}
+
+  // Earnings overrides
+  const earningsSummary=[];
+  Object.entries(keys).forEach(([k,v])=>{
+    if(!k.startsWith('earnings_hist_'))return;
+    const ticker=k.replace('earnings_hist_','');
+    try{
+      const hist=JSON.parse(v);
+      const overrides=(hist.data||[]).filter(e=>e.override);
+      if(overrides.length){
+        earningsSummary.push('<div style="color:var(--text2);padding-left:10px">'+
+          ticker+': '+overrides.length+' override'+(overrides.length>1?'s':'')+' — '+
+          overrides.map(e=>e.override.date+(e.override.hour?' '+e.override.hour.toUpperCase():'')).join(', ')+
+        '</div>');
+      }
+    }catch{}
+  });
+  if(earningsSummary.length){
+    lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">EARNINGS DATE OVERRIDES</span>');
+    lines.push(earningsSummary.join(''));
+    lines.push('</div>');
+  }
+
+  // Put positions
+  try{
+    const puts=JSON.parse(keys.put_positions||'[]');
+    if(puts.length){
+      lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">PUT POSITIONS ('+puts.length+')</span>');
+      puts.forEach(p=>{
+        lines.push('<div style="color:var(--text2);padding-left:10px">'+
+          p.ticker+' $'+p.strike+' put · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
+        '</div>');
+      });
+      lines.push('</div>');
+    }
+  }catch{}
+
+  // CC positions
+  try{
+    const ccs=JSON.parse(keys.cc_positions||'[]');
+    if(ccs.length){
+      lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">COVERED CALL POSITIONS ('+ccs.length+')</span>');
+      ccs.forEach(p=>{
+        lines.push('<div style="color:var(--text2);padding-left:10px">'+
+          p.ticker+' $'+p.strike+' call · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
+          ' · written @ $'+p.stockPriceAtWrite+
+        '</div>');
+      });
+      lines.push('</div>');
+    }
+  }catch{}
+
+  // Income inputs
+  try{
+    const inc=JSON.parse(keys.income_inputs||'{}');
+    const hasIncome=inc.tbillAmt||inc.fdlxxAmt||inc.spaxxAmt||inc.spyiShares||inc.nbosShares;
+    if(hasIncome){
+      lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">INCOME ENGINE</span>');
+      if(inc.tbillAmt)lines.push('<div style="color:var(--text2);padding-left:10px">T-Bills: $'+Number(inc.tbillAmt).toLocaleString()+'</div>');
+      if(inc.fdlxxAmt)lines.push('<div style="color:var(--text2);padding-left:10px">FDLXX: $'+Number(inc.fdlxxAmt).toLocaleString()+'</div>');
+      if(inc.spaxxAmt)lines.push('<div style="color:var(--text2);padding-left:10px">SPAXX: $'+Number(inc.spaxxAmt).toLocaleString()+'</div>');
+      if(inc.spyiShares)lines.push('<div style="color:var(--text2);padding-left:10px">SPYI: '+inc.spyiShares+' shares</div>');
+      if(inc.nbosShares)lines.push('<div style="color:var(--text2);padding-left:10px">NBOS: '+inc.nbosShares+' shares</div>');
+      if(inc.putsNotional)lines.push('<div style="color:var(--text2);padding-left:10px">Manual put notional: $'+Number(inc.putsNotional).toLocaleString()+'</div>');
+      if(inc.ccStockAmt)lines.push('<div style="color:var(--text2);padding-left:10px">Manual CC stock: $'+Number(inc.ccStockAmt).toLocaleString()+'</div>');
+      if(inc.targetAPY)lines.push('<div style="color:var(--text2);padding-left:10px">Target APY: '+inc.targetAPY+'%</div>');
+      lines.push('</div>');
+    }
+  }catch{}
+
+  // Settings
+  lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">SETTINGS</span>');
+  if(keys.tz_pref)lines.push('<div style="color:var(--text2);padding-left:10px">Timezone: '+keys.tz_pref+'</div>');
+  if(keys.font_size)lines.push('<div style="color:var(--text2);padding-left:10px">Font size: '+keys.font_size+'px</div>');
+  if(keys.finnhub_key)lines.push('<div style="color:var(--text2);padding-left:10px">Finnhub key: '+keys.finnhub_key.slice(0,6)+'••••••</div>');
+  lines.push('</div>');
+
+  // Total key count
+  lines.push('<div style="color:var(--text3);margin-top:4px;border-top:1px solid var(--border);padding-top:6px">'+Object.keys(keys).length+' keys total in backup.</div>');
+
+  const preview=document.getElementById('import-preview');
+  preview.innerHTML=lines.join('');
+  preview.style.display='block';
+  document.getElementById('restore-btn').disabled=false;
+  toast('Preview ready — verify data below then tap Restore',3000);
+}
+
+function confirmImport(){
+  if(!_parsedImportData?.keys){toast('No valid backup to restore');return;}
+  const keys=_parsedImportData.keys;
+  let count=0;
+  Object.entries(keys).forEach(([k,v])=>{
+    try{localStorage.setItem(k,v);count++;}catch(e){console.warn('Import failed for key',k,e);}
+  });
+  _parsedImportData=null;
+  document.getElementById('restore-btn').disabled=true;
+  document.getElementById('import-preview').style.display='none';
+  document.getElementById('import-textarea').value='';
+  closeDataPortabilityModal();
+  toast('Restored '+count+' keys. Reload the app to apply.',4000);
+}
+
 function forceAppRefresh(){
   // reload() without true so the SW intercepts the reload and serves
   // files from its fresh cache. reload(true) bypasses the SW on iOS Safari.
   if('caches'in window){caches.keys().then(keys=>{Promise.all(keys.map(k=>caches.delete(k))).then(()=>{toast('Cache cleared -- reloading...',2500);setTimeout(()=>window.location.reload(),2500);});});}
   else{window.location.reload();}
 }
-    

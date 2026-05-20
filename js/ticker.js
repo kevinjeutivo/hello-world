@@ -421,7 +421,10 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
     ${tsChip(snap.ts,isLive)}
     <div style="font-family:var(--mono);font-size:28px;font-weight:500;margin-bottom:4px">$${snap.price?.toFixed(2)||'N/A'}</div>
     <div style="font-family:var(--mono);font-size:13px;color:${chgColor};margin-bottom:6px">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>
-    ${(()=>{const _ms=getMarketState().state;const _show=snap.postMarketPrice&&snap.postMarketPrice!==snap.price&&_ms!=='open';if(!_show)return'';const _label=snap.marketState==='PRE'?'Pre-market':'After-hours';return`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarketPrice>snap.price?'var(--green)':'var(--red)'};margin-bottom:8px">${_label}: $${snap.postMarketPrice.toFixed(2)}${snap.postMarketChange?` <span style="font-size:11px">${snap.postMarketChange>=0?'+':''}${snap.postMarketChange.toFixed(2)} (${snap.postMarketChange>=0?'+':''}${snap.postMarketChangePct?.toFixed(2)||'0.00'}%)</span>`:''} <span style="font-size:10px;color:var(--text3)">(${snap.marketState||'extended'})</span></div>`;})()}
+    ${(()=>{const _ms=getMarketState().state;const _isPre=_ms==='premarket';const _isOpen=_ms==='open';if(_isOpen||_isPre)return''; // suppress during open session and premarket
+if(!snap.postMarketPrice||snap.postMarketPrice===snap.price)return'';
+const _label=snap.marketState==='PRE'?'Pre-market':'After-hours';
+return`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarketPrice>snap.price?'var(--green)':'var(--red)'};margin-bottom:8px">${_label}: $${snap.postMarketPrice.toFixed(2)}${snap.postMarketChange?` <span style="font-size:11px">${snap.postMarketChange>=0?'+':''}${snap.postMarketChange.toFixed(2)} (${snap.postMarketChange>=0?'+':''}${snap.postMarketChangePct?.toFixed(2)||'0.00'}%)</span>`:''} <span style="font-size:10px;color:var(--text3)">(${snap.marketState||'extended'})</span></div>`;})()}
     <div class="metrics-grid">
       <div class="metric-tile"><div class="metric-label">52W High</div><div class="metric-value" style="font-size:13px">$${snap.week52High?.toFixed(2)||'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">52W Low</div><div class="metric-value" style="font-size:13px">$${snap.week52Low?.toFixed(2)||'N/A'}</div></div>
@@ -697,51 +700,53 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
     const idx=allDates.indexOf(eDate);
     if(idx<5)return; // not enough prior data
 
-    // Prior close (day before earnings)
-    const priorDate=allDates[idx-1];
-    const priorClose=stockMap[priorDate];
-    if(!priorClose)return;
-
-    // Day-of close
-    const dayOfClose=stockMap[eDate];
-
-    // Next day close (for AMC gap)
-    const nextDate=allDates[idx+1];
-    const nextClose=nextDate?stockMap[nextDate]:null;
-
-    // 5-day post close
-    const post5Date=allDates[idx+5];
-    const post5Close=post5Date?stockMap[post5Date]:null;
-
-    // S&P moves for same windows
-    const spPrior=spMap[priorDate];
-    const spDayOf=spMap[eDate];
-    const spPost5=post5Date?spMap[post5Date]:null;
-
-    // Use gap detection direction if available, otherwise compute from prices
     const hour=e.hour||'';
     const isAMC=hour==='amc';
-    // If from gap-detection, gapPct and direction are already computed
-    // For gap-detected events, use actual day-of close as base for post5 calculation
-    // reactionClose: the price we use as the base for post5 drift calculation
-    // For gap-detected events, use dayOfClose (or nextClose for AMC) from price map
-    const reactionClose=isAMC?(nextClose||dayOfClose):dayOfClose;
-    const reactionPct=e.gapPct!=null
-      ?(e.direction==='up'?e.gapPct:-e.gapPct)
-      :(reactionClose&&priorClose?((reactionClose-priorClose)/priorClose*100):null);
-    const spReactionClose=isAMC?(spMap[nextDate]||spDayOf):spDayOf;
-    const spReactionPct=(spReactionClose&&spPrior)?((spReactionClose-spPrior)/spPrior*100):null;
-    const excessReaction=reactionPct!=null&&spReactionPct!=null?reactionPct-spReactionPct:null;
 
-    // 5-day post excess return -- guard against null/zero base
-    const post5Pct=(post5Close&&reactionClose&&reactionClose>0)?((post5Close-reactionClose)/reactionClose*100):null;
-    const spPost5Pct=(spPost5&&spReactionClose)?((spPost5-spReactionClose)/spReactionClose*100):null;
-    const excessPost5=post5Pct!=null&&spPost5Pct!=null?post5Pct-spPost5Pct:null;
+    // Daily return helper: pct change from closeA to closeB
+    const dr=(a,b)=>(a&&b&&a>0)?((b-a)/a*100):null;
+
+    // Price lookups around earnings date
+    const p_m2=stockMap[allDates[idx-2]]; const sp_m2=spMap[allDates[idx-2]];
+    const p_m1=stockMap[allDates[idx-1]]; const sp_m1=spMap[allDates[idx-1]];
+    const p_0=stockMap[eDate];            const sp_0=spMap[eDate];
+    const p_p1=stockMap[allDates[idx+1]]; const sp_p1=spMap[allDates[idx+1]];
+    const p_p2=stockMap[allDates[idx+2]]; const sp_p2=spMap[allDates[idx+2]];
+
+    if(!p_m1)return;
+
+    // ── AMC (announced after close on D) ─────────────────────────────────────
+    // Pre-session:  D return   (trading on announcement day before news released)
+    // Reaction:     D+1 return (market digests earnings -- primary reaction day)
+    // Post:         D+2 return (follow-through)
+    //
+    // ── BMO (announced before open on D) ─────────────────────────────────────
+    // Pre-session:  D-1 return (pre-earnings drift day)
+    // Reaction:     D return   (market opens knowing results -- primary reaction day)
+    // Post:         D+1 return (follow-through)
+
+    let preDayRet,preDaySPRet,reactionPct,spReactionPct,postDayRet,postDaySPRet;
+
+    if(isAMC){
+      preDayRet=dr(p_m1,p_0);    preDaySPRet=dr(sp_m1,sp_0);
+      reactionPct=dr(p_0,p_p1);  spReactionPct=dr(sp_0,sp_p1);
+      postDayRet=dr(p_p1,p_p2);  postDaySPRet=dr(sp_p1,sp_p2);
+    }else{
+      // BMO or unknown -- reaction on D
+      preDayRet=dr(p_m2,p_m1);   preDaySPRet=dr(sp_m2,sp_m1);
+      reactionPct=dr(p_m1,p_0);  spReactionPct=dr(sp_m1,sp_0);
+      postDayRet=dr(p_0,p_p1);   postDaySPRet=dr(sp_0,sp_p1);
+    }
+
+    const excessReaction=reactionPct!=null&&spReactionPct!=null?reactionPct-spReactionPct:null;
+    const excessPre=preDayRet!=null&&preDaySPRet!=null?preDayRet-preDaySPRet:null;
+    const excessPost=postDayRet!=null&&postDaySPRet!=null?postDayRet-postDaySPRet:null;
 
     events.push({
       date:eDate,hour,
       reactionPct,spReactionPct,excessReaction,
-      post5Pct,spPost5Pct,excessPost5,
+      preDayRet,excessPre,
+      postDayRet,excessPost,
       beat:e.epsActual!=null&&e.epsEstimate!=null?e.epsActual>e.epsEstimate:null
     });
   });
@@ -751,7 +756,8 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
   // Aggregate
   const validReaction=events.filter(e=>e.reactionPct!=null);
   const validExcess=events.filter(e=>e.excessReaction!=null);
-  const validPost5=events.filter(e=>e.excessPost5!=null);
+  const validPre=events.filter(e=>e.preDayRet!=null);
+  const validPost=events.filter(e=>e.postDayRet!=null);
 
   if(!validReaction.length)return null;
 
@@ -759,36 +765,46 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
   const avgReaction=avg(validReaction.map(e=>e.reactionPct));
   const avgAbsReaction=avg(validReaction.map(e=>Math.abs(e.reactionPct)));
   const avgExcess=validExcess.length?avg(validExcess.map(e=>e.excessReaction)):null;
-  const avgExcessPost5=validPost5.length?avg(validPost5.map(e=>e.excessPost5)):null;
+  const avgPre=validPre.length>=2?avg(validPre.map(e=>e.preDayRet)):null;
+  const avgPost=validPost.length>=2?avg(validPost.map(e=>e.postDayRet)):null;
   const upCount=validReaction.filter(e=>e.reactionPct>0).length;
-  const downCount=validReaction.filter(e=>e.reactionPct<0).length;
   const n=validReaction.length;
 
-  // Build summary text
   const fmtPct=v=>(v>=0?'+':'')+v.toFixed(1)+'%';
   const dirText=avgReaction>1?'tends to rally':avgReaction<-1?'tends to fall':'shows mixed reaction';
-  const excessText=avgExcess!=null?(avgExcess>1?', outperforming the S&P by avg '+fmtPct(avgExcess):avgExcess<-1?', underperforming the S&P by avg '+fmtPct(Math.abs(avgExcess)):''):'' ;
-  const post5Text=avgExcessPost5!=null&&validPost5.length>=3?(avgExcessPost5>1?' Post-earnings drift: +'+avgExcessPost5.toFixed(1)+'% excess vs S&P over following 5 days.':avgExcessPost5<-1?' Post-earnings drift: '+avgExcessPost5.toFixed(1)+'% excess vs S&P over following 5 days.':''):'';
+  const excessText=avgExcess!=null?(avgExcess>1?', outperforming S&P by avg '+fmtPct(avgExcess):avgExcess<-1?', underperforming S&P by avg '+fmtPct(Math.abs(avgExcess)):''):'';
+  const preText=avgPre!=null?(avgPre>0.5?' Pre-session typically drifts +'+avgPre.toFixed(1)+'%.':avgPre<-0.5?' Pre-session typically drifts '+avgPre.toFixed(1)+'%.':' Pre-session typically flat.'):'';
+  const postText=avgPost!=null?(avgPost>0.5?' Follow-through day avg +'+avgPost.toFixed(1)+'%.':avgPost<-0.5?' Follow-through day avg '+avgPost.toFixed(1)+'%.':''):'';
 
   // Show all events newest-first in a scrollable area
   const rows=events.slice().reverse().map(e=>{
-    const col=e.reactionPct==null?'var(--text3)':e.reactionPct>0?'var(--green)':'var(--red)';
+    const rxCol=e.reactionPct==null?'var(--text3)':e.reactionPct>0?'var(--green)':'var(--red)';
+    const preCol=e.preDayRet==null?'var(--text3)':e.preDayRet>0?'var(--green)':'var(--red)';
     const rxStr=e.reactionPct!=null?fmtPct(e.reactionPct):'N/A';
-    const exStr=e.excessReaction!=null?fmtPct(e.excessReaction):'';
+    const exStr=e.excessReaction!=null?' exc '+fmtPct(e.excessReaction):'';
+    const preStr=e.preDayRet!=null?fmtPct(e.preDayRet):'';
+    const postStr=e.postDayRet!=null?fmtPct(e.postDayRet):'';
     const srcLabel=e.source==='gap-confirmed'?'':'<span style="color:var(--text3);font-size:8px"> ~est</span>';
-    return `<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
-      <span style="color:var(--text3)">${e.date}${e.hour?' ('+e.hour+')':''}${srcLabel}</span>
-      <span style="color:${col}">${rxStr}${exStr?' <span style="color:var(--text3);font-size:9px">exc '+exStr+'</span>':''}</span>
+    const hourLabel=e.hour?' '+e.hour.toUpperCase():'';
+    return `<div style="font-family:var(--mono);font-size:10px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+      <div style="display:flex;justify-content:space-between">
+        <span style="color:var(--text3)">${e.date}${hourLabel}${srcLabel}</span>
+        <span style="color:${rxCol};font-weight:600">${rxStr}<span style="font-size:9px;font-weight:400;color:var(--text3)">${exStr}</span></span>
+      </div>
+      ${preStr||postStr?`<div style="display:flex;gap:16px;padding-left:8px">
+        ${preStr?`<span style="color:${preCol};font-size:9px">pre: ${preStr}</span>`:''}
+        ${postStr?`<span style="color:var(--text3);font-size:9px">post: ${postStr}</span>`:''}
+      </div>`:''}
     </div>`;
   }).join('');
 
   return `<div style="font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.6;margin-bottom:8px">
     <strong style="color:var(--text)">${ticker} earnings pattern (${n} events):</strong>
-    ${dirText} on earnings day — avg ${fmtPct(avgReaction)} (±${avgAbsReaction.toFixed(1)}% typical move)${excessText}. Up ${upCount}/${n} times.${post5Text}
+    ${dirText} on reaction day — avg ${fmtPct(avgReaction)} (±${avgAbsReaction.toFixed(1)}% typical)${excessText}. Up ${upCount}/${n} times.${preText}${postText}
   </div>
-  <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">Earnings reactions — stock move &amp; excess vs S&P (&#x25CF; gap-confirmed, ~est = estimated):</div>
+  <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">Reaction day · pre-session · follow-through (&#x25CF;=confirmed, ~est=estimated):</div>
   <div style="max-height:180px;overflow-y:auto;">${rows}</div>
-  <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:4px">Based on ${n} quarters of daily price data. Small sample — use as context, not prediction.</div>`;
+  <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:4px">Based on ${n} quarters of daily price data. BMO=reaction on announcement day, AMC=reaction day after. Small sample — use as context, not prediction.</div>`;
 }
 
 function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){

@@ -139,11 +139,18 @@ async function fetchAfterHoursPrice(symbol){
     const postPrice=q.postMarketPrice||null;
     const prePrice=q.preMarketPrice||null;
     const isExtended=marketState==='PRE'||marketState==='POST'||marketState==='POSTPOST';
-    const extPrice=isExtended?(marketState==='PRE'?prePrice:postPrice):null;
+    // During CLOSED (overnight): preserve whatever postMarketPrice Yahoo returns
+    // so after-hours price lingers until premarket clears it.
+    // During REGULAR: always null (suppressed).
+    // During PRE: use preMarketPrice.
+    const isClosed=marketState==='CLOSED';
+    const extPrice=marketState==='REGULAR'?null:
+      isExtended?(marketState==='PRE'?prePrice:postPrice):
+      isClosed?postPrice:null; // overnight: keep last known after-hours price
     return{
       postMarketPrice:extPrice,
-      postMarketChange:isExtended?(marketState==='PRE'?q.preMarketChange:q.postMarketChange):null,
-      postMarketChangePct:isExtended?(marketState==='PRE'?q.preMarketChangePercent:q.postMarketChangePercent):null,
+      postMarketChange:isExtended?(marketState==='PRE'?q.preMarketChange:q.postMarketChange):(isClosed?q.postMarketChange||null:null),
+      postMarketChangePct:isExtended?(marketState==='PRE'?q.preMarketChangePercent:q.postMarketChangePercent):(isClosed?q.postMarketChangePercent||null:null),
       marketState,
       hasExtended:!!extPrice,
       intradayVolume:q.regularMarketVolume||null,

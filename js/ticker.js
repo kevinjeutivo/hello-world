@@ -32,7 +32,27 @@ async function loadTicker(){
         }
       }
       S.set('snap_'+t,snap);S.set('rec_'+t,{data:recData||null,ts:nowPT()});S.set('upgrades_'+t,{data:upgradeData||[],ts:nowPT()});
-      try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;if(ah.intradayVolume!=null)snap.intradayVolume=ah.intradayVolume;
+      try{const ah=await fetchAfterHoursPrice(t);if(ah){
+        // Preserve after-hours price through overnight until premarket --
+        // Yahoo stops returning postMarketPrice once CLOSED, so only overwrite
+        // with null if we're actually in a live extended or regular session.
+        const _ahMs=ah.marketState||'';
+        const _isLiveSession=_ahMs==='PRE'||_ahMs==='POST'||_ahMs==='POSTPOST'||_ahMs==='REGULAR';
+        if(_ahMs==='PRE'){
+          // Premarket started -- clear lingered after-hours price, show pre-market price instead
+          snap.postMarketPrice=ah.postMarketPrice;
+          snap.postMarketChange=ah.postMarketChange||null;
+          snap.postMarketChangePct=ah.postMarketChangePct||null;
+        }else if(_isLiveSession||ah.postMarketPrice){
+          snap.postMarketPrice=ah.postMarketPrice;
+          snap.postMarketChange=ah.postMarketChange||null;
+          snap.postMarketChangePct=ah.postMarketChangePct||null;
+        }
+        // CLOSED overnight: postMarketPrice preserved from previous fetch
+        // Always update marketState and other fields
+        snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;
+        if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;
+        if(ah.intradayVolume!=null)snap.intradayVolume=ah.intradayVolume;
       }}catch{}
       // Fetch enriched data from Yahoo quoteSummary (4 modules in one call)
       try{
@@ -1176,7 +1196,17 @@ async function refreshSingleTicker(){
       ts:nowPT(),isLive:true};
     // Step 2: Yahoo quote for forwardPE and EPS
     setP(20,'Fetching '+t+' extended quote...');
-    try{const ah=await fetchAfterHoursPrice(t);if(ah){snap.postMarketPrice=ah.postMarketPrice;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!=null)snap.epsTTM=ah.trailingEps;if(ah.intradayVolume!=null)snap.intradayVolume=ah.intradayVolume;
+    try{const ah=await fetchAfterHoursPrice(t);if(ah){
+        const _ahMs2=ah.marketState||'';
+        const _isLive2=_ahMs2==='PRE'||_ahMs2==='POST'||_ahMs2==='POSTPOST'||_ahMs2==='REGULAR';
+        if(_isLive2||ah.postMarketPrice){
+          snap.postMarketPrice=ah.postMarketPrice;
+          snap.postMarketChange=ah.postMarketChange||null;
+          snap.postMarketChangePct=ah.postMarketChangePct||null;
+        }
+        snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;
+        if(ah.trailingEps!=null)snap.epsTTM=ah.trailingEps;
+        if(ah.intradayVolume!=null)snap.intradayVolume=ah.intradayVolume;
       }}catch{}
       try{const qs=await fetchQuoteSummary(t);if(qs){
         if(qs.ptMean){snap.ptMean=qs.ptMean;snap.ptHigh=qs.ptHigh||null;snap.ptLow=qs.ptLow||null;snap.ptAnalysts=qs.ptAnalysts||null;}

@@ -197,7 +197,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v2.9.0</span>
+      <span>Options Income Strategy v3.0.0</span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -336,6 +336,17 @@ a{color:inherit}
 <div id="tab-etf" class="tab-panel">
   <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Options Income ETFs</div><div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">SPYI (covered calls on S&amp;P 500) and NBOS (put-writing strategy). Monthly distributions tracked.</div><button class="btn btn-secondary" onclick="loadETFTab()">Refresh ETF Data</button></div>
   <div id="etf-content"><div class="empty"><div class="empty-icon">&#x1F4B0;</div>Press Refresh to load ETF data</div></div>
+
+  <!-- ETF RESEARCH SANDBOX -->
+  <div style="margin-top:16px">
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">&#x1F9EA; ETF Research Sandbox</div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px;line-height:1.5">Analyze any ETF for comparison with SPYI and NBOS. Sandbox data is never included in income calculations. Up to 5 ETFs.</div>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <input id="sb-input" class="input" type="text" placeholder="e.g. GPIQ, YMAX, JEPI" style="flex:1;text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+      <button class="btn btn-secondary" onclick="sbAnalyze()" style="white-space:nowrap">Analyze ETF</button>
+    </div>
+    <div id="sb-tiles"></div>
+  </div>
 </div>
 
 <!-- MARKET TAB -->
@@ -407,7 +418,7 @@ VIX backwardation (VIX above VIX3M): historically strong time to sell puts</div>
 
 Offline: all data cached to localStorage -- full functionality after first prefetch
 Worker: configured in Settings (Cloudflare Worker proxy for Yahoo Finance)
-Version: v2.9.0</div>
+Version: v3.0.0</div>
   </div>
 </div>
 
@@ -628,6 +639,9 @@ Version: v2.9.0</div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
     <div class="commentary" style="font-size:12px;max-height:400px;overflow-y:auto">
+v3.0.0 -- 2026-05-23
+- ETF Research Sandbox: new section at the bottom of the ETF tab for ad-hoc ETF analysis. Enter any ticker (e.g. GPIQ, YMAX, JEPI) and tap Analyze ETF to generate the same tile shown for SPYI and NBOS — trailing 12-month yield, price return, total return, distribution history, and 6-month price chart. Supports up to 5 concurrent sandbox ETFs. Each sandbox ticker can be individually removed. Sandbox data is completely isolated from income calculations. Ticker list and cached data persist across sessions.
+
 v2.9.0 -- 2026-05-17
 - Relative Performance vs S&P 500 chart: new dedicated card on ticker page showing stock vs ^GSPC normalized to 100 at start of 2-year window. Teal line = ticker, gray dashed = S&P 500. Toggle earnings vertical lines (amber) on/off -- defaults to on when earnings history is available.
 - 2-year price history: all watchlist tickers now fetch 2Y daily OHLCV alongside existing 6M and 1Y history. Powers the relative performance chart and improves MA200 accuracy across the full 1Y chart period.
@@ -1098,4 +1112,3 @@ if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.se
 
 </body>
 </html>
-        

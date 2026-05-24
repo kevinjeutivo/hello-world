@@ -433,7 +433,7 @@ function showTab(name){
   }
   if(name==='vix'){const vc=document.getElementById('vix-content');if(!vc||vc.querySelector('.empty'))restoreVIXFromCache();}
   if(name==='earnings'){const ec=document.getElementById('earnings-content');if(!ec||ec.querySelector('.empty'))renderEarningsCards();}
-  if(name==='etf'){const etc=document.getElementById('etf-content');if(!etc||etc.querySelector('.empty'))restoreETFFromCache();}
+  if(name==='etf'){const etc=document.getElementById('etf-content');if(!etc||etc.querySelector('.empty'))restoreETFFromCache();restoreSandboxFromCache();}
   if(name==='market'){const mc=document.getElementById('market-content');if(!mc||mc.querySelector('.empty'))restoreMarketFromCache();}
   if(name==='income'){restoreIncomeFromCache();}
 }

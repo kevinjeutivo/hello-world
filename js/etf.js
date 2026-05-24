@@ -146,7 +146,8 @@ async function loadETFTab(){
           <div class="metric-tile"><div class="metric-label">52W High / Low</div><div class="metric-value" style="font-size:11px">$${snap?.week52High?.toFixed(2)||'N/A'} / $${snap?.week52Low?.toFixed(2)||'N/A'}</div></div>
         </div>
         <div class="commentary" style="margin-bottom:10px;font-size:11px">${etf.strategy}</div>
-        ${distributions.length?`<div style="margin-bottom:10px"><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px">Recent Distributions</div>${distributions.slice(0,6).map(d=>`<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">${d.date}</span><span style="color:${etf.color}">$${d.amount?.toFixed(4)||'N/A'}</span></div>`).join('')}</div>`:'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Distribution history not available from data provider. Check fund website for latest distributions.</div>'}
+        ${fundDesc?`<div class="commentary" style="margin-bottom:10px;font-size:11px">${fundDesc.length>300?fundDesc.slice(0,300)+'…':fundDesc}</div>`:''}
+    ${distributions.length?`<div style="margin-bottom:10px"><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px">Recent Distributions</div>${distributions.slice(0,6).map(d=>`<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">${d.date}</span><span style="color:${etf.color}">$${d.amount?.toFixed(4)||'N/A'}</span></div>`).join('')}</div>`:'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Distribution history not available from data provider. Check fund website for latest distributions.</div>'}
         ${chartLabels.length?`<div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:${etf.color}"></span>6-Month Price</div><div style="display:flex;gap:6px;margin-bottom:4px">
           <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" onclick="toggleEtfSpan('${etf.ticker}','6m')" id="etf-btn-6m-${etf.ticker}">6M</button>
           <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" onclick="toggleEtfSpan('${etf.ticker}','1y')" id="etf-btn-1y-${etf.ticker}">1Y</button>
@@ -257,6 +258,7 @@ function _sbSave(arr){S.set(_SB_KEY,arr);}
 async function _sbFetch(ticker){
   let snap=null,hist6mo=null,distributions=[],trailingYield=null;
 
+  let fundName=ticker,fundDesc='';
   try{
     const[quote,metrics]=await Promise.all([
       fh(`/quote?symbol=${ticker}`),
@@ -270,8 +272,28 @@ async function _sbFetch(ticker){
       ts:nowPT()};
   }catch{
     const c=S.get('etf_research_'+ticker);
-    if(c?.snap)snap=c.snap;
+    if(c?.snap){snap=c.snap;fundName=c.fundName||ticker;fundDesc=c.fundDesc||'';}
   }
+  // Fetch fund name and description from Yahoo assetProfile
+  try{
+    const pr=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(ticker)}&type=summary&modules=assetProfile,summaryDetail&_t=${Date.now()}`);
+    if(pr.ok){
+      const pj=await pr.json();
+      const ap=pj?.quoteSummary?.result?.[0]?.assetProfile||{};
+      const sd=pj?.quoteSummary?.result?.[0]?.summaryDetail||{};
+      // longName from quoteType is better -- try quoteType module too
+      fundName=ap.longName||snap?.longName||ticker;
+      fundDesc=ap.longBusinessSummary||'';
+    }
+  }catch{}
+  // Fallback: try quoteType for longName
+  if(fundName===ticker){
+    try{
+      const qr=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(ticker)}&type=summary&modules=quoteType&_t=${Date.now()}`);
+      if(qr.ok){const qj=await qr.json();fundName=qj?.quoteSummary?.result?.[0]?.quoteType?.longName||ticker;}
+    }catch{}
+  }
+  if(snap){snap.fundName=fundName;snap.fundDesc=fundDesc;}
 
   try{
     hist6mo=await yahooHistory(ticker,'1y','1d');
@@ -305,17 +327,19 @@ async function _sbFetch(ticker){
 
   // Persist cache
   S.set('etf_research_'+ticker,{
-    snap,
+    snap,fundName,fundDesc,
     hist:hist6mo?{timestamps:hist6mo.timestamps.map(d=>d instanceof Date?d.toISOString():d),closes:hist6mo.closes}:null,
     distributions,trailingYield,ts:nowPT()
   });
 
-  return{snap,hist6mo,distributions,trailingYield};
+  return{snap,hist6mo,distributions,trailingYield,fundName,fundDesc};
 }
 
 // ── Tile HTML builder ─────────────────────────────────────────────────────
 
-function _sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,isLive){
+function _sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,isLive,fundName,fundDesc){
+  fundName=fundName||snap?.fundName||ticker;
+  fundDesc=fundDesc||snap?.fundDesc||'';
   const color=_SB_COLOR;
   const chgColor=snap?(snap.change>=0?'var(--green)':'var(--red)'):'var(--text2)';
   const chgSign=snap?(snap.change>=0?'+':''):'';
@@ -343,9 +367,33 @@ function _sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,isLive){
   const ft=totalReturnData.find(p=>p!=null),lt=[...totalReturnData].reverse().find(p=>p!=null);
   const totalRetPct=ft&&lt?((lt-ft)/ft*100):null;
 
-  // Store for chart render
+  // 1Y data for toggle
+  const labels1y=hist6mo?hist6mo.timestamps.map(d=>{
+    if(!(d instanceof Date))d=new Date(d);
+    return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  }):[];
+  const data1y=hist6mo?hist6mo.closes:[];
+  let tr1y=[];
+  if(hist6mo&&distributions.length){
+    let cum1y=0;const bd1y={};
+    distributions.forEach(d=>{if(d.date&&d.amount)bd1y[d.date]=(bd1y[d.date]||0)+d.amount;});
+    tr1y=hist6mo.timestamps.map((ts,i)=>{
+      if(!(ts instanceof Date))ts=new Date(ts);
+      const ds=ts.toISOString().split('T')[0];
+      if(bd1y[ds])cum1y+=bd1y[ds];
+      return data1y[i]!=null?data1y[i]+cum1y:null;
+    });
+  }
+  const fp1y=data1y.find(p=>p!=null),lp1y=[...data1y].reverse().find(p=>p!=null);
+  const priceRetPct1y=fp1y&&lp1y?((lp1y-fp1y)/fp1y*100):null;
+  const ft1y=tr1y.find(p=>p!=null),lt1y=[...tr1y].reverse().find(p=>p!=null);
+  const totalRetPct1y=ft1y&&lt1y?((lt1y-ft1y)/ft1y*100):null;
+
+  // Store for chart render (6M and 1Y)
   if(!window._sbChartData)window._sbChartData={};
-  window._sbChartData[ticker]={color,labels:chartLabels,data:chartData,totalReturn:totalReturnData};
+  window._sbChartData[ticker]={color,
+    labels6m:chartLabels,data6m:chartData,tr6m:totalReturnData,priceRetPct6m:priceRetPct,totalRetPct6m:totalRetPct,
+    labels1y,data1y,tr1y,priceRetPct1y,totalRetPct1y};
 
   return `<div class="card" id="sb-tile-${ticker}" style="border-left:4px solid ${color};margin-bottom:10px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -355,7 +403,7 @@ function _sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,isLive){
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
       <div>
         <div style="font-family:var(--sans);font-size:20px;font-weight:700;color:${color}">${ticker}</div>
-        <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px">Ad-hoc ETF analysis</div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px">${fundName!==ticker?fundName:''}</div>
       </div>
       <div style="text-align:right">
         ${snap?`<div style="font-family:var(--mono);font-size:18px;font-weight:500">$${snap.price.toFixed(2)}</div>
@@ -396,7 +444,11 @@ function _sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,isLive){
         </div>`
       :'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">No distribution history from data provider.</div>'}
     ${chartLabels.length
-      ?`<div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:${color}"></span>6-Month Price</div>
+      ?`<div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:${color}"></span>Price</div>
+        <div style="display:flex;gap:6px;margin-bottom:4px">
+          <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" id="sb-btn-6m-${ticker}" onclick="sbToggleSpan('${ticker}','6m')">6M</button>
+          <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="sb-btn-1y-${ticker}" onclick="sbToggleSpan('${ticker}','1y')">1Y</button>
+        </div>
         <div class="chart-wrap" style="height:140px"><canvas id="sb-chart-${ticker}"></canvas></div>`
       :''}
   </div>`;
@@ -421,6 +473,26 @@ function _sbRenderChart(ticker){
 }
 
 // ── Public actions ────────────────────────────────────────────────────────
+
+function sbToggleSpan(ticker,span){
+  const btn6=document.getElementById('sb-btn-6m-'+ticker);
+  const btn1=document.getElementById('sb-btn-1y-'+ticker);
+  if(btn6)btn6.style.opacity=span==='6m'?'1':'0.4';
+  if(btn1)btn1.style.opacity=span==='1y'?'1':'0.4';
+  const d=window._sbChartData?.[ticker];
+  if(!d)return;
+  const labels=span==='6m'?d.labels6m:d.labels1y;
+  const data=span==='6m'?d.data6m:d.data1y;
+  const tr=span==='6m'?d.tr6m:d.tr1y;
+  if(!labels||!labels.length){toast(span.toUpperCase()+' data not available',2000);return;}
+  const ctx=document.getElementById('sb-chart-'+ticker)?.getContext('2d');
+  if(!ctx)return;
+  if(window._sbCharts?.[ticker])window._sbCharts[ticker].destroy();
+  if(!window._sbCharts)window._sbCharts={};
+  const datasets=[{label:'Price',data,borderColor:d.color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}];
+  if(tr&&tr.length)datasets.push({label:'Total Return',data:tr,borderColor:'#ffd32a',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false,borderDash:[4,3]});
+  window._sbCharts[ticker]=new Chart(ctx,{type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:datasets.length>1,labels:{color:'#8b8fa8',font:{size:9},boxWidth:20}}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});
+}
 
 async function sbAnalyze(){
   const input=document.getElementById('sb-input');
@@ -449,8 +521,8 @@ async function sbAnalyze(){
   }
 
   try{
-    const{snap,hist6mo,distributions,trailingYield}=await _sbFetch(ticker);
-    const html=_sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,true);
+    const{snap,hist6mo,distributions,trailingYield,fundName,fundDesc}=await _sbFetch(ticker);
+    const html=_sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,true,fundName,fundDesc);
     const existing=document.getElementById('sb-tile-'+ticker);
     if(existing){existing.outerHTML=html;}
     requestAnimationFrame(()=>_sbRenderChart(ticker));
@@ -482,7 +554,7 @@ function restoreSandboxFromCache(){
     const c=S.get('etf_research_'+ticker);
     if(!c)return;
     const hist6mo=c.hist?{timestamps:c.hist.timestamps.map(d=>new Date(d)),closes:c.hist.closes}:null;
-    const html=_sbBuildTile(ticker,c.snap,hist6mo,c.distributions||[],c.trailingYield,false);
+    const html=_sbBuildTile(ticker,c.snap,hist6mo,c.distributions||[],c.trailingYield,false,c.fundName,c.fundDesc);
     const wrap=document.createElement('div');wrap.innerHTML=html;
     container.appendChild(wrap.firstChild);
     requestAnimationFrame(()=>_sbRenderChart(ticker));

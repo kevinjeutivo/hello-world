@@ -462,6 +462,7 @@ function _sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,isLive,fun
         <div class="metric-value" style="font-size:11px">$${snap?.week52High?.toFixed(2)||'N/A'} / $${snap?.week52Low?.toFixed(2)||'N/A'}</div>
       </div>
     </div>
+    <div class="commentary" style="margin-bottom:10px;font-size:11px">${fundDesc}</div>
     ${distributions.length
       ?`<div style="margin-bottom:10px">
           <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px">Recent Distributions</div>

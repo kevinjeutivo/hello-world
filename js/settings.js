@@ -392,6 +392,7 @@ const EXPORT_KEYS_STATIC=[
   'options_cutoff_et','rp_earnings_toggle','conviction_weights',
   'put_positions','cc_positions','vol_badge_state','last_ticker',
   'income_inputs','income_mmf_yields','income_ts',
+  'etf_research_tickers',
 ];
 
 function _buildExportData(){
@@ -406,6 +407,12 @@ function _buildExportData(){
   wl.forEach(t=>{
     const eh=S.get('earnings_hist_'+t);
     if(eh!=null)data.keys['earnings_hist_'+t]=eh;
+  });
+  // Per-ticker sandbox ETF cache
+  const sbTickers=S.get('etf_research_tickers')||[];
+  sbTickers.forEach(t=>{
+    const sd=S.get('etf_research_'+t);
+    if(sd!=null)data.keys['etf_research_'+t]=sd;
   });
   return data;
 }
@@ -585,6 +592,15 @@ function previewImport(){
     }catch{}
   }
   lines.push('</div>');
+
+  // Sandbox ETFs
+  try{
+    const sbT=Array.isArray(keys.etf_research_tickers)?keys.etf_research_tickers:(JSON.parse(keys.etf_research_tickers||'[]'));
+    if(sbT.length){
+      lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">ETF RESEARCH SANDBOX ('+sbT.length+' ticker'+(sbT.length>1?'s':'')+')</span>');
+      lines.push('<div style="color:var(--text2);padding-left:10px">'+sbT.join(', ')+'</div></div>');
+    }
+  }catch{}
 
   // Total key count
   lines.push('<div style="color:var(--text3);margin-top:4px;border-top:1px solid var(--border);padding-top:6px">'+Object.keys(keys).length+' keys total in backup.</div>');

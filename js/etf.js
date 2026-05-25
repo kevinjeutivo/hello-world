@@ -254,6 +254,31 @@ function _sbSave(arr){S.set(_SB_KEY,arr);}
 
 // ── Fetch ─────────────────────────────────────────────────────────────────
 
+// Known high-income ETF descriptions (fallback since APIs rarely return ETF strategy text)
+const _SB_DESCRIPTIONS={
+  'GPIQ':'Goldman Sachs U.S. Equity Premium Income ETF. Holds large-cap U.S. equities and sells covered calls on the Nasdaq-100 to generate monthly income while maintaining equity upside.',
+  'YMAX':'YieldMax Universe Fund of Option Income ETFs. A fund-of-funds holding a diversified basket of YieldMax single-stock covered call ETFs, targeting very high monthly distributions.',
+  'JEPI':'JPMorgan Equity Premium Income ETF. Holds S&P 500 stocks and sells out-of-the-money covered calls via ELNs to generate monthly income with lower volatility than the index.',
+  'JEPQ':'JPMorgan Nasdaq Equity Premium Income ETF. Nasdaq-100 equity exposure with monthly income from covered call options, designed to reduce volatility while capturing growth.',
+  'QYLD':'Global X Nasdaq 100 Covered Call ETF. Buys Nasdaq-100 stocks and sells at-the-money covered calls monthly, sacrificing capital appreciation for high current income.',
+  'XYLD':'Global X S&P 500 Covered Call ETF. Buys S&P 500 stocks and writes at-the-money monthly covered calls, targeting high current income with capped upside.',
+  'RYLD':'Global X Russell 2000 Covered Call ETF. Small-cap equity exposure with covered call overlay on the Russell 2000, generating high monthly income.',
+  'DIVO':'Amplify CWP Enhanced Dividend Income ETF. Actively managed, holds dividend-growth stocks and selectively writes covered calls to enhance income.',
+  'SVOL':'Simplify Volatility Premium ETF. Shorts VIX futures to collect volatility premium, targeting high monthly income with exposure to volatility spikes.',
+  'ULTY':'YieldMax Ultra Option Income Strategy ETF. Extremely high-income strategy using synthetic covered calls; very high yield with significant NAV erosion risk.',
+  'MSFO':'YieldMax MSFT Option Income Strategy ETF. Synthetic covered call strategy on Microsoft, generating monthly income from options premium.',
+  'NVDY':'YieldMax NVDA Option Income Strategy ETF. Synthetic covered call strategy on NVIDIA, generating high monthly income tied to NVDA options premium.',
+  'AMZY':'YieldMax AMZN Option Income Strategy ETF. Synthetic covered call strategy on Amazon.',
+  'GOOGY':'YieldMax GOOGL Option Income Strategy ETF. Synthetic covered call strategy on Alphabet.',
+  'TSLY':'YieldMax TSLA Option Income Strategy ETF. Synthetic covered call strategy on Tesla, one of the highest-yielding single-stock income ETFs.',
+  'CONY':'YieldMax COIN Option Income Strategy ETF. Synthetic covered call on Coinbase, extremely high yield reflecting underlying volatility.',
+  'MSTY':'YieldMax MSTR Option Income Strategy ETF. Synthetic covered call on MicroStrategy, very high yield with significant volatility exposure.',
+  'FEPI':'REX FANG & Innovation Equity Premium Income ETF. Holds mega-cap tech and innovation stocks with a covered call overlay for monthly income.',
+  'SPYI':'NEOS S&P 500 High Income ETF. Actively managed, combines S&P 500 exposure with an options overlay using tax-efficient index puts and calls to generate monthly income.',
+  'NBOS':'Nationwide S&P 500 Risk-Managed Income ETF. S&P 500 exposure with an options collar strategy — buys protective puts and sells covered calls to manage risk and generate income.',
+  'CSHI':'NEOS Enhanced Income Cash Alternative ETF. Actively managed, holds short-term Treasuries and sells S&P 500 index put spreads to generate above-money-market monthly income with very low equity risk.',
+};
+
 async function _sbFetch(ticker){
   let snap=null,hist6mo=null,distributions=[],trailingYield=null;
 
@@ -290,6 +315,9 @@ async function _sbFetch(ticker){
       }
     }catch{}
   }
+  // Use hardcoded description if API returned nothing
+  if(!fundDesc&&_SB_DESCRIPTIONS[ticker])fundDesc=_SB_DESCRIPTIONS[ticker];
+  if(!fundDesc)fundDesc="Options-based income ETF. Visit the fund provider's website for full strategy details and current distribution schedule.";
   if(snap){snap.fundName=fundName;snap.fundDesc=fundDesc;}
 
   try{
@@ -524,7 +552,6 @@ async function sbAnalyze(){
 
   const tickers=_sbTickers();
   if(tickers.includes(ticker)){toast(ticker+' is already in the sandbox');return;}
-  if(tickers.length>=_SB_MAX){toast('Sandbox limit is '+_SB_MAX+' ETFs — remove one first',3000);return;}
 
   // Persist ticker immediately so it survives a crash
   tickers.push(ticker);

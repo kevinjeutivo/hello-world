@@ -408,12 +408,7 @@ function _buildExportData(){
     const eh=S.get('earnings_hist_'+t);
     if(eh!=null)data.keys['earnings_hist_'+t]=eh;
   });
-  // Per-ticker sandbox ETF cache
-  const sbTickers=S.get('etf_research_tickers')||[];
-  sbTickers.forEach(t=>{
-    const sd=S.get('etf_research_'+t);
-    if(sd!=null)data.keys['etf_research_'+t]=sd;
-  });
+
   return data;
 }
 

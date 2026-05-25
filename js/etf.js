@@ -415,12 +415,12 @@ function _sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,isLive,fun
         <div class="metric-value" style="color:${color};font-size:20px">${trailingYield?trailingYield+'%':'N/A'}</div>
         <div class="metric-sub">${trailingYield?`Sum of last ${Math.min(12,distributions.length)} distributions / current price`:'No distribution data available'}</div>
       </div>
-      <div class="metric-tile">
+      <div class="metric-tile" id="sb-price-ret-${ticker}">
         ${priceRetPct!=null?`<div class="metric-label">Price Return (6M)</div>
         <div class="metric-value" style="color:${priceRetPct>=0?'var(--green)':'var(--red)'}">${priceRetPct>=0?'+':''}${priceRetPct.toFixed(1)}%</div>
         <div class="metric-sub">NAV change only</div>`:''}
       </div>
-      <div class="metric-tile">
+      <div class="metric-tile" id="sb-total-ret-${ticker}">
         ${totalRetPct!=null?`<div class="metric-label">Total Return (6M)</div>
         <div class="metric-value" style="color:${totalRetPct>=0?'var(--green)':'var(--red)'}">${totalRetPct>=0?'+':''}${totalRetPct.toFixed(1)}%</div>
         <div class="metric-sub">Price + distributions reinvested</div>`:''}
@@ -451,17 +451,22 @@ function _sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,isLive,fun
   </div>`;
 }
 
-function _sbRenderChart(ticker){
+function _sbRenderChart(ticker,span){
+  span=span||'6m';
   const d=window._sbChartData?.[ticker];
-  if(!d||!d.labels.length)return;
+  if(!d)return;
+  const labels=span==='1y'?d.labels1y:d.labels6m;
+  const data=span==='1y'?d.data1y:d.data6m;
+  const tr=span==='1y'?d.tr1y:d.tr6m;
+  if(!labels||!labels.length)return;
   const ctx=document.getElementById('sb-chart-'+ticker)?.getContext('2d');
   if(!ctx)return;
   if(!window._sbCharts)window._sbCharts={};
   if(window._sbCharts[ticker])window._sbCharts[ticker].destroy();
-  const datasets=[{label:'Price',data:d.data,borderColor:d.color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}];
-  if(d.totalReturn.length)datasets.push({label:'Total Return',data:d.totalReturn,borderColor:'#ffd32a',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false,borderDash:[4,3]});
+  const datasets=[{label:'Price',data,borderColor:d.color,borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}];
+  if(tr&&tr.length)datasets.push({label:'Total Return',data:tr,borderColor:'#ffd32a',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false,borderDash:[4,3]});
   window._sbCharts[ticker]=new Chart(ctx,{
-    type:'line',data:{labels:d.labels,datasets},
+    type:'line',data:{labels,datasets},
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{display:datasets.length>1,labels:{color:'#8b8fa8',font:{size:9},boxWidth:20}}},
       scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},
@@ -550,7 +555,7 @@ async function sbAnalyze(){
       existing.parentNode.replaceChild(newTile,existing);
     }
     // setTimeout gives iOS Safari time to fully paint the replaced element
-    setTimeout(()=>_sbRenderChart(ticker),150);
+    setTimeout(()=>_sbRenderChart(ticker,'6m'),150);
   }catch(err){
     const el=document.getElementById('sb-tile-'+ticker);
     if(el)el.innerHTML=`<div style="font-family:var(--mono);font-size:12px;color:var(--red)">${ticker}: ${err.message}</div>`;
@@ -582,6 +587,6 @@ function restoreSandboxFromCache(){
     const html=_sbBuildTile(ticker,c.snap,hist6mo,c.distributions||[],c.trailingYield,false,c.fundName,c.fundDesc);
     const wrap=document.createElement('div');wrap.innerHTML=html;
     container.appendChild(wrap.firstChild);
-    setTimeout(()=>_sbRenderChart(ticker),150);
+    setTimeout(()=>_sbRenderChart(ticker,'6m'),150);
   });
 }

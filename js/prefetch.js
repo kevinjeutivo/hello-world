@@ -133,6 +133,33 @@ async function prefetchAll(){
   try{const[vh,v3h]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vh.timestamps.map(d=>d.toISOString()),closes:vh.closes,ts:nowPT()});S.set('vix3m_hist',{timestamps:v3h.timestamps.map(d=>d.toISOString()),closes:v3h.closes,ts:nowPT()});const vc=vh.closes.filter(c=>c!==null);updateVIXIndicator(vc[vc.length-1]);}catch{}
   if(barEl)barEl.style.width='100%';if(labelEl)labelEl.textContent='Prefetch complete!';
   setTimeout(()=>{if(progressEl)progressEl.style.display='none';},2000);
+  // Refresh sandbox ETF data
+  try{
+    const _sbTs=S.get('etf_research_tickers')||[];
+    for(const _sbT of _sbTs){
+      try{
+        const[_sbQ,_sbM]=await Promise.all([fh(`/quote?symbol=${_sbT}`),fh(`/stock/metric?symbol=${_sbT}&metric=all`)]);
+        const _sbSnap={ticker:_sbT,price:_sbQ.c,change:_sbQ.c-_sbQ.pc,changePct:((_sbQ.c-_sbQ.pc)/_sbQ.pc*100),
+          week52High:_sbM.metric?.['52WeekHigh']||null,week52Low:_sbM.metric?.['52WeekLow']||null,
+          dividendYield:_sbM.metric?.dividendYieldIndicatedAnnual||null,ts:nowPT()};
+        const _sbH=await yahooHistory(_sbT,'1y','1d');
+        const _sbR=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(_sbT)}&type=dividends&range=3y`);
+        let _sbDivs=[],_sbYield=null;
+        if(_sbR.ok){const _sbJ=await _sbR.json();const _sbEv=_sbJ.chart?.result?.[0]?.events?.dividends;
+          if(_sbEv){_sbDivs=Object.values(_sbEv).sort((a,b)=>b.date-a.date).slice(0,24).map(d=>({date:new Date(d.date*1000).toISOString().split('T')[0],amount:d.amount}));
+            const _sbTotal=_sbDivs.slice(0,12).reduce((s,d)=>s+(d.amount||0),0);
+            if(_sbSnap.price&&_sbTotal>0)_sbYield=(_sbTotal/_sbSnap.price*100).toFixed(2);}}
+        // Read existing cache to preserve fundName/fundDesc
+        const _sbExCache=S.get('etf_research_'+_sbT)||{};
+        S.set('etf_research_'+_sbT,{
+          snap:_sbSnap,fundName:_sbExCache.fundName||_sbT,fundDesc:_sbExCache.fundDesc||'',
+          hist:_sbH?{timestamps:_sbH.timestamps.map(d=>d.toISOString()),closes:_sbH.closes}:null,
+          distributions:_sbDivs,trailingYield:_sbYield,ts:nowPT()
+        });
+      }catch(e){console.warn('Sandbox prefetch failed for',_sbT,e);}
+      await sleep(300);
+    }
+  }catch{}
   if(btn)btn.disabled=false;renderWatchlist();toast('All data cached for offline use');
 }
 

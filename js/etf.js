@@ -205,6 +205,38 @@ async function loadETFTab(){
     });
   }
   renderNextEtfChart(etfChartQueue,0);
+
+  // Refresh sandbox ETFs in parallel after main ETFs complete
+  const _sbList=_sbTickers();
+  if(_sbList.length){
+    const _sbContainer=document.getElementById('sb-tiles');
+    for(const _sbT of _sbList){
+      // Show spinner on existing tile
+      const _sbExisting=document.getElementById('sb-tile-'+_sbT);
+      if(_sbExisting){
+        const _sbSpinner=document.createElement('div');
+        _sbSpinner.style.cssText='position:absolute;top:8px;right:36px;display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:9px;color:var(--text3)';
+        _sbSpinner.innerHTML='<div class="spinner" style="width:10px;height:10px"></div>Refreshing...';
+        _sbSpinner.id='sb-refresh-indicator-'+_sbT;
+        _sbExisting.style.position='relative';
+        _sbExisting.appendChild(_sbSpinner);
+      }
+      // Fetch fresh data
+      _sbFetch(_sbT).then(({snap,hist6mo,distributions,trailingYield,fundName,fundDesc})=>{
+        const html=_sbBuildTile(_sbT,snap,hist6mo,distributions,trailingYield,true,fundName,fundDesc);
+        const existing=document.getElementById('sb-tile-'+_sbT);
+        if(existing){
+          const wrap=document.createElement('div');wrap.innerHTML=html;
+          const newTile=wrap.firstChild;
+          existing.parentNode.replaceChild(newTile,existing);
+        } else if(_sbContainer){
+          const wrap=document.createElement('div');wrap.innerHTML=html;
+          _sbContainer.appendChild(wrap.firstChild);
+        }
+        setTimeout(()=>_sbRenderChart(_sbT,'6m'),150);
+      }).catch(err=>console.warn('Sandbox refresh failed for',_sbT,err));
+    }
+  }
 }
 
 function restoreETFFromCache(){

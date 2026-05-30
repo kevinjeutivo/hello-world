@@ -365,6 +365,7 @@ function clearMarketDataCache(){
     // Preserve earnings_hist (has overrides inside), income, settings
     if(PRESERVE.has(k))continue;
     if(k.startsWith('earnings_hist_'))continue; // has manual override data
+    if(k.startsWith('earnings_confirmed_'))continue; // confirmed historical cache -- nuclear option only
     if(k.startsWith('income_'))continue;
     if(k.startsWith('conviction_'))continue;
     if(k.startsWith('put_pos'))continue;

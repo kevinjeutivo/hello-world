@@ -804,7 +804,7 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
     const exStr=e.excessReaction!=null?' exc '+fmtPct(e.excessReaction):'';
     const preStr=e.preDayRet!=null?fmtPct(e.preDayRet):'';
     const postStr=e.postDayRet!=null?fmtPct(e.postDayRet):'';
-    const srcLabel=e.source==='gap-confirmed'?'':'<span style="color:var(--text3);font-size:8px"> ~est</span>';
+    const srcLabel=(e.source==='gap-confirmed'||e.isOverride)?'':'<span style="color:var(--text3);font-size:8px"> ~est</span>';
     const hourLabel=e.hour?' '+e.hour.toUpperCase():'';
     return `<div style="font-family:var(--mono);font-size:10px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
       <div style="display:flex;justify-content:space-between">

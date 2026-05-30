@@ -75,6 +75,27 @@ async function loadTicker(){
     catch{const ch=S.get('hist_'+t);if(ch){hist6mo={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes};if(!isLive)showOfflineBanner(ch.ts);}}
     try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});hist1y=h1;}
     catch{const ch=S.get('hist1y_'+t);if(ch)hist1y={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes};}
+    // ── Promote previous confirmed earnings date to history cache ────────────
+    // Before snap.earningsDate is overwritten, check if the prior stored date
+    // is now in the past -- if so, promote it to earnings_confirmed_TICKER.
+    try{
+      const _prevSnap=S.get('snap_'+t);
+      const _prevDate=_prevSnap?.earningsDate;
+      const _prevHour=_prevSnap?.earningsHour||null;
+      if(_prevDate&&_prevDate<fmtDate(new Date())){
+        const _conf=S.get('earnings_confirmed_'+t)||[];
+        // Deduplicate within ±3 days
+        const _alreadyHave=_conf.some(c=>Math.abs(new Date(c.date)-new Date(_prevDate))<4*86400000);
+        if(!_alreadyHave){
+          _conf.push({date:_prevDate,hour:_prevHour,addedTs:nowPT()});
+          // Prune entries older than 730 days
+          const _cutoff=new Date();_cutoff.setDate(_cutoff.getDate()-730);
+          const _fresh=_conf.filter(c=>new Date(c.date)>=_cutoff);
+          S.set('earnings_confirmed_'+t,_fresh);
+        }
+      }
+    }catch{}
+
     // 2Y history for relative performance chart and earnings pattern analysis
     try{const h2=await yahooHistory(t,'2y','1d');S.set('hist2y_'+t,{timestamps:h2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h2.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:nowPT()});}
     catch{}
@@ -142,6 +163,18 @@ async function loadTicker(){
           }
         }
 
+        // Apply confirmed cache entries (priority 2 — above gap estimate, below manual override)
+        const _confirmed=S.get('earnings_confirmed_'+t)||[];
+        results.forEach(entry=>{
+          if(entry.override)return; // manual override takes absolute precedence
+          const _cmatch=_confirmed.find(c=>Math.abs(new Date(c.date)-new Date(entry.date))<26*86400000);
+          if(_cmatch){
+            entry.date=_cmatch.date;
+            entry.hour=_cmatch.hour||null;
+            entry.source='auto-confirmed';
+          }
+        });
+
         const sorted=results
           .filter((r,i,a)=>a.findIndex(x=>x.date===r.date)===i) // dedupe
           .sort((a,b)=>a.date.localeCompare(b.date));
@@ -149,7 +182,6 @@ async function loadTicker(){
           // Preserve any existing manual overrides before overwriting
           const _existing=S.get('earnings_hist_'+t);
           const _existingData=_existing?.data||[];
-          // Match overrides by approximate date proximity (±5 days)
           sorted.forEach(entry=>{
             const match=_existingData.find(old=>old.override&&Math.abs(new Date(old.override.date)-new Date(entry.date))<26*86400000);
             if(match?.override)entry.override=match.override;
@@ -605,6 +637,13 @@ function openEarningsOverrideModal(ticker,idx){
     el.addEventListener('click',e=>{if(e.target===el)_closeEarningsOverrideModal();});
   }
 
+  // Look up confirmed cache entry for this slot (±25 days)
+  const _confCache=S.get('earnings_confirmed_'+ticker)||[];
+  const _confEntry=_confCache.find(c=>Math.abs(new Date(c.date)-new Date(entry.date))<26*86400000)||null;
+  const _confDateStr=_confEntry?_confEntry.date:null;
+  const _confHour=_confEntry?(_confEntry.hour||null):null;
+  const _confHourLabel=_confHour==='bmo'?' BMO':_confHour==='amc'?' AMC':'';
+
   el.innerHTML=
     '<div class="modal-box" style="max-width:360px">'+
       '<div class="modal-title">Override Earnings Date</div>'+
@@ -613,9 +652,20 @@ function openEarningsOverrideModal(ticker,idx){
         'Use the date shown on financial sites such as Earnings Whispers or Yahoo Finance — '+
         'this should be the ET calendar date, which may differ from your local date for late-evening announcements.'+
       '</div>'+
-      '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:4px">'+
-        'Estimated date: <span style="color:var(--text2)">'+entry.date+'</span>'+
-        (entry.source==='gap-confirmed'?' (gap-confirmed)':' (estimated)')+'</div>'+
+      // Algorithm estimate
+      '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px">'+
+        'Algorithm estimate: <span style="color:var(--text2)">'+entry.date+'</span>'+
+        (entry.source==='gap-confirmed'?' <span style="color:var(--warn)">(gap-confirmed)</span>':entry.source==='auto-confirmed'?' <span style="color:var(--accent)">(auto-confirmed)</span>':' (estimated)')+
+      '</div>'+
+      // Confirmed cache entry (if available)
+      (_confDateStr?
+        '<div style="background:rgba(0,212,170,0.08);border:1px solid rgba(0,212,170,0.3);border-radius:6px;padding:8px;margin-bottom:10px">'+
+          '<div style="font-family:var(--mono);font-size:9px;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Confirmed from prior fetch</div>'+
+          '<div style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--text)">'+_confDateStr+_confHourLabel+'</div>'+
+          (existingOverride?.date===_confDateStr?
+            '<div style="font-family:var(--mono);font-size:9px;color:var(--accent);margin-top:4px">&#x2713; Already matches your override</div>':
+            '<button class="btn btn-secondary" style="margin-top:8px;font-size:11px;width:100%" onclick="_acceptConfirmedDate()">&#x2713; Accept this date</button>')+
+        '</div>':'')+
       '<div class="input-group" style="margin-bottom:10px">'+
         '<label class="input-label">Actual earnings date (ET)</label>'+
         '<input class="input" type="date" id="earn-override-date" value="'+(existingOverride?.date||entry.date)+'">'+
@@ -640,8 +690,36 @@ function openEarningsOverrideModal(ticker,idx){
     '</div>';
 
   // Store selected hour in a data attr on the modal for easy retrieval
-  el.dataset.hour=eff.hour!=null?eff.hour:'';
+  el.dataset.hour=(_confHour!=null?_confHour:(eff.hour!=null?eff.hour:''));
+  // Pre-fill date input: confirmed > existing override > estimate
+  const _preFillDate=existingOverride?.date||_confDateStr||entry.date;
+  const _preFillHour=existingOverride?.hour||_confHour||eff.hour;
+  const _dateInput=el.querySelector('#earn-override-date');
+  if(_dateInput)_dateInput.value=_preFillDate;
+  if(_preFillHour){
+    setTimeout(()=>_setEarnHourBtn(_preFillHour),50);
+  }
   el.classList.add('open');
+}
+
+function _acceptConfirmedDate(){
+  // Accept the auto-confirmed date and hour as the override
+  const ticker=_overrideModalTicker;const idx=_overrideModalIdx;
+  if(!ticker||idx==null)return;
+  const _confCache=S.get('earnings_confirmed_'+ticker)||[];
+  const entries=_getEarningsWithOverrides(ticker);
+  const entry=entries[idx];
+  if(!entry)return;
+  const _confEntry=_confCache.find(c=>Math.abs(new Date(c.date)-new Date(entry.date))<26*86400000);
+  if(!_confEntry){toast('No confirmed date found');return;}
+  const cache=S.get('earnings_hist_'+ticker);
+  if(!cache?.data){_closeEarningsOverrideModal();return;}
+  const data=[...cache.data];
+  data[idx]={...data[idx],override:{date:_confEntry.date,hour:_confEntry.hour||null,addedTs:nowPT(),acceptedFromConfirmed:true}};
+  S.set('earnings_hist_'+ticker,{...cache,data});
+  _closeEarningsOverrideModal();
+  toast('Confirmed date accepted: '+_confEntry.date+(_confEntry.hour?' '+_confEntry.hour.toUpperCase():''));
+  if(currentTicker===ticker)restoreTickerFromCache(ticker);
 }
 
 function _setEarnHourBtn(val){
@@ -806,7 +884,10 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
     const exStr=e.excessReaction!=null?' exc '+fmtPct(e.excessReaction):'';
     const preStr=e.preDayRet!=null?fmtPct(e.preDayRet):'';
     const postStr=e.postDayRet!=null?fmtPct(e.postDayRet):'';
-    const srcLabel=(e.source==='gap-confirmed'||e.isOverride)?'':'<span style="color:var(--text3);font-size:8px"> ~est</span>';
+    const srcLabel=e.isOverride?'':
+      e.source==='gap-confirmed'?'':
+      e.source==='auto-confirmed'?'<span style="color:var(--accent);font-size:8px"> auto</span>':
+      '<span style="color:var(--text3);font-size:8px"> ~est</span>';
     const hourLabel=e.hour?' '+e.hour.toUpperCase():'';
     return `<div style="font-family:var(--mono);font-size:10px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
       <div style="display:flex;justify-content:space-between">
@@ -863,7 +944,8 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
           const eff=_effectiveEarningsDate(e);
           const hasOvr=!!e.override;
           const srcLabel=hasOvr?'<span style="color:var(--accent);font-size:8px">overridden</span>':
-            e.source==='gap-confirmed'?'<span style="color:var(--warn);font-size:8px">confirmed</span>':
+            e.source==='gap-confirmed'?'<span style="color:var(--warn);font-size:8px">gap-confirmed</span>':
+            e.source==='auto-confirmed'?'<span style="color:var(--accent);font-size:8px">auto-confirmed</span>':
             '<span style="color:var(--text3);font-size:8px">estimated</span>';
           const hourLabel=eff.hour==='bmo'?' BMO':eff.hour==='amc'?' AMC':'';
           const estRef=hasOvr?'<span style="color:var(--text3);font-size:8px;text-decoration:line-through">'+e.date+'</span> ':'';
@@ -1196,6 +1278,19 @@ async function refreshSingleTicker(){
       epsGrowth:metrics.metric?.epsGrowthTTMYoy||null,
       earningsDate:futE[0]?.date||null,earningsHour:futE[0]?.hour||null,
       ts:nowPT(),isLive:true};
+    // Promote previous confirmed earnings date before overwriting
+    try{
+      const _rPrev=S.get('snap_'+t);
+      const _rPrevDate=_rPrev?.earningsDate;const _rPrevHour=_rPrev?.earningsHour||null;
+      if(_rPrevDate&&_rPrevDate<fmtDate(new Date())){
+        const _rConf=S.get('earnings_confirmed_'+t)||[];
+        if(!_rConf.some(c=>Math.abs(new Date(c.date)-new Date(_rPrevDate))<4*86400000)){
+          _rConf.push({date:_rPrevDate,hour:_rPrevHour,addedTs:nowPT()});
+          const _rCut=new Date();_rCut.setDate(_rCut.getDate()-730);
+          S.set('earnings_confirmed_'+t,_rConf.filter(c=>new Date(c.date)>=_rCut));
+        }
+      }
+    }catch{}
     // Step 2: Yahoo quote for forwardPE and EPS
     setP(20,'Fetching '+t+' extended quote...');
     try{const ah=await fetchAfterHoursPrice(t);if(ah){

@@ -767,7 +767,9 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
       reactionPct,spReactionPct,excessReaction,
       preDayRet,excessPre,
       postDayRet,excessPost,
-      beat:e.epsActual!=null&&e.epsEstimate!=null?e.epsActual>e.epsEstimate:null
+      beat:e.epsActual!=null&&e.epsEstimate!=null?e.epsActual>e.epsEstimate:null,
+      isOverride:e.isOverride||false,
+      source:e.source||null
     });
   });
 

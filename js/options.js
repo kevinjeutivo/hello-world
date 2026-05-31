@@ -138,13 +138,15 @@ function _shouldSkipOptionsFetch(cacheKey){
     const todayDate=now.toLocaleDateString('en-US',{timeZone:'America/New_York'});
     const sameDay=writtenDate===todayDate;
 
-    if(sameDay){
-      // Same ET calendar day -- skip if we're still in or past the same session
-      return true;
-    }
+    // If currently inside the live window, always allow fetch --
+    // user may want freshest after-hours data before their configured cutoff
+    const nowInLiveWindow=nowMins>=openMins&&nowMins<cutoffMins&&nowET.weekday!=='Sat'&&nowET.weekday!=='Sun';
+    if(nowInLiveWindow)return false; // inside live window -- always fetch
+
+    // Outside live window: skip if cache is from the same day's session
+    if(sameDay)return true; // same day, outside window -- cache is the best available
 
     // Different day -- check if a new session has opened since the cache was written
-    // New session = 9:30am ET has passed today on a weekday
     const isWeekday=nowET.weekday!=='Sat'&&nowET.weekday!=='Sun';
     const newSessionOpenedToday=isWeekday&&nowMins>=openMins;
 
@@ -153,8 +155,7 @@ function _shouldSkipOptionsFetch(cacheKey){
       return false;
     }
 
-    // No new session has opened (e.g. overnight, weekend, pre-market) --
-    // the cache from the previous session is still the most current available -- skip
+    // No new session has opened (overnight, weekend, pre-market) -- skip
     return true;
 
   }catch{return false;} // on any error, default to fetching
@@ -488,4 +489,3 @@ Bars stacked by expiration (see legend). Blue dashed line = current price $${cur
   }
   }); // end requestAnimationFrame
 }
-                

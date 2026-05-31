@@ -91,6 +91,75 @@ function _hasGoodSameDayCache(cacheKey){
 }
 
 
+// Returns true if the options cache is fresh enough that a network fetch can be
+// skipped entirely. Conditions for skipping:
+//   1. Cache exists, is non-synthetic, and was written during a live window
+//   2. The most recent trading session's live window has NOT opened since the cache was written
+//      (i.e. we're in the same session or no new session has started since last fetch)
+// Always fetches if cache is >5 days old (multi-day gap / user returning after absence).
+function _shouldSkipOptionsFetch(cacheKey){
+  try{
+    const existing=S.get(cacheKey);
+    if(!existing||existing.synthetic)return false; // no cache or synthetic -- must fetch
+    const ts=existing.ts;
+    if(!ts)return false;
+    const written=new Date(String(ts).replace(/ PT$| UTC$| local$/,'').trim());
+    if(isNaN(written.getTime()))return false;
+
+    const now=new Date();
+    const ageMs=now.getTime()-written.getTime();
+    if(ageMs>5*86400000)return false; // >5 days old -- always fetch
+
+    const cutoffHourET=parseInt(S.get('options_cutoff_et')||'18');
+
+    // Helper: get ET hour+min from a Date
+    const etParts=d=>{
+      const p=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'numeric',weekday:'short',hour12:false}).formatToParts(d);
+      return{hour:parseInt(p.find(x=>x.type==='hour').value),min:parseInt(p.find(x=>x.type==='minute').value),weekday:p.find(x=>x.type==='weekday').value};
+    };
+
+    const w=etParts(written);
+    const wMins=w.hour*60+w.min;
+    const openMins=9*60+30; // 9:30am ET
+    const cutoffMins=cutoffHourET*60;
+
+    // Was cache written during a live window?
+    const writtenInLiveWindow=wMins>=openMins&&wMins<cutoffMins&&w.weekday!=='Sat'&&w.weekday!=='Sun';
+    if(!writtenInLiveWindow)return false; // cache not from a live window -- fetch
+
+    // Has a new trading session opened since the cache was written?
+    // Find the most recent 9:30am ET on a weekday on or before now
+    const nowET=etParts(now);
+    const nowMins=nowET.hour*60+nowET.min;
+
+    // Count trading days between written date and now
+    // Simple approach: if written today and no new session has opened, skip
+    const writtenDate=written.toLocaleDateString('en-US',{timeZone:'America/New_York'});
+    const todayDate=now.toLocaleDateString('en-US',{timeZone:'America/New_York'});
+    const sameDay=writtenDate===todayDate;
+
+    if(sameDay){
+      // Same ET calendar day -- skip if we're still in or past the same session
+      return true;
+    }
+
+    // Different day -- check if a new session has opened since the cache was written
+    // New session = 9:30am ET has passed today on a weekday
+    const isWeekday=nowET.weekday!=='Sat'&&nowET.weekday!=='Sun';
+    const newSessionOpenedToday=isWeekday&&nowMins>=openMins;
+
+    if(newSessionOpenedToday){
+      // A new trading session has opened since the cache was written -- fetch fresh
+      return false;
+    }
+
+    // No new session has opened (e.g. overnight, weekend, pre-market) --
+    // the cache from the previous session is still the most current available -- skip
+    return true;
+
+  }catch{return false;} // on any error, default to fetching
+}
+
 // Options tab: load, build table, OI chart.
 // Globals used: currentTicker, currentMode, selectedExpirations, currentOptionsData, WORKER_URL, S
 // Dependencies: helpers.js, api.js, storage.js
@@ -419,3 +488,4 @@ Bars stacked by expiration (see legend). Blue dashed line = current price $${cur
   }
   }); // end requestAnimationFrame
 }
+                

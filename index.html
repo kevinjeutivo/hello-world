@@ -267,6 +267,7 @@ a{color:inherit}
       <button class="btn btn-secondary" id="hm-ivr" onclick="setHeatmap('ivr')" style="font-size:10px;padding:3px 8px;opacity:0.4">IVR</button>
     </div>
     <button class="btn btn-secondary" id="prefetch-btn" onclick="prefetchAll()">Prefetch All Ticker Data</button>
+    <div id="refresh-health-badge" onclick="openRefreshHealthModal()" style="display:none;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid;cursor:pointer;margin-top:4px;color:var(--text2)"></div>
     <div id="prefetch-progress" style="display:none">
       <div class="progress-bar-wrap"><div class="progress-bar" id="prefetch-progress-bar" style="width:0%"></div></div>
       <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-align:center" id="prefetch-label">Fetching...</div>
@@ -617,6 +618,9 @@ Version: v3.0.0</div>
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent)"></span>App Updates</div>
     <button class="btn btn-secondary" onclick="forceAppRefresh()">Force App Refresh</button>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Clears page cache, reloads latest version from GitHub. Your data is preserved.</div>
+    <hr class="divider">
+    <div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:var(--accent)"></span>Last Refresh Status</div>
+    <div id="refresh-health-badge-settings" onclick="openRefreshHealthModal()" style="font-family:var(--mono);font-size:10px;color:var(--text2);cursor:pointer;padding:6px 10px;border-radius:6px;border:1px solid var(--border);margin-bottom:4px">Tap to view last refresh health report</div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:#64b5f6"></span>Data Portability</div>
     <button class="btn btn-secondary" onclick="openDataPortabilityModal()" style="width:100%;margin-bottom:6px">Export / Import App Data</button>
@@ -1058,7 +1062,8 @@ applyFontSize(fontSize);
 let watchlistSort=S.get('watchlist_sort')||'manual';
 let currentBBSpan='2y'; // timeframe for Bollinger Band chart
 let currentRPSpan='2y';  // timeframe for Relative Performance chart (independent)
-if(!S.get('options_cutoff_et'))S.set('options_cutoff_et','18'); // default 6pm ET // manual | alpha | opportunity
+if(!S.get('options_cutoff_et'))S.set('options_cutoff_et','18');
+_updateRefreshHealthBadge(); // default 6pm ET // manual | alpha | opportunity
 
 const DEFAULT_WATCHLIST=['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
 const WORKER_URL='https://wheel.kevinjeu.workers.dev';

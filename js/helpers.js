@@ -120,7 +120,62 @@ function computeVolumeProfile(closes,volumes,nBuckets=40,topN=5){const pairs=clo
 
 function getRoundNumbers(price,w=0.25){const low=price*(1-w),high=price*(1+w);const step=price>=500?50:price>=100?25:price>=50?10:5;const rounds=[];let v=Math.floor(low/step)*step;while(v<=high){if(v>=low&&v<=high)rounds.push(v);v+=step;}return rounds;}
 
-function computeIVR(ticker,w52h,w52l,price){try{const cached=S.get('options_'+ticker);const res=cached?.data?.optionChain?.result?.[0];if(!res)return null;const opts=res.options?.[0];if(!opts)return null;const atm=[...(opts.puts||[]),...(opts.calls||[])].filter(o=>Math.abs(o.strike-price)/price<0.05&&o.impliedVolatility>0);if(!atm.length)return null;const currentIV=avg(atm.map(o=>o.impliedVolatility));if(!w52h||!w52l||w52h<=w52l)return null;const rangeVol=(w52h-w52l)/w52l;return Math.min(100,Math.max(0,(currentIV/(rangeVol*0.6))*50));}catch{return null;}}
+function computeIVR(ticker,w52h,w52l,price){
+  try{
+    // ── Step 1: Get current ATM IV from options chain ───────────────────────
+    const cached=S.get('options_'+ticker);
+    const res=cached?.data?.optionChain?.result?.[0];
+    if(!res)return null;
+    const opts=res.options?.[0];
+    if(!opts)return null;
+    const atm=[...(opts.puts||[]),...(opts.calls||[])]
+      .filter(o=>Math.abs(o.strike-price)/price<0.05&&o.impliedVolatility>0);
+    if(!atm.length)return null;
+    const currentIV=avg(atm.map(o=>o.impliedVolatility));
+
+    // ── Step 2: Compute rolling 21-day HRV from hist2y closes ───────────────
+    // HRV = annualized std dev of daily log returns over a 21-day window.
+    // Use up to 1 year (252 days) of windows to establish the HRV range.
+    const h2=S.get('hist2y_'+ticker);
+    if(h2?.closes?.length>=63){
+      const closes=h2.closes.filter(c=>c!=null&&c>0);
+      if(closes.length>=63){
+        // Daily log returns
+        const logRet=[];
+        for(let i=1;i<closes.length;i++){
+          if(closes[i]>0&&closes[i-1]>0)logRet.push(Math.log(closes[i]/closes[i-1]));
+        }
+        // Rolling 21-day annualized HRV
+        const hrvs=[];
+        const win=21;
+        const annFactor=Math.sqrt(252);
+        for(let i=win;i<=logRet.length;i++){
+          const slice=logRet.slice(i-win,i);
+          const m=slice.reduce((s,v)=>s+v,0)/win;
+          const variance=slice.reduce((s,v)=>s+(v-m)*(v-m),0)/(win-1);
+          hrvs.push(Math.sqrt(variance)*annFactor);
+        }
+        // Use last 252 HRV readings (1 year) for the range
+        const hrvWindow=hrvs.slice(-252);
+        if(hrvWindow.length>=21){
+          const minHRV=Math.min(...hrvWindow);
+          const maxHRV=Math.max(...hrvWindow);
+          if(maxHRV>minHRV){
+            // IVR = where currentIV sits in the HRV min-max range
+            const ivr=(currentIV-minHRV)/(maxHRV-minHRV)*100;
+            return Math.min(100,Math.max(0,Math.round(ivr)));
+          }
+        }
+      }
+    }
+
+    // ── Fallback: price-range proxy if no hist2y data ───────────────────────
+    if(!w52h||!w52l||w52h<=w52l)return null;
+    const rangeVol=(w52h-w52l)/w52l;
+    return Math.min(100,Math.max(0,Math.round((currentIV/(rangeVol*0.6))*50)));
+
+  }catch{return null;}
+}
 
 function ivrInfo(val){
   // Unified IVR scale used throughout the app:

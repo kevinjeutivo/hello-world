@@ -27,16 +27,35 @@ async function prefetchAll(){
   }catch{}
   const progressEl=document.getElementById('prefetch-progress');const barEl=document.getElementById('prefetch-progress-bar');const labelEl=document.getElementById('prefetch-label');
   if(progressEl)progressEl.style.display='block';
+  // Initialize health record
+  const _health={ts:nowPT(),tickers:{},global:{}};
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];if(barEl)barEl.style.width=Math.round((i/watchlist.length)*100)+'%';if(labelEl)labelEl.textContent=`Fetching ${t} (${i+1}/${watchlist.length})...`;
+    _health.tickers[t]={snap:false,hist:false,options:false};
     try{const[quote,profile,metrics,earnings]=await _pfTimeout(Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)]),12000,t+' Finnhub main');
       // Fetch rec and upgrades sequentially to avoid rate limit (60/min on free tier)
       let rec2=null,upgrades2=null,priceTarget2=null;
       try{rec2=await _pfTimeout(fh(`/stock/recommendation?symbol=${t}`),8000,t+' rec');}catch{}
       try{upgrades2=await _pfTimeout(fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`),8000,t+' upgrades');}catch{}
-      try{priceTarget2=await _pfTimeout(fh(`/stock/price-target?symbol=${t}`),8000,t+' pt');}catch{}S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});}catch{}
-    try{const h6=await _pfTimeout(yahooHistory(t,'6mo','1d'),12000,t+' hist6m');S.set('hist_'+t,{timestamps:h6.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h6.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h6.volumes.map(v=>v||0),ts:nowPT()});}catch(e){console.warn('prefetch hist6m failed:',t,e?.message);}
-    try{const h2=await _pfTimeout(yahooHistory(t,'2y','1d'),15000,t+' hist2y');S.set('hist2y_'+t,{timestamps:h2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h2.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h2.volumes?h2.volumes.map(v=>v||0):null,ts:nowPT()});}catch(e){console.warn('prefetch hist2y failed:',t,e?.message);}
+      try{priceTarget2=await _pfTimeout(fh(`/stock/price-target?symbol=${t}`),8000,t+' pt');}catch{}S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});_health.tickers[t].snap=true;}catch{}
+    // Single 2Y fetch populates hist_, hist1y_, and hist2y_ -- eliminates 2 redundant calls
+    let _h2ok=false;
+    try{
+      const h2=await _pfTimeout(yahooHistory(t,'2y','1d'),15000,t+' hist2y');
+      const _ts2=h2.timestamps.map(d=>Math.floor(d.getTime()/1000));
+      const _cl2=h2.closes.map(v=>v!=null?Math.round(v*100)/100:null);
+      const _vl2=h2.volumes?h2.volumes.map(v=>v||0):null;
+      const _now=nowPT();
+      // hist2y_ -- full 2Y
+      S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,ts:_now});
+      // hist1y_ -- last 252 trading days
+      const _1y=Math.max(0,_ts2.length-252);
+      S.set('hist1y_'+t,{timestamps:_ts2.slice(_1y),closes:_cl2.slice(_1y),volumes:_vl2?_vl2.slice(_1y):[],ts:_now});
+      // hist_ (6M) -- last 126 trading days
+      const _6m=Math.max(0,_ts2.length-126);
+      S.set('hist_'+t,{timestamps:_ts2.slice(_6m),closes:_cl2.slice(_6m),volumes:_vl2?_vl2.slice(_6m):[],ts:_now});
+      _health.tickers[t].hist=true;_h2ok=true;
+    }catch(e){console.warn('prefetch hist2y failed:',t,e?.message);}
     // Compute and persist IVR now that hist2y and options are cached
     try{const _iSnap=S.get('snap_'+t);if(_iSnap){const _iv=computeIVR(t,_iSnap.week52High,_iSnap.week52Low,_iSnap.price);if(_iv!=null){_iSnap.ivrVal=_iv;S.set('snap_'+t,_iSnap);}}}catch{}
     // Historical earnings: extrapolate backwards from confirmed next date + gap refinement
@@ -89,7 +108,7 @@ async function prefetchAll(){
       }else{
         const _pv=_validateOptionsData(opts);
         if(_pv.valid){
-          S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT()});
+          S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT()});_health.tickers[t].options=true;
         }else if(!S.get('options_'+t)){
           console.warn(t+': prefetch options quality issue ('+_pv.reason+'), saving as only available data');
           S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),synthetic:true});
@@ -170,6 +189,14 @@ async function prefetchAll(){
       await sleep(300);
     }
   }catch{}
+  // Save health record
+  _health.completedTs=nowPT();
+  const _totalT=watchlist.length;
+  const _okT=Object.values(_health.tickers).filter(v=>v.snap&&v.hist).length;
+  const _failedT=watchlist.filter(t=>!(_health.tickers[t]?.snap&&_health.tickers[t]?.hist));
+  _health.summary={total:_totalT,ok:_okT,failed:_failedT};
+  S.set('last_refresh_health',_health);
+  _updateRefreshHealthBadge();
   if(btn)btn.disabled=false;renderWatchlist();toast('All data cached for offline use');
 }
 

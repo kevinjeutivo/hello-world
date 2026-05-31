@@ -239,28 +239,32 @@ async function loadOptionsForTicker(){
   document.getElementById('options-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading options for ${t}...</div></div>`;
   try{
     let data,isLive=true,fetchTs=nowPT();
-    try{data=await yahooOptionsViaProxy(t);
-      // Time-window guard: outside live window (9:30am-cutoff ET),
-      // preserve any same-day good cache rather than overwriting with
-      // potentially synthetic after-hours data.
-      const _inWindow=_isOptionsLiveWindow();
-      const _hasSameDay=_hasGoodSameDayCache('options_'+t);
-      if(!_inWindow&&_hasSameDay){
-        console.log(t+': outside live window, preserving same-day options cache');
-        data=S.get('options_'+t).data;
-      }else{
-        const _optVal=_validateOptionsData(data);
-        if(_optVal.valid){
-          S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs});
-        }else if(!S.get('options_'+t)){
-          console.warn(t+': options data quality issue ('+_optVal.reason+'), saving as only available data');
-          S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs,synthetic:true});
-        }else{
-          console.warn(t+': rejecting new options fetch ('+_optVal.reason+'), preserving existing cache');
+    const _skipFetch=_shouldSkipOptionsFetch('options_'+t);
+    if(_skipFetch){
+      // Cache is fresh from the most recent session -- skip network call entirely
+      const cached=S.get('options_'+t);
+      if(!cached)throw new Error('No options data available');
+      data=cached.data;isLive=false;fetchTs=cached.ts;
+      console.log(t+': options loaded from cache (fresh session data)');
+    }else{
+      // Fetch live options data
+      try{data=await yahooOptionsViaProxy(t);
+        const _inWindow=_isOptionsLiveWindow();
+        const _hasSameDay=_hasGoodSameDayCache('options_'+t);
+        if(!_inWindow&&_hasSameDay){
           data=S.get('options_'+t).data;
+        }else{
+          const _optVal=_validateOptionsData(data);
+          if(_optVal.valid){
+            S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs});
+          }else if(!S.get('options_'+t)){
+            S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs,synthetic:true});
+          }else{
+            data=S.get('options_'+t).data;
+          }
         }
-      }}
-    catch{const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;showOfflineBanner(cached.ts);}else throw new Error('No options data available');}
+      }catch{const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;showOfflineBanner(cached.ts);}else throw new Error('No options data available');}
+    }
     currentOptionsData=data;
     const yr=data?.optionChain?.result?.[0];
     // Keep original Unix timestamps alongside date strings so we can pass
@@ -281,37 +285,22 @@ async function loadOptionsForTicker(){
     }
     const monthly=monthlyPairs.map(p=>p.date);
     currentExpirations=monthly;selectedExpirations=[...monthly];
-    for(const pair of monthlyPairs){
-      try{
-        // Pass the original Unix timestamp string -- Yahoo matches this exactly
-        const ed=await yahooOptionsViaProxy(t,String(pair.ts));
-        // Only save if new data has non-zero OI -- never overwrite good cache with zero-OI data
-        const newOI=(ed?.optionChain?.result?.[0]?.options||[]).reduce((sum,o)=>{
-          return sum+(o.puts||[]).reduce((s,p)=>s+(p.openInterest||0),0)
-                   +(o.calls||[]).reduce((s,c)=>s+(c.openInterest||0),0);
-        },0);
+    // Per-expiry chains: skip fetch if main options were skipped (cache fresh)
+    // Otherwise fetch all expiries in parallel
+    if(!_skipFetch){
+      await Promise.all(monthlyPairs.map(async pair=>{
         const _expKey='options_exp_'+t+'_'+pair.date;
-        const _expInWindow=_isOptionsLiveWindow();
-        const _expHasSameDay=_hasGoodSameDayCache(_expKey);
-        if(!_expInWindow&&_expHasSameDay){
-          console.log(t+' '+pair.date+': outside live window, preserving same-day exp cache');
-        }else{
+        if(_shouldSkipOptionsFetch(_expKey))return; // this expiry also fresh
+        try{
+          const ed=await yahooOptionsViaProxy(t,String(pair.ts));
+          const _expInWindow=_isOptionsLiveWindow();
+          const _expHasSameDay=_hasGoodSameDayCache(_expKey);
+          if(!_expInWindow&&_expHasSameDay)return;
           const _expVal=_validateOptionsData(ed);
-          if(_expVal.valid){
-            S.set(_expKey,ed);
-          }else{
-            const existingValid=S.get(_expKey)&&!S.get(_expKey)?.synthetic;
-            if(!existingValid){
-              console.warn(t+' '+pair.date+': saving synthetic options ('+_expVal.reason+') -- no prior good cache');
-              S.set(_expKey,{...ed,synthetic:true});
-            }else{
-              console.warn(t+' '+pair.date+': rejecting synthetic options ('+_expVal.reason+'), preserving cache');
-            }
-          }
-        }
-      }catch(e){
-        // silently skip -- cached data preserved if any
-      }
+          if(_expVal.valid){S.set(_expKey,ed);}
+          else{const ok=S.get(_expKey)&&!S.get(_expKey)?.synthetic;if(!ok)S.set(_expKey,{...ed,synthetic:true});}
+        }catch{}
+      }));
     }
     const chipsEl=document.getElementById('exp-chips');
     chipsEl.innerHTML=monthly.map(e=>`<div class="exp-chip selected" id="chip-${e}" onclick="toggleExp('${e}')">${e}</div>`).join('');

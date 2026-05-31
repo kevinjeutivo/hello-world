@@ -368,6 +368,7 @@ function toggleBBSpan(span){
   const _vh2=S.get('hist2y_'+_vt);const _vh2y=_vh2?{timestamps:_vh2.timestamps,closes:_vh2.closes,volumes:_vh2.volumes||null}:null;
   const _vSnap=S.get('snap_'+_vt);const _avg20=_vSnap?.avgVol20||null;
   renderVolChart(_vh6m,_vh1y,_vh2y,span,_avg20);
+  renderHVRChart(_vt,span);
 }
 
 function buildR40Tile(snap){
@@ -541,7 +542,7 @@ return`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarke
     </div>
     ${earningsStr}
   </div>
-  ${hist?`<div class="card"><div class="card-title"><span class="dot"></span>Bollinger Bands + RSI</div><div style="display:flex;gap:6px;margin-bottom:4px"><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" id="bb-btn-6m" onclick="toggleBBSpan(\'6m\')">6M</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-1y" onclick="toggleBBSpan(\'1y\')">1Y</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-2y" onclick="toggleBBSpan(\'2y\')">2Y</button></div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div class="chart-wrap" style="height:70px;margin-top:4px"><canvas id="vol-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility.
+  ${hist?`<div class="card"><div class="card-title"><span class="dot"></span>Bollinger Bands + RSI</div><div style="display:flex;gap:6px;margin-bottom:4px"><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" id="bb-btn-6m" onclick="toggleBBSpan(\'6m\')">6M</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-1y" onclick="toggleBBSpan(\'1y\')">1Y</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-2y" onclick="toggleBBSpan(\'2y\')">2Y</button></div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div class="chart-wrap" style="height:70px;margin-top:4px"><canvas id="vol-chart"></canvas></div><div class="chart-wrap" style="height:60px;margin-top:4px"><canvas id="hvr-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility.
 
 RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red shading) = overbought, favorable for covered calls.</div></div>`:''}
   ${(hist2y&&hist2ySP)?renderRelPerfCard(snap.ticker,hist2y,hist2ySP,earningsHistory):''}  ${hist1y?`<div class="card"><div class="card-title"><span class="dot" style="background:teal"></span>Volume Profile -- Support / Resistance (1Y)</div><div class="chart-wrap" style="height:300px"><canvas id="vp-chart"></canvas></div><div id="vp-analysis"></div></div>`:''}
@@ -552,6 +553,7 @@ RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red
   ${snap.recTrend&&snap.recTrend.length?buildRecTrendCard(snap.recTrend):''}`;
   if(bbData)renderBBChart(bbData,hist);
   renderVolChart(hist,hist1y,hist2y,currentBBSpan||'6m',avgVol20);
+  renderHVRChart(snap.ticker,currentBBSpan||'6m');
   if(hist1y)renderVPChart(hist1y,snap.price,snap.week52High,snap.week52Low);
   if(hist2y&&hist2ySP)_initRelPerfChart(snap.ticker,hist2y,hist2ySP,earningsHistory,currentRPSpan||'2y');
 }
@@ -1192,6 +1194,84 @@ function renderVolChart(hist6m,hist1y,hist2y,span,avgVol20){
       scales:{
         x:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:6},grid:{display:false}},
         y:{ticks:{color:'#555870',font:{size:8},callback:v=>fmtVol(v)},grid:{color:'#2a2e38'}}
+      }
+    }
+  });
+}
+
+function renderHVRChart(ticker,span){
+  const ctx=document.getElementById('hvr-chart')?.getContext('2d');
+  if(!ctx)return;
+  if(window._hvrChart){window._hvrChart.destroy();window._hvrChart=null;}
+
+  const series=computeHVRSeries(ticker);
+  if(!series||!series.values.length)return;
+
+  // Slice to match span
+  const n=span==='2y'?series.values.length:span==='1y'?252:126;
+  const start=Math.max(0,series.values.length-n);
+  const vals=series.values.slice(start);
+  const tss=series.timestamps.slice(start);
+
+  if(!vals.length)return;
+
+  const labels=tss.map(d=>{
+    const ms=typeof d==='number'&&d<1e10?d*1000:d;
+    return new Date(ms).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  });
+
+  // Color each point by zone
+  const pointColors=vals.map(v=>v>=70?'rgba(255,82,82,0.8)':v>=50?'rgba(255,165,2,0.8)':v>=30?'rgba(255,165,2,0.4)':'rgba(0,212,170,0.6)');
+
+  // Zone fill plugin -- colored background bands
+  const zoneFillPlugin={
+    id:'hvrZones',
+    beforeDraw(chart){
+      const{ctx:c,chartArea:{top,bottom,left,right},scales:{y}}=chart;
+      const zones=[
+        {from:70,to:100,color:'rgba(255,82,82,0.08)'},
+        {from:50,to:70,color:'rgba(255,165,2,0.07)'},
+        {from:30,to:50,color:'rgba(255,165,2,0.04)'},
+        {from:0,to:30,color:'rgba(0,212,170,0.07)'},
+      ];
+      zones.forEach(z=>{
+        const yTop=y.getPixelForValue(z.to);
+        const yBot=y.getPixelForValue(z.from);
+        c.fillStyle=z.color;
+        c.fillRect(left,yTop,right-left,yBot-yTop);
+      });
+    }
+  };
+
+  window._hvrChart=new Chart(ctx,{
+    type:'line',
+    plugins:[zoneFillPlugin],
+    data:{
+      labels,
+      datasets:[{
+        label:'HVR',
+        data:vals,
+        borderColor:'rgba(139,143,168,0.9)',
+        borderWidth:1.5,
+        pointRadius:0,
+        tension:0.2,
+        fill:false,
+        segment:{borderColor:ctx2=>vals[ctx2.p1DataIndex]>=70?'rgba(255,82,82,0.9)':vals[ctx2.p1DataIndex]>=50?'rgba(255,165,2,0.9)':'rgba(139,143,168,0.7)'}
+      }]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label:c=>'HVR: '+c.parsed.y}}
+      },
+      scales:{
+        x:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:6},grid:{display:false}},
+        y:{
+          min:0,max:100,
+          ticks:{color:'#555870',font:{size:8},stepSize:25,callback:v=>v===0||v===50||v===100?v:''},
+          grid:{color:'rgba(255,255,255,0.05)'}
+        }
       }
     }
   });

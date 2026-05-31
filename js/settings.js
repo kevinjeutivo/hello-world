@@ -672,6 +672,7 @@ function openRefreshHealthModal(){
   const total=h.summary?.total||0;const ok=h.summary?.ok||0;
   const failed=h.summary?.failed||[];
   const allOk=ok===total;
+  const elapsed=h.elapsedLabel||null;
 
   const tickerRows=Object.entries(h.tickers||{}).map(([t,v])=>{
     const status=v.snap&&v.hist?'&#x2714;':'&#x26A0;';
@@ -690,7 +691,7 @@ function openRefreshHealthModal(){
   el.innerHTML=`<div class="modal-box" style="max-width:380px;max-height:80vh;overflow-y:auto">
     <div class="modal-title">Last Refresh Health</div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">
-      Completed: ${h.completedTs||h.ts||'unknown'}<br>
+      Completed: ${h.completedTs||h.ts||'unknown'}${elapsed?' &nbsp;·&nbsp; <span style="color:var(--text2)">'+elapsed+'</span>':''}<br>
       Result: <span style="color:${allOk?'var(--green)':'var(--warn)'}">${ok}/${total} tickers fully refreshed</span>
     </div>
     <div style="margin-bottom:12px">${tickerRows}</div>

@@ -644,6 +644,61 @@ function confirmImport(){
   toast('Restored '+count+' keys. Reload the app to apply.',4000);
 }
 
+// ── Refresh Health Badge & Modal ──────────────────────────────────────────
+
+function _updateRefreshHealthBadge(){
+  const h=S.get('last_refresh_health');
+  const badge=document.getElementById('refresh-health-badge');
+  if(!badge)return;
+  if(!h){badge.style.display='none';return;}
+  const total=h.summary?.total||0;
+  const ok=h.summary?.ok||0;
+  const allOk=ok===total;
+  badge.style.display='flex';
+  badge.style.background=allOk?'rgba(0,212,170,0.15)':'rgba(255,165,2,0.2)';
+  badge.style.borderColor=allOk?'rgba(0,212,170,0.4)':'rgba(255,165,2,0.5)';
+  badge.innerHTML=(allOk?'&#x2714;':'&#x26A0;')+' '+ok+'/'+total+' tickers'+(allOk?'':' <span style="font-size:9px">tap for details</span>');
+}
+
+function openRefreshHealthModal(){
+  const h=S.get('last_refresh_health');
+  if(!h){toast('No refresh data yet — run a prefetch first');return;}
+  let el=document.getElementById('refresh-health-modal');
+  if(!el){
+    el=document.createElement('div');el.className='modal-overlay';el.id='refresh-health-modal';
+    document.body.appendChild(el);
+    el.addEventListener('click',e=>{if(e.target===el)el.classList.remove('open');});
+  }
+  const total=h.summary?.total||0;const ok=h.summary?.ok||0;
+  const failed=h.summary?.failed||[];
+  const allOk=ok===total;
+
+  const tickerRows=Object.entries(h.tickers||{}).map(([t,v])=>{
+    const status=v.snap&&v.hist?'&#x2714;':'&#x26A0;';
+    const color=v.snap&&v.hist?'var(--green)':'var(--warn)';
+    const detail=[
+      v.snap?'':'snap failed',
+      v.hist?'':'hist failed',
+      v.options?'':'options failed',
+    ].filter(Boolean).join(', ')||'OK';
+    return `<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+      <span style="color:var(--text2)">${t}</span>
+      <span style="color:${color}">${status} ${detail}</span>
+    </div>`;
+  }).join('');
+
+  el.innerHTML=`<div class="modal-box" style="max-width:380px;max-height:80vh;overflow-y:auto">
+    <div class="modal-title">Last Refresh Health</div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">
+      Completed: ${h.completedTs||h.ts||'unknown'}<br>
+      Result: <span style="color:${allOk?'var(--green)':'var(--warn)'}">${ok}/${total} tickers fully refreshed</span>
+    </div>
+    <div style="margin-bottom:12px">${tickerRows}</div>
+    <button class="btn btn-secondary" style="width:100%" onclick="document.getElementById('refresh-health-modal').classList.remove('open')">Close</button>
+  </div>`;
+  el.classList.add('open');
+}
+
 function forceAppRefresh(){
   // reload() without true so the SW intercepts the reload and serves
   // files from its fresh cache. reload(true) bypasses the SW on iOS Safari.

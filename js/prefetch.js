@@ -230,7 +230,7 @@ async function fullRefreshEverything(){
   label.textContent='Step 1/6: Fetching all ticker data...';
   await prefetchAll();bar.style.width='50%';setTopBar(50);
   label.textContent='Step 2/6: Running conviction dashboards...';
-  try{await runDashboards(true);}catch{}bar.style.width='65%';setTopBar(65);
+  try{runDashboards();}catch{}bar.style.width='65%';setTopBar(65);
   label.textContent='Step 3/6: Loading earnings calendar...';
   try{await loadEarningsTab();}catch{}bar.style.width='75%';setTopBar(75);
   label.textContent='Step 4/6: Refreshing VIX...';

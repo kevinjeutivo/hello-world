@@ -1457,6 +1457,20 @@ async function refreshSingleTicker(){
     currentTicker=t;
     await loadTicker();
     toast(t+' refreshed'+(optionsLoaded?' including options':''),3000);
+    // Update health record for this ticker
+    try{
+      const _h=S.get('last_refresh_health');
+      if(_h?.tickers){
+        _h.tickers[t]={snap:true,hist:true,options:optionsLoaded};
+        // Recompute summary
+        const _wl=S.get('watchlist')||[];
+        const _ok=_wl.filter(tk=>_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist).length;
+        _h.summary={total:_wl.length,ok:_ok,failed:_wl.filter(tk=>!(_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist))};
+        _h.completedTs=nowPT();
+        S.set('last_refresh_health',_h);
+        if(typeof _updateRefreshHealthBadge==='function')_updateRefreshHealthBadge();
+      }
+    }catch{}
   }catch(e){
     toast('Refresh failed: '+e.message,3000);
   }finally{

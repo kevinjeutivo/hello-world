@@ -680,7 +680,7 @@ function openRefreshHealthModal(){
     const detail=[
       v.snap?'':'snap failed',
       v.hist?'':'hist failed',
-      v.options?'':'options failed',
+      v.options===true?'':v.options==='skipped'?'options skipped (fresh)':'options failed',
     ].filter(Boolean).join(', ')||'OK';
     return `<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
       <span style="color:var(--text2)">${t}</span>

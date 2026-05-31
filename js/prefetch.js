@@ -28,6 +28,7 @@ async function prefetchAll(){
   const progressEl=document.getElementById('prefetch-progress');const barEl=document.getElementById('prefetch-progress-bar');const labelEl=document.getElementById('prefetch-label');
   if(progressEl)progressEl.style.display='block';
   // Initialize health record
+  const _pfStartMs=Date.now();
   const _health={ts:nowPT(),tickers:{},global:{}};
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];if(barEl)barEl.style.width=Math.round((i/watchlist.length)*100)+'%';if(labelEl)labelEl.textContent=`Fetching ${t} (${i+1}/${watchlist.length})...`;
@@ -201,7 +202,12 @@ async function prefetchAll(){
     }
   }catch{}
   // Save health record
+  const _pfElapsedMs=Date.now()-_pfStartMs;
+  const _pfMins=Math.floor(_pfElapsedMs/60000);
+  const _pfSecs=Math.round((_pfElapsedMs%60000)/1000);
   _health.completedTs=nowPT();
+  _health.elapsedMs=_pfElapsedMs;
+  _health.elapsedLabel=(_pfMins>0?_pfMins+'m ':'')+_pfSecs+'s';
   const _totalT=watchlist.length;
   const _okT=Object.values(_health.tickers).filter(v=>v.snap&&v.hist).length;
   const _failedT=watchlist.filter(t=>!(_health.tickers[t]?.snap&&_health.tickers[t]?.hist));

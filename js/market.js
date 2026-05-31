@@ -1,4 +1,6 @@
 // ═══ MARKET TAB with T-BILL YIELDS ═══
+function _mktTimeout(p,ms,label){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error('Timeout: '+label)),ms))]);}
+
 async function loadMarketTab(){
   if(offlineMode){restoreMarketFromCache();return;}
   const el=document.getElementById('market-content');
@@ -7,13 +9,13 @@ async function loadMarketTab(){
     let sp500,nasdaq,treasury2y,isLive=true,mktTs=nowPT();
     let spLivePrice=null,nqLivePrice=null,spPrevClose=null,nqPrevClose=null;
     // Fetch each independently so one failure doesn't block the others
-    try{sp500=await yahooHistory('^GSPC','3mo','1d');S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});}
+    try{sp500=await _mktTimeout(yahooHistory('^GSPC','3mo','1d'),12000,'GSPC 3mo');S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});}
     catch{const cs=S.get('mkt_sp500');if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cs.closes};isLive=false;mktTs=cs.ts;showOfflineBanner(cs.ts);}}
-    try{nasdaq=await yahooHistory('^IXIC','3mo','1d');S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs});}
+    try{nasdaq=await _mktTimeout(yahooHistory('^IXIC','3mo','1d'),12000,'IXIC 3mo');S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs});}
     catch{const cn=S.get('mkt_nasdaq');if(cn)nasdaq={timestamps:cn.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cn.closes};}
     // 2-year Treasury: try ^USGG2YR first, fall back to ^TNX (10Y) scaled, then live quote
     try{
-      treasury2y=await yahooHistory('^USGG2YR','3mo','1d');
+      treasury2y=await _mktTimeout(yahooHistory('^USGG2YR','3mo','1d'),12000,'USGG2YR');
       // Validate -- ^USGG2YR sometimes returns all-null closes
       const validCloses=treasury2y?.closes?.filter(c=>c!==null&&c>0)||[];
       if(!validCloses.length)throw new Error('No valid 2Y closes');
@@ -21,7 +23,7 @@ async function loadMarketTab(){
     }catch{
       // Try live quote for 2Y yield as fallback
       try{
-        const t2q=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^TNX')}&type=quote&_t=${Date.now()}`).then(r=>r.json());
+        const t2q=await _mktTimeout(fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^TNX')}&type=quote&_t=${Date.now()}`).then(r=>r.json()),10000,'TNX quote');
         const t2Live=t2q?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
         if(t2Live){
           // Create synthetic history with just the current value
@@ -51,13 +53,13 @@ async function loadMarketTab(){
     if(!nqLivePrice){const c=S.get('mkt_nq_live');if(c){nqLivePrice=c.price;nqPrevClose=c.prevClose;}}
     // Fetch CME Fed Funds futures for rate probability display
     let fedFutures=null;
-    try{fedFutures=await fetchFedFundsFutures();if(fedFutures)S.set('fed_futures',{data:fedFutures,ts:mktTs});}
+    try{fedFutures=await _mktTimeout(fetchFedFundsFutures(),12000,'fed futures');if(fedFutures)S.set('fed_futures',{data:fedFutures,ts:mktTs});}
     catch{}
     if(!fedFutures){const cf=S.get('fed_futures');if(cf)fedFutures=cf.data;}
     // T-bill yields from US Treasury FiscalData API (via Worker, no key needed)
     let tbill3m=[],tbill6m=[],fredTs=nowPT();
     try{
-      const tbills=await fetchTBills();
+      const tbills=await _mktTimeout(fetchTBills(),12000,'tbills');
       tbill3m=tbills.tbill3m;tbill6m=tbills.tbill6m;
       fredTs=nowPT();
       S.set('tbills_cache',{tbill3m,tbill6m,ts:fredTs});
@@ -97,7 +99,7 @@ async function loadMarketTab(){
     // 1Y T-bill chart data
     // tbill3m and tbill6m arrays contain ~52 weekly auctions each
 
-    let marketNews=[];try{const news=await fh('/news?category=general');marketNews=news.slice(0,10);S.set('market_news',{items:(marketNews||[]).slice(0,15).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime})),ts:nowPT()});}catch{const cn=S.get('market_news');if(cn)marketNews=cn.items||[];}
+    let marketNews=[];try{const news=await _mktTimeout(fh('/news?category=general'),10000,'market news');marketNews=news.slice(0,10);S.set('market_news',{items:(marketNews||[]).slice(0,15).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime})),ts:nowPT()});}catch{const cn=S.get('market_news');if(cn)marketNews=cn.items||[];}
 
     const spLabels=sp500?.timestamps?.slice(-63).map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});})||[];
     const spData=sp500?.closes?.slice(-63)||[];

@@ -179,6 +179,54 @@ function computeIVR(ticker,w52h,w52l,price){
   }catch{return null;}
 }
 
+// Returns full HVR series aligned to hist2y timestamps for charting.
+// Each value is 0-100 (where current 21-day HRV sits in its 1-year min-max range).
+// Returns null if insufficient data.
+function computeHVRSeries(ticker){
+  try{
+    const h2=S.get('hist2y_'+ticker);
+    if(!h2?.closes?.length||h2.closes.length<63)return null;
+    const closes=h2.closes;
+    const timestamps=h2.timestamps;
+
+    // Daily log returns (aligned to closes)
+    const logRet=[];
+    const logRetIdx=[]; // which close index each return corresponds to
+    for(let i=1;i<closes.length;i++){
+      if(closes[i]!=null&&closes[i]>0&&closes[i-1]!=null&&closes[i-1]>0){
+        logRet.push(Math.log(closes[i]/closes[i-1]));
+        logRetIdx.push(i);
+      }
+    }
+    if(logRet.length<42)return null;
+
+    // Rolling 21-day annualized HRV
+    const win=21;const annFactor=Math.sqrt(252);
+    const hrvs=[];
+    const hrvTsIdx=[];
+    for(let i=win;i<=logRet.length;i++){
+      const slice=logRet.slice(i-win,i);
+      const m=slice.reduce((s,v)=>s+v,0)/win;
+      const variance=slice.reduce((s,v)=>s+(v-m)*(v-m),0)/(win-1);
+      hrvs.push(Math.sqrt(variance)*annFactor);
+      hrvTsIdx.push(logRetIdx[i-1]); // timestamp index in closes array
+    }
+
+    // Compute rolling 1-year min/max for normalization (252 windows)
+    const hvrSeries=[];
+    const hvrTimestamps=[];
+    for(let i=0;i<hrvs.length;i++){
+      const window=hrvs.slice(Math.max(0,i-251),i+1);
+      const minH=Math.min(...window);
+      const maxH=Math.max(...window);
+      const normalized=maxH>minH?Math.min(100,Math.max(0,Math.round((hrvs[i]-minH)/(maxH-minH)*100))):50;
+      hvrSeries.push(normalized);
+      hvrTimestamps.push(timestamps[hrvTsIdx[i]]);
+    }
+    return{values:hvrSeries,timestamps:hvrTimestamps};
+  }catch{return null;}
+}
+
 function ivrInfo(val){
   // Unified IVR scale used throughout the app:
   // <30 Low | 30-49 Normal | 50-69 Elevated | >=70 High

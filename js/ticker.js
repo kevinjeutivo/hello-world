@@ -349,7 +349,7 @@ function toggleBBSpan(span){
   if(bbData)renderBBChart(bbData,hist);
   // Re-render volume chart for new span
   const _vt=currentTicker;
-  const _vh6=S.get('hist_'+_vt);const _vh6m=_vh6?{timestamps:_vh6.timestamps.map(d=>new Date(d*1000)),closes:_vh6.closes,volumes:_vh6.volumes}:null;
+  const _vh6=S.get('hist_'+_vt);const _vh6m=_vh6?{timestamps:_vh6.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:_vh6.closes,volumes:_vh6.volumes}:null;
   const _vh1=S.get('hist1y_'+_vt);const _vh1y=_vh1?{timestamps:_vh1.timestamps.map(d=>new Date(d*1000)),closes:_vh1.closes,volumes:_vh1.volumes}:null;
   const _vh2=S.get('hist2y_'+_vt);const _vh2y=_vh2?{timestamps:_vh2.timestamps,closes:_vh2.closes,volumes:_vh2.volumes||null}:null;
   const _vSnap=S.get('snap_'+_vt);const _avg20=_vSnap?.avgVol20||null;
@@ -1134,8 +1134,10 @@ function renderVolChart(hist6m,hist1y,hist2y,span,avgVol20){
     // 6M -- use last 126 bars
     vols=hist6m.volumes.slice(-126);
     labels=hist6m.timestamps.slice(-126).map(d=>{
-      if(!(d instanceof Date))d=new Date(d);
-      return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      // timestamps may be Date objects (live fetch) or Unix seconds (from cache)
+      if(d instanceof Date)return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      const ms=typeof d==='number'&&d<1e10?d*1000:d; // seconds vs ms detection
+      return new Date(ms).toLocaleDateString('en-US',{month:'short',day:'numeric'});
     });
   }
   if(!vols||!vols.length)return;

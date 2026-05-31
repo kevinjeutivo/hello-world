@@ -120,22 +120,14 @@ function computeVolumeProfile(closes,volumes,nBuckets=40,topN=5){const pairs=clo
 
 function getRoundNumbers(price,w=0.25){const low=price*(1-w),high=price*(1+w);const step=price>=500?50:price>=100?25:price>=50?10:5;const rounds=[];let v=Math.floor(low/step)*step;while(v<=high){if(v>=low&&v<=high)rounds.push(v);v+=step;}return rounds;}
 
+// computeIVR: Historical Volatility Rank (HVR)
+// Compares today's 21-day realized volatility against its own 1-year range.
+// Apples-to-apples comparison eliminates the volatility risk premium bias.
+// Returns 0-100 where 100 = current vol at 1-year high, 0 = at 1-year low.
+// Falls back to price-range proxy if hist2y not yet cached.
 function computeIVR(ticker,w52h,w52l,price){
   try{
-    // ── Step 1: Get current ATM IV from options chain ───────────────────────
-    const cached=S.get('options_'+ticker);
-    const res=cached?.data?.optionChain?.result?.[0];
-    if(!res)return null;
-    const opts=res.options?.[0];
-    if(!opts)return null;
-    const atm=[...(opts.puts||[]),...(opts.calls||[])]
-      .filter(o=>Math.abs(o.strike-price)/price<0.05&&o.impliedVolatility>0);
-    if(!atm.length)return null;
-    const currentIV=avg(atm.map(o=>o.impliedVolatility));
-
-    // ── Step 2: Compute rolling 21-day HRV from hist2y closes ───────────────
-    // HRV = annualized std dev of daily log returns over a 21-day window.
-    // Use up to 1 year (252 days) of windows to establish the HRV range.
+    // ── Primary: HVR from hist2y rolling realized volatility ─────────────
     const h2=S.get('hist2y_'+ticker);
     if(h2?.closes?.length>=63){
       const closes=h2.closes.filter(c=>c!=null&&c>0);
@@ -145,33 +137,43 @@ function computeIVR(ticker,w52h,w52l,price){
         for(let i=1;i<closes.length;i++){
           if(closes[i]>0&&closes[i-1]>0)logRet.push(Math.log(closes[i]/closes[i-1]));
         }
-        // Rolling 21-day annualized HRV
+        // Rolling 21-day annualized HRV for each day
+        const win=21;const annFactor=Math.sqrt(252);
         const hrvs=[];
-        const win=21;
-        const annFactor=Math.sqrt(252);
         for(let i=win;i<=logRet.length;i++){
           const slice=logRet.slice(i-win,i);
           const m=slice.reduce((s,v)=>s+v,0)/win;
           const variance=slice.reduce((s,v)=>s+(v-m)*(v-m),0)/(win-1);
           hrvs.push(Math.sqrt(variance)*annFactor);
         }
-        // Use last 252 HRV readings (1 year) for the range
+        // Use last 252 windows (1 year) for the range
         const hrvWindow=hrvs.slice(-252);
         if(hrvWindow.length>=21){
+          const currentHRV=hrvWindow[hrvWindow.length-1]; // most recent 21-day HRV
           const minHRV=Math.min(...hrvWindow);
           const maxHRV=Math.max(...hrvWindow);
           if(maxHRV>minHRV){
-            // IVR = where currentIV sits in the HRV min-max range
-            const ivr=(currentIV-minHRV)/(maxHRV-minHRV)*100;
-            return Math.min(100,Math.max(0,Math.round(ivr)));
+            // HVR: where does current realized vol sit in its own 1-year range?
+            const hvr=(currentHRV-minHRV)/(maxHRV-minHRV)*100;
+            return Math.min(100,Math.max(0,Math.round(hvr)));
           }
         }
       }
     }
 
-    // ── Fallback: price-range proxy if no hist2y data ───────────────────────
+    // ── Fallback: capped price-range proxy if hist2y not yet cached ───────
+    // Cap rangeVol at 0.8 (80%) to prevent distortion from momentum stocks
     if(!w52h||!w52l||w52h<=w52l)return null;
-    const rangeVol=(w52h-w52l)/w52l;
+    const rangeVol=Math.min((w52h-w52l)/w52l,0.8);
+    // Get current ATM IV from options chain for fallback
+    const cached=S.get('options_'+ticker);
+    const res=cached?.data?.optionChain?.result?.[0];
+    if(!res)return null;
+    const opts=res.options?.[0];if(!opts)return null;
+    const atm=[...(opts.puts||[]),...(opts.calls||[])]
+      .filter(o=>Math.abs(o.strike-price)/price<0.05&&o.impliedVolatility>0);
+    if(!atm.length)return null;
+    const currentIV=avg(atm.map(o=>o.impliedVolatility));
     return Math.min(100,Math.max(0,Math.round((currentIV/(rangeVol*0.6))*50)));
 
   }catch{return null;}
@@ -181,10 +183,10 @@ function ivrInfo(val){
   // Unified IVR scale used throughout the app:
   // <30 Low | 30-49 Normal | 50-69 Elevated | >=70 High
   if(val===null)return{badge:'',guidance:'IV rank not available -- fetch options data to compute.'};
-  if(val<30)return{badge:`<span class="ivr-badge ivr-low">Low IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: Options historically cheap. Premiums thin -- consider waiting for a volatility uptick.`};
-  if(val<50)return{badge:`<span class="ivr-badge ivr-normal">Normal IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: Normal historical IV. Standard conditions for premium collection.`};
-  if(val<70)return{badge:`<span class="ivr-badge ivr-elevated">Elevated IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: IV elevated -- above-average premium opportunity. Good time to sell options.`};
-  return{badge:`<span class="ivr-badge ivr-high">High IV (${val.toFixed(0)})</span>`,guidance:`IVR ${val.toFixed(0)}: IV very high. Exceptional premiums -- driven by recent volatility or upcoming event.`};
+  if(val<30)return{badge:`<span class="ivr-badge ivr-low">Low Vol (${val.toFixed(0)})</span>`,guidance:`Vol Rank ${val.toFixed(0)}: Stock moving less than usual. Premiums relatively thin.`};
+  if(val<50)return{badge:`<span class="ivr-badge ivr-normal">Normal Vol (${val.toFixed(0)})</span>`,guidance:`Vol Rank ${val.toFixed(0)}: Realized volatility in normal range. Standard conditions for premium collection.`};
+  if(val<70)return{badge:`<span class="ivr-badge ivr-elevated">Elevated Vol (${val.toFixed(0)})</span>`,guidance:`Vol Rank ${val.toFixed(0)}: Stock moving more than usual. Above-average premium opportunity.`};
+  return{badge:`<span class="ivr-badge ivr-high">High Vol (${val.toFixed(0)})</span>`,guidance:`Vol Rank ${val.toFixed(0)}: Stock at high end of its volatility range. Exceptional premiums -- tread carefully on naked puts.`};
 }
 
 const POS_WORDS=['beat','beats','surge','surges','upgrade','upgrades','raises','record','strong','soar','gain','rally','top'];

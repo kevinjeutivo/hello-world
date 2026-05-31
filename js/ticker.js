@@ -7,7 +7,7 @@ function _tkTimeout(p,ms,label){return Promise.race([p,new Promise((_,rej)=>setT
 
 async function loadTicker(){
   const t=document.getElementById('ticker-select').value;if(!t)return;
-  if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('options-ticker-select').value=t;clearOptionsState();}
+  if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('options-ticker-select').value=t;clearOptionsState();currentBBSpan='6m';currentRPSpan='2y';}
   document.getElementById('ticker-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading ${t}...</div></div>`;
   try{
     let snap,hist6mo,hist1y,news,recData,isLive=true;

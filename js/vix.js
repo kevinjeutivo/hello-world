@@ -96,6 +96,8 @@ async function _refreshVIXIntraday(){
   }catch(e){console.warn('VIX intraday refresh failed:',e.message);}
 }
 
+function _vixTimeout(p,ms,label){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error('Timeout: '+label)),ms))]);}
+
 async function loadVIX(){
   if(!navigator.onLine&&!offlineMode){toast('Offline -- showing cached VIX',2500);restoreVIXFromCache();return;}
   if(offlineMode){restoreVIXFromCache();return;}
@@ -103,16 +105,16 @@ async function loadVIX(){
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading VIX...</div></div>';
   try{
     let vixH,vix3H,isLive=true;
-    try{[vixH,vix3H]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT()});
+    try{[vixH,vix3H]=await _vixTimeout(Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]),15000,'VIX hist');S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT()});
       // Inject live VIX value via quote endpoint -- more reliable than
       // 5-minute bars which Yahoo sometimes returns as null for ^VIX index.
       // Also fetch ^VIX3M live quote for accurate term structure.
       try{
         const _vt=Date.now();
-        const[vQuote,v3Quote]=await Promise.all([
+        const[vQuote,v3Quote]=await _vixTimeout(Promise.all([
           fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX')}&type=quote&_t=${_vt}`).then(r=>r.json()),
           fetch(`${WORKER_URL}/?ticker=${encodeURIComponent('^VIX3M')}&type=quote&_t=${_vt}`).then(r=>r.json())
-        ]);
+        ]),10000,'VIX quotes');
         const vLive=vQuote?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
         const v3Live=v3Quote?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
         if(vLive){

@@ -1435,23 +1435,51 @@ async function refreshSingleTicker(){
     // Step 5: Options chain top-level
     setP(65,'Fetching '+t+' options chain...');
     let optionsLoaded=false;
-    try{
-      const opts=await yahooOptionsViaProxy(t);
-      S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT()});
-      const yr=opts?.optionChain?.result?.[0];
-      const rawTs=yr?.expirationDates||[];
-      const pairs=rawTs.map(ts=>({ts,date:new Date(ts*1000).toISOString().split('T')[0]}));
-      let monthlyPairs=pairs.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
-      if(monthlyPairs.length===0){const tw=Date.now()+14*86400000;monthlyPairs=pairs.filter(p=>p.ts*1000>=tw).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);}
-      if(monthlyPairs.length===0)monthlyPairs=pairs.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
-      // Step 6: Per-expiration chains
-      for(let pi=0;pi<monthlyPairs.length;pi++){
-        const pair=monthlyPairs[pi];
-        setP(65+pi*10,'Fetching '+t+' options exp '+(pi+1)+'/'+monthlyPairs.length+'...');
-        try{S.set('options_exp_'+t+'_'+pair.date,await yahooOptionsViaProxy(t,String(pair.ts)));}catch{}
-      }
-      optionsLoaded=true;
-    }catch{}
+    // Only fetch options during live window; outside window use validation to guard
+    const _rtInWindow=_isOptionsLiveWindow();
+    const _rtHasSameDay=_hasGoodSameDayCache('options_'+t);
+    if(!_rtInWindow&&_rtHasSameDay){
+      // Outside live window and have good same-day cache -- skip fetch entirely
+      setP(80,'Options cache preserved (outside live window)');
+      optionsLoaded=true; // cache is good
+    }else{
+      try{
+        const opts=await _tkTimeout(yahooOptionsViaProxy(t),15000,'options');
+        // Validate before writing -- reject synthetic/zeroed post-cutoff data
+        const _rtv=_validateOptionsData(opts);
+        if(_rtv.valid){
+          S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT()});
+        }else if(!S.get('options_'+t)){
+          S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),synthetic:true});
+        }
+        // else preserve existing good cache
+        const _savedOpts=S.get('options_'+t);
+        if(_savedOpts){
+          const yr=opts?.optionChain?.result?.[0];
+          const rawTs=yr?.expirationDates||[];
+          const pairs=rawTs.map(ts=>({ts,date:new Date(ts*1000).toISOString().split('T')[0]}));
+          let monthlyPairs=pairs.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
+          if(monthlyPairs.length===0){const tw=Date.now()+14*86400000;monthlyPairs=pairs.filter(p=>p.ts*1000>=tw).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);}
+          if(monthlyPairs.length===0)monthlyPairs=pairs.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
+          // Step 6: Per-expiration chains (parallel)
+          const _expPairs=await Promise.all(monthlyPairs.map((pair,pi)=>{
+            setP(65+pi*8,'Fetching '+t+' options exp '+(pi+1)+'/'+monthlyPairs.length+'...');
+            return _tkTimeout(yahooOptionsViaProxy(t,String(pair.ts)),12000,'exp '+pair.date)
+              .then(d=>({pair,data:d})).catch(()=>({pair,data:null}));
+          }));
+          _expPairs.forEach(({pair,data})=>{
+            if(!data)return;
+            const _expKey='options_exp_'+t+'_'+pair.date;
+            const _expHasSameDay=_hasGoodSameDayCache(_expKey);
+            if(!_rtInWindow&&_expHasSameDay)return; // preserve good cache outside window
+            const _expv=_validateOptionsData(data);
+            if(_expv.valid)S.set(_expKey,data);
+            else if(!S.get(_expKey))S.set(_expKey,{...data,synthetic:true});
+          });
+          optionsLoaded=true;
+        }
+      }catch{}
+    }
     setP(100,'Done!');
     // Re-render ticker tab with fresh data
     currentTicker=t;

@@ -97,7 +97,7 @@ async function loadTicker(){
     }catch{}
 
     // 2Y history for relative performance chart and earnings pattern analysis
-    try{const h2=await yahooHistory(t,'2y','1d');S.set('hist2y_'+t,{timestamps:h2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h2.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:nowPT()});}
+    try{const h2=await yahooHistory(t,'2y','1d');S.set('hist2y_'+t,{timestamps:h2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h2.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h2.volumes?h2.volumes.map(v=>v||0):null,ts:nowPT()});}
     catch{}
     // ^GSPC 2Y history for relative performance chart (shared across tickers)
     try{const cacheAge=(Date.now()-(S.get('hist2y_sp500')?.ts||0))/3600000;
@@ -222,7 +222,7 @@ function restoreTickerFromCache(t){
   const snap=S.get('snap_'+t);if(!snap)return;
   const ch=S.get('hist_'+t);const hist6mo=ch?{timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes}:null;
   const ch1=S.get('hist1y_'+t);const hist1y=ch1?{timestamps:ch1.timestamps.map(d=>new Date(d)),closes:ch1.closes,volumes:ch1.volumes}:null;
-  const ch2=S.get('hist2y_'+t);const hist2y=ch2?{timestamps:ch2.timestamps.map(d=>new Date(d*1000)),closes:ch2.closes}:null;
+  const ch2=S.get('hist2y_'+t);const hist2y=ch2?{timestamps:ch2.timestamps.map(d=>new Date(d*1000)),closes:ch2.closes,volumes:ch2.volumes||null}:null;
   const sp2c=S.get('hist2y_sp500');const hist2ySP=sp2c?{timestamps:sp2c.timestamps.map(d=>new Date(d*1000)),closes:sp2c.closes}:null;
   const ehc=S.get('earnings_hist_'+t);const earningsHistory=ehc?.data||null;
   const cn=S.get('news_'+t);const cr=S.get('rec_'+t);
@@ -346,6 +346,13 @@ function toggleBBSpan(span){
     bbData={timestamps:hist.timestamps,closes:fullCloses,sma20,upper,lower};
   }
   if(bbData)renderBBChart(bbData,hist);
+  // Re-render volume chart for new span
+  const _vt=currentTicker;
+  const _vh6=S.get('hist_'+_vt);const _vh6m=_vh6?{timestamps:_vh6.timestamps.map(d=>new Date(d*1000)),closes:_vh6.closes,volumes:_vh6.volumes}:null;
+  const _vh1=S.get('hist1y_'+_vt);const _vh1y=_vh1?{timestamps:_vh1.timestamps.map(d=>new Date(d*1000)),closes:_vh1.closes,volumes:_vh1.volumes}:null;
+  const _vh2=S.get('hist2y_'+_vt);const _vh2y=_vh2?{timestamps:_vh2.timestamps,closes:_vh2.closes,volumes:_vh2.volumes||null}:null;
+  const _vSnap=S.get('snap_'+_vt);const _avg20=_vSnap?.avgVol20||null;
+  renderVolChart(_vh6m,_vh1y,_vh2y,span,_avg20);
 }
 
 function buildR40Tile(snap){
@@ -518,7 +525,7 @@ return`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarke
     </div>
     ${earningsStr}
   </div>
-  ${hist?`<div class="card"><div class="card-title"><span class="dot"></span>Bollinger Bands + RSI</div><div style="display:flex;gap:6px;margin-bottom:4px"><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" id="bb-btn-6m" onclick="toggleBBSpan(\'6m\')">6M</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-1y" onclick="toggleBBSpan(\'1y\')">1Y</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-2y" onclick="toggleBBSpan(\'2y\')">2Y</button></div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility.
+  ${hist?`<div class="card"><div class="card-title"><span class="dot"></span>Bollinger Bands + RSI</div><div style="display:flex;gap:6px;margin-bottom:4px"><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" id="bb-btn-6m" onclick="toggleBBSpan(\'6m\')">6M</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-1y" onclick="toggleBBSpan(\'1y\')">1Y</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-2y" onclick="toggleBBSpan(\'2y\')">2Y</button></div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div class="chart-wrap" style="height:70px;margin-top:4px"><canvas id="vol-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility.
 
 RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red shading) = overbought, favorable for covered calls.</div></div>`:''}
   ${(hist2y&&hist2ySP)?renderRelPerfCard(snap.ticker,hist2y,hist2ySP,earningsHistory):''}  ${hist1y?`<div class="card"><div class="card-title"><span class="dot" style="background:teal"></span>Volume Profile -- Support / Resistance (1Y)</div><div class="chart-wrap" style="height:300px"><canvas id="vp-chart"></canvas></div><div id="vp-analysis"></div></div>`:''}
@@ -528,6 +535,7 @@ RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red
   ${snap.earningsTrend&&snap.earningsTrend.length?buildEarningsTrendCard(snap.earningsTrend):''}
   ${snap.recTrend&&snap.recTrend.length?buildRecTrendCard(snap.recTrend):''}`;
   if(bbData)renderBBChart(bbData,hist);
+  renderVolChart(hist,hist1y,hist2y,currentBBSpan||'6m',avgVol20);
   if(hist1y)renderVPChart(hist1y,snap.price,snap.week52High,snap.week52Low);
   if(hist2y&&hist2ySP)_initRelPerfChart(snap.ticker,hist2y,hist2ySP,earningsHistory,currentRPSpan||'2y');
 }
@@ -1100,6 +1108,75 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
 // Called after renderTickerContent to render the rel perf chart
 function _initRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
   if(hist2y&&hist2ySP)renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span||'2y');
+}
+
+function renderVolChart(hist6m,hist1y,hist2y,span,avgVol20){
+  const ctx=document.getElementById('vol-chart')?.getContext('2d');
+  if(!ctx)return;
+
+  // Select the right data source based on span
+  let vols=null,labels=null;
+  if(span==='2y'&&hist2y?.volumes?.length){
+    vols=hist2y.volumes;
+    labels=hist2y.timestamps.map(d=>{
+      if(!(d instanceof Date))d=new Date(d*1000);
+      return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    });
+  }else if(span==='1y'&&hist1y?.volumes?.length){
+    vols=hist1y.volumes;
+    labels=hist1y.timestamps.map(d=>{
+      if(!(d instanceof Date))d=new Date(d);
+      return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    });
+  }else if(hist6m?.volumes?.length){
+    // 6M -- use last 126 bars
+    vols=hist6m.volumes.slice(-126);
+    labels=hist6m.timestamps.slice(-126).map(d=>{
+      if(!(d instanceof Date))d=new Date(d);
+      return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    });
+  }
+  if(!vols||!vols.length)return;
+
+  // Compute 20-day rolling average for overlay
+  const avgLine=vols.map((_,i)=>{
+    if(i<1)return null;
+    const win=vols.slice(Math.max(0,i-19),i+1).filter(v=>v>0);
+    return win.length?win.reduce((s,v)=>s+v,0)/win.length:null;
+  });
+
+  // Color bars: high volume (>1.5× avg) = teal accent, normal = muted
+  const volThreshold=avgVol20||avgLine[avgLine.length-1]||0;
+  const barColors=vols.map((v,i)=>{
+    const localAvg=avgLine[i]||volThreshold;
+    return v>localAvg*1.5?'rgba(0,212,170,0.7)':'rgba(139,143,168,0.35)';
+  });
+
+  if(window._volChart)window._volChart.destroy();
+  window._volChart=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        {label:'Volume',data:vols,backgroundColor:barColors,borderWidth:0,barPercentage:0.8,categoryPercentage:1},
+        {label:'20D Avg',data:avgLine,type:'line',borderColor:'rgba(255,165,2,0.6)',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}
+      ]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{
+          label:c=>c.dataset.label+': '+fmtVol(c.parsed.y)
+        }}
+      },
+      scales:{
+        x:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:6},grid:{display:false}},
+        y:{ticks:{color:'#555870',font:{size:8},callback:v=>fmtVol(v)},grid:{color:'#2a2e38'}}
+      }
+    }
+  });
 }
 
 function renderVPChart(hist1y,currentPrice,w52h,w52l){

@@ -9,7 +9,17 @@ async function loadMarketTab(){
     let sp500,nasdaq,treasury2y,isLive=true,mktTs=nowPT();
     let spLivePrice=null,nqLivePrice=null,spPrevClose=null,nqPrevClose=null;
     // Fetch each independently so one failure doesn't block the others
-    try{sp500=await _mktTimeout(yahooHistory('^GSPC','3mo','1d'),12000,'GSPC 3mo');S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});}
+    // Use cached 2Y GSPC data (sliced to 3M) instead of a separate fetch
+    try{
+      const _gsp=S.get('hist2y_sp500');
+      if(_gsp?.closes?.length>=60){
+        const _g6=Math.max(0,_gsp.timestamps.length-63); // ~3 months of trading days
+        sp500={timestamps:_gsp.timestamps.slice(_g6).map(d=>new Date(d*1000)),closes:_gsp.closes.slice(_g6)};
+        S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});
+      }else{
+        sp500=await _mktTimeout(yahooHistory('^GSPC','3mo','1d'),12000,'GSPC 3mo');
+        S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});
+      }}
     catch{const cs=S.get('mkt_sp500');if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cs.closes};isLive=false;mktTs=cs.ts;showOfflineBanner(cs.ts);}}
     try{nasdaq=await _mktTimeout(yahooHistory('^IXIC','3mo','1d'),12000,'IXIC 3mo');S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs});}
     catch{const cn=S.get('mkt_nasdaq');if(cn)nasdaq={timestamps:cn.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cn.closes};}
@@ -417,3 +427,4 @@ function _renderMarketFromCache(){
 
   setTimeout(refreshTsChipAges,200);
 }
+                    

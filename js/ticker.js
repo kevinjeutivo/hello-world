@@ -1,5 +1,6 @@
 // PutSeller Pro -- ticker.js
 // currentBBSpan declared as global in index.html
+function _tkTimeout(p,ms,label){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error('Timeout: '+label)),ms))]);}
 // Ticker tab: load, render, restore from cache, chart functions.
 // Globals used: currentTicker, WORKER_URL, S, offlineMode
 // Dependencies: helpers.js, api.js, storage.js
@@ -71,9 +72,9 @@ async function loadTicker(){
       const cached=S.get('snap_'+t);if(cached){snap=cached;isLive=false;showOfflineBanner(cached.ts);}else throw new Error('No data available');
       const cr=S.get('rec_'+t);if(cr)recData=cr.data;
     }
-    try{hist6mo=await yahooHistory(t,'6mo','1d');S.set('hist_'+t,{timestamps:hist6mo.timestamps.map(d=>d.toISOString()),closes:hist6mo.closes,volumes:hist6mo.volumes,ts:nowPT()});}
+    try{hist6mo=await _tkTimeout(yahooHistory(t,'6mo','1d'),12000,'hist6m');S.set('hist_'+t,{timestamps:hist6mo.timestamps.map(d=>d.toISOString()),closes:hist6mo.closes,volumes:hist6mo.volumes,ts:nowPT()});}
     catch{const ch=S.get('hist_'+t);if(ch){hist6mo={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes};if(!isLive)showOfflineBanner(ch.ts);}}
-    try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});hist1y=h1;}
+    try{const h1=await _tkTimeout(yahooHistory(t,'1y','1d'),12000,'hist1y');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});hist1y=h1;}
     catch{const ch=S.get('hist1y_'+t);if(ch)hist1y={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes};}
     // ── Promote previous confirmed earnings date to history cache ────────────
     // Before snap.earningsDate is overwritten, check if the prior stored date
@@ -97,11 +98,11 @@ async function loadTicker(){
     }catch{}
 
     // 2Y history for relative performance chart and earnings pattern analysis
-    try{const h2=await yahooHistory(t,'2y','1d');S.set('hist2y_'+t,{timestamps:h2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h2.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h2.volumes?h2.volumes.map(v=>v||0):null,ts:nowPT()});}
+    try{const h2=await _tkTimeout(yahooHistory(t,'2y','1d'),15000,'hist2y');S.set('hist2y_'+t,{timestamps:h2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h2.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h2.volumes?h2.volumes.map(v=>v||0):null,ts:nowPT()});}
     catch{}
     // ^GSPC 2Y history for relative performance chart (shared across tickers)
     try{const cacheAge=(Date.now()-(S.get('hist2y_sp500')?.ts||0))/3600000;
-      if(cacheAge>4){const sp2=await yahooHistory('^GSPC','2y','1d');S.set('hist2y_sp500',{timestamps:sp2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:sp2.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});}
+      if(cacheAge>4){const sp2=await _tkTimeout(yahooHistory('^GSPC','2y','1d'),15000,'GSPC');S.set('hist2y_sp500',{timestamps:sp2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:sp2.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});}
     }catch{}
     // Historical earnings dates: extrapolate backwards from confirmed next earnings date
     // using ~91-day quarterly cadence, then refine each estimate by finding the
@@ -390,6 +391,8 @@ function buildR40Tile(snap){
     +'</div>';
 }
 
+function fmtVol(v){if(v==null)return'N/A';if(v>=1e9)return(v/1e9).toFixed(2)+'B';if(v>=1e6)return(v/1e6).toFixed(2)+'M';if(v>=1e3)return(v/1e3).toFixed(0)+'K';return v.toFixed(0);}
+
 function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,hist2y,hist2ySP,earningsHistory){
   if(isLive){_lastLiveRenderTicker=snap.ticker;_lastLiveRenderTime=Date.now();}
   const el=document.getElementById('ticker-content');
@@ -432,7 +435,6 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
   const volRatio=todayVol&&avgVol20?todayVol/avgVol20:null;
   const volRatioLabel=volRatio==null?'':volRatio>=2?'🔥 Unusual':volRatio>=1.5?'🔥 High':volRatio>=1.2?'Elevated':'Normal';
   const volRatioColor=volRatio==null?'var(--text3)':volRatio>=2?'var(--red)':volRatio>=1.5?'rgba(255,165,2,1)':volRatio>=1.2?'var(--warn)':'var(--text2)';
-  function fmtVol(v){if(v==null)return'N/A';if(v>=1e9)return(v/1e9).toFixed(2)+'B';if(v>=1e6)return(v/1e6).toFixed(2)+'M';if(v>=1e3)return(v/1e3).toFixed(0)+'K';return v.toFixed(0);}
   const earningsTiming=snap.earningsHour==='bmo'?' (before open)':snap.earningsHour==='amc'?' (after close)':'';
   const earningsStr=snap.earningsDate?`<div class="earnings-warn" style="margin-top:10px">Earnings: ${snap.earningsDate}${earningsTiming}</div>`:'';
   const ivrVal=computeIVR(snap.ticker,snap.week52High,snap.week52Low,snap.price);
@@ -1398,8 +1400,8 @@ async function refreshSingleTicker(){
     S.set('upgrades_'+t,{data:upgrades&&upgrades.length?upgrades.slice(0,6):[],ts:nowPT()});
     // Step 3: Price history
     setP(35,'Fetching '+t+' price history...');
-    try{const h6=await yahooHistory(t,'6mo','1d');S.set('hist_'+t,{timestamps:h6.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h6.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h6.volumes.map(v=>v||0),ts:nowPT()});}catch{}
-    try{const h1=await yahooHistory(t,'1y','1d');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});}catch{}
+    try{const h6=await _tkTimeout(yahooHistory(t,'6mo','1d'),12000,'hist6m');S.set('hist_'+t,{timestamps:h6.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h6.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h6.volumes.map(v=>v||0),ts:nowPT()});}catch{}
+    try{const h1=await _tkTimeout(yahooHistory(t,'1y','1d'),12000,'hist1y');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});}catch{}
     // Step 4: News
     setP(50,'Fetching '+t+' news...');
     try{const newsData=await fetchNews(t);S.set('news_'+t,{items:(newsData||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}

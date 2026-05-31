@@ -403,11 +403,18 @@ function _buildExportData(){
     const v=S.get(k);
     if(v!=null)data.keys[k]=v;
   });
-  // Per-ticker earnings history (contains overrides)
-  const wl=S.get('watchlist')||[];
-  wl.forEach(t=>{
-    const eh=S.get('earnings_hist_'+t);
-    if(eh!=null)data.keys['earnings_hist_'+t]=eh;
+  // Per-ticker earnings history (contains overrides) and confirmed cache
+  // Use all keys in localStorage to catch tickers no longer on watchlist
+  const _allKeys=Object.keys(localStorage);
+  _allKeys.forEach(k=>{
+    if(k.startsWith('"earnings_hist_')||k.startsWith('earnings_hist_')){
+      const v=S.get(k.replace(/^"/,'').replace(/"$/,''));
+      if(v!=null)data.keys[k.replace(/^"|"$/g,'')]=v;
+    }
+    if(k.startsWith('"earnings_confirmed_')||k.startsWith('earnings_confirmed_')){
+      const v=S.get(k.replace(/^"/,'').replace(/"$/,''));
+      if(v!=null)data.keys[k.replace(/^"|"$/g,'')]=v;
+    }
   });
 
   return data;
@@ -588,6 +595,20 @@ function previewImport(){
     }catch{}
   }
   lines.push('</div>');
+
+  // Confirmed earnings cache summary
+  try{
+    const _confKeys=Object.keys(keys).filter(k=>k.startsWith('earnings_confirmed_'));
+    if(_confKeys.length){
+      lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">CONFIRMED EARNINGS CACHE ('+_confKeys.length+' ticker'+(confKeys.length>1?'s':'')+')</span>');
+      _confKeys.forEach(k=>{
+        const t=k.replace('earnings_confirmed_','');
+        const entries=Array.isArray(keys[k])?keys[k]:(JSON.parse(keys[k]||'[]'));
+        if(entries.length)lines.push('<div style="color:var(--text2);padding-left:10px">'+t+': '+entries.length+' confirmed date'+(entries.length>1?'s':'')+' ('+entries.map(e=>e.date+(e.hour?' '+e.hour.toUpperCase():'')).join(', ')+')</div>');
+      });
+      lines.push('</div>');
+    }
+  }catch{}
 
   // Sandbox ETFs
   try{

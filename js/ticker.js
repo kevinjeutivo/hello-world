@@ -72,10 +72,26 @@ async function loadTicker(){
       const cached=S.get('snap_'+t);if(cached){snap=cached;isLive=false;showOfflineBanner(cached.ts);}else throw new Error('No data available');
       const cr=S.get('rec_'+t);if(cr)recData=cr.data;
     }
-    try{hist6mo=await _tkTimeout(yahooHistory(t,'6mo','1d'),12000,'hist6m');S.set('hist_'+t,{timestamps:hist6mo.timestamps.map(d=>d.toISOString()),closes:hist6mo.closes,volumes:hist6mo.volumes,ts:nowPT()});}
-    catch{const ch=S.get('hist_'+t);if(ch){hist6mo={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes};if(!isLive)showOfflineBanner(ch.ts);}}
-    try{const h1=await _tkTimeout(yahooHistory(t,'1y','1d'),12000,'hist1y');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});hist1y=h1;}
-    catch{const ch=S.get('hist1y_'+t);if(ch)hist1y={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes};}
+    // Single 2Y fetch populates all three history cache keys
+    try{
+      const h2=await _tkTimeout(yahooHistory(t,'2y','1d'),15000,'hist2y');
+      const _ts2=h2.timestamps.map(d=>Math.floor(d.getTime()/1000));
+      const _cl2=h2.closes.map(v=>v!=null?Math.round(v*100)/100:null);
+      const _vl2=h2.volumes?h2.volumes.map(v=>v||0):null;
+      const _now=nowPT();
+      S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,ts:_now});
+      const _1y=Math.max(0,_ts2.length-252);
+      S.set('hist1y_'+t,{timestamps:_ts2.slice(_1y),closes:_cl2.slice(_1y),volumes:_vl2?_vl2.slice(_1y):[],ts:_now});
+      const _6m=Math.max(0,_ts2.length-126);
+      S.set('hist_'+t,{timestamps:_ts2.slice(_6m),closes:_cl2.slice(_6m),volumes:_vl2?_vl2.slice(_6m):[],ts:_now});
+      // Build live hist objects for rendering
+      hist6mo={timestamps:h2.timestamps.slice(-126),closes:h2.closes.slice(-126),volumes:h2.volumes?h2.volumes.slice(-126):[]};
+      hist1y={timestamps:h2.timestamps.slice(-252),closes:h2.closes.slice(-252),volumes:h2.volumes?h2.volumes.slice(-252):[]};
+    }catch{
+      // Fallback to cached data
+      const ch=S.get('hist_'+t);if(ch){hist6mo={timestamps:ch.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:ch.closes,volumes:ch.volumes||[]};if(!isLive)showOfflineBanner(ch.ts);}
+      const ch1=S.get('hist1y_'+t);if(ch1)hist1y={timestamps:ch1.timestamps.map(d=>new Date(d*1000)),closes:ch1.closes,volumes:ch1.volumes||[]};
+    }
     // ── Promote previous confirmed earnings date to history cache ────────────
     // Before snap.earningsDate is overwritten, check if the prior stored date
     // is now in the past -- if so, promote it to earnings_confirmed_TICKER.
@@ -97,9 +113,7 @@ async function loadTicker(){
       }
     }catch{}
 
-    // 2Y history for relative performance chart and earnings pattern analysis
-    try{const h2=await _tkTimeout(yahooHistory(t,'2y','1d'),15000,'hist2y');S.set('hist2y_'+t,{timestamps:h2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h2.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h2.volumes?h2.volumes.map(v=>v||0):null,ts:nowPT()});}
-    catch{}
+    // hist2y_ already populated by single 2Y fetch above
     // ^GSPC 2Y history for relative performance chart (shared across tickers)
     try{const cacheAge=(Date.now()-(S.get('hist2y_sp500')?.ts||0))/3600000;
       if(cacheAge>4){const sp2=await _tkTimeout(yahooHistory('^GSPC','2y','1d'),15000,'GSPC');S.set('hist2y_sp500',{timestamps:sp2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:sp2.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});}
@@ -1402,8 +1416,19 @@ async function refreshSingleTicker(){
     S.set('upgrades_'+t,{data:upgrades&&upgrades.length?upgrades.slice(0,6):[],ts:nowPT()});
     // Step 3: Price history
     setP(35,'Fetching '+t+' price history...');
-    try{const h6=await _tkTimeout(yahooHistory(t,'6mo','1d'),12000,'hist6m');S.set('hist_'+t,{timestamps:h6.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h6.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h6.volumes.map(v=>v||0),ts:nowPT()});}catch{}
-    try{const h1=await _tkTimeout(yahooHistory(t,'1y','1d'),12000,'hist1y');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});}catch{}
+    // Single 2Y fetch populates all three history cache keys
+    try{
+      const _rh2=await _tkTimeout(yahooHistory(t,'2y','1d'),15000,'hist2y');
+      const _rts=_rh2.timestamps.map(d=>Math.floor(d.getTime()/1000));
+      const _rcl=_rh2.closes.map(v=>v!=null?Math.round(v*100)/100:null);
+      const _rvl=_rh2.volumes?_rh2.volumes.map(v=>v||0):null;
+      const _rn=nowPT();
+      S.set('hist2y_'+t,{timestamps:_rts,closes:_rcl,volumes:_rvl,ts:_rn});
+      const _r1=Math.max(0,_rts.length-252);
+      S.set('hist1y_'+t,{timestamps:_rts.slice(_r1),closes:_rcl.slice(_r1),volumes:_rvl?_rvl.slice(_r1):[],ts:_rn});
+      const _r6=Math.max(0,_rts.length-126);
+      S.set('hist_'+t,{timestamps:_rts.slice(_r6),closes:_rcl.slice(_r6),volumes:_rvl?_rvl.slice(_r6):[],ts:_rn});
+    }catch(e){console.warn('refreshSingle hist2y failed:',t,e?.message);}
     // Step 4: News
     setP(50,'Fetching '+t+' news...');
     try{const newsData=await fetchNews(t);S.set('news_'+t,{items:(newsData||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}

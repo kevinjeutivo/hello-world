@@ -66,82 +66,106 @@ function renderDashTable(elId,results,ts,isLive){
   }).join('');
 }
 
-async function runDashboards(skipOnlineCheck=false){
-  if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');return;}
-  if(!skipOnlineCheck){
-    if(!navigator.onLine&&!offlineMode){toast('Offline -- conviction data unchanged',3000);return;}
-    if(offlineMode){toast('Offline mode -- disable in Settings to fetch live data',3000);return;}
-  }
+function _dashErr(t,msg){
+  return{ticker:t,price:null,score:-99,signal:'error',factors:'No cached data',
+    narrative:'Run Prefetch All first to populate cache for '+t,
+    ivrBadge:'',earningsDate:null,recStrike:'--',expiration:'--',estApy:'--'};
+}
+
+// runDashboards: pure cache-based computation, no network calls.
+// All required data is populated by prefetchAll / refreshSingleTicker.
+function runDashboards(){
+  if(!watchlist.length){toast('No tickers in watchlist');return;}
   const btn=document.getElementById('run-dashboard-btn');btn.disabled=true;
   document.getElementById('dashboard-progress').style.display='block';
+  document.getElementById('dash-progress-bar').style.width='0%';
+  document.getElementById('dash-progress-label').textContent='Scoring from cache...';
   const targetAPY=parseFloat(document.getElementById('target-apy').value)||12;
   const putResults=[],ccResults=[];
+  const today=new Date();
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];
-    document.getElementById('dash-progress-bar').style.width=Math.round((i/watchlist.length)*100)+'%';
-    document.getElementById('dash-progress-label').textContent=`Scoring ${t} (${i+1}/${watchlist.length})...`;
+    document.getElementById('dash-progress-bar').style.width=Math.round(((i+1)/watchlist.length)*100)+'%';
     try{
-      const[quote,metrics,earnings]=await Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)]);
-      const price=quote.c;
-      let w52h=metrics.metric?.['52WeekHigh'],w52l=metrics.metric?.['52WeekLow'];
-      // Sanity-check: Finnhub occasionally returns TWD-denominated values for ADRs like TSM.
-      // If the 52W values are implausible relative to current price, discard them --
-      // they will be recomputed from Yahoo 1Y history below (always USD-denominated).
-      if(w52h&&w52l&&price){
-        const hiRatio=w52h/price,loRatio=price/w52l;
-        if(hiRatio>5||loRatio>5||w52h<price*0.5||w52l>price*1.5){
-          console.warn(t+': implausible 52W range from Finnhub ('+w52l+'–'+w52h+' vs price '+price+'), will use history');
-          w52h=null;w52l=null;
+      // ── All data from cache ────────────────────────────────────────────
+      const snap=S.get('snap_'+t)||{};
+      const price=snap.price||null;
+      if(!price){putResults.push(_dashErr(t,'No cached price'));ccResults.push(_dashErr(t,'No cached price'));continue;}
+
+      // 52W range -- from snap, fallback to hist1y
+      let w52h=snap.week52High||null,w52l=snap.week52Low||null;
+      let rsiVal=null,ma50=null,ma200=null,rangePos=null;
+      const ch1=S.get('hist1y_'+t);
+      if(ch1?.closes?.length){
+        const closes=ch1.closes.filter(c=>c!=null&&c>0);
+        if(closes.length>=21){
+          const rsi=computeRSI(closes);rsiVal=rsi[rsi.length-1];
+          if(closes.length>=50)ma50=avg(closes.slice(-50));
+          if(closes.length>=200)ma200=avg(closes.slice(-200));
+          if(!w52h||!w52l){w52h=w52h||Math.max(...closes);w52l=w52l||Math.min(...closes);}
+          if(w52h&&w52l&&w52h>w52l)rangePos=(price-w52l)/(w52h-w52l);
         }
       }
-      const futureEarnings2=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
-      const earningsDate=futureEarnings2[0]?.date||null;const earningsHour=futureEarnings2[0]?.hour||null;
-      let rsiVal=null,ma50=null,ma200=null,rangePos=null;
-      try{const hist=await yahooHistory(t,'1y','1d');const closes=hist.closes.filter(c=>c!==null);const rsi=computeRSI(closes);rsiVal=rsi[rsi.length-1];ma50=avg(closes.slice(-50));ma200=avg(closes.slice(-200));
-        // Backfill 52W range from Yahoo history if Finnhub values are null or were cleared
-        if(!w52h||!w52l){w52h=w52h||Math.max(...closes);w52l=w52l||Math.min(...closes);}
-        if(w52h&&w52l&&w52h>w52l)rangePos=(price-w52l)/(w52h-w52l);}catch{}
-      const ivrVal=computeIVR(t,w52h,w52l,price);const ivr=ivrInfo(ivrVal);
-      const snap=S.get('snap_'+t)||{};
-      // Persist ivrVal to snap so watchlist IVR heatmap can read it without a full dashboard render
-      if(ivrVal!=null){const snapUpd={...snap,ivrVal};S.set('snap_'+t,snapUpd);}
-      let pRS=null,pExp=null,pApy=null,cRS=null,cExp=null,cApy=null;
-      try{const today=new Date();const oc=S.get('options_'+t);const yr=oc?.data?.optionChain?.result?.[0];if(yr&&price){const expDates=(yr.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]);for(const exp of expDates.slice(0,3)){const ec=S.get('options_exp_'+t+'_'+exp);const res=ec?.optionChain?.result?.[0];if(!res)continue;const expD=new Date(exp+'T12:00:00Z');const dte=Math.max(Math.round((expD-today)/86400000),1);if(dte<25||dte>100)continue;if(!pRS&&res.options?.[0]?.puts){const puts=res.options[0].puts.filter(p=>{const s=p.strike,bid=p.bid||0,last=p.lastPrice||0,prem=(bid>0?bid:last)*100,apy=prem/(s*100)*(365/dte)*100,pct=(price-s)/price*100;return s<price&&pct>=4&&pct<=18&&apy>=targetAPY*0.7&&(p.openInterest||0)>=50;});if(puts.length){const best=puts.reduce((b,p)=>{const apyA=((p.bid||0)>0?p.bid:p.lastPrice||0)*100/(p.strike*100)*(365/dte)*100;const apyB=((b.bid||0)>0?b.bid:b.lastPrice||0)*100/(b.strike*100)*(365/dte)*100;return Math.abs(apyA-targetAPY)<Math.abs(apyB-targetAPY)?p:b;});const prem=((best.bid||0)>0?best.bid:best.lastPrice||0)*100;pRS='$'+formatStrike(best.strike);pExp=exp;pApy=(prem/(best.strike*100)*(365/dte)*100).toFixed(1)+'%';}}if(!cRS&&res.options?.[0]?.calls){const calls=res.options[0].calls.filter(c=>{const s=c.strike,bid=c.bid||0,last=c.lastPrice||0,prem=(bid>0?bid:last)*100,apy=prem/(price*100)*(365/dte)*100,pct=(s-price)/price*100;return s>price&&pct>=4&&pct<=18&&apy>=targetAPY*0.7&&(c.openInterest||0)>=50;});if(calls.length){const best=calls.reduce((b,c)=>{const apyA=((c.bid||0)>0?c.bid:c.lastPrice||0)*100/(price*100)*(365/dte)*100;const apyB=((b.bid||0)>0?b.bid:b.lastPrice||0)*100/(price*100)*(365/dte)*100;return Math.abs(apyA-targetAPY)<Math.abs(apyB-targetAPY)?c:b;});const prem=((best.bid||0)>0?best.bid:best.lastPrice||0)*100;cRS='$'+formatStrike(best.strike);cExp=exp;cApy=(prem/(price*100)*(365/dte)*100).toFixed(1)+'%';}}if(pRS&&cRS)break;}}}catch{}
+
+      // IVR -- use persisted snap.ivrVal, recompute if missing
+      let ivrVal=snap.ivrVal!=null?snap.ivrVal:computeIVR(t,w52h,w52l,price);
+      if(ivrVal!=null&&snap.ivrVal==null){snap.ivrVal=ivrVal;S.set('snap_'+t,snap);}
+      const ivr=ivrInfo(ivrVal);
+
+      // Earnings date from snap
+      const earningsDate=snap.earningsDate||null;
+      const earningsHour=snap.earningsHour||null;
       const earningsTiming=earningsHour==='bmo'?' (before open)':earningsHour==='amc'?' (after close)':'';
       const earningsDisplay=earningsDate?earningsDate+earningsTiming:null;
-      // OI gravity gap -- max put OI strike below price
-      let oiGapPct=null;
+
+      // Options: best put and call strikes from cached per-expiry chains
+      let pRS=null,pExp=null,pApy=null,cRS=null,cExp=null,cApy=null;
       try{
-        const optCache=S.get('options_'+t);
-        const opts=optCache?.data?.optionChain?.result?.[0];
+        const oc=S.get('options_'+t);
+        const yr=oc?.data?.optionChain?.result?.[0];
+        if(yr&&price){
+          const expDates=(yr.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]);
+          for(const exp of expDates.slice(0,3)){
+            const ec=S.get('options_exp_'+t+'_'+exp);
+            const res=ec?.optionChain?.result?.[0];
+            if(!res)continue;
+            const expD=new Date(exp+'T12:00:00Z');
+            const dte=Math.max(Math.round((expD-today)/86400000),1);
+            if(dte<25||dte>100)continue;
+            if(!pRS&&res.options?.[0]?.puts){
+              const puts=res.options[0].puts.filter(p=>{const s=p.strike,bid=p.bid||0,last=p.lastPrice||0,prem=(bid>0?bid:last)*100,apy=prem/(s*100)*(365/dte)*100,pct=(price-s)/price*100;return s<price&&pct>=4&&pct<=18&&apy>=targetAPY*0.7&&(p.openInterest||0)>=50;});
+              if(puts.length){const best=puts.reduce((b,p)=>{const apyA=((p.bid||0)>0?p.bid:p.lastPrice||0)*100/(p.strike*100)*(365/dte)*100;const apyB=((b.bid||0)>0?b.bid:b.lastPrice||0)*100/(b.strike*100)*(365/dte)*100;return Math.abs(apyA-targetAPY)<Math.abs(apyB-targetAPY)?p:b;});const prem=((best.bid||0)>0?best.bid:best.lastPrice||0)*100;pRS='$'+formatStrike(best.strike);pExp=exp;pApy=(prem/(best.strike*100)*(365/dte)*100).toFixed(1)+'%';}
+            }
+            if(!cRS&&res.options?.[0]?.calls){
+              const calls=res.options[0].calls.filter(c=>{const s=c.strike,bid=c.bid||0,last=c.lastPrice||0,prem=(bid>0?bid:last)*100,apy=prem/(price*100)*(365/dte)*100,pct=(s-price)/price*100;return s>price&&pct>=4&&pct<=18&&apy>=targetAPY*0.7&&(c.openInterest||0)>=50;});
+              if(calls.length){const best=calls.reduce((b,c)=>{const apyA=((c.bid||0)>0?c.bid:c.lastPrice||0)*100/(price*100)*(365/dte)*100;const apyB=((b.bid||0)>0?b.bid:b.lastPrice||0)*100/(price*100)*(365/dte)*100;return Math.abs(apyA-targetAPY)<Math.abs(apyB-targetAPY)?c:b;});const prem=((best.bid||0)>0?best.bid:best.lastPrice||0)*100;cRS='$'+formatStrike(best.strike);cExp=exp;cApy=(prem/(price*100)*(365/dte)*100).toFixed(1)+'%';}
+            }
+            if(pRS&&cRS)break;
+          }
+        }
+      }catch{}
+
+      // OI gravity gap
+      let oiGapPct=null,callOiGapPct=null;
+      try{
+        const opts=S.get('options_'+t)?.data?.optionChain?.result?.[0];
         if(opts&&price>0){
-          const nearOpts=opts.options?.[0];
-          if(nearOpts?.puts?.length){
-            const maxOIPut=nearOpts.puts.reduce((best,p)=>(!best||(p.openInterest||0)>(best.openInterest||0))?p:best,null);
-            if(maxOIPut?.strike)oiGapPct=(price-maxOIPut.strike)/price*100;
-          }
+          const near=opts.options?.[0];
+          if(near?.puts?.length){const maxP=near.puts.reduce((b,p)=>(!b||(p.openInterest||0)>(b.openInterest||0))?p:b,null);if(maxP?.strike)oiGapPct=(price-maxP.strike)/price*100;}
+          if(near?.calls?.length){const maxC=near.calls.filter(c=>c.strike>price).reduce((b,c)=>(!b||(c.openInterest||0)>(b.openInterest||0))?c:b,null);if(maxC?.strike)callOiGapPct=(maxC.strike-price)/price*100;}
         }
       }catch{}
-      // OI gap for calls -- max call OI strike above price
-      let callOiGapPct=null;
-      try{
-        const optCache2=S.get('options_'+t);
-        const opts2=optCache2?.data?.optionChain?.result?.[0];
-        if(opts2&&price>0){
-          const nearOpts2=opts2.options?.[0];
-          if(nearOpts2?.calls?.length){
-            const maxOICall=nearOpts2.calls.filter(c=>c.strike>price).reduce((best,c)=>(!best||(c.openInterest||0)>(best.openInterest||0))?c:best,null);
-            if(maxOICall?.strike)callOiGapPct=(maxOICall.strike-price)/price*100;
-          }
-        }
-      }catch{}
+
       const ps=scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:pRS,expiration:pExp,estApy:pApy,ivrVal,ptMean:snap.ptMean||null,beta:snap.beta||null,oiGapPct});
       const cs=scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:cRS,expiration:cExp,estApy:cApy,ivrVal,ptMean:snap.ptMean||null,beta:snap.beta||null,oiGapPct:callOiGapPct});
       const common={ticker:t,price,ivrBadge:ivr.badge,ivrVal,earningsDate:earningsDisplay};
       putResults.push({...common,...ps});ccResults.push({...common,...cs});
-    }catch(err){console.error('Dashboard scoring error for '+t+':',err?.message||err);const e={ticker:t,price:null,score:-99,signal:'error',factors:'Data unavailable: '+(err?.message||'unknown').slice(0,40),narrative:'Error: '+(err?.message||'unknown'),ivrBadge:'',earningsDate:null,recStrike:'--',expiration:'--',estApy:'--'};putResults.push({...e});ccResults.push({...e});}
-    if(i<watchlist.length-1)await sleep(800);
+    }catch(err){
+      console.error('Dashboard error for '+t+':',err?.message);
+      putResults.push(_dashErr(t,err?.message));ccResults.push(_dashErr(t,err?.message));
+    }
   }
+  // No sleep needed -- pure cache computation
   document.getElementById('dash-progress-bar').style.width='100%';
   document.getElementById('dash-progress-label').textContent='Done!';
   setTimeout(()=>{document.getElementById('dashboard-progress').style.display='none';},1500);

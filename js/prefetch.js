@@ -131,27 +131,26 @@ async function prefetchAll(){
         let monthlyPairs2=allExpPairs2.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
         if(monthlyPairs2.length===0){const tw=Date.now()+14*86400000;monthlyPairs2=allExpPairs2.filter(p=>p.ts*1000>=tw).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);}
         if(monthlyPairs2.length===0)monthlyPairs2=allExpPairs2.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
-        for(const pair of monthlyPairs2){
-          try{
-            const expData=await _pfTimeout(yahooOptionsViaProxy(t,String(pair.ts)),12000,t+' exp '+pair.date);
-            const _pExpKey='options_exp_'+t+'_'+pair.date;
-            const _pExpInWindow=_isOptionsLiveWindow();
-            const _pExpHasSameDay=_hasGoodSameDayCache(_pExpKey);
-            if(!_pExpInWindow&&_pExpHasSameDay){
-              console.log(t+' '+pair.date+': prefetch outside live window, preserving same-day exp cache');
-            }else{
-              const _ev=_validateOptionsData(expData);
-              if(_ev.valid){
-                S.set(_pExpKey,expData);
-              }else if(!S.get(_pExpKey)){
-                console.warn(t+' '+pair.date+': prefetch exp options synthetic ('+_ev.reason+'), saving as fallback');
-                S.set(_pExpKey,{...expData,synthetic:true});
-              }else{
-                console.warn(t+' '+pair.date+': prefetch exp rejected ('+_ev.reason+'), preserving cache');
-              }
-            }
-          }catch{}
-        }
+        // Parallel: fetch all monthly expiry chains simultaneously (independent Yahoo calls)
+        const _expResults=await Promise.all(monthlyPairs2.map(pair=>
+          _pfTimeout(yahooOptionsViaProxy(t,String(pair.ts)),12000,t+' exp '+pair.date)
+            .then(d=>({pair,data:d,err:null}))
+            .catch(e=>({pair,data:null,err:e?.message||'failed'}))
+        ));
+        _expResults.forEach(({pair,data,err})=>{
+          if(err||!data){console.warn(t+' '+pair.date+': exp fetch failed:',err);return;}
+          const _pExpKey='options_exp_'+t+'_'+pair.date;
+          const _pExpInWindow=_isOptionsLiveWindow();
+          const _pExpHasSameDay=_hasGoodSameDayCache(_pExpKey);
+          if(!_pExpInWindow&&_pExpHasSameDay){
+            console.log(t+' '+pair.date+': outside live window, preserving same-day exp cache');
+          }else{
+            const _ev=_validateOptionsData(data);
+            if(_ev.valid){S.set(_pExpKey,data);}
+            else if(!S.get(_pExpKey)){S.set(_pExpKey,{...data,synthetic:true});}
+            else{console.warn(t+' '+pair.date+': exp rejected ('+_ev.reason+'), preserving cache');}
+          }
+        });
     }
     // Also fetch quote data for after-hours price and forwardPE
 

@@ -348,6 +348,7 @@ function renderWatchlist(){
 }
 
 function selectTickerFromWatchlist(t){
+  if(t!==currentTicker){currentBBSpan='6m';currentRPSpan='2y';}
   currentTicker=t;S.set('last_ticker',t);
   populateSelects();
   document.getElementById('ticker-select').value=t;

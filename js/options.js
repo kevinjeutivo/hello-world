@@ -335,7 +335,7 @@ async function loadOptionsForTicker(){
   }catch(err){document.getElementById('options-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
 }
 
-function restoreOIChartFromCache(){if(!cachedOIRows||!lastOptionsTickerLoaded)return;const snap=S.get('snap_'+lastOptionsTickerLoaded);if(snap?.price){document.getElementById('oi-chart-section').style.display='block';renderOIChart(cachedOIRows,snap.price,lastOptionsTickerLoaded);}}
+function restoreOIChartFromCache(){if(!lastOptionsTickerLoaded)return;const snap=S.get('snap_'+lastOptionsTickerLoaded);if(snap?.price){if(cachedOIRows){document.getElementById('oi-chart-section').style.display='block';renderOIChart(cachedOIRows,snap.price,lastOptionsTickerLoaded);}if(currentOptionsData)buildOptionsTable();}}
 
 function buildOptionsTable(){
   const t=document.getElementById('options-ticker-select').value;if(!t||!currentOptionsData)return;
@@ -441,7 +441,7 @@ function buildOptionsTable(){
 
   // Earnings banner after all expirations if not yet inserted
   if(earningsD&&!earningsBannerInserted){tableBodyHTML+=earningsBanner();}
-  const tableHTML=`<div class="card"><div class="card-title"><span class="dot"></span>${currentMode==='puts'?'Put':'Call'} Options -- ${t} @ $${currentPrice.toFixed(2)}</div>${(()=>{const optCache=S.get('options_'+t);const optTs=optCache?.ts||'';const optAge=relAge(optTs);const isOptLive=optTs&&(Date.now()-new Date(optTs.replace(/ PT$| UTC$| local$/,'').trim()).getTime())<900000;return'<div class="ts-chip '+(isOptLive?'live':'stale')+'">'+(isOptLive?'live':'cached')+' '+optTs+(optAge?' ('+optAge+')':'')+'</div>';})()}<div class="options-table-wrap"><table class="options-table"><thead><tr><th>Exp / Strike</th><th>% OTM</th><th>Bid/Ask</th><th>Premium</th><th>APY</th><th>OI</th><th>IV</th></tr></thead><tbody>${tableBodyHTML}</tbody></table></div></div>`;
+  const tableHTML=`<div class="card"><div class="card-title"><span class="dot"></span>${currentMode==='puts'?'Put':'Call'} Options -- ${t} @ $${currentPrice.toFixed(2)}</div>${(()=>{const optCache=S.get('options_'+t);const optTs=optCache?.ts||'';if(!optTs)return'';const isOptLive=optTs&&(Date.now()-new Date(optTs.replace(/ PT$| UTC$| local$/,'').trim()).getTime())<900000;return tsChip(optTs,isOptLive);})()}<div class="options-table-wrap"><table class="options-table"><thead><tr><th>Exp / Strike</th><th>% OTM</th><th>Bid/Ask</th><th>Premium</th><th>APY</th><th>OI</th><th>IV</th></tr></thead><tbody>${tableBodyHTML}</tbody></table></div></div>`;
   document.getElementById('options-content').innerHTML=tableHTML;renderOIChart(rows,currentPrice,t);
 }
 

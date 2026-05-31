@@ -35,27 +35,52 @@ async function prefetchAll(){
     try{const[quote,profile,metrics,earnings]=await _pfTimeout(Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)]),12000,t+' Finnhub main');
       // Fetch rec and upgrades sequentially to avoid rate limit (60/min on free tier)
       let rec2=null,upgrades2=null,priceTarget2=null;
-      try{rec2=await _pfTimeout(fh(`/stock/recommendation?symbol=${t}`),8000,t+' rec');}catch{}
-      try{upgrades2=await _pfTimeout(fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`),8000,t+' upgrades');}catch{}
-      try{priceTarget2=await _pfTimeout(fh(`/stock/price-target?symbol=${t}`),8000,t+' pt');}catch{}S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});_health.tickers[t].snap=true;}catch{}
-    // Single 2Y fetch populates hist_, hist1y_, and hist2y_ -- eliminates 2 redundant calls
-    let _h2ok=false;
+      // Skip rec/upgrades/pt if cached less than 24h ago -- they change slowly
+      const _recAge=(Date.now()-(S.get('rec_'+t)?.ts?new Date(S.get('rec_'+t).ts).getTime():0))/3600000;
+      if(_recAge>=24){
+        try{rec2=await _pfTimeout(fh(`/stock/recommendation?symbol=${t}`),8000,t+' rec');}catch{}
+        try{upgrades2=await _pfTimeout(fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`),8000,t+' upgrades');}catch{}
+        try{priceTarget2=await _pfTimeout(fh(`/stock/price-target?symbol=${t}`),8000,t+' pt');}catch{}
+      }S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});_health.tickers[t].snap=true;}catch{}
+    // Parallel: 2Y history + options main fetch (both Yahoo, independent)
+    let _h2ok=false,_opts=null;
     try{
-      const h2=await _pfTimeout(yahooHistory(t,'2y','1d'),15000,t+' hist2y');
-      const _ts2=h2.timestamps.map(d=>Math.floor(d.getTime()/1000));
-      const _cl2=h2.closes.map(v=>v!=null?Math.round(v*100)/100:null);
-      const _vl2=h2.volumes?h2.volumes.map(v=>v||0):null;
-      const _now=nowPT();
-      // hist2y_ -- full 2Y
-      S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,ts:_now});
-      // hist1y_ -- last 252 trading days
-      const _1y=Math.max(0,_ts2.length-252);
-      S.set('hist1y_'+t,{timestamps:_ts2.slice(_1y),closes:_cl2.slice(_1y),volumes:_vl2?_vl2.slice(_1y):[],ts:_now});
-      // hist_ (6M) -- last 126 trading days
-      const _6m=Math.max(0,_ts2.length-126);
-      S.set('hist_'+t,{timestamps:_ts2.slice(_6m),closes:_cl2.slice(_6m),volumes:_vl2?_vl2.slice(_6m):[],ts:_now});
-      _health.tickers[t].hist=true;_h2ok=true;
-    }catch(e){console.warn('prefetch hist2y failed:',t,e?.message);}
+      const [_h2res,_optsRes]=await Promise.all([
+        _pfTimeout(yahooHistory(t,'2y','1d'),15000,t+' hist2y').catch(e=>{console.warn('hist2y failed:',t,e?.message);return null;}),
+        _pfTimeout(yahooOptionsViaProxy(t),15000,t+' options').catch(e=>{console.warn('options failed:',t,e?.message);return null;})
+      ]);
+      // Process history
+      if(_h2res){
+        const _ts2=_h2res.timestamps.map(d=>Math.floor(d.getTime()/1000));
+        const _cl2=_h2res.closes.map(v=>v!=null?Math.round(v*100)/100:null);
+        const _vl2=_h2res.volumes?_h2res.volumes.map(v=>v||0):null;
+        const _now=nowPT();
+        S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,ts:_now});
+        const _1y=Math.max(0,_ts2.length-252);
+        S.set('hist1y_'+t,{timestamps:_ts2.slice(_1y),closes:_cl2.slice(_1y),volumes:_vl2?_vl2.slice(_1y):[],ts:_now});
+        const _6m=Math.max(0,_ts2.length-126);
+        S.set('hist_'+t,{timestamps:_ts2.slice(_6m),closes:_cl2.slice(_6m),volumes:_vl2?_vl2.slice(_6m):[],ts:_now});
+        _health.tickers[t].hist=true;_h2ok=true;
+      }
+      // Process options
+      if(_optsRes){
+        _opts=_optsRes;
+        const _pInWindow=_isOptionsLiveWindow();
+        const _pHasSameDay=_hasGoodSameDayCache('options_'+t);
+        if(!_pInWindow&&_pHasSameDay){
+          console.log(t+': outside live window, preserving same-day options cache');
+        }else{
+          const _pv=_validateOptionsData(_opts);
+          if(_pv.valid){
+            S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT()});_health.tickers[t].options=true;
+          }else if(!S.get('options_'+t)){
+            S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),synthetic:true});
+          }else{
+            console.warn(t+': rejecting options ('+_pv.reason+'), preserving cache');
+          }
+        }
+      }
+    }catch(e){console.warn('prefetch parallel hist/opts failed:',t,e?.message);}
     // Compute and persist IVR now that hist2y and options are cached
     try{const _iSnap=S.get('snap_'+t);if(_iSnap){const _iv=computeIVR(t,_iSnap.week52High,_iSnap.week52Low,_iSnap.price);if(_iv!=null){_iSnap.ivrVal=_iv;S.set('snap_'+t,_iSnap);}}}catch{}
     // Historical earnings: extrapolate backwards from confirmed next date + gap refinement
@@ -98,27 +123,10 @@ async function prefetchAll(){
         }
       }
     }catch{}
-    try{const h1=await _pfTimeout(yahooHistory(t,'1y','1d'),12000,t+' hist1y');S.set('hist1y_'+t,{timestamps:h1.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:h1.closes.map(v=>v!=null?Math.round(v*100)/100:null),volumes:h1.volumes.map(v=>v||0),ts:nowPT()});}catch(e){console.warn('prefetch hist1y failed:',t,e?.message);}
-    try{const opts=await _pfTimeout(yahooOptionsViaProxy(t),15000,t+' options');
-      // Validate before caching -- reject synthetic/after-hours data
-      const _pInWindow=_isOptionsLiveWindow();
-      const _pHasSameDay=_hasGoodSameDayCache('options_'+t);
-      if(!_pInWindow&&_pHasSameDay){
-        console.log(t+': prefetch outside live window, preserving same-day options cache');
-      }else{
-        const _pv=_validateOptionsData(opts);
-        if(_pv.valid){
-          S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT()});_health.tickers[t].options=true;
-        }else if(!S.get('options_'+t)){
-          console.warn(t+': prefetch options quality issue ('+_pv.reason+'), saving as only available data');
-          S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),synthetic:true});
-        }else{
-          console.warn(t+': prefetch rejecting options ('+_pv.reason+'), preserving existing cache');
-        }
-      }
-      const _savedOpts=S.get('options_'+t);
-      if(_savedOpts){
-        const yr=opts?.optionChain?.result?.[0];const rawTs2=yr?.expirationDates||[];
+    // Per-expiry options fetch (sequential -- depends on main chain result)
+    const _savedOpts=S.get('options_'+t);
+    if(_savedOpts&&_opts){
+      const yr=_opts?.optionChain?.result?.[0];const rawTs2=yr?.expirationDates||[];
         const allExpPairs2=rawTs2.map(ts=>({ts,date:new Date(ts*1000).toISOString().split('T')[0]}));
         let monthlyPairs2=allExpPairs2.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
         if(monthlyPairs2.length===0){const tw=Date.now()+14*86400000;monthlyPairs2=allExpPairs2.filter(p=>p.ts*1000>=tw).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);}
@@ -144,18 +152,22 @@ async function prefetchAll(){
             }
           }catch{}
         }
+    }
+    // Also fetch quote data for after-hours price and forwardPE
+
+    // Parallel: after-hours price + quoteSummary (both Yahoo, independent)
+    try{
+      const[_ah,_qs]=await Promise.all([
+        _pfTimeout(fetchAfterHoursPrice(t),10000,t+' AH').catch(()=>null),
+        _pfTimeout(fetchQuoteSummary(t),12000,t+' QS').catch(()=>null)
+      ]);
+      const _sn2=S.get('snap_'+t);
+      if(_sn2){
+        if(_ah){const _ms=_ah.marketState||'';const _live=_ms==='PRE'||_ms==='POST'||_ms==='POSTPOST'||_ms==='REGULAR';if(_live||_ah.postMarketPrice){_sn2.postMarketPrice=_ah.postMarketPrice;_sn2.postMarketChange=_ah.postMarketChange||null;_sn2.postMarketChangePct=_ah.postMarketChangePct||null;}_sn2.marketState=_ah.marketState||null;_sn2.peForward=_ah.forwardPE||null;if(_ah.trailingEps!==null)_sn2.epsTTM=_ah.trailingEps;}
+        if(_qs){if(_qs.ptMean){_sn2.ptMean=_qs.ptMean;_sn2.ptHigh=_qs.ptHigh||null;_sn2.ptLow=_qs.ptLow||null;_sn2.ptAnalysts=_qs.ptAnalysts||null;}if(_qs.pegRatio!=null)_sn2.pegRatio=_qs.pegRatio;if(_qs.evToEbitda!=null)_sn2.evToEbitda=_qs.evToEbitda;if(_qs.shortPctFloat!=null){_sn2.shortPctFloat=_qs.shortPctFloat;_sn2.shortRatioYahoo=_qs.shortRatioYahoo;}if(_qs.earningsTrend&&_qs.earningsTrend.length)_sn2.earningsTrend=_qs.earningsTrend;if(_qs.recTrend&&_qs.recTrend.length)_sn2.recTrend=_qs.recTrend;}
+        S.set('snap_'+t,_sn2);
       }
     }catch{}
-    // Also fetch quote data for after-hours price and forwardPE
-    try{const ah=await fetchAfterHoursPrice(t);if(ah){const snap=S.get('snap_'+t);if(snap){snap.postMarketPrice=ah.postMarketPrice||null;snap.postMarketChange=ah.postMarketChange||null;snap.postMarketChangePct=ah.postMarketChangePct||null;snap.marketState=ah.marketState||null;snap.peForward=ah.forwardPE||null;if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;S.set('snap_'+t,snap);}}}catch{}
-    try{const qs=await fetchQuoteSummary(t);if(qs){const sn=S.get('snap_'+t);if(sn){
-      if(qs.ptMean){sn.ptMean=qs.ptMean;sn.ptHigh=qs.ptHigh||null;sn.ptLow=qs.ptLow||null;sn.ptAnalysts=qs.ptAnalysts||null;}
-      if(qs.pegRatio!=null)sn.pegRatio=qs.pegRatio;
-      if(qs.evToEbitda!=null)sn.evToEbitda=qs.evToEbitda;
-      if(qs.shortPctFloat!=null){sn.shortPctFloat=qs.shortPctFloat;sn.shortRatioYahoo=qs.shortRatioYahoo;}
-      if(qs.earningsTrend&&qs.earningsTrend.length)sn.earningsTrend=qs.earningsTrend;
-      if(qs.recTrend&&qs.recTrend.length)sn.recTrend=qs.recTrend;
-      S.set('snap_'+t,sn);}}}catch{}
     try{const news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}
     if(i<watchlist.length-1)await sleep(1000);
   }

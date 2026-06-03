@@ -1517,6 +1517,7 @@ async function refreshSingleTicker(){
     let optionsLoaded=false;
     // Manual refresh always fetches options -- user explicitly requested fresh data.
     // Validation still guards against writing synthetic/zeroed data over good cache.
+    const _rtInWindow=_isOptionsLiveWindow();
     {
       try{
         const opts=await _tkTimeout(yahooOptionsViaProxy(t),15000,'options');
@@ -1554,6 +1555,11 @@ async function refreshSingleTicker(){
           optionsLoaded=true;
         }
       }catch{}
+      // Regardless of fetch outcome, check if good non-synthetic cache exists
+      if(!optionsLoaded){
+        const _fallback=S.get('options_'+t);
+        if(_fallback&&!_fallback.synthetic)optionsLoaded=true;
+      }
     }
     setP(100,'Done!');
     // Re-render ticker tab with fresh data
@@ -1564,7 +1570,10 @@ async function refreshSingleTicker(){
     try{
       const _h=S.get('last_refresh_health');
       if(_h?.tickers){
-        _h.tickers[t]={snap:true,hist:true,options:optionsLoaded};
+        // Preserve 'skipped' status if options were not explicitly fetched this run
+        const _prevOpts=_h.tickers[t]?.options;
+        const _newOpts=optionsLoaded?true:(_prevOpts==='skipped'?'skipped':false);
+        _h.tickers[t]={snap:true,hist:true,options:_newOpts};
         // Recompute summary
         const _wl=S.get('watchlist')||[];
         const _ok=_wl.filter(tk=>_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist).length;

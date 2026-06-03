@@ -1515,14 +1515,9 @@ async function refreshSingleTicker(){
     // Step 5: Options chain top-level
     setP(65,'Fetching '+t+' options chain...');
     let optionsLoaded=false;
-    // Only fetch options during live window; outside window use validation to guard
-    const _rtInWindow=_isOptionsLiveWindow();
-    const _rtHasSameDay=_hasGoodSameDayCache('options_'+t);
-    if(!_rtInWindow&&_rtHasSameDay){
-      // Outside live window and have good same-day cache -- skip fetch entirely
-      setP(80,'Options cache preserved (outside live window)');
-      optionsLoaded=true; // cache is good
-    }else{
+    // Manual refresh always fetches options -- user explicitly requested fresh data.
+    // Validation still guards against writing synthetic/zeroed data over good cache.
+    {
       try{
         const opts=await _tkTimeout(yahooOptionsViaProxy(t),15000,'options');
         // Validate before writing -- reject synthetic/zeroed post-cutoff data

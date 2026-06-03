@@ -5,29 +5,26 @@
 function _validateOptionsData(data){
   const result=data?.optionChain?.result?.[0];
   if(!result)return{valid:false,reason:'no result'};
-  const opts=result.options?.[0];
-  if(!opts)return{valid:false,reason:'no options'};
-  const puts=opts.puts||[];
-  const calls=opts.calls||[];
-  const allContracts=[...puts,...calls];
+  // Check across ALL expirations returned in the main chain, not just options[0].
+  // The first expiry may be a near-dated weekly with zero OI (e.g. post-earnings),
+  // while the monthly expirations the user cares about have substantial OI.
+  const allOptions=result.options||[];
+  if(!allOptions.length)return{valid:false,reason:'no options'};
+  const allContracts=allOptions.flatMap(o=>[...(o.puts||[]),...(o.calls||[])]);
   if(!allContracts.length)return{valid:false,reason:'empty chain'};
 
-  // Check total open interest across all contracts
-  const totalOI=allContracts.reduce((s,c)=>s+(c.openInterest||0),0);
-  if(totalOI===0)return{valid:false,reason:'zero OI -- likely after-hours synthetic data'};
-
-  // Check for synthetic halving IV pattern using exact value matching.
-  // Yahoo returns exactly 0.5, 0.25, 0.125, 0.0625, 0.03125 as placeholders.
-  // Real IV values are never exactly these values to 6 decimal places.
+  // Check synthetic halving IV pattern across all contracts.
+  // Yahoo returns exactly 0.5, 0.25, 0.125, 0.0625, 0.03125 as after-hours placeholders.
   const SYNTH_IV_VALS=new Set([0.5,0.25,0.125,0.0625,0.03125,0.015625]);
-  const ivValues=allContracts
-    .map(c=>c.impliedVolatility)
-    .filter(v=>v!=null&&v>0);
+  const ivValues=allContracts.map(c=>c.impliedVolatility).filter(v=>v!=null&&v>0);
   if(ivValues.length>=3){
-    // Round to 6dp to match Yahoo's precision before checking
     const syntheticCount=ivValues.filter(v=>SYNTH_IV_VALS.has(Math.round(v*1e6)/1e6)).length;
     const syntheticRatio=syntheticCount/ivValues.length;
-    if(syntheticRatio>0.6)return{valid:false,reason:'synthetic IV pattern detected ('+Math.round(syntheticRatio*100)+'% exact halving values)'};
+    if(syntheticRatio>0.6){
+      // Synthetic IV confirmed -- also check OI to be sure
+      const totalOI=allContracts.reduce((s,c)=>s+(c.openInterest||0),0);
+      return{valid:false,reason:'synthetic data: '+Math.round(syntheticRatio*100)+'% halving IV'+(totalOI===0?' + zero OI':'')};
+    }
   }
 
   return{valid:true,reason:'ok'};

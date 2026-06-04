@@ -366,6 +366,7 @@ function clearMarketDataCache(){
     if(PRESERVE.has(k))continue;
     if(k.startsWith('earnings_hist_'))continue; // has manual override data
     if(k.startsWith('earnings_confirmed_'))continue; // confirmed historical cache -- nuclear option only
+    if(k.startsWith('earnings_pending_'))continue; // pending promotions -- nuclear option only
     if(k.startsWith('income_'))continue;
     if(k.startsWith('conviction_'))continue;
     if(k.startsWith('put_pos'))continue;
@@ -412,6 +413,10 @@ function _buildExportData(){
       if(v!=null)data.keys[k.replace(/^"|"$/g,'')]=v;
     }
     if(k.startsWith('"earnings_confirmed_')||k.startsWith('earnings_confirmed_')){
+      const v=S.get(k.replace(/^"/,'').replace(/"$/,''));
+      if(v!=null)data.keys[k.replace(/^"|"$/g,'')]=v;
+    }
+    if(k.startsWith('"earnings_pending_')||k.startsWith('earnings_pending_')){
       const v=S.get(k.replace(/^"/,'').replace(/"$/,''));
       if(v!=null)data.keys[k.replace(/^"|"$/g,'')]=v;
     }

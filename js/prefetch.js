@@ -85,11 +85,15 @@ async function prefetchAll(){
         }
       }
     }catch(e){console.warn('prefetch parallel hist/opts failed:',t,e?.message);}
-    // Mine confirmed earnings dates from /calendar/earnings past entries
-    // (Full history via /stock/earnings is fetched in loadEarningsTab and individual ticker loads)
+    // Pending earnings: promote passed dates, save current future date
     try{
+      promoteEarningsPending(t);
+      const _pfFutE=(earnings?.earningsCalendar||[])
+        .filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
+      if(_pfFutE[0]?.date)saveEarningsPending(t,_pfFutE[0].date,_pfFutE[0].hour||null);
+      // Supplement confirmed from past calendar entries
       const _pfConf=S.get('earnings_confirmed_'+t)||[];
-      const _pfCut=new Date();_pfCut.setDate(_pfCut.getDate()-730);
+      const _pfCut=new Date();_pfCut.setDate(_pfCut.getDate()-_EARN_EVICT_DAYS);
       let _pfChg=false;
       (earnings?.earningsCalendar||[]).filter(e=>e.date&&e.date<fmtDate(new Date())).forEach(e=>{
         if(!e.date||new Date(e.date)<_pfCut)return;

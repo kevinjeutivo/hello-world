@@ -96,51 +96,26 @@ async function loadTicker(){
       const ch=S.get('hist_'+t);if(ch){hist6mo={timestamps:ch.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:ch.closes,volumes:ch.volumes||[]};if(!isLive)showOfflineBanner(ch.ts);}
       const ch1=S.get('hist1y_'+t);if(ch1)hist1y={timestamps:ch1.timestamps.map(d=>new Date(d*1000)),closes:ch1.closes,volumes:ch1.volumes||[]};
     }
-    // ── Promote confirmed earnings dates from Finnhub calendar response ─────
-    // Mine ALL past entries from the /calendar/earnings response directly.
-    // This is more reliable than the snap transition approach since Finnhub
-    // often moves the forward date to next quarter before the prior date passes.
+    // ── Save pending earnings date + promote passed dates to confirmed ────────
     try{
-      const _pastEntries=(earnings?.earningsCalendar||[])
-        .filter(e=>e.date&&e.date<fmtDate(new Date()));
-      if(_pastEntries.length){
-        const _conf=S.get('earnings_confirmed_'+t)||[];
-        const _cutoff=new Date();_cutoff.setDate(_cutoff.getDate()-730);
-        let _changed=false;
-        // Primary: /stock/earnings Surprises (reliable per-ticker historical dates with hour)
-        (earningsHist||[]).forEach(e=>{
-          if(!e.date||new Date(e.date)>=new Date()||new Date(e.date)<_cutoff)return;
-          if(!_conf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
-            _conf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_changed=true;
-          }
-        });
-        // Secondary: /calendar/earnings past entries
-        _pastEntries.forEach(e=>{
-          if(new Date(e.date)<_cutoff)return; // too old
-          const _alreadyHave=_conf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000);
-          if(!_alreadyHave){
-            _conf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});
-            _changed=true;
-          }
-        });
-        if(_changed){
-          const _fresh=_conf.filter(c=>new Date(c.date)>=_cutoff);
-          S.set('earnings_confirmed_'+t,_fresh);
+      // Promote any pending dates that have now passed
+      promoteEarningsPending(t);
+      // Save current future earnings date to pending cache
+      const _futE=(earnings?.earningsCalendar||[])
+        .filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
+      if(_futE[0]?.date)saveEarningsPending(t,_futE[0].date,_futE[0].hour||null);
+      // Supplement confirmed from past calendar/hist entries (opportunistic)
+      const _confSupp=S.get('earnings_confirmed_'+t)||[];
+      const _suppCut=new Date();_suppCut.setDate(_suppCut.getDate()-_EARN_EVICT_DAYS);
+      let _suppChg=false;
+      [...(earnings?.earningsCalendar||[]).filter(e=>e.date&&e.date<fmtDate(new Date())),
+       ...(earningsHist||[]).filter(e=>e.date&&new Date(e.date)<new Date())].forEach(e=>{
+        if(!e.date||new Date(e.date)<_suppCut)return;
+        if(!_confSupp.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
+          _confSupp.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_suppChg=true;
         }
-      }
-      // Also check snap transition as secondary path
-      const _prevSnap=S.get('snap_'+t);
-      const _prevDate=_prevSnap?.earningsDate;
-      const _prevHour=_prevSnap?.earningsHour||null;
-      if(_prevDate&&_prevDate<fmtDate(new Date())){
-        const _conf=S.get('earnings_confirmed_'+t)||[];
-        const _alreadyHave=_conf.some(c=>Math.abs(new Date(c.date)-new Date(_prevDate))<4*86400000);
-        if(!_alreadyHave){
-          _conf.push({date:_prevDate,hour:_prevHour,addedTs:nowPT()});
-          const _cutoff=new Date();_cutoff.setDate(_cutoff.getDate()-730);
-          S.set('earnings_confirmed_'+t,_conf.filter(c=>new Date(c.date)>=_cutoff));
-        }
-      }
+      });
+      if(_suppChg)S.set('earnings_confirmed_'+t,_confSupp.filter(c=>new Date(c.date)>=_suppCut));
     }catch{}
 
     // hist2y_ already populated by single 2Y fetch above
@@ -1489,33 +1464,23 @@ async function refreshSingleTicker(){
       epsGrowth:metrics.metric?.epsGrowthTTMYoy||null,
       earningsDate:futE[0]?.date||null,earningsHour:futE[0]?.hour||null,
       ts:nowPT(),isLive:true};
-    // Promote confirmed earnings -- mine past entries from Finnhub calendar response
+    // Save pending earnings date + promote passed dates to confirmed
     try{
-      const _rAllE=earnings?.earningsCalendar||[];
-      const _rPastE=_rAllE.filter(e=>e.date&&e.date<fmtDate(new Date()));
+      promoteEarningsPending(t);
+      const _rFutE=(earnings?.earningsCalendar||[])
+        .filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
+      if(_rFutE[0]?.date)saveEarningsPending(t,_rFutE[0].date,_rFutE[0].hour||null);
+      // Supplement from calendar past entries
       const _rConf=S.get('earnings_confirmed_'+t)||[];
-      const _rCut=new Date();_rCut.setDate(_rCut.getDate()-730);
+      const _rCut=new Date();_rCut.setDate(_rCut.getDate()-_EARN_EVICT_DAYS);
       let _rChg=false;
-      // Primary: /stock/earnings Surprises
-      (earningsHist||[]).forEach(e=>{
-        if(!e.date||new Date(e.date)>=new Date()||new Date(e.date)<_rCut)return;
-        if(!_rConf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
-          _rConf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_rChg=true;
-        }
-      });
-      // Secondary: /calendar/earnings
-      _rPastE.forEach(e=>{
+      [...(earnings?.earningsCalendar||[]).filter(e=>e.date&&e.date<fmtDate(new Date())),
+       ...(earningsHist||[]).filter(e=>e.date&&new Date(e.date)<new Date())].forEach(e=>{
         if(new Date(e.date)<_rCut)return;
         if(!_rConf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
           _rConf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_rChg=true;
         }
       });
-      // Snap transition as secondary path
-      const _rPrev=S.get('snap_'+t);
-      const _rPrevDate=_rPrev?.earningsDate;const _rPrevHour=_rPrev?.earningsHour||null;
-      if(_rPrevDate&&_rPrevDate<fmtDate(new Date())&&!_rConf.some(c=>Math.abs(new Date(c.date)-new Date(_rPrevDate))<4*86400000)){
-        _rConf.push({date:_rPrevDate,hour:_rPrevHour,addedTs:nowPT()});_rChg=true;
-      }
       if(_rChg)S.set('earnings_confirmed_'+t,_rConf.filter(c=>new Date(c.date)>=_rCut));
     }catch{}
     // Step 2: Yahoo quote for forwardPE and EPS

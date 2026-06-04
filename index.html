@@ -384,43 +384,283 @@ a{color:inherit}
 
 <!-- GUIDE TAB -->
 <div id="tab-guide" class="tab-panel">
-  <div class="card"><div class="card-title"><span class="dot"></span>Income Engine Framework</div>
-    <div class="commentary">LAYER 1 -- RISK-FREE BASELINE: 3-month and 6-month T-bills
-  Current yield sets your opportunity cost floor. All other layers should earn a meaningful risk premium above this.
 
-LAYER 2 -- OPTIONS INCOME ETFs: SPYI + NBOS
-  SPYI: covered calls on S&amp;P 500 components -- equity upside participation + call premium income
-  NBOS: put-writing strategy with defined buffers -- premium income with downside protection
-  Target: track trailing 12-month yield vs T-bill spread
+<style>
+.gs-header{display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:4px 0;user-select:none;}
+.gs-header:active{opacity:0.7;}
+.gs-chevron{font-size:12px;color:var(--text3);transition:transform 0.2s;display:inline-block;}
+.gs-chevron.open{transform:rotate(90deg);}
+.gs-body{display:none;margin-top:8px;}
+.gs-body.open{display:block;}
+.guide-kv{display:flex;gap:8px;margin-bottom:6px;font-family:var(--mono);font-size:11px;line-height:1.5;}
+.guide-key{color:var(--accent);min-width:120px;flex-shrink:0;}
+.guide-val{color:var(--text2);}
+.guide-h3{font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 6px;}
+</style>
 
-LAYER 3 -- ACTIVE WHEEL STRATEGY: Put selling + Covered calls
-  Target: 12% annualized APY per transaction
-  Tools: conviction dashboards, VP support/resistance, OI analysis, RSI, earnings calendar
-  Risk management: 5-12% OTM buffer, no earnings straddle, beta-aware sizing</div>
-  </div>
-  <div class="card"><div class="card-title"><span class="dot"></span>Support / Resistance Guide</div>
-    <div class="commentary">VP levels: price zones where most shares traded -- support from above, resistance from below
-52W Low / High: major annual support and resistance
-50/200-day MA: dynamic support/resistance
-Round numbers: psychological S/R
-High put OI: gravitational support via market maker hedging
-High call OI: resistance ceiling via market maker hedging
-VIX below 15: thin premiums
-VIX 15-20: normal -- standard conditions
-VIX 20-30: elevated -- favorable for put selling
-VIX above 30: fear spike -- exceptional premium, higher risk
-VIX backwardation (VIX above VIX3M): historically strong time to sell puts</div>
-  </div>
-  <div class="card"><div class="card-title"><span class="dot"></span>About</div>
-    <div class="commentary">Data Sources:
-  Finnhub (quotes, fundamentals, earnings, news, analyst ratings -- free tier)
-  Yahoo Finance via Cloudflare Worker (price history, options chains, VIX, indices, T-bill yields, quoteSummary)
-  Yahoo Finance quoteSummary modules: financialData, defaultKeyStatistics, earningsTrend, recommendationTrend
+<script>
+(function(){
+  function _gsOpen(){return JSON.parse(localStorage.getItem('guide_open')||'[]');}
+  function _gsSave(arr){localStorage.setItem('guide_open',JSON.stringify(arr));}
+  window.toggleGuide=function(id){
+    const body=document.getElementById('gb-'+id);
+    const chev=document.getElementById('gc-'+id);
+    if(!body)return;
+    const isOpen=body.classList.contains('open');
+    body.classList.toggle('open',!isOpen);
+    chev.classList.toggle('open',!isOpen);
+    const arr=_gsOpen();
+    if(isOpen){const i=arr.indexOf(id);if(i>-1)arr.splice(i,1);}
+    else if(!arr.includes(id))arr.push(id);
+    _gsSave(arr);
+  };
+  window.initGuide=function(){
+    const open=_gsOpen();
+    open.forEach(id=>{
+      const b=document.getElementById('gb-'+id);const c=document.getElementById('gc-'+id);
+      if(b){b.classList.add('open');}if(c){c.classList.add('open');}
+    });
+  };
+})();
+</script>
 
-Offline: all data cached to localStorage -- full functionality after first prefetch
-Worker: configured in Settings (Cloudflare Worker proxy for Yahoo Finance)
-Version: v3.0.0</div>
+<!-- ── SECTION: Three-Layer Strategy ───────────────────────────────── -->
+<div class="card" style="margin-bottom:8px">
+  <div class="gs-header" onclick="toggleGuide('layers')">
+    <div class="card-title" style="margin:0"><span class="dot" style="background:#64b5f6"></span>Three-Layer Income Strategy</div>
+    <span class="gs-chevron" id="gc-layers">&#9658;</span>
   </div>
+  <div class="gs-body" id="gb-layers">
+    <div class="guide-h3">Layer 1 — Risk-Free Baseline</div>
+    <div class="guide-kv"><span class="guide-key">Instruments</span><span class="guide-val">3-month and 6-month T-bills, FDLXX, SPAXX, SGOV</span></div>
+    <div class="guide-kv"><span class="guide-key">Purpose</span><span class="guide-val">Sets your opportunity cost floor. Every higher layer must earn a meaningful risk premium above this yield to justify its complexity and risk.</span></div>
+    <div class="guide-kv"><span class="guide-key">Yield source</span><span class="guide-val">Government credit, near-zero duration risk. State-tax-exempt for T-bills.</span></div>
+    <div class="guide-h3">Layer 2 — Options Income ETFs</div>
+    <div class="guide-kv"><span class="guide-key">SPYI</span><span class="guide-val">NEOS S&amp;P 500 High Income ETF. Holds S&amp;P 500 stocks and sells index put spreads and covered calls to generate monthly income. Tax-efficient via 1256 contracts.</span></div>
+    <div class="guide-kv"><span class="guide-key">NBOS</span><span class="guide-val">Nationwide S&amp;P 500 Risk-Managed Income ETF. Collar strategy — buys protective puts and sells covered calls simultaneously to manage downside while generating income.</span></div>
+    <div class="guide-kv"><span class="guide-key">Target metric</span><span class="guide-val">Trailing 12-month distribution yield vs T-bill spread. Layer 2 should earn meaningfully more than Layer 1 to compensate for equity market correlation.</span></div>
+    <div class="guide-kv"><span class="guide-key">Risk</span><span class="guide-val">NAV can decline during sustained bear markets even with income. Total return (price + distributions) is the correct performance measure.</span></div>
+    <div class="guide-h3">Layer 3 — Active Wheel Strategy</div>
+    <div class="guide-kv"><span class="guide-key">Mechanism</span><span class="guide-val">Sell cash-secured puts on high-conviction tickers. If assigned, sell covered calls against the stock. Repeat. Collect premium at each step.</span></div>
+    <div class="guide-kv"><span class="guide-key">Target APY</span><span class="guide-val">12% annualized per position. Strike selection targets this threshold while maintaining a 5–12% OTM buffer for downside cushion.</span></div>
+    <div class="guide-kv"><span class="guide-key">Risk management</span><span class="guide-val">Avoid earnings straddles. Beta-aware sizing. No more than one position per sector at high concentration. Close or roll before assignment if thesis breaks.</span></div>
+  </div>
+</div>
+
+<!-- ── SECTION: Wheel Strategy Mechanics ───────────────────────────── -->
+<div class="card" style="margin-bottom:8px">
+  <div class="gs-header" onclick="toggleGuide('wheel')">
+    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--accent)"></span>Wheel Strategy Mechanics</div>
+    <span class="gs-chevron" id="gc-wheel">&#9658;</span>
+  </div>
+  <div class="gs-body" id="gb-wheel">
+    <div class="guide-h3">Cash-Secured Put</div>
+    <div class="guide-kv"><span class="guide-key">What it is</span><span class="guide-val">You sell the right for someone else to sell you 100 shares at the strike price. You collect premium upfront and must hold enough cash to buy the shares if assigned.</span></div>
+    <div class="guide-kv"><span class="guide-key">OTM %</span><span class="guide-val">Strike is set below current price. A 7% OTM put means the stock must fall more than 7% before you're assigned. The further OTM, the safer but lower premium.</span></div>
+    <div class="guide-kv"><span class="guide-key">Profit</span><span class="guide-val">You keep the full premium if the stock stays above your strike at expiration. Max profit is the premium collected.</span></div>
+    <div class="guide-kv"><span class="guide-key">Assignment</span><span class="guide-val">If the stock closes below your strike at expiration, you buy 100 shares at the strike price. Your effective cost basis is strike minus premium collected.</span></div>
+    <div class="guide-h3">Covered Call</div>
+    <div class="guide-kv"><span class="guide-key">What it is</span><span class="guide-val">Once assigned shares, you sell calls against them. You collect more premium and agree to sell your shares at the call strike if exercised.</span></div>
+    <div class="guide-kv"><span class="guide-key">Strike selection</span><span class="guide-val">Set above your cost basis so you profit on the stock appreciation plus the call premium if exercised. Typically 4–12% OTM.</span></div>
+    <div class="guide-kv"><span class="guide-key">The wheel</span><span class="guide-val">Put → assigned → covered call → called away → sell new put. Each cycle collects premium. Works best on stocks you are comfortable owning long-term.</span></div>
+    <div class="guide-h3">Key Numbers</div>
+    <div class="guide-kv"><span class="guide-key">DTE</span><span class="guide-val">Days to expiration. 30–60 DTE is the sweet spot — theta decay accelerates in the final 30 days and you capture most of the decay curve without excessive gamma risk.</span></div>
+    <div class="guide-kv"><span class="guide-key">APY formula</span><span class="guide-val">(premium / notional) × (365 / DTE) × 100. Notional = strike × 100 shares for puts, current price × 100 for calls.</span></div>
+    <div class="guide-kv"><span class="guide-key">Bid vs mid</span><span class="guide-val">The app uses bid price for conservative APY estimates. In practice you can often fill at mid or better, especially on liquid tickers.</span></div>
+  </div>
+</div>
+
+<!-- ── SECTION: Volatility — HVR vs IVR ────────────────────────────── -->
+<div class="card" style="margin-bottom:8px">
+  <div class="gs-header" onclick="toggleGuide('vol')">
+    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--warn)"></span>Volatility — HVR vs IVR</div>
+    <span class="gs-chevron" id="gc-vol">&#9658;</span>
+  </div>
+  <div class="gs-body" id="gb-vol">
+    <div class="guide-h3">Core Concepts</div>
+    <div class="guide-kv"><span class="guide-key">Implied Vol (IV)</span><span class="guide-val">The market's forward-looking expectation of how much a stock will move, derived from options prices. Expressed as annualized percentage. High IV = expensive options = more premium for sellers.</span></div>
+    <div class="guide-kv"><span class="guide-key">Historical Vol (HV)</span><span class="guide-val">How much the stock actually moved in the past. Computed as annualized standard deviation of daily log returns. Backward-looking by definition.</span></div>
+    <div class="guide-kv"><span class="guide-key">Vol Risk Premium</span><span class="guide-val">IV almost always exceeds realized HV. This gap — the volatility risk premium — is the structural edge premium sellers exploit. The market consistently overpays for protection.</span></div>
+    <div class="guide-h3">True IVR (Gold Standard)</div>
+    <div class="guide-kv"><span class="guide-key">Definition</span><span class="guide-val">Where today's IV sits within its own 1-year range of daily IV readings. IVR 80 means current IV is higher than 80% of the past year's IV values.</span></div>
+    <div class="guide-kv"><span class="guide-key">Requires</span><span class="guide-val">Storing a daily IV snapshot every trading day for a year. Without this history, true IVR cannot be computed. Professional platforms (ToS, tastytrade) maintain this database.</span></div>
+    <div class="guide-kv"><span class="guide-key">Why it matters</span><span class="guide-val">IVR 80 means options are genuinely expensive relative to their own history — a strong signal to sell premium. IVR 20 means options are cheap — thin premiums, wait for a better environment.</span></div>
+    <div class="guide-h3">HVR — What PutSeller Pro Uses</div>
+    <div class="guide-kv"><span class="guide-key">Definition</span><span class="guide-val">Historical Volatility Rank. Where today's 21-day realized volatility sits within its own 1-year range of 21-day realized volatility readings. Apples-to-apples: HV vs HV.</span></div>
+    <div class="guide-kv"><span class="guide-key">Why not IV vs HV</span><span class="guide-val">Comparing today's IV against a historical HV range is systematically biased high — IV always exceeds HV by the risk premium, so every reading would look "elevated." HVR eliminates this bias.</span></div>
+    <div class="guide-kv"><span class="guide-key">What it tells you</span><span class="guide-val">Is the stock moving more or less than usual for itself? HVR 70+ means unusually active recently — premiums are likely elevated. HVR below 30 means unusually calm — premiums likely thin.</span></div>
+    <div class="guide-kv"><span class="guide-key">Limitation</span><span class="guide-val">HVR measures realized movement, not implied forward expectation. A stock can have low HVR (calm recently) but high IV (market expecting a coming event). Always check the options chain directly for the actual premium.</span></div>
+    <div class="guide-kv"><span class="guide-key">Badges</span><span class="guide-val">Low Vol (&lt;30) · Normal Vol (30–50) · Elevated Vol (50–70) · High Vol (&gt;70)</span></div>
+    <div class="guide-h3">HVR Chart</div>
+    <div class="guide-kv"><span class="guide-key">What it shows</span><span class="guide-val">Rolling HVR over the selected timeframe (6M/1Y/2Y). Green zone = low, amber = normal-elevated, red = high. Trends matter: rising HVR means premiums expanding, falling means contracting.</span></div>
+    <div class="guide-kv"><span class="guide-key">Requires</span><span class="guide-val">2-year price history cache (hist2y). Run Prefetch All to populate. The chart will not render if hist2y is missing.</span></div>
+  </div>
+</div>
+
+<!-- ── SECTION: Conviction Scoring ─────────────────────────────────── -->
+<div class="card" style="margin-bottom:8px">
+  <div class="gs-header" onclick="toggleGuide('conviction')">
+    <div class="card-title" style="margin:0"><span class="dot" style="background:#ab47bc"></span>Conviction Scoring</div>
+    <span class="gs-chevron" id="gc-conviction">&#9658;</span>
+  </div>
+  <div class="gs-body" id="gb-conviction">
+    <div class="commentary" style="margin-bottom:10px">A weighted nine-factor algorithm scoring each ticker's suitability for put-selling or covered-call writing. Score runs -5 to +21. Weights are adjustable in Settings.</div>
+    <div class="guide-h3">Put Conviction Factors</div>
+    <div class="guide-kv"><span class="guide-key">HVR / IV Rank</span><span class="guide-val">Elevated volatility rank = more premium. Highest weight factor. HVR &gt;70 scores full points; &lt;30 scores negative (thin premiums).</span></div>
+    <div class="guide-kv"><span class="guide-key">RSI</span><span class="guide-val">Oversold conditions (RSI &lt;40) favor put selling — stock more likely to bounce. Overbought (RSI &gt;70) is a negative signal for naked puts.</span></div>
+    <div class="guide-kv"><span class="guide-key">52W Range Position</span><span class="guide-val">Puts score better when the stock is in the lower half of its annual range — more cushion below, less downside risk.</span></div>
+    <div class="guide-kv"><span class="guide-key">APY vs Target</span><span class="guide-val">Does the best available strike meet your 12% APY target? Scores based on how close the best put APY is to your configured threshold.</span></div>
+    <div class="guide-kv"><span class="guide-key">Earnings Penalty</span><span class="guide-val">Earnings within 21 days penalizes puts — IV crush after earnings can wipe out premium gains, and gap risk is elevated.</span></div>
+    <div class="guide-kv"><span class="guide-key">Moving Averages</span><span class="guide-val">Price above both MA50 and MA200 = positive trend = safer put environment. Below both = negative, avoid naked puts.</span></div>
+    <div class="guide-kv"><span class="guide-key">Analyst Upside</span><span class="guide-val">Consensus price target upside &gt;15% adds conviction — analyst community sees value above current price, reducing assignment concern.</span></div>
+    <div class="guide-kv"><span class="guide-key">Beta</span><span class="guide-val">Lower beta = more stable = better put candidate. High beta stocks require wider OTM buffers for the same risk.</span></div>
+    <div class="guide-kv"><span class="guide-key">OI Gravity Gap</span><span class="guide-val">Distance from current price to the highest put OI strike below price. High OI acts as gravitational support — market makers hedge puts by buying stock near that strike. Smaller gap = stronger nearby support.</span></div>
+    <div class="guide-h3">Interpreting Scores</div>
+    <div class="guide-kv"><span class="guide-key">Strong (&gt;12)</span><span class="guide-val">Multiple factors aligned. Favorable premium environment with reasonable downside protection. Worth detailed analysis.</span></div>
+    <div class="guide-kv"><span class="guide-key">Moderate (6–12)</span><span class="guide-val">Some factors positive, some neutral. Check which factors are dragging — often fixable by waiting for better timing.</span></div>
+    <div class="guide-kv"><span class="guide-key">Weak (&lt;6)</span><span class="guide-val">Several negative factors. Thin premiums or unfavorable conditions. Wait for a better environment.</span></div>
+  </div>
+</div>
+
+<!-- ── SECTION: Options Concepts ───────────────────────────────────── -->
+<div class="card" style="margin-bottom:8px">
+  <div class="gs-header" onclick="toggleGuide('options')">
+    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--green)"></span>Options Concepts</div>
+    <span class="gs-chevron" id="gc-options">&#9658;</span>
+  </div>
+  <div class="gs-body" id="gb-options">
+    <div class="guide-h3">Greeks</div>
+    <div class="guide-kv"><span class="guide-key">Delta</span><span class="guide-val">How much the option price moves per $1 move in the stock. A 0.20 delta put gains ~$0.20 in value per $1 stock decline. Selling 0.20 delta puts means ~20% probability of expiring in-the-money.</span></div>
+    <div class="guide-kv"><span class="guide-key">Theta</span><span class="guide-val">Daily time decay — how much premium you collect per day. Theta accelerates as expiration approaches, especially in the final 30 days. This is your friend as a premium seller.</span></div>
+    <div class="guide-kv"><span class="guide-key">Vega</span><span class="guide-val">Sensitivity to implied volatility changes. High vega = option price moves a lot with IV changes. Selling options when IV is high (HVR elevated) benefits from vega when IV later contracts (IV crush).</span></div>
+    <div class="guide-kv"><span class="guide-key">Gamma</span><span class="guide-val">Rate of change of delta. Spikes near expiration and near the money. High gamma near expiration creates risk for short option sellers — small stock moves cause large delta changes.</span></div>
+    <div class="guide-h3">Strike Selection</div>
+    <div class="guide-kv"><span class="guide-key">OTM %</span><span class="guide-val">How far below current price your put strike is. 7% OTM means the stock must fall more than 7% for you to be assigned. The app targets 5–12% OTM for puts.</span></div>
+    <div class="guide-kv"><span class="guide-key">Trade-off</span><span class="guide-val">Further OTM = safer (less assignment risk) but lower premium = lower APY. Closer to ATM = higher premium but higher assignment risk. Your APY target helps find the balance.</span></div>
+    <div class="guide-h3">Open Interest vs Volume</div>
+    <div class="guide-kv"><span class="guide-key">Open Interest</span><span class="guide-val">Total number of outstanding contracts at a given strike. High OI = liquidity = tighter spreads. High put OI below price creates gravitational support (market maker delta hedging).</span></div>
+    <div class="guide-kv"><span class="guide-key">Volume</span><span class="guide-val">Contracts traded today. High volume = active market. Volume converts to OI overnight — if a new position is opened, OI increases the next day.</span></div>
+    <div class="guide-h3">IV Crush</div>
+    <div class="guide-kv"><span class="guide-key">What it is</span><span class="guide-val">Implied volatility spikes before earnings announcements (uncertainty = demand for options). After earnings, uncertainty resolves and IV collapses — often 30–50% overnight.</span></div>
+    <div class="guide-kv"><span class="guide-key">For sellers</span><span class="guide-val">Selling puts before earnings captures elevated premium but risks large gap moves. Selling the day after earnings captures lower but "clean" premium without binary event risk.</span></div>
+  </div>
+</div>
+
+<!-- ── SECTION: Earnings Strategy ──────────────────────────────────── -->
+<div class="card" style="margin-bottom:8px">
+  <div class="gs-header" onclick="toggleGuide('earnings')">
+    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--warn)"></span>Earnings Strategy</div>
+    <span class="gs-chevron" id="gc-earnings">&#9658;</span>
+  </div>
+  <div class="gs-body" id="gb-earnings">
+    <div class="guide-h3">Timing</div>
+    <div class="guide-kv"><span class="guide-key">BMO</span><span class="guide-val">Before Market Open. Stock gaps at open. Your put from the prior session faces the gap risk overnight. If you are short a put and earnings are BMO tomorrow, you carry full overnight gap risk.</span></div>
+    <div class="guide-kv"><span class="guide-key">AMC</span><span class="guide-val">After Market Close. Gap happens in extended hours. You have until market close to exit or adjust before the uncertainty resolves.</span></div>
+    <div class="guide-kv"><span class="guide-key">Rule of thumb</span><span class="guide-val">Don&apos;t hold naked puts through earnings unless you are comfortable owning the stock at the strike. The earnings penalty in conviction scoring reflects this risk.</span></div>
+    <div class="guide-h3">Earnings Pattern Analysis</div>
+    <div class="guide-kv"><span class="guide-key">Reaction</span><span class="guide-val">The stock&apos;s move on earnings day (AMC) or the morning after (BMO) compared to the S&amp;P 500 move on the same day. The excess return isolates the earnings-specific move.</span></div>
+    <div class="guide-kv"><span class="guide-key">Pre-earnings drift</span><span class="guide-val">The day before earnings. Stocks often drift up (IV expansion = call buying) or down (puts). The pattern table shows your ticker&apos;s historical pre-earnings behavior.</span></div>
+    <div class="guide-kv"><span class="guide-key">Post-earnings follow-through</span><span class="guide-val">Day after the reaction. Does the stock continue in the reaction direction or mean-revert? Strong post-earnings follow-through suggests the move was fundamental, not just positioning.</span></div>
+    <div class="guide-h3">Earnings Date Cache</div>
+    <div class="guide-kv"><span class="guide-key">How it works</span><span class="guide-val">The app automatically accumulates confirmed earnings dates as you use it. Each time a future earnings date passes, it&apos;s promoted to the confirmed history cache and used to improve future date estimates.</span></div>
+    <div class="guide-kv"><span class="guide-key">Override</span><span class="guide-val">Tap any earnings date row to override the estimated date with the actual confirmed date. The modal shows the algorithm estimate, any cached confirmed date (with one-tap Accept), and a manual date picker.</span></div>
+    <div class="guide-kv"><span class="guide-key">Sources (priority order)</span><span class="guide-val">1. Your manual override · 2. Auto-confirmed from prior fetch · 3. Gap-confirmed (≥3% price gap near estimate) · 4. Pure cadence estimate (91-day stepback)</span></div>
+  </div>
+</div>
+
+<!-- ── SECTION: Support / Resistance ───────────────────────────────── -->
+<div class="card" style="margin-bottom:8px">
+  <div class="gs-header" onclick="toggleGuide('sr')">
+    <div class="card-title" style="margin:0"><span class="dot"></span>Support / Resistance Guide</div>
+    <span class="gs-chevron" id="gc-sr">&#9658;</span>
+  </div>
+  <div class="gs-body" id="gb-sr">
+    <div class="guide-kv"><span class="guide-key">VP levels</span><span class="guide-val">Volume Profile — price zones where the most shares have traded historically. High-volume nodes act as support from above and resistance from below. The strongest levels in this analysis.</span></div>
+    <div class="guide-kv"><span class="guide-key">52W High / Low</span><span class="guide-val">Major annual reference points. Stocks often stall at or near these levels. Breaking above the 52W high on volume is a bullish signal; breaking below the 52W low is bearish.</span></div>
+    <div class="guide-kv"><span class="guide-key">MA50 / MA200</span><span class="guide-val">Dynamic support and resistance that moves with price. Price above both MAs = uptrend. MA50 crossing above MA200 (golden cross) = bullish. Below both = downtrend.</span></div>
+    <div class="guide-kv"><span class="guide-key">High put OI</span><span class="guide-val">Market makers who sold puts must buy stock to hedge as price approaches put strikes. This buying creates gravitational support near high-OI put strikes.</span></div>
+    <div class="guide-kv"><span class="guide-key">High call OI</span><span class="guide-val">Market makers who sold calls must sell stock to hedge as price approaches call strikes. This selling creates resistance near high-OI call strikes.</span></div>
+    <div class="guide-h3">VIX Context</div>
+    <div class="guide-kv"><span class="guide-key">Below 15</span><span class="guide-val">Complacency — thin premiums across the market. Harder to hit APY targets without taking more risk.</span></div>
+    <div class="guide-kv"><span class="guide-key">15–20</span><span class="guide-val">Normal — standard put-selling conditions. Most of the time the market operates here.</span></div>
+    <div class="guide-kv"><span class="guide-key">20–30</span><span class="guide-val">Elevated — favorable environment. Premiums are rich and IV crush opportunities are available.</span></div>
+    <div class="guide-kv"><span class="guide-key">Above 30</span><span class="guide-val">Fear spike — exceptional premiums but also exceptional gap risk. Size smaller, be selective. Markets can gap violently in either direction.</span></div>
+    <div class="guide-kv"><span class="guide-key">Backwardation</span><span class="guide-val">VIX above VIX3M means near-term fear exceeds medium-term fear — historically a strong time to sell puts as the fear premium is concentrated in the near term.</span></div>
+  </div>
+</div>
+
+<!-- ── SECTION: Data & App Mechanics ───────────────────────────────── -->
+<div class="card" style="margin-bottom:8px">
+  <div class="gs-header" onclick="toggleGuide('data')">
+    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--text3)"></span>Data &amp; App Mechanics</div>
+    <span class="gs-chevron" id="gc-data">&#9658;</span>
+  </div>
+  <div class="gs-body" id="gb-data">
+    <div class="guide-h3">Prefetch &amp; Refresh</div>
+    <div class="guide-kv"><span class="guide-key">Prefetch All</span><span class="guide-val">Fetches all data for every watchlist ticker sequentially. Run before making decisions to ensure data is current. The refresh health badge below the button shows how many tickers updated successfully.</span></div>
+    <div class="guide-kv"><span class="guide-key">Force Refresh Everything</span><span class="guide-val">Also refreshes the VIX tab, ETF tab, Market tab, Earnings tab, and runs conviction scoring. Use when you want a complete picture, not just ticker data.</span></div>
+    <div class="guide-kv"><span class="guide-key">Refresh Ticker</span><span class="guide-val">Refreshes a single ticker including options chain. Always fetches live — no cache skip. Use when you want the most current data for a specific ticker.</span></div>
+    <div class="guide-h3">Options Live Window</div>
+    <div class="guide-kv"><span class="guide-key">What it is</span><span class="guide-val">9:30am – your configured cutoff (default 6pm) ET on weekdays. During this window, options data reflects live or recent market activity.</span></div>
+    <div class="guide-kv"><span class="guide-key">Outside window</span><span class="guide-val">Yahoo returns synthetic placeholder data with artificial IV values. The app detects this pattern and preserves your last good cache rather than overwriting with synthetic data.</span></div>
+    <div class="guide-kv"><span class="guide-key">Smart skip</span><span class="guide-val">Prefetch skips re-fetching options if the cache is fresh from the most recent session and no new session has opened since. Saves network calls on intraday re-prefetches.</span></div>
+    <div class="guide-h3">Cache &amp; Storage</div>
+    <div class="guide-kv"><span class="guide-key">localStorage</span><span class="guide-val">All data is cached locally on your device. Full app functionality after first prefetch, even offline. Export your data regularly via Settings → Data Portability.</span></div>
+    <div class="guide-kv"><span class="guide-key">hist2y</span><span class="guide-val">2-year daily price history — the foundation for HVR, relative performance chart, earnings pattern analysis, and Bollinger Bands. Populated by Prefetch All.</span></div>
+    <div class="guide-kv"><span class="guide-key">Earnings confirmed cache</span><span class="guide-val">Automatically accumulates confirmed past earnings dates as you use the app. Persists even if you remove a ticker from your watchlist (up to 2 years). Only cleared by nuclear reset.</span></div>
+    <div class="guide-h3">Data Sources</div>
+    <div class="guide-kv"><span class="guide-key">Finnhub</span><span class="guide-val">Quotes, fundamentals, earnings calendar, analyst recommendations, price targets, news. Free tier: 60 calls/minute.</span></div>
+    <div class="guide-kv"><span class="guide-key">Yahoo Finance</span><span class="guide-val">Price history, options chains, VIX, indices, T-bill yields, quoteSummary (PE, EPS, short interest, forward estimates). Accessed via your Cloudflare Worker proxy.</span></div>
+  </div>
+</div>
+
+<!-- ── SECTION: ETF Research Sandbox ───────────────────────────────── -->
+<div class="card" style="margin-bottom:8px">
+  <div class="gs-header" onclick="toggleGuide('etfsandbox')">
+    <div class="card-title" style="margin:0"><span class="dot" style="background:#4fc3f7"></span>ETF Research Sandbox</div>
+    <span class="gs-chevron" id="gc-etfsandbox">&#9658;</span>
+  </div>
+  <div class="gs-body" id="gb-etfsandbox">
+    <div class="guide-kv"><span class="guide-key">Purpose</span><span class="guide-val">Analyze any income ETF for comparison with SPYI and NBOS. Enter a ticker symbol (e.g. GPIQ, YMAX, JEPI, CSHI) and tap Analyze ETF to generate a full analysis tile.</span></div>
+    <div class="guide-kv"><span class="guide-key">Trailing yield</span><span class="guide-val">Sum of the last 12 monthly distributions divided by current price. The most honest yield metric — reflects what the fund actually paid, not what it promises to pay.</span></div>
+    <div class="guide-kv"><span class="guide-key">Price return</span><span class="guide-val">NAV change only over the selected period. For income ETFs, this is often flat or negative — that is acceptable and expected if distributions are high enough to compensate.</span></div>
+    <div class="guide-kv"><span class="guide-key">Total return</span><span class="guide-val">Price change plus all distributions reinvested. This is the true performance metric. Compare total return against SPYI and NBOS to evaluate whether an ETF is worth adding to Layer 2.</span></div>
+    <div class="guide-kv"><span class="guide-key">Isolation</span><span class="guide-val">Sandbox data is completely separate from income calculations. Adding or removing sandbox ETFs does not affect your blended yield or Layer 2 income figures.</span></div>
+    <div class="guide-kv"><span class="guide-key">Persistence</span><span class="guide-val">Sandbox ticker list is saved and included in data exports. Cached data is refreshed when you tap the ETF tab refresh button or run Force Refresh Everything.</span></div>
+  </div>
+</div>
+
+<!-- ── SECTION: Income Engine ──────────────────────────────────────── -->
+<div class="card" style="margin-bottom:8px">
+  <div class="gs-header" onclick="toggleGuide('income')">
+    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--green)"></span>Income Engine</div>
+    <span class="gs-chevron" id="gc-income">&#9658;</span>
+  </div>
+  <div class="gs-body" id="gb-income">
+    <div class="guide-kv"><span class="guide-key">Blended yield</span><span class="guide-val">Weighted average of all three layers based on your capital allocation. Shows what your total portfolio is earning on an annualized basis.</span></div>
+    <div class="guide-kv"><span class="guide-key">Tax-equivalent yield</span><span class="guide-val">T-bill and money market yields are state-tax-exempt. The app grosses these up by your state tax rate (defaulting to California) so they are comparable to taxable yields on an after-tax basis.</span></div>
+    <div class="guide-kv"><span class="guide-key">MMF yields</span><span class="guide-val">FDLXX and SPAXX 7-day yields are fetched from Yahoo Finance and updated during prefetch. You can manually override these if the fetched values look stale.</span></div>
+    <div class="guide-kv"><span class="guide-key">Layer 3 capital</span><span class="guide-val">Your active put and covered call positions feed into the Layer 3 denominator as deployed notional capital. The blended yield calculation uses actual position notional, not a flat allocation.</span></div>
+    <div class="guide-kv"><span class="guide-key">Position tracker</span><span class="guide-val">Log each put and covered call with strike, premium, expiration, and DTE. The tracker shows annualized APY per position and tracks lifecycle (open → approaching expiry → expired).</span></div>
+  </div>
+</div>
+
+<!-- ── SECTION: About ───────────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:8px">
+  <div class="gs-header" onclick="toggleGuide('about')">
+    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--text3)"></span>About PutSeller Pro</div>
+    <span class="gs-chevron" id="gc-about">&#9658;</span>
+  </div>
+  <div class="gs-body" id="gb-about">
+    <div class="guide-kv"><span class="guide-key">Version</span><span class="guide-val">v3.0.0 — Options Income Strategy Dashboard</span></div>
+    <div class="guide-kv"><span class="guide-key">Platform</span><span class="guide-val">Progressive Web App (PWA). Install from Safari on iPhone for full-screen experience and offline capability.</span></div>
+    <div class="guide-kv"><span class="guide-key">Data privacy</span><span class="guide-val">All data stored locally on your device. No account required. No data sent to any server other than Finnhub (for market data) and your own Cloudflare Worker (Yahoo Finance proxy).</span></div>
+    <div class="guide-kv"><span class="guide-key">Disclaimer</span><span class="guide-val">For personal research and education only. Not financial advice. Options trading involves substantial risk of loss. Always verify data with your broker before placing trades.</span></div>
+  </div>
+</div>
+
+<script>document.addEventListener('DOMContentLoaded',initGuide);if(document.readyState==='complete'||document.readyState==='interactive')initGuide();</script>
+
 </div>
 
 </div><!-- /main -->

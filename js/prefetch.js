@@ -85,21 +85,19 @@ async function prefetchAll(){
         }
       }
     }catch(e){console.warn('prefetch parallel hist/opts failed:',t,e?.message);}
-    // Mine past earnings dates from calendar response into confirmed cache
+    // Mine confirmed earnings dates from /calendar/earnings past entries
+    // (Full history via /stock/earnings is fetched in loadEarningsTab and individual ticker loads)
     try{
-      const _pfPastE=(earnings?.earningsCalendar||[]).filter(e=>e.date&&e.date<fmtDate(new Date()));
-      if(_pfPastE.length){
-        const _pfConf=S.get('earnings_confirmed_'+t)||[];
-        const _pfCut=new Date();_pfCut.setDate(_pfCut.getDate()-730);
-        let _pfChg=false;
-        _pfPastE.forEach(e=>{
-          if(new Date(e.date)<_pfCut)return;
-          if(!_pfConf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
-            _pfConf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_pfChg=true;
-          }
-        });
-        if(_pfChg)S.set('earnings_confirmed_'+t,_pfConf.filter(c=>new Date(c.date)>=_pfCut));
-      }
+      const _pfConf=S.get('earnings_confirmed_'+t)||[];
+      const _pfCut=new Date();_pfCut.setDate(_pfCut.getDate()-730);
+      let _pfChg=false;
+      (earnings?.earningsCalendar||[]).filter(e=>e.date&&e.date<fmtDate(new Date())).forEach(e=>{
+        if(!e.date||new Date(e.date)<_pfCut)return;
+        if(!_pfConf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
+          _pfConf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_pfChg=true;
+        }
+      });
+      if(_pfChg)S.set('earnings_confirmed_'+t,_pfConf.filter(c=>new Date(c.date)>=_pfCut));
     }catch{}
     // Compute and persist IVR now that hist2y and options are cached
     try{const _iSnap=S.get('snap_'+t);if(_iSnap){const _iv=computeIVR(t,_iSnap.week52High,_iSnap.week52Low,_iSnap.price);if(_iv!=null){_iSnap.ivrVal=_iv;S.set('snap_'+t,_iSnap);}}}catch{}

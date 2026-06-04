@@ -12,10 +12,14 @@ async function loadTicker(){
   try{
     let snap,hist6mo,hist1y,news,recData,isLive=true;
     try{
-      const[quote,profile,metrics,earnings]=await Promise.all([
+      // Only fetch /stock/earnings history if confirmed cache is sparse (<4 entries)
+      const _confCacheCount=(S.get('earnings_confirmed_'+t)||[]).length;
+      const _needEarningsHist=_confCacheCount<4;
+      const[quote,profile,metrics,earnings,earningsHist]=await Promise.all([
         fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),
         fh(`/stock/metric?symbol=${t}&metric=all`),
-        fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`)
+        fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),
+        _needEarningsHist?fh(`/stock/earnings?symbol=${t}&limit=8`):Promise.resolve(null)
       ]);
       let rec=null,upgrades=null;
       try{rec=await fh(`/stock/recommendation?symbol=${t}`);}catch{}
@@ -103,6 +107,14 @@ async function loadTicker(){
         const _conf=S.get('earnings_confirmed_'+t)||[];
         const _cutoff=new Date();_cutoff.setDate(_cutoff.getDate()-730);
         let _changed=false;
+        // Primary: /stock/earnings Surprises (reliable per-ticker historical dates with hour)
+        (earningsHist||[]).forEach(e=>{
+          if(!e.date||new Date(e.date)>=new Date()||new Date(e.date)<_cutoff)return;
+          if(!_conf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
+            _conf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_changed=true;
+          }
+        });
+        // Secondary: /calendar/earnings past entries
         _pastEntries.forEach(e=>{
           if(new Date(e.date)<_cutoff)return; // too old
           const _alreadyHave=_conf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000);
@@ -1446,10 +1458,14 @@ async function refreshSingleTicker(){
   try{
     // Step 1: Core ticker data
     setP(10,'Fetching '+t+' quote & metrics...');
-    const[quote,profile,metrics,earnings]=await Promise.all([
+    // Only fetch /stock/earnings history if confirmed cache is sparse (<4 entries)
+    const _rConfCount=(S.get('earnings_confirmed_'+t)||[]).length;
+    const _rNeedEarningsHist=_rConfCount<4;
+    const[quote,profile,metrics,earnings,earningsHist]=await Promise.all([
       fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),
       fh(`/stock/metric?symbol=${t}&metric=all`),
-      fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`)
+      fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),
+      _rNeedEarningsHist?fh(`/stock/earnings?symbol=${t}&limit=8`):Promise.resolve(null)
     ]);
     let rec=null,upgrades=null,priceTargetS=null;
     try{rec=await fh(`/stock/recommendation?symbol=${t}`);}catch{}
@@ -1480,6 +1496,14 @@ async function refreshSingleTicker(){
       const _rConf=S.get('earnings_confirmed_'+t)||[];
       const _rCut=new Date();_rCut.setDate(_rCut.getDate()-730);
       let _rChg=false;
+      // Primary: /stock/earnings Surprises
+      (earningsHist||[]).forEach(e=>{
+        if(!e.date||new Date(e.date)>=new Date()||new Date(e.date)<_rCut)return;
+        if(!_rConf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
+          _rConf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_rChg=true;
+        }
+      });
+      // Secondary: /calendar/earnings
       _rPastE.forEach(e=>{
         if(new Date(e.date)<_rCut)return;
         if(!_rConf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){

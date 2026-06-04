@@ -33,7 +33,7 @@ async function prefetchAll(){
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];if(barEl)barEl.style.width=Math.round((i/watchlist.length)*100)+'%';if(labelEl)labelEl.textContent=`Fetching ${t} (${i+1}/${watchlist.length})...`;
     _health.tickers[t]={snap:false,hist:false,options:false};
-    try{const[quote,profile,metrics,earnings]=await _pfTimeout(Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(new Date())}&to=${fmtDate(addDays(new Date(),180))}`)]),12000,t+' Finnhub main');
+    try{const[quote,profile,metrics,earnings]=await _pfTimeout(Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`)]),12000,t+' Finnhub main');
       // Fetch rec and upgrades sequentially to avoid rate limit (60/min on free tier)
       let rec2=null,upgrades2=null,priceTarget2=null;
       // Skip rec/upgrades/pt if cached less than 24h ago -- they change slowly
@@ -85,6 +85,22 @@ async function prefetchAll(){
         }
       }
     }catch(e){console.warn('prefetch parallel hist/opts failed:',t,e?.message);}
+    // Mine past earnings dates from calendar response into confirmed cache
+    try{
+      const _pfPastE=(earnings?.earningsCalendar||[]).filter(e=>e.date&&e.date<fmtDate(new Date()));
+      if(_pfPastE.length){
+        const _pfConf=S.get('earnings_confirmed_'+t)||[];
+        const _pfCut=new Date();_pfCut.setDate(_pfCut.getDate()-730);
+        let _pfChg=false;
+        _pfPastE.forEach(e=>{
+          if(new Date(e.date)<_pfCut)return;
+          if(!_pfConf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
+            _pfConf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_pfChg=true;
+          }
+        });
+        if(_pfChg)S.set('earnings_confirmed_'+t,_pfConf.filter(c=>new Date(c.date)>=_pfCut));
+      }
+    }catch{}
     // Compute and persist IVR now that hist2y and options are cached
     try{const _iSnap=S.get('snap_'+t);if(_iSnap){const _iv=computeIVR(t,_iSnap.week52High,_iSnap.week52Low,_iSnap.price);if(_iv!=null){_iSnap.ivrVal=_iv;S.set('snap_'+t,_iSnap);}}}catch{}
     // Historical earnings: extrapolate backwards from confirmed next date + gap refinement

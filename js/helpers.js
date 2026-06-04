@@ -182,6 +182,72 @@ function computeIVR(ticker,w52h,w52l,price){
 // Returns full HVR series aligned to hist2y timestamps for charting.
 // Each value is 0-100 (where current 21-day HRV sits in its 1-year min-max range).
 // Returns null if insufficient data.
+// ── Earnings confirmed cache helpers ─────────────────────────────────────────
+// earnings_pending_TICKER: future dates seen by the app, waiting to be promoted
+// earnings_confirmed_TICKER: past dates promoted after they passed
+// Both persist across watchlist removals. Eviction: 730 days + 10 day buffer.
+
+const _EARN_EVICT_DAYS = 740;
+
+// Save a future earnings date to the pending cache.
+// If an entry exists within ±10 days, update it (Finnhub may correct date slightly).
+// Only saves future dates.
+function saveEarningsPending(ticker, date, hour){
+  if(!ticker||!date)return;
+  try{
+    if(new Date(date)<=new Date())return; // only save future dates
+    const pending=S.get('earnings_pending_'+ticker)||[];
+    const existIdx=pending.findIndex(p=>Math.abs(new Date(p.date)-new Date(date))<11*86400000);
+    if(existIdx>=0){
+      // Update existing entry with latest Finnhub data
+      pending[existIdx]={date,hour:hour||null,savedTs:nowPT()};
+    }else{
+      pending.push({date,hour:hour||null,savedTs:nowPT()});
+    }
+    // Keep only the 4 most recent pending entries (safety limit)
+    pending.sort((a,b)=>b.date.localeCompare(a.date));
+    S.set('earnings_pending_'+ticker,pending.slice(0,4));
+  }catch{}
+}
+
+// Promote any pending dates that have now passed into the confirmed cache.
+// Call on every fetch. Returns true if any entries were promoted.
+function promoteEarningsPending(ticker){
+  try{
+    const today=fmtDate(new Date());
+    const pending=S.get('earnings_pending_'+ticker)||[];
+    if(!pending.length)return false;
+    const cutoff=new Date();cutoff.setDate(cutoff.getDate()-_EARN_EVICT_DAYS);
+    const confirmed=S.get('earnings_confirmed_'+ticker)||[];
+    let changed=false;
+    const stillPending=[];
+    pending.forEach(p=>{
+      if(p.date<today){
+        // Date has passed -- promote to confirmed
+        if(new Date(p.date)>=cutoff){
+          const alreadyHave=confirmed.some(c=>Math.abs(new Date(c.date)-new Date(p.date))<4*86400000);
+          if(!alreadyHave){
+            confirmed.push({date:p.date,hour:p.hour||null,addedTs:nowPT()});
+            changed=true;
+          }
+        }
+        // Don't keep in pending -- it's been handled
+      }else{
+        stillPending.push(p); // still future -- keep in pending
+      }
+    });
+    if(changed){
+      const fresh=confirmed.filter(c=>new Date(c.date)>=cutoff);
+      S.set('earnings_confirmed_'+ticker,fresh);
+    }
+    // Update pending (remove promoted entries)
+    if(stillPending.length!==pending.length){
+      S.set('earnings_pending_'+ticker,stillPending);
+    }
+    return changed;
+  }catch{return false;}
+}
+
 function computeHVRSeries(ticker){
   try{
     const h2=S.get('hist2y_'+ticker);

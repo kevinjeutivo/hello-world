@@ -375,7 +375,7 @@ function clearMarketDataCache(){
     // Clear all market data keys
     if(k.startsWith('snap_')||k.startsWith('hist_')||k.startsWith('hist1y_')||
        k.startsWith('hist2y_')||k.startsWith('options_')||k.startsWith('news_')||
-       k.startsWith('rec_')||k.startsWith('upgrades_')||k.startsWith('earnings_confirmed_')||
+       k.startsWith('rec_')||k.startsWith('upgrades_')||
        k.startsWith('mkt_')||k.startsWith('tbills_')||k.startsWith('vix')||
        k.startsWith('div_')||k==='market_news'||k==='fed_futures'||
        k==='hist2y_sp500'||k==='income_ts'){
@@ -413,12 +413,14 @@ function _buildExportData(){
       if(v!=null)data.keys[k.replace(/^"|"$/g,'')]=v;
     }
     if(k.startsWith('"earnings_confirmed_')||k.startsWith('earnings_confirmed_')){
-      const v=S.get(k.replace(/^"/,'').replace(/"$/,''));
-      if(v!=null)data.keys[k.replace(/^"|"$/g,'')]=v;
+      const _ck=k.replace(/^"|"$/g,'');
+      const v=S.get(_ck);
+      if(Array.isArray(v)&&v.length>0)data.keys[_ck]=v;
     }
     if(k.startsWith('"earnings_pending_')||k.startsWith('earnings_pending_')){
-      const v=S.get(k.replace(/^"/,'').replace(/"$/,''));
-      if(v!=null)data.keys[k.replace(/^"|"$/g,'')]=v;
+      const _pk=k.replace(/^"|"$/g,'');
+      const v=S.get(_pk);
+      if(Array.isArray(v)&&v.length>0)data.keys[_pk]=v;
     }
   });
 

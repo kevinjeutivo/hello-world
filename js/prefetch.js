@@ -169,9 +169,9 @@ async function prefetchAll(){
             console.log(t+' '+pair.date+': outside live window, preserving same-day exp cache');
           }else{
             const _ev=_validateOptionsData(data);
-            if(_ev.valid){S.set(_pExpKey,data);}
-            else if(!S.get(_pExpKey)){S.set(_pExpKey,{...data,synthetic:true});}
-            else{console.warn(t+' '+pair.date+': exp rejected ('+_ev.reason+'), preserving cache');}
+            if(_ev.valid){S.set(_pExpKey,{...data,ts:nowPT()});}
+            else if(!S.get(_pExpKey)){S.set(_pExpKey,{...data,ts:nowPT(),synthetic:true});}
+            else{const _ex=S.get(_pExpKey);console.warn(t+' '+pair.date+': exp rejected ('+_ev.reason+'), preserving cache from '+(_ex?.ts||'unknown ts'));}
           }
         });
     }

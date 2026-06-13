@@ -13,7 +13,9 @@ async function fh(path){
 
 async function yahooHistory(symbol,range='6mo',interval='1d'){
   if(offlineMode)throw new Error('offline mode');
-  const url=`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=history&range=${range}&interval=${interval}`;
+  // Cache-bust: history responses (esp. range=2y) can be served stale from edge/CDN
+  // caches without this, since the URL is otherwise identical across days.
+  const url=`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=history&range=${range}&interval=${interval}&_t=${Date.now()}`;
   const r=await fetch(url);if(!r.ok)throw new Error(`History proxy ${r.status}`);
   const d=await r.json();if(d.error)throw new Error(d.error);
   const result=d.chart?.result?.[0];if(!result)throw new Error('No history data');

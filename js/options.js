@@ -294,13 +294,25 @@ async function loadOptionsForTicker(){
           const _expHasSameDay=_hasGoodSameDayCache(_expKey);
           if(!_expInWindow&&_expHasSameDay)return;
           const _expVal=_validateOptionsData(ed);
-          if(_expVal.valid){S.set(_expKey,ed);}
-          else{const ok=S.get(_expKey)&&!S.get(_expKey)?.synthetic;if(!ok)S.set(_expKey,{...ed,synthetic:true});}
-        }catch{}
+          if(_expVal.valid){
+            S.set(_expKey,{...ed,ts:nowPT()});
+          }else{
+            const _existing=S.get(_expKey);
+            const ok=_existing&&!_existing.synthetic;
+            if(!ok)S.set(_expKey,{...ed,ts:nowPT(),synthetic:true});
+            else console.warn(t+' '+pair.date+': rejecting fresh fetch ('+_expVal.reason+'), preserving cache from '+(_existing?.ts||'unknown ts'));
+          }
+        }catch(e){console.warn(t+' '+pair.date+': exp fetch error',e?.message);}
       }));
     }
     const chipsEl=document.getElementById('exp-chips');
-    chipsEl.innerHTML=monthly.map(e=>`<div class="exp-chip selected" id="chip-${e}" onclick="toggleExp('${e}')">${e}</div>`).join('');
+    chipsEl.innerHTML=monthly.map(e=>{
+      const _ec=S.get('options_exp_'+t+'_'+e);
+      const _ecTs=_ec?.ts;
+      const _ecAge=_ecTs?relAge(_ecTs):'';
+      const _ecTitle=_ecTs?('Cached '+_ecTs+(_ecAge?' ('+_ecAge+')':'')):'No timestamp (legacy cache)';
+      return`<div class="exp-chip selected" id="chip-${e}" onclick="toggleExp('${e}')" title="${_ecTitle}">${e}</div>`;
+    }).join('');
     document.getElementById('exp-section').style.display='block';
     loadOptionsPrefs();
     // Check for OI data availability -- show amber box if missing

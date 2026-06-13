@@ -325,9 +325,10 @@ function renderWatchlist(){
 
   el.innerHTML=sorted.map(t=>{
     const c=S.get('snap_'+t);
-    const price=c?'$'+c.price.toFixed(2):'--';
-    const chg=c?c.change:0,chgPct=c?c.changePct:0;
+    const price=(c&&c.price!=null)?'$'+c.price.toFixed(2):'--';
+    const chg=(c&&c.change!=null)?c.change:0,chgPct=(c&&c.changePct!=null)?c.changePct:0;
     const cc=chg>=0?'var(--green)':'var(--red)';
+    const hasChg=c&&c.change!=null&&c.changePct!=null;
     const age=c?relAge(c.ts):'';
     const hmBg=_heatmapBg(t);
     const bgStyle=hmBg?'background:'+hmBg+';':'';
@@ -340,7 +341,7 @@ function renderWatchlist(){
       '</div>'+
       '<div style="text-align:right">'+
         '<div class="watchlist-price">'+price+'</div>'+
-        (c?'<div class="watchlist-change" style="color:'+cc+'">'+(chg>=0?'+':'')+chg.toFixed(2)+' ('+(chgPct>=0?'+':'')+chgPct.toFixed(2)+'%)</div>':'')+
+        (hasChg?'<div class="watchlist-change" style="color:'+cc+'">'+(chg>=0?'+':'')+chg.toFixed(2)+' ('+(chgPct>=0?'+':'')+chgPct.toFixed(2)+'%)</div>':'')+
       '</div>'+
       '<button class="watchlist-remove" onclick="event.stopPropagation();_openRemoveModal(\''+t+'\')">&#x2715;</button>'+
     '</div>';

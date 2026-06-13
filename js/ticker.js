@@ -1564,8 +1564,8 @@ async function refreshSingleTicker(){
             const _expHasSameDay=_hasGoodSameDayCache(_expKey);
             if(!_rtInWindow&&_expHasSameDay)return; // preserve good cache outside window
             const _expv=_validateOptionsData(data);
-            if(_expv.valid)S.set(_expKey,data);
-            else if(!S.get(_expKey))S.set(_expKey,{...data,synthetic:true});
+            if(_expv.valid)S.set(_expKey,{...data,ts:nowPT()});
+            else if(!S.get(_expKey))S.set(_expKey,{...data,ts:nowPT(),synthetic:true});
           });
           optionsLoaded=true;
         }

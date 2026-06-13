@@ -171,7 +171,14 @@ async function loadTicker(){
             }
           }
 
-          if(bestGap&&bestGap.gapPct>=3){
+          // Priority 1: check confirmed cache for a real date within ±25 days of estimate
+          const _confCacheSlot=(S.get('earnings_confirmed_'+t)||[])
+            .find(c=>Math.abs(new Date(c.date)-new Date(est))<26*86400000);
+
+          if(_confCacheSlot){
+            // Ground truth from Finnhub earnings surprises -- use directly, no gap detection needed
+            results.push({date:_confCacheSlot.date,hour:_confCacheSlot.hour||null,gapPct:null,direction:null,source:'auto-confirmed'});
+          }else if(bestGap&&bestGap.gapPct>=3){
             // Gap found within window -- use actual gap date (confirmed)
             results.push({date:bestGap.date,hour:null,gapPct:bestGap.gapPct,direction:bestGap.direction,source:'gap-confirmed'});
           }else{
@@ -1087,7 +1094,7 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
           const ev=earningsDateMap.get(d);
           const xPx=xs.getPixelForValue(i);
           const isOverride=!!ev.isOverride;
-          const confirmed=ev.source==='gap-confirmed'||(ev.gapPct!=null&&ev.gapPct>=3);
+          const confirmed=ev.source==='gap-confirmed'||ev.source==='auto-confirmed'||(ev.gapPct!=null&&ev.gapPct>=3);
           c.strokeStyle=isOverride?'rgba(0,212,170,0.85)':confirmed?'rgba(255,165,2,0.75)':'rgba(255,165,2,0.35)';
           c.lineWidth=isOverride?2:confirmed?1.5:1;
           c.setLineDash(isOverride?[]:(confirmed?[]:[3,3]));
@@ -1605,3 +1612,4 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
+                                                                                           

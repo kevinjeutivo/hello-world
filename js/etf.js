@@ -307,7 +307,8 @@ const _SB_DESCRIPTIONS={
   'MSTY':'YieldMax MSTR Option Income Strategy ETF. Synthetic covered call on MicroStrategy, very high yield with significant volatility exposure.',
   'FEPI':'REX FANG & Innovation Equity Premium Income ETF. Holds mega-cap tech and innovation stocks with a covered call overlay for monthly income.',
   'SPYI':'NEOS S&P 500 High Income ETF. Actively managed, combines S&P 500 exposure with an options overlay using tax-efficient index puts and calls to generate monthly income.',
-  'NBOS':'Nationwide S&P 500 Risk-Managed Income ETF. S&P 500 exposure with an options collar strategy — buys protective puts and sells covered calls to manage risk and generate income.',
+  'QQQI':'NEOS Nasdaq-100 High Income ETF. Actively managed, holds Nasdaq-100 exposure with a call-writing overlay on NDX index options (may include purchased OTM calls for upside participation). Section 1256 tax treatment like SPYI, but higher distribution yield and higher volatility given the tech-heavy underlying index.',
+  'NBOS':'Neuberger Berman Option Strategy ETF. Put-write strategy -- sells cash-secured puts on a broad equity index to generate option premium income. Retains more upside participation than covered-call funds since it does not sell calls against holdings.',
   'CSHI':'NEOS Enhanced Income Cash Alternative ETF. Actively managed, holds short-term Treasuries and sells S&P 500 index put spreads to generate above-money-market monthly income with very low equity risk.',
 };
 

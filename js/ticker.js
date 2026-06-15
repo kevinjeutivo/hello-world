@@ -1551,8 +1551,12 @@ async function refreshSingleTicker(){
           S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),synthetic:true});
         }
         // else preserve existing good cache
+        // Only fetch per-expiry chains if main chain fetch was valid AND we're in live window
+        // Outside live window: use _shouldSkipOptionsFetch to correctly honor
+        // "Friday cache is still good on Monday pre-market" without re-fetching synthetic data
         const _savedOpts=S.get('options_'+t);
-        if(_savedOpts){
+        if(_savedOpts&&_rtInWindow){
+          // Inside live window: fetch all per-expiry chains fresh
           const yr=opts?.optionChain?.result?.[0];
           const rawTs=yr?.expirationDates||[];
           const pairs=rawTs.map(ts=>({ts,date:new Date(ts*1000).toISOString().split('T')[0]}));
@@ -1568,12 +1572,15 @@ async function refreshSingleTicker(){
           _expPairs.forEach(({pair,data})=>{
             if(!data)return;
             const _expKey='options_exp_'+t+'_'+pair.date;
-            const _expHasSameDay=_hasGoodSameDayCache(_expKey);
-            if(!_rtInWindow&&_expHasSameDay)return; // preserve good cache outside window
             const _expv=_validateOptionsData(data);
             if(_expv.valid)S.set(_expKey,{...data,ts:nowPT()});
             else if(!S.get(_expKey))S.set(_expKey,{...data,ts:nowPT(),synthetic:true});
           });
+          optionsLoaded=true;
+        }else if(_savedOpts){
+          // Outside live window: skip per-expiry fetches entirely
+          // Friday's cached per-expiry data is the most current available until next session
+          console.log(t+': outside live window, preserving per-expiry cache from last session');
           optionsLoaded=true;
         }
       }catch{}
@@ -1612,4 +1619,3 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
-                                                                                           

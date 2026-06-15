@@ -20,11 +20,17 @@ function _validateOptionsData(data){
   if(ivValues.length>=3){
     const syntheticCount=ivValues.filter(v=>SYNTH_IV_VALS.has(Math.round(v*1e6)/1e6)).length;
     const syntheticRatio=syntheticCount/ivValues.length;
-    if(syntheticRatio>0.6){
+    if(syntheticRatio>0.4){
       // Synthetic IV confirmed -- also check OI to be sure
       const totalOI=allContracts.reduce((s,c)=>s+(c.openInterest||0),0);
       return{valid:false,reason:'synthetic data: '+Math.round(syntheticRatio*100)+'% halving IV'+(totalOI===0?' + zero OI':'')};
     }
+  }
+
+  // Additional check: if >80% of contracts have zero bid AND zero ask, likely synthetic
+  const zeroBidAsk=allContracts.filter(c=>(c.bid==null||c.bid===0)&&(c.ask==null||c.ask===0)).length;
+  if(allContracts.length>=5&&zeroBidAsk/allContracts.length>0.8){
+    return{valid:false,reason:'synthetic data: '+Math.round(zeroBidAsk/allContracts.length*100)+'% zero bid/ask'};
   }
 
   return{valid:true,reason:'ok'};
@@ -225,6 +231,25 @@ function saveOptionsPrefs(){
 
 async function loadOptionsForTicker(){
   const t=document.getElementById('options-ticker-select').value;if(!t){clearOptionsState();return;}
+  // Repair: clear any synthetic per-expiry cache written outside the live window
+  // so stale synthetic data doesn't display as real data
+  if(!_isOptionsLiveWindow()){
+    try{
+      const _mainCache=S.get('options_'+t);
+      if(_mainCache&&!_mainCache.synthetic){
+        const _yr=_mainCache.data?.optionChain?.result?.[0];
+        (_yr?.expirationDates||[]).forEach(_ets=>{
+          const _ed=new Date(_ets*1000).toISOString().split('T')[0];
+          const _ek='options_exp_'+t+'_'+_ed;
+          const _ec=S.get(_ek);
+          if(_ec?.synthetic){
+            console.log(t+' '+_ed+': clearing synthetic per-expiry cache');
+            S.del(_ek);
+          }
+        });
+      }
+    }catch{}
+  }
   if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('ticker-select').value=t;document.getElementById('ticker-content').innerHTML='<div class="empty"><div class="empty-icon">&#x1F4C8;</div>Ticker changed -- visit Ticker tab to reload</div>';}
   // Always clear stale OI chart and cached rows before fetching new ticker data
   // This prevents the previous ticker's OI chart from showing while new data loads

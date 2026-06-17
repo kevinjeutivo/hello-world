@@ -261,12 +261,14 @@ async function loadOptionsForTicker(){
   document.getElementById('options-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading options for ${t}...</div></div>`;
   try{
     let data,isLive=true,fetchTs=nowPT();
+    let _debugPath='';
     const _skipFetch=_shouldSkipOptionsFetch('options_'+t);
     if(_skipFetch){
       // Cache is fresh from the most recent session -- skip network call entirely
       const cached=S.get('options_'+t);
       if(!cached)throw new Error('No options data available');
       data=cached.data;isLive=false;fetchTs=cached.ts;
+      _debugPath='skipped fetch -- cache fresh from session (cached ts: '+cached.ts+')';
       console.log(t+': options loaded from cache (fresh session data)');
     }else{
       // Fetch live options data
@@ -275,18 +277,23 @@ async function loadOptionsForTicker(){
         const _hasSameDay=_hasGoodSameDayCache('options_'+t);
         if(!_inWindow&&_hasSameDay){
           data=S.get('options_'+t).data;
+          _debugPath='outside live window, same-day cache exists -- used cache, discarded fresh fetch';
         }else{
           const _optVal=_validateOptionsData(data);
           if(_optVal.valid){
             S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs});
+            _debugPath='live fetch valid -- wrote fresh cache (ts: '+fetchTs+')';
           }else if(!S.get('options_'+t)){
             S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs,synthetic:true});
+            _debugPath='live fetch INVALID ('+_optVal.reason+'), no prior cache -- wrote synthetic-flagged data anyway';
           }else{
             data=S.get('options_'+t).data;
+            _debugPath='live fetch INVALID ('+_optVal.reason+') -- preserved existing good cache, discarded fresh fetch';
           }
         }
-      }catch{const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;showOfflineBanner(cached.ts);}else throw new Error('No options data available');}
+      }catch(e){const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;showOfflineBanner(cached.ts);_debugPath='fetch threw ('+(e?.message||'unknown error')+') -- fell back to cache';}else throw new Error('No options data available');}
     }
+    if(S.get('debug_options_fetch')==='true')toast(t+' options: '+_debugPath,6000);
     currentOptionsData=data;
     const yr=data?.optionChain?.result?.[0];
     // Keep original Unix timestamps alongside date strings so we can pass

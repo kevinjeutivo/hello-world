@@ -607,7 +607,7 @@ function previewImport(){
   try{
     const _confKeys=Object.keys(keys).filter(k=>k.startsWith('earnings_confirmed_'));
     if(_confKeys.length){
-      lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">CONFIRMED EARNINGS CACHE ('+_confKeys.length+' ticker'+(confKeys.length>1?'s':'')+')</span>');
+      lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">CONFIRMED EARNINGS CACHE ('+_confKeys.length+' ticker'+(_confKeys.length>1?'s':'')+')</span>');
       _confKeys.forEach(k=>{
         const t=k.replace('earnings_confirmed_','');
         const entries=Array.isArray(keys[k])?keys[k]:(JSON.parse(keys[k]||'[]'));

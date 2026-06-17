@@ -684,6 +684,38 @@ function _activePosNotionalTotal(){
     .reduce((sum, p) => sum + _posNotional(p), 0);
 }
 
+// ── Put position price / time-value lookup ─────────────────────────────────────
+// Pulls current underlying price from the snap cache and, when available, the
+// matching put contract's premium from the per-expiration options cache to
+// derive time value (extrinsic) remaining -- the signal for roll/assignment risk.
+// Degrades gracefully: missing snap -> no price; missing/unmatched options
+// cache -> price + moneyness only, no time value. Never throws.
+
+function _getPosPricing(pos){
+  const snap = S.get('snap_' + pos.ticker);
+  const currentPrice = snap?.price ?? null;
+  if(currentPrice == null) return { currentPrice: null, itm: null, intrinsic: null, timeValue: null };
+
+  const itm = currentPrice < pos.strike;
+  const intrinsic = Math.max(pos.strike - currentPrice, 0) * 100 * pos.contracts;
+
+  let timeValue = null;
+  try{
+    const cache = S.get('options_exp_' + pos.ticker + '_' + pos.expDate);
+    const puts = cache?.optionChain?.result?.[0]?.options?.[0]?.puts || [];
+    const match = puts.find(p => Math.abs(p.strike - pos.strike) < 0.005);
+    if(match){
+      const premium = (match.bid > 0 ? match.bid : (match.lastPrice || 0));
+      if(premium > 0){
+        const totalPremium = premium * 100 * pos.contracts;
+        timeValue = Math.max(totalPremium - intrinsic, 0);
+      }
+    }
+  }catch{}
+
+  return { currentPrice, itm, intrinsic, timeValue };
+}
+
 // ── Monthly expiration detection from options cache ───────────────────────────
 
 function _getMonthlyExpirations(ticker){
@@ -955,15 +987,28 @@ function _renderPositionList(){
       ? 'Expired ' + Math.abs(daysUntil) + 'd ago'
       : daysUntil === 0 ? 'Expires today' : 'Exp in ' + daysUntil + 'd';
 
+    const pricing = expired ? { currentPrice: null, itm: null, timeValue: null } : _getPosPricing(pos);
+    const priceStr = pricing.currentPrice != null ? ' · now $' + pricing.currentPrice.toFixed(2) : '';
+    const itmTag = pricing.itm
+      ? '<span style="color:var(--red)">&#x26A0; ITM</span>'
+      : '';
+    const timeValueLine = pricing.timeValue != null
+      ? '<div style="font-family:var(--mono);font-size:9px;color:'+(pricing.itm?'var(--warn)':'var(--text3)')+'">'+
+          'Time value: '+_fmtDollar(pricing.timeValue)+(pricing.itm?' remaining &mdash; consider rolling':'')+
+        '</div>'
+      : '';
+
     return '<div style="background:'+ss.bg+';border:1px solid '+ss.border+';border-radius:8px;padding:10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;'+(expired?'opacity:0.5':'')+'">' +
       '<div>' +
         '<div style="font-family:var(--mono);font-size:13px;font-weight:700;color:'+(expired?'var(--text3)':'var(--accent)')+'">'+
           pos.ticker+' $'+pos.strike.toFixed(0)+
           (ss.label?'<span style="font-size:9px;color:'+ss.labelColor+';margin-left:6px;font-weight:400">'+ss.label+'</span>':'')+
+          (itmTag&&!expired?' <span style="font-size:9px;margin-left:4px">'+itmTag+'</span>':'')+
         '</div>'+
         '<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">'+
-          pos.contracts+' contract'+(pos.contracts>1?'s':'')+' · '+pos.expDate+' · '+daysStr+
+          pos.contracts+' contract'+(pos.contracts>1?'s':'')+' · '+pos.expDate+' · '+daysStr+priceStr+
         '</div>'+
+        timeValueLine+
         '<div style="font-family:var(--mono);font-size:10px;color:'+(expired?'var(--text3)':L3_TEXT)+'">'+
           _fmtDollar(notional)+' notional'+(expired?' (excluded)':'') +
         '</div>'+

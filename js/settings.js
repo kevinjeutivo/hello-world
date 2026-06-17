@@ -282,6 +282,7 @@ function openSettings(){
   document.getElementById('vix-threshold-input').value=vixThreshold;
   document.getElementById('tz-pref-input').value=tzPref;
   document.getElementById('offline-mode-input').checked=offlineMode;
+  document.getElementById('debug-options-fetch-input').checked=S.get('debug_options_fetch')==='true';
   document.getElementById('font-size-input').value=fontSize;
   loadWeightSliders();
   _populateCutoffSelect();
@@ -305,6 +306,7 @@ function saveSettings(){
   S.set('options_cutoff_et',String(cutoffET));
   offlineMode=document.getElementById('offline-mode-input').checked;
   S.set('offline_mode',String(offlineMode));
+  S.set('debug_options_fetch',String(document.getElementById('debug-options-fetch-input').checked));
   updateOfflineModeBar();
   fontSize=document.getElementById('font-size-input').value||'19';
   S.set('font_size',fontSize);

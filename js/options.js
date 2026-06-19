@@ -319,7 +319,10 @@ async function loadOptionsForTicker(){
     if(!_skipFetch){
       await Promise.all(monthlyPairs.map(async pair=>{
         const _expKey='options_exp_'+t+'_'+pair.date;
-        if(_shouldSkipOptionsFetch(_expKey))return; // this expiry also fresh
+        // Only apply the skip check when the main chain was served from cache.
+        // If we just fetched the main chain live, force-refresh all per-expiry
+        // chains too -- they share the same underlying data and must stay in sync.
+        if(_skipFetch&&_shouldSkipOptionsFetch(_expKey))return;
         try{
           const ed=await yahooOptionsViaProxy(t,String(pair.ts));
           const _expInWindow=_isOptionsLiveWindow();

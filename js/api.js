@@ -56,7 +56,7 @@ function slimOptionsData(json){
 
 async function yahooOptionsViaProxy(symbol,expiration){
   if(offlineMode)throw new Error('offline mode');
-  let url=`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=options`;
+  let url=`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=options&_t=${Date.now()}`;
   if(expiration)url+=`&expiration=${expiration}`;
   const r=await fetch(url);
   if(!r.ok){

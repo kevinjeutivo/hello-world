@@ -327,17 +327,21 @@ async function loadOptionsForTicker(){
           const ed=await yahooOptionsViaProxy(t,String(pair.ts));
           const _expInWindow=_isOptionsLiveWindow();
           const _expHasSameDay=_hasGoodSameDayCache(_expKey);
-          if(!_expInWindow&&_expHasSameDay)return;
+          if(!_expInWindow&&_expHasSameDay){
+            if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': outside window, kept same-day cache',5000);
+            return;
+          }
           const _expVal=_validateOptionsData(ed);
           if(_expVal.valid){
             S.set(_expKey,{...ed,ts:nowPT()});
+            if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp fetch valid -- wrote fresh',4000);
           }else{
             const _existing=S.get(_expKey);
             const ok=_existing&&!_existing.synthetic;
-            if(!ok)S.set(_expKey,{...ed,ts:nowPT(),synthetic:true});
-            else console.warn(t+' '+pair.date+': rejecting fresh fetch ('+_expVal.reason+'), preserving cache from '+(_existing?.ts||'unknown ts'));
+            if(!ok){S.set(_expKey,{...ed,ts:nowPT(),synthetic:true});if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp INVALID ('+_expVal.reason+') no prior cache -- wrote synthetic',5000);}
+            else{if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp INVALID ('+_expVal.reason+') -- kept stale cache',5000);console.warn(t+' '+pair.date+': rejecting fresh fetch ('+_expVal.reason+'), preserving cache from '+(_existing?.ts||'unknown ts'));}
           }
-        }catch(e){console.warn(t+' '+pair.date+': exp fetch error',e?.message);}
+        }catch(e){if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp fetch ERROR: '+(e?.message||'unknown'),5000);console.warn(t+' '+pair.date+': exp fetch error',e?.message);}
       }));
     }
     const chipsEl=document.getElementById('exp-chips');

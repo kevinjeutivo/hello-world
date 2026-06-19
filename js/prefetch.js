@@ -44,15 +44,13 @@ async function prefetchAll(){
         try{priceTarget2=await _pfTimeout(fh(`/stock/price-target?symbol=${t}`),8000,t+' pt');}catch{}
       }S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});_health.tickers[t].snap=true;}catch{}
     // Parallel: 2Y history + options main fetch (both Yahoo, independent)
-    // Skip options fetch if cache is fresh from the most recent trading session
-    const _skipOpts=_shouldSkipOptionsFetch('options_'+t);
+    // Always fetch options fresh -- validation guards against writing bad data.
     let _h2ok=false,_opts=null;
     try{
       const [_h2res,_optsRes]=await Promise.all([
         _pfTimeout(yahooHistory(t,'2y','1d'),15000,t+' hist2y').catch(e=>{console.warn('hist2y failed:',t,e?.message);return null;}),
-        _skipOpts?Promise.resolve(null):_pfTimeout(yahooOptionsViaProxy(t),15000,t+' options').catch(e=>{console.warn('options failed:',t,e?.message);return null;})
+        _pfTimeout(yahooOptionsViaProxy(t),15000,t+' options').catch(e=>{console.warn('options failed:',t,e?.message);return null;})
       ]);
-      if(_skipOpts){console.log(t+': options cache fresh from last session, skipping fetch');_health.tickers[t].options='skipped';}
       // Process history
       if(_h2res){
         const _ts2=_h2res.timestamps.map(d=>Math.floor(d.getTime()/1000));
@@ -71,17 +69,15 @@ async function prefetchAll(){
         _opts=_optsRes;
         const _pInWindow=_isOptionsLiveWindow();
         const _pHasSameDay=_hasGoodSameDayCache('options_'+t);
-        if(!_pInWindow&&_pHasSameDay){
-          console.log(t+': outside live window, preserving same-day options cache');
+        const _pv=_validateOptionsData(_opts);
+        if(_pv.valid){
+          S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT()});_health.tickers[t].options=true;
+        }else if(!_pInWindow&&_pHasSameDay){
+          console.log(t+': outside live window, fetch INVALID ('+_pv.reason+') -- preserving same-day options cache');
+        }else if(!S.get('options_'+t)){
+          S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),synthetic:true});
         }else{
-          const _pv=_validateOptionsData(_opts);
-          if(_pv.valid){
-            S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT()});_health.tickers[t].options=true;
-          }else if(!S.get('options_'+t)){
-            S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),synthetic:true});
-          }else{
-            console.warn(t+': rejecting options ('+_pv.reason+'), preserving cache');
-          }
+          console.warn(t+': rejecting options ('+_pv.reason+'), preserving cache');
         }
       }
     }catch(e){console.warn('prefetch parallel hist/opts failed:',t,e?.message);}
@@ -145,10 +141,9 @@ async function prefetchAll(){
         }
       }
     }catch{}
-    // Per-expiry options fetch (parallel -- skip if main options were skipped)
+    // Per-expiry options fetch (parallel -- skip only if main options fetch failed)
     const _savedOpts=S.get('options_'+t);
-    const _skipExpOpts=_skipOpts||!_opts; // skip if main opts were skipped or failed
-    if(_savedOpts&&!_skipExpOpts){
+    if(_savedOpts&&_opts){
       const yr=_opts?.optionChain?.result?.[0];const rawTs2=yr?.expirationDates||[];
         const allExpPairs2=rawTs2.map(ts=>({ts,date:new Date(ts*1000).toISOString().split('T')[0]}));
         let monthlyPairs2=allExpPairs2.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
@@ -165,13 +160,15 @@ async function prefetchAll(){
           const _pExpKey='options_exp_'+t+'_'+pair.date;
           const _pExpInWindow=_isOptionsLiveWindow();
           const _pExpHasSameDay=_hasGoodSameDayCache(_pExpKey);
-          if(!_pExpInWindow&&_pExpHasSameDay){
-            console.log(t+' '+pair.date+': outside live window, preserving same-day exp cache');
+          const _ev=_validateOptionsData(data);
+          if(_ev.valid){
+            S.set(_pExpKey,{...data,ts:nowPT()});
+          }else if(!_pExpInWindow&&_pExpHasSameDay){
+            console.log(t+' '+pair.date+': outside live window, fetch INVALID ('+_ev.reason+') -- preserving same-day exp cache');
+          }else if(!S.get(_pExpKey)){
+            S.set(_pExpKey,{...data,ts:nowPT(),synthetic:true});
           }else{
-            const _ev=_validateOptionsData(data);
-            if(_ev.valid){S.set(_pExpKey,{...data,ts:nowPT()});}
-            else if(!S.get(_pExpKey)){S.set(_pExpKey,{...data,ts:nowPT(),synthetic:true});}
-            else{const _ex=S.get(_pExpKey);console.warn(t+' '+pair.date+': exp rejected ('+_ev.reason+'), preserving cache from '+(_ex?.ts||'unknown ts'));}
+            const _ex=S.get(_pExpKey);console.warn(t+' '+pair.date+': exp rejected ('+_ev.reason+'), preserving cache from '+(_ex?.ts||'unknown ts'));
           }
         });
     }

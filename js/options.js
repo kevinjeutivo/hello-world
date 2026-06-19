@@ -373,6 +373,11 @@ async function loadOptionsForTicker(){
     }
     const snap=S.get('snap_'+t);
     if(snap?.earningsDate){const today=new Date(),earningsD=new Date(snap.earningsDate);const warns=monthly.filter(e=>{const ed=new Date(e);return today<earningsD&&earningsD<=ed;});const timing=snap.earningsHour==='bmo'?' (before open)':snap.earningsHour==='amc'?' (after close)':'';const warnEl=document.getElementById('options-earnings-warn');warnEl.innerHTML=warns.length?`<div class="earnings-warn">Earnings on ${snap.earningsDate}${timing} falls within ${warns.join(', ')} window. Elevated assignment risk.</div>`:'';}
+    lastOptionsTickerLoaded=t;
+    // Auto-render the table now that data, chips, and prefs are all ready.
+    // Without this, a fresh fetch after tab navigation is never reflected until
+    // the user manually taps "Load / Refresh Options Chain".
+    if(snap?.price) buildOptionsTable();
   }catch(err){document.getElementById('options-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
 }
 

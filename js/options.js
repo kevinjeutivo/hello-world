@@ -275,21 +275,25 @@ async function loadOptionsForTicker(){
       try{data=await yahooOptionsViaProxy(t);
         const _inWindow=_isOptionsLiveWindow();
         const _hasSameDay=_hasGoodSameDayCache('options_'+t);
-        if(!_inWindow&&_hasSameDay){
+        const _optVal=_validateOptionsData(data);
+        if(_optVal.valid){
+          // Validation passed -- write regardless of live window.
+          // The window check was designed to block synthetic after-hours placeholder
+          // data, but _validateOptionsData already catches that. If validation passes,
+          // the data is real and should always overwrite stale cache.
+          S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs});
+          _debugPath='live fetch valid -- wrote fresh cache (ts: '+fetchTs+')';
+        }else if(!_inWindow&&_hasSameDay){
+          // Outside window AND validation failed -- preserve same-day cache
+          // since the fresh fetch is synthetic/empty and we have something better.
           data=S.get('options_'+t).data;
-          _debugPath='outside live window, same-day cache exists -- used cache, discarded fresh fetch';
+          _debugPath='outside live window, fetch INVALID ('+_optVal.reason+') -- kept same-day cache';
+        }else if(!S.get('options_'+t)){
+          S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs,synthetic:true});
+          _debugPath='live fetch INVALID ('+_optVal.reason+'), no prior cache -- wrote synthetic-flagged data anyway';
         }else{
-          const _optVal=_validateOptionsData(data);
-          if(_optVal.valid){
-            S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs});
-            _debugPath='live fetch valid -- wrote fresh cache (ts: '+fetchTs+')';
-          }else if(!S.get('options_'+t)){
-            S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs,synthetic:true});
-            _debugPath='live fetch INVALID ('+_optVal.reason+'), no prior cache -- wrote synthetic-flagged data anyway';
-          }else{
-            data=S.get('options_'+t).data;
-            _debugPath='live fetch INVALID ('+_optVal.reason+') -- preserved existing good cache, discarded fresh fetch';
-          }
+          data=S.get('options_'+t).data;
+          _debugPath='live fetch INVALID ('+_optVal.reason+') -- preserved existing good cache, discarded fresh fetch';
         }
       }catch(e){const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;showOfflineBanner(cached.ts);_debugPath='fetch threw ('+(e?.message||'unknown error')+') -- fell back to cache';}else throw new Error('No options data available');}
     }
@@ -327,14 +331,14 @@ async function loadOptionsForTicker(){
           const ed=await yahooOptionsViaProxy(t,String(pair.ts));
           const _expInWindow=_isOptionsLiveWindow();
           const _expHasSameDay=_hasGoodSameDayCache(_expKey);
-          if(!_expInWindow&&_expHasSameDay){
-            if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': outside window, kept same-day cache',5000);
-            return;
-          }
           const _expVal=_validateOptionsData(ed);
           if(_expVal.valid){
+            // Validation passed -- write regardless of live window.
             S.set(_expKey,{...ed,ts:nowPT()});
             if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp fetch valid -- wrote fresh',4000);
+          }else if(!_expInWindow&&_expHasSameDay){
+            // Outside window AND invalid -- preserve same-day cache.
+            if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': outside window, fetch INVALID ('+_expVal.reason+') -- kept same-day cache',5000);
           }else{
             const _existing=S.get(_expKey);
             const ok=_existing&&!_existing.synthetic;

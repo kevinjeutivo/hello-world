@@ -272,6 +272,7 @@ async function loadOptionsForTicker(){
   try{
     let data,isLive=false,fetchTs=nowPT();
     let _debugPath='';
+    let _fetchedLive=false;
     if(_existingCache&&!_existingCache.synthetic){
       // Good cache exists -- use it directly, no network call
       data=_existingCache.data;fetchTs=_existingCache.ts;
@@ -289,6 +290,7 @@ async function loadOptionsForTicker(){
           // data, but _validateOptionsData already catches that. If validation passes,
           // the data is real and should always overwrite stale cache.
           S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs});
+          _fetchedLive=true;
           _debugPath='live fetch valid -- wrote fresh cache (ts: '+fetchTs+')';
         }else if(!_inWindow&&_hasSameDay){
           // Outside window AND validation failed -- preserve same-day cache
@@ -325,15 +327,11 @@ async function loadOptionsForTicker(){
     }
     const monthly=monthlyPairs.map(p=>p.date);
     currentExpirations=monthly;selectedExpirations=[...monthly];
-    // Per-expiry chains: skip fetch if main options were skipped (cache fresh)
-    // Otherwise fetch all expiries in parallel
-    if(!_skipFetch){
+    // Per-expiry chains only when we actually fetched the main chain live.
+    // Cache-served navigations skip this block entirely -- no network calls.
+    if(_fetchedLive){
       await Promise.all(monthlyPairs.map(async pair=>{
         const _expKey='options_exp_'+t+'_'+pair.date;
-        // Only apply the skip check when the main chain was served from cache.
-        // If we just fetched the main chain live, force-refresh all per-expiry
-        // chains too -- they share the same underlying data and must stay in sync.
-        if(_skipFetch&&_shouldSkipOptionsFetch(_expKey))return;
         try{
           const ed=await yahooOptionsViaProxy(t,String(pair.ts));
           const _expInWindow=_isOptionsLiveWindow();

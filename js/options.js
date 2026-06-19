@@ -258,18 +258,25 @@ async function loadOptionsForTicker(){
   if(window._oiChart){window._oiChart.destroy();window._oiChart=null;}
   lastOptionsTickerLoaded=t;
   document.getElementById('exp-section').style.display='none';
-  document.getElementById('options-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading options for ${t}...</div></div>`;
+  // Navigation and dropdown changes always serve from cache -- fresh data comes
+  // from Force Refresh / Prefetch All / Ticker tab refresh, which all now fetch
+  // options unconditionally. Only fetch live here if no cache exists at all
+  // (e.g. ticker was just added to watchlist and never prefetched).
+  const _existingCache=S.get('options_'+t);
+  if(_existingCache&&!_existingCache.synthetic){
+    // Render straight from cache -- fast, no network call
+    document.getElementById('options-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading ${t} options from cache...</div></div>`;
+  }else{
+    document.getElementById('options-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Fetching ${t} options...</div></div>`;
+  }
   try{
-    let data,isLive=true,fetchTs=nowPT();
+    let data,isLive=false,fetchTs=nowPT();
     let _debugPath='';
-    const _skipFetch=_shouldSkipOptionsFetch('options_'+t);
-    if(_skipFetch){
-      // Cache is fresh from the most recent session -- skip network call entirely
-      const cached=S.get('options_'+t);
-      if(!cached)throw new Error('No options data available');
-      data=cached.data;isLive=false;fetchTs=cached.ts;
-      _debugPath='skipped fetch -- cache fresh from session (cached ts: '+cached.ts+')';
-      console.log(t+': options loaded from cache (fresh session data)');
+    if(_existingCache&&!_existingCache.synthetic){
+      // Good cache exists -- use it directly, no network call
+      data=_existingCache.data;fetchTs=_existingCache.ts;
+      _debugPath='served from cache (ts: '+fetchTs+')';
+      console.log(t+': options rendered from cache');
     }else{
       // Fetch live options data
       try{data=await yahooOptionsViaProxy(t);
@@ -498,7 +505,29 @@ function buildOptionsTable(){
 
   // Earnings banner after all expirations if not yet inserted
   if(earningsD&&!earningsBannerInserted){tableBodyHTML+=earningsBanner();}
-  const tableHTML=`<div class="card"><div class="card-title"><span class="dot"></span>${currentMode==='puts'?'Put':'Call'} Options -- ${t} @ $${currentPrice.toFixed(2)}</div>${(()=>{const optCache=S.get('options_'+t);const optTs=optCache?.ts||'';if(!optTs)return'';const isOptLive=optTs&&(Date.now()-new Date(optTs.replace(/ PT$| UTC$| local$/,'').trim()).getTime())<900000;return tsChip(optTs,isOptLive);})()}<div class="options-table-wrap"><table class="options-table"><thead><tr><th>Exp / Strike</th><th>% OTM</th><th>Bid/Ask</th><th>Premium</th><th>APY</th><th>OI</th><th>IV</th></tr></thead><tbody>${tableBodyHTML}</tbody></table></div></div>`;
+  // Timestamp reflects the oldest per-expiry cache among selected expirations,
+  // since that's the actual data source for the table rows.
+  // No live/cached binary -- just "data as of [time]" which is what matters.
+  const _dataAsOf=(()=>{
+    const _expTs=selectedExpirations.map(e=>{
+      const _ec=S.get('options_exp_'+t+'_'+e);
+      return _ec?.ts||null;
+    }).filter(Boolean);
+    if(!_expTs.length){
+      // Fall back to main chain timestamp if no per-expiry caches found
+      const _mc=S.get('options_'+t);return _mc?.ts||'';
+    }
+    // Return the oldest timestamp -- most conservative representation of data freshness
+    return _expTs.reduce((oldest,ts)=>{
+      const _od=new Date(oldest.replace(/ PT$| UTC$| local$/,'').trim());
+      const _td=new Date(ts.replace(/ PT$| UTC$| local$/,'').trim());
+      return _td<_od?ts:oldest;
+    });
+  })();
+  const _dataAsOfChip=_dataAsOf
+    ?`<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px">data as of ${_dataAsOf}${(()=>{const a=relAge(_dataAsOf);return a?' ('+a+')':''})()}</div>`
+    :'';
+  const tableHTML=`<div class="card"><div class="card-title"><span class="dot"></span>${currentMode==='puts'?'Put':'Call'} Options -- ${t} @ $${currentPrice.toFixed(2)}</div>${_dataAsOfChip}<div class="options-table-wrap"><table class="options-table"><thead><tr><th>Exp / Strike</th><th>% OTM</th><th>Bid/Ask</th><th>Premium</th><th>APY</th><th>OI</th><th>IV</th></tr></thead><tbody>${tableBodyHTML}</tbody></table></div></div>`;
   document.getElementById('options-content').innerHTML=tableHTML;renderOIChart(rows,currentPrice,t);
 }
 
@@ -511,7 +540,12 @@ function renderOIChart(rows,currentPrice,t){
   const nearestIdx=strikes.reduce((bi,s,i)=>Math.abs(s-currentPrice)<Math.abs(strikes[bi]-currentPrice)?i:bi,0);
   const hexDatasets=exps.map((exp,ei)=>{const hex=EXP_COLORS[ei%EXP_COLORS.length];const data=strikes.map(s=>{const row=rows.find(r=>r.strike===s&&r.expDate===exp);return row?row.oi:0;});return{label:exp,data,backgroundColor:strikes.map(s=>{const otm=currentMode==='puts'?s<=currentPrice:s>currentPrice;return otm?hex+'bb':hex+'44';}),borderRadius:2,stack:'oi'};});
   const cached=S.get('options_'+t);
-  document.getElementById('oi-ts').innerHTML=tsChip(cached?.ts||nowPT(),!!cached?.ts);
+  const _oiTs=(()=>{
+    const _expTs=selectedExpirations.map(e=>{const _ec=S.get('options_exp_'+t+'_'+e);return _ec?.ts||null;}).filter(Boolean);
+    if(!_expTs.length)return cached?.ts||'';
+    return _expTs.reduce((oldest,ts)=>{const _od=new Date(oldest.replace(/ PT$| UTC$| local$/,'').trim());const _td=new Date(ts.replace(/ PT$| UTC$| local$/,'').trim());return _td<_od?ts:oldest;});
+  })();
+  document.getElementById('oi-ts').innerHTML=_oiTs?`<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">data as of ${_oiTs}${(()=>{const a=relAge(_oiTs);return a?' ('+a+')':''})()}</div>`:'';
   const legendEl=document.getElementById('oi-legend');if(legendEl){legendEl.innerHTML=exps.map((exp,ei)=>`<div style="display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10px;color:var(--text2)"><div style="width:10px;height:10px;border-radius:2px;background:${EXP_COLORS[ei%EXP_COLORS.length]}"></div>${exp}</div>`).join('');}
   const ctx=document.getElementById('oi-chart').getContext('2d');
   if(window._oiChart){window._oiChart.destroy();window._oiChart=null;}

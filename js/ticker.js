@@ -1555,15 +1555,15 @@ async function refreshSingleTicker(){
         // Outside live window: use _shouldSkipOptionsFetch to correctly honor
         // "Friday cache is still good on Monday pre-market" without re-fetching synthetic data
         const _savedOpts=S.get('options_'+t);
-        if(_savedOpts&&_rtInWindow){
-          // Inside live window: fetch all per-expiry chains fresh
+        if(_savedOpts){
           const yr=opts?.optionChain?.result?.[0];
           const rawTs=yr?.expirationDates||[];
           const pairs=rawTs.map(ts=>({ts,date:new Date(ts*1000).toISOString().split('T')[0]}));
           let monthlyPairs=pairs.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
           if(monthlyPairs.length===0){const tw=Date.now()+14*86400000;monthlyPairs=pairs.filter(p=>p.ts*1000>=tw).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);}
           if(monthlyPairs.length===0)monthlyPairs=pairs.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
-          // Step 6: Per-expiration chains (parallel)
+          // Step 6: Per-expiration chains (parallel) -- always attempt fetch,
+          // validate-first logic mirrors v133 fix: write if valid regardless of window.
           const _expPairs=await Promise.all(monthlyPairs.map((pair,pi)=>{
             setP(65+pi*8,'Fetching '+t+' options exp '+(pi+1)+'/'+monthlyPairs.length+'...');
             return _tkTimeout(yahooOptionsViaProxy(t,String(pair.ts)),12000,'exp '+pair.date)
@@ -1573,14 +1573,16 @@ async function refreshSingleTicker(){
             if(!data)return;
             const _expKey='options_exp_'+t+'_'+pair.date;
             const _expv=_validateOptionsData(data);
-            if(_expv.valid)S.set(_expKey,{...data,ts:nowPT()});
-            else if(!S.get(_expKey))S.set(_expKey,{...data,ts:nowPT(),synthetic:true});
+            if(_expv.valid){
+              S.set(_expKey,{...data,ts:nowPT()});
+            }else if(!_rtInWindow&&_hasGoodSameDayCache(_expKey)){
+              console.log(t+' '+pair.date+': outside live window, fetch INVALID ('+_expv.reason+') -- preserving same-day exp cache');
+            }else if(!S.get(_expKey)){
+              S.set(_expKey,{...data,ts:nowPT(),synthetic:true});
+            }else{
+              console.warn(t+' '+pair.date+': exp rejected ('+_expv.reason+'), preserving cache');
+            }
           });
-          optionsLoaded=true;
-        }else if(_savedOpts){
-          // Outside live window: skip per-expiry fetches entirely
-          // Friday's cached per-expiry data is the most current available until next session
-          console.log(t+': outside live window, preserving per-expiry cache from last session');
           optionsLoaded=true;
         }
       }catch{}

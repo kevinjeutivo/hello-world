@@ -747,15 +747,13 @@ function _getStrikesForExpiration(ticker, expDate){
   const result = cache?.optionChain?.result?.[0];
   if(!result) return [];
   const puts = result.options?.[0]?.puts || [];
-  const snap = S.get('snap_' + ticker);
-  const price = snap?.price || 0;
-  // Filter to reasonable range: 50%-110% of current price
+  // No price-based filter -- show all strikes so existing positions at any
+  // moneyness (deeply ITM or deeply OTM) can be entered accurately.
   return puts
-    .filter(p => p.strike > 0 &&
-      (!price || (p.strike >= price * 0.5 && p.strike <= price * 1.1)))
+    .filter(p => p.strike > 0)
     .map(p => p.strike)
     .filter((v,i,a) => a.indexOf(v) === i) // dedupe
-    .sort((a,b) => b - a); // descending (ITM first)
+    .sort((a,b) => b - a); // descending (higher strikes first)
 }
 
 // ── Position add/remove UI ────────────────────────────────────────────────────
@@ -1111,14 +1109,13 @@ function _getCallStrikesForExpiration(ticker, expDate){
   const result = cache?.optionChain?.result?.[0];
   if(!result) return [];
   const calls = result.options?.[0]?.calls || [];
-  const snap = S.get('snap_' + ticker);
-  const price = snap?.price || 0;
-  // Show strikes from 95% of current price upward (allows for slightly ITM CCs)
+  // No price-based filter -- show all strikes so existing CC positions at any
+  // moneyness (deeply ITM or deeply OTM) can be entered accurately.
   return calls
-    .filter(c => c.strike > 0 && (!price || c.strike >= price * 0.95))
+    .filter(c => c.strike > 0)
     .map(c => c.strike)
     .filter((v,i,a) => a.indexOf(v) === i)
-    .sort((a,b) => a - b); // ascending (OTM first for calls)
+    .sort((a,b) => a - b); // ascending (lower/ITM strikes first for calls)
 }
 
 // ── CC add/remove UI ──────────────────────────────────────────────────────────

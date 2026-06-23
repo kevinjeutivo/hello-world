@@ -689,7 +689,31 @@ function _buildAndRender(inp,mmf){
   if(el)el.innerHTML=_renderResults(result,mmf.ts,mmf.fromCache,mmf,{fdlxx:mmf.fdlxx,spaxx:mmf.spaxx});
 }
 
-// ── Account switcher ──────────────────────────────────────────────────────────
+function refreshIncomeYields(){
+  // Delete only the active account's MMF yield cache, then reload
+  S.del(_acctKey('mmf_yield'));
+  loadIncomeTab();
+}
+
+function _updateAcctBarStickyTop(){
+  // Measure actual nav tabs bottom to set correct sticky top offset.
+  // This handles zoom scaling and varying banner heights correctly.
+  try{
+    const nav = document.querySelector('.nav-tabs');
+    const bar = document.getElementById('income-acct-bar');
+    if(nav && bar){
+      const navRect = nav.getBoundingClientRect();
+      // navRect.bottom is the pixel distance from viewport top to bottom of nav tabs
+      // We need this in unzoomed CSS pixels -- divide by devicePixelRatio approximation
+      // Simplest approach: use scrollY + navRect.bottom to get document offset
+      const offset = navRect.bottom + window.scrollY;
+      // Use the nav bottom as the sticky top (relative to the app zoom container)
+      // Since sticky top is relative to the scroll container, use the nav height in CSS px
+      const navHeight = nav.offsetTop + nav.offsetHeight;
+      bar.style.top = navHeight + 'px';
+    }
+  }catch(e){}
+}
 
 // Modal state: track which account a modal was opened for (race condition guard)
 let _pendingModalAccountId = null;
@@ -1046,6 +1070,8 @@ function _initAccountState(){
   const idx = accounts.findIndex(a => a.id === _activeAccountId);
   _applyAccountGlow(ACCT_COLORS[Math.max(0, idx) % ACCT_COLORS.length]);
   _renderAccountSwitcher();
+  // Set sticky top offset after render, measuring actual nav height
+  requestAnimationFrame(_updateAcctBarStickyTop);
 }
 
 async function loadIncomeTab(){

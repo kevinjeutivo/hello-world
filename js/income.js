@@ -747,19 +747,22 @@ function _renderAccountSwitcher(){
   const chips = accounts.map((a, i) => {
     const color = ACCT_COLORS[i % ACCT_COLORS.length];
     const isActive = a.id === _activeAccountId;
+    // Active: tinted background + colored border (matches .exp-chip.selected pattern)
+    // Inactive: standard surface2 + border (matches .exp-chip)
     const activeStyle = isActive
-      ? `background:${color};color:#000;border-color:${color};`
-      : '';
-    // Use inline-flex on each chip to guarantee horizontal layout regardless of CSS cache
+      ? `background:${color}22;border-color:${color};color:${color};font-weight:500;`
+      : 'background:var(--surface2);border:1px solid var(--border);color:var(--text2);';
     return `<div class="acct-chip${isActive?' active':''}" ` +
-      `style="display:inline-flex;align-items:center;flex-shrink:0;white-space:nowrap;${activeStyle}" ` +
+      `style="display:inline-flex;align-items:center;flex-shrink:0;white-space:nowrap;` +
+      `font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:6px;` +
+      `border:1px solid;cursor:pointer;transition:all 0.2s;user-select:none;-webkit-user-select:none;` +
+      `${activeStyle}" ` +
       `onclick="_switchAccount('${a.id}')" ` +
       `oncontextmenu="event.preventDefault();_openRenameAccountModal('${a.id}')"` +
       `>${a.name}</div>`;
   }).join('');
   const chipsEl = document.getElementById('income-acct-chips');
   if(chipsEl){
-    // Force flex row layout inline -- bypasses any CSS cache staleness
     chipsEl.style.display = 'flex';
     chipsEl.style.flexDirection = 'row';
     chipsEl.style.flexWrap = 'nowrap';
@@ -767,15 +770,33 @@ function _renderAccountSwitcher(){
     chipsEl.style.overflowX = 'auto';
     chipsEl.style.flex = '1';
     chipsEl.style.webkitOverflowScrolling = 'touch';
+    chipsEl.style.paddingBottom = '2px';
     chipsEl.innerHTML =
       chips +
-      `<div class="acct-chip-add" style="flex-shrink:0" onclick="_openAddAccountModal()">＋</div>`;
+      `<div style="display:inline-flex;align-items:center;flex-shrink:0;` +
+      `font-family:var(--mono);font-size:13px;padding:3px 9px;border-radius:6px;` +
+      `border:1px solid var(--border);background:var(--surface2);color:var(--text3);` +
+      `cursor:pointer;line-height:1;-webkit-user-select:none" ` +
+      `onclick="_openAddAccountModal()">＋</div>`;
   }
   // Force flex row on the bar itself
   bar.style.display = 'flex';
   bar.style.flexDirection = 'row';
   bar.style.alignItems = 'center';
-  bar.style.gap = '6px';
+  bar.style.gap = '8px';
+  bar.style.background = 'var(--bg)';
+  bar.style.padding = '6px 0 8px';
+  bar.style.marginBottom = '10px';
+
+  // Style the overview button to match ts-chip aesthetic
+  const overviewBtn = document.getElementById('income-overview-btn');
+  if(overviewBtn){
+    overviewBtn.style.cssText =
+      'flex-shrink:0;font-family:var(--mono);font-size:9px;padding:3px 7px;' +
+      'border-radius:4px;border:1px solid var(--border);background:var(--surface2);' +
+      'color:var(--text3);cursor:pointer;white-space:nowrap;transition:all 0.2s;' +
+      'letter-spacing:0.3px';
+  }
 }
 
 function _switchAccount(id){

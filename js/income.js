@@ -696,14 +696,31 @@ function refreshIncomeYields(){
 }
 
 function _updateAcctBarStickyTop(){
-  // Bar is now a direct sibling of .nav-tabs outside .main.
-  // Set sticky top to the bottom of the nav tabs so it sticks just below.
+  // Bar uses position:fixed (outside #app's zoom context).
+  // Top must be set in viewport pixels using getBoundingClientRect,
+  // which correctly accounts for CSS zoom on #app.
+  // Also pad .main top so income tab content isn't hidden under the fixed bar.
   try{
     const nav = document.querySelector('.nav-tabs');
     const bar = document.getElementById('income-acct-bar');
+    const main = document.querySelector('.main');
     if(nav && bar){
-      bar.style.top = (nav.offsetTop + nav.offsetHeight) + 'px';
+      const navBottom = nav.getBoundingClientRect().bottom;
+      bar.style.top = navBottom + 'px';
+      // Add top padding to .main equal to bar height so content isn't obscured
+      if(main && bar.style.display !== 'none'){
+        const barH = bar.offsetHeight || 44;
+        main.style.paddingTop = barH + 'px';
+      }
     }
+  }catch(e){}
+}
+
+function _removeAcctBarPadding(){
+  // Called when leaving income tab -- remove the extra top padding from .main
+  try{
+    const main = document.querySelector('.main');
+    if(main) main.style.paddingTop = '';
   }catch(e){}
 }
 

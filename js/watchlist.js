@@ -50,32 +50,35 @@ function _confirmRemove(){
   const ticker=_pendingRemoveTicker;
   _closeRemoveModal();
   if(!ticker)return;
-  // Warn if active put positions exist for this ticker
+  // Warn if active positions exist for this ticker across ALL income accounts
   try{
-    const positions=(S.get('put_positions')||[]);
-    const active=positions.filter(p=>p.ticker===ticker&&
-      !['expired-linger','remove'].includes(
-        (()=>{const today=new Date();today.setHours(0,0,0,0);
-          const exp=new Date(p.expDate+'T12:00:00Z');
-          const d=Math.round((exp-today)/86400000);
-          return d<-7?'remove':d<0?'expired-linger':d<=2?'expiring-imminent':d<=7?'expiring-soon':'active';
-        })()
-      ));
-    if(active.length){
-      toast('Note: '+ticker+' has '+active.length+' active put position'+(active.length>1?'s':'')+' in the Income tab.',4000);
+    const accounts=(S.get('income_accounts_meta')||[]);
+    const posStatus=p=>{
+      const today=new Date();today.setHours(0,0,0,0);
+      const exp=new Date(p.expDate+'T12:00:00Z');
+      const d=Math.round((exp-today)/86400000);
+      return d<-7?'remove':d<0?'expired-linger':d<=2?'expiring-imminent':d<=7?'expiring-soon':'active';
+    };
+    let totalPuts=0,totalCCs=0,acctNames=[];
+    if(accounts.length){
+      accounts.forEach(a=>{
+        const puts=(S.get('income_'+a.id+'_put_positions')||[]);
+        const ccs=(S.get('income_'+a.id+'_cc_positions')||[]);
+        const ap=puts.filter(p=>p.ticker===ticker&&!['expired-linger','remove'].includes(posStatus(p)));
+        const ac=ccs.filter(p=>p.ticker===ticker&&!['expired-linger','remove'].includes(posStatus(p)));
+        if(ap.length||ac.length){totalPuts+=ap.length;totalCCs+=ac.length;acctNames.push(a.name);}
+      });
+    }else{
+      // Pre-migration fallback: check old flat keys
+      const puts=(S.get('put_positions')||[]);
+      const ccs=(S.get('cc_positions')||[]);
+      totalPuts=puts.filter(p=>p.ticker===ticker&&!['expired-linger','remove'].includes(posStatus(p))).length;
+      totalCCs=ccs.filter(p=>p.ticker===ticker&&!['expired-linger','remove'].includes(posStatus(p))).length;
     }
-    // Also check CC positions
-    const ccPositions=(S.get('cc_positions')||[]);
-    const activeCC=ccPositions.filter(p=>p.ticker===ticker&&
-      !['expired-linger','remove'].includes(
-        (()=>{const today=new Date();today.setHours(0,0,0,0);
-          const exp=new Date(p.expDate+'T12:00:00Z');
-          const d=Math.round((exp-today)/86400000);
-          return d<-7?'remove':d<0?'expired-linger':d<=2?'expiring-imminent':d<=7?'expiring-soon':'active';
-        })()
-      ));
-    if(activeCC.length){
-      toast('Note: '+ticker+' has '+activeCC.length+' active CC position'+(activeCC.length>1?'s':'')+' in the Income tab.',4000);
+    if(totalPuts>0||totalCCs>0){
+      const acctStr=acctNames.length?(' in '+acctNames.join(', ')):'';
+      if(totalPuts>0)toast('Note: '+ticker+' has '+totalPuts+' active put position'+(totalPuts>1?'s':'')+acctStr+'.',4000);
+      if(totalCCs>0)toast('Note: '+ticker+' has '+totalCCs+' active CC position'+(totalCCs>1?'s':'')+acctStr+'.',4000);
     }
   }catch{}
   watchlist=watchlist.filter(x=>x!==ticker);

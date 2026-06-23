@@ -215,12 +215,6 @@ a{color:inherit}
   <button class="nav-tab" onclick="showTab('market')">Market</button>
   <button class="nav-tab" onclick="showTab('guide')">Guide</button>
 </div>
-<!-- Income account switcher bar -- lives outside .main so sticky works correctly.
-     Shown/hidden by showTab() when income tab is activated/deactivated. -->
-<div id="income-acct-bar" style="display:none;position:sticky;top:130px;z-index:98;background:var(--bg);padding:6px 14px 8px;border-bottom:1px solid var(--border)">
-  <div id="income-acct-chips"></div>
-  <button id="income-overview-btn" onclick="openIncomeOverview()">All Accounts ↗</button>
-</div>
 <div class="main">
 
 <!-- DASHBOARD TAB -->
@@ -1391,6 +1385,13 @@ if(document.readyState==='loading'){
 if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').then(reg=>{window._swReg=reg;}).catch(err=>console.warn('SW:',err));});
 }
 </script>
+<!-- Income account switcher bar -- OUTSIDE #app to escape CSS zoom context.
+     position:fixed keeps it viewport-anchored regardless of scroll or zoom.
+     Shown/hidden by showTab(). Top is set dynamically by _updateAcctBarStickyTop(). -->
+<div id="income-acct-bar" style="display:none;position:fixed;left:0;right:0;z-index:98;background:var(--bg);padding:6px 14px 8px;border-bottom:1px solid var(--border);box-sizing:border-box">
+  <div id="income-acct-chips" style="display:flex;flex:1;overflow-x:auto"></div>
+  <button id="income-overview-btn" onclick="openIncomeOverview()">All Accounts ↗</button>
+</div>
 
 </body>
 </html>

@@ -735,15 +735,48 @@ function _applyAccountGlow(color){
 function _renderAccountSwitcher(){
   const bar = document.getElementById('income-acct-bar');
   if(!bar) return;
+
+  // Always make bar visible when this is called
+  bar.style.display = 'flex';
+  bar.style.flexDirection = 'row';
+  bar.style.alignItems = 'center';
+  bar.style.gap = '8px';
+
   const accounts = _getAccounts();
+
+  // Style the overview button
+  const overviewBtn = document.getElementById('income-overview-btn');
+  if(overviewBtn){
+    overviewBtn.style.cssText =
+      'flex-shrink:0;font-family:var(--mono);font-size:9px;padding:3px 7px;' +
+      'border-radius:4px;border:1px solid var(--border);background:var(--surface2);' +
+      'color:var(--text3);cursor:pointer;white-space:nowrap;transition:all 0.2s;' +
+      'letter-spacing:0.3px';
+  }
+
+  const chipsEl = document.getElementById('income-acct-chips');
+  if(!chipsEl) return;
+
+  chipsEl.style.display = 'flex';
+  chipsEl.style.flexDirection = 'row';
+  chipsEl.style.flexWrap = 'nowrap';
+  chipsEl.style.gap = '6px';
+  chipsEl.style.overflowX = 'auto';
+  chipsEl.style.flex = '1';
+  chipsEl.style.webkitOverflowScrolling = 'touch';
+  chipsEl.style.paddingBottom = '2px';
+
+  if(!accounts.length){
+    chipsEl.innerHTML = `<span style="font-family:var(--mono);font-size:11px;color:var(--text3)">Loading accounts…</span>`;
+    return;
+  }
+
   const chips = accounts.map((a, i) => {
     const color = ACCT_COLORS[i % ACCT_COLORS.length];
     const isActive = a.id === _activeAccountId;
     const activeStyle = isActive
       ? `background:${color}22;border-color:${color};color:${color};font-weight:500;`
       : 'background:var(--surface2);border:1px solid var(--border);color:var(--text2);';
-    // Name portion switches account on tap
-    // Pencil icon always opens rename/delete modal -- visible, works on touch and mouse equally
     return `<div class="acct-chip${isActive?' active':''}" ` +
       `style="display:inline-flex;align-items:center;flex-shrink:0;white-space:nowrap;gap:5px;` +
       `font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:6px;` +
@@ -754,37 +787,14 @@ function _renderAccountSwitcher(){
         `onclick="event.stopPropagation();_openRenameAccountModal('${a.id}')">✎</span>` +
       `</div>`;
   }).join('');
-  const chipsEl = document.getElementById('income-acct-chips');
-  if(chipsEl){
-    chipsEl.style.display = 'flex';
-    chipsEl.style.flexDirection = 'row';
-    chipsEl.style.flexWrap = 'nowrap';
-    chipsEl.style.gap = '6px';
-    chipsEl.style.overflowX = 'auto';
-    chipsEl.style.flex = '1';
-    chipsEl.style.webkitOverflowScrolling = 'touch';
-    chipsEl.style.paddingBottom = '2px';
-    chipsEl.innerHTML =
-      chips +
-      `<div style="display:inline-flex;align-items:center;flex-shrink:0;` +
-      `font-family:var(--mono);font-size:13px;padding:3px 9px;border-radius:6px;` +
-      `border:1px solid var(--border);background:var(--surface2);color:var(--text3);` +
-      `cursor:pointer;line-height:1;-webkit-user-select:none" ` +
-      `onclick="_openAddAccountModal()">＋</div>`;
-  }
-  bar.style.display = 'flex';
-  bar.style.flexDirection = 'row';
-  bar.style.alignItems = 'center';
-  bar.style.gap = '8px';
 
-  const overviewBtn = document.getElementById('income-overview-btn');
-  if(overviewBtn){
-    overviewBtn.style.cssText =
-      'flex-shrink:0;font-family:var(--mono);font-size:9px;padding:3px 7px;' +
-      'border-radius:4px;border:1px solid var(--border);background:var(--surface2);' +
-      'color:var(--text3);cursor:pointer;white-space:nowrap;transition:all 0.2s;' +
-      'letter-spacing:0.3px';
-  }
+  chipsEl.innerHTML =
+    chips +
+    `<div style="display:inline-flex;align-items:center;flex-shrink:0;` +
+    `font-family:var(--mono);font-size:13px;padding:3px 9px;border-radius:6px;` +
+    `border:1px solid var(--border);background:var(--surface2);color:var(--text3);` +
+    `cursor:pointer;line-height:1;-webkit-user-select:none" ` +
+    `onclick="_openAddAccountModal()">＋</div>`;
 }
 
 function _switchAccount(id){

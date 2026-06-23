@@ -421,7 +421,10 @@ function showTab(name){
   document.querySelectorAll('.nav-tab')[tabs.indexOf(name)].classList.add('active');
   // Show income account bar only when income tab is active
   const acctBar=document.getElementById('income-acct-bar');
-  if(acctBar) acctBar.style.display=name==='income'?'flex':'none';
+  if(acctBar){
+    acctBar.style.display=name==='income'?'flex':'none';
+    if(name!=='income'&&typeof _removeAcctBarPadding==='function') _removeAcctBarPadding();
+  }
   refreshTsChipAges();
   if(name==='watchlist')renderWatchlist();
   if(name==='ticker'&&currentTicker){

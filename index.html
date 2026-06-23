@@ -215,6 +215,12 @@ a{color:inherit}
   <button class="nav-tab" onclick="showTab('market')">Market</button>
   <button class="nav-tab" onclick="showTab('guide')">Guide</button>
 </div>
+<!-- Income account switcher bar -- lives outside .main so sticky works correctly.
+     Shown/hidden by showTab() when income tab is activated/deactivated. -->
+<div id="income-acct-bar" style="display:none;position:sticky;top:130px;z-index:98;background:var(--bg);padding:6px 14px 8px;border-bottom:1px solid var(--border)">
+  <div id="income-acct-chips"></div>
+  <button id="income-overview-btn" onclick="openIncomeOverview()">All Accounts ↗</button>
+</div>
 <div class="main">
 
 <!-- DASHBOARD TAB -->
@@ -358,11 +364,6 @@ a{color:inherit}
 
 <!-- INCOME TAB -->
 <div id="tab-income" class="tab-panel">
-  <!-- Account switcher -- sticky, always visible regardless of scroll position -->
-  <div id="income-acct-bar">
-    <div id="income-acct-chips"></div>
-    <button id="income-overview-btn" onclick="openIncomeOverview()">All Accounts ↗</button>
-  </div>
   <div class="card">
     <div class="card-title"><span class="dot" style="background:#00d4aa"></span>Income Engine Calculator</div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:14px">Three-layer blended yield. Inputs saved per account automatically.</div>

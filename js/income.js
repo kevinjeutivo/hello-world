@@ -748,16 +748,34 @@ function _renderAccountSwitcher(){
     const color = ACCT_COLORS[i % ACCT_COLORS.length];
     const isActive = a.id === _activeAccountId;
     const activeStyle = isActive
-      ? `background:${color};color:#000;border-color:${color}`
+      ? `background:${color};color:#000;border-color:${color};`
       : '';
-    return `<div class="acct-chip${isActive?' active':''}" style="${activeStyle}" ` +
+    // Use inline-flex on each chip to guarantee horizontal layout regardless of CSS cache
+    return `<div class="acct-chip${isActive?' active':''}" ` +
+      `style="display:inline-flex;align-items:center;flex-shrink:0;white-space:nowrap;${activeStyle}" ` +
       `onclick="_switchAccount('${a.id}')" ` +
       `oncontextmenu="event.preventDefault();_openRenameAccountModal('${a.id}')"` +
       `>${a.name}</div>`;
   }).join('');
-  document.getElementById('income-acct-chips').innerHTML =
-    chips +
-    `<div class="acct-chip-add" onclick="_openAddAccountModal()">＋</div>`;
+  const chipsEl = document.getElementById('income-acct-chips');
+  if(chipsEl){
+    // Force flex row layout inline -- bypasses any CSS cache staleness
+    chipsEl.style.display = 'flex';
+    chipsEl.style.flexDirection = 'row';
+    chipsEl.style.flexWrap = 'nowrap';
+    chipsEl.style.gap = '6px';
+    chipsEl.style.overflowX = 'auto';
+    chipsEl.style.flex = '1';
+    chipsEl.style.webkitOverflowScrolling = 'touch';
+    chipsEl.innerHTML =
+      chips +
+      `<div class="acct-chip-add" style="flex-shrink:0" onclick="_openAddAccountModal()">＋</div>`;
+  }
+  // Force flex row on the bar itself
+  bar.style.display = 'flex';
+  bar.style.flexDirection = 'row';
+  bar.style.alignItems = 'center';
+  bar.style.gap = '6px';
 }
 
 function _switchAccount(id){

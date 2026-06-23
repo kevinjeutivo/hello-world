@@ -747,19 +747,20 @@ function _renderAccountSwitcher(){
   const chips = accounts.map((a, i) => {
     const color = ACCT_COLORS[i % ACCT_COLORS.length];
     const isActive = a.id === _activeAccountId;
-    // Active: tinted background + colored border (matches .exp-chip.selected pattern)
-    // Inactive: standard surface2 + border (matches .exp-chip)
     const activeStyle = isActive
       ? `background:${color}22;border-color:${color};color:${color};font-weight:500;`
       : 'background:var(--surface2);border:1px solid var(--border);color:var(--text2);';
+    // Name portion switches account on tap
+    // Pencil icon always opens rename/delete modal -- visible, works on touch and mouse equally
     return `<div class="acct-chip${isActive?' active':''}" ` +
-      `style="display:inline-flex;align-items:center;flex-shrink:0;white-space:nowrap;` +
+      `style="display:inline-flex;align-items:center;flex-shrink:0;white-space:nowrap;gap:5px;` +
       `font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:6px;` +
-      `border:1px solid;cursor:pointer;transition:all 0.2s;user-select:none;-webkit-user-select:none;` +
-      `${activeStyle}" ` +
-      `onclick="_switchAccount('${a.id}')" ` +
-      `oncontextmenu="event.preventDefault();_openRenameAccountModal('${a.id}')"` +
-      `>${a.name}</div>`;
+      `border:1px solid;transition:all 0.2s;user-select:none;-webkit-user-select:none;` +
+      `${activeStyle}">` +
+      `<span style="cursor:pointer" onclick="_switchAccount('${a.id}')">${a.name}</span>` +
+      `<span style="cursor:pointer;font-size:9px;opacity:0.6;line-height:1;padding-left:2px" ` +
+        `onclick="event.stopPropagation();_openRenameAccountModal('${a.id}')">✎</span>` +
+      `</div>`;
   }).join('');
   const chipsEl = document.getElementById('income-acct-chips');
   if(chipsEl){
@@ -779,7 +780,6 @@ function _renderAccountSwitcher(){
       `cursor:pointer;line-height:1;-webkit-user-select:none" ` +
       `onclick="_openAddAccountModal()">＋</div>`;
   }
-  // Force flex row on the bar itself
   bar.style.display = 'flex';
   bar.style.flexDirection = 'row';
   bar.style.alignItems = 'center';
@@ -788,7 +788,6 @@ function _renderAccountSwitcher(){
   bar.style.padding = '6px 0 8px';
   bar.style.marginBottom = '10px';
 
-  // Style the overview button to match ts-chip aesthetic
   const overviewBtn = document.getElementById('income-overview-btn');
   if(overviewBtn){
     overviewBtn.style.cssText =

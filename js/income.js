@@ -696,21 +696,13 @@ function refreshIncomeYields(){
 }
 
 function _updateAcctBarStickyTop(){
-  // Measure actual nav tabs bottom to set correct sticky top offset.
-  // This handles zoom scaling and varying banner heights correctly.
+  // Bar is now a direct sibling of .nav-tabs outside .main.
+  // Set sticky top to the bottom of the nav tabs so it sticks just below.
   try{
     const nav = document.querySelector('.nav-tabs');
     const bar = document.getElementById('income-acct-bar');
     if(nav && bar){
-      const navRect = nav.getBoundingClientRect();
-      // navRect.bottom is the pixel distance from viewport top to bottom of nav tabs
-      // We need this in unzoomed CSS pixels -- divide by devicePixelRatio approximation
-      // Simplest approach: use scrollY + navRect.bottom to get document offset
-      const offset = navRect.bottom + window.scrollY;
-      // Use the nav bottom as the sticky top (relative to the app zoom container)
-      // Since sticky top is relative to the scroll container, use the nav height in CSS px
-      const navHeight = nav.offsetTop + nav.offsetHeight;
-      bar.style.top = navHeight + 'px';
+      bar.style.top = (nav.offsetTop + nav.offsetHeight) + 'px';
     }
   }catch(e){}
 }
@@ -784,9 +776,6 @@ function _renderAccountSwitcher(){
   bar.style.flexDirection = 'row';
   bar.style.alignItems = 'center';
   bar.style.gap = '8px';
-  bar.style.background = 'var(--bg)';
-  bar.style.padding = '6px 0 8px';
-  bar.style.marginBottom = '10px';
 
   const overviewBtn = document.getElementById('income-overview-btn');
   if(overviewBtn){

@@ -419,6 +419,9 @@ function showTab(name){
   document.getElementById('tab-'+name).classList.add('active');
   const tabs=['dashboard','watchlist','ticker','options','income','vix','earnings','etf','market','guide'];
   document.querySelectorAll('.nav-tab')[tabs.indexOf(name)].classList.add('active');
+  // Show income account bar only when income tab is active
+  const acctBar=document.getElementById('income-acct-bar');
+  if(acctBar) acctBar.style.display=name==='income'?'flex':'none';
   refreshTsChipAges();
   if(name==='watchlist')renderWatchlist();
   if(name==='ticker'&&currentTicker){

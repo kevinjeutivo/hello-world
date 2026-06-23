@@ -1,15 +1,123 @@
 // PutSeller Pro -- income.js
-// Income Engine tab: three-layer blended yield calculator.
+// Income Engine tab: N-account wheel strategy tracker.
 // Layer 1: T-Bills + FDLXX (state-TEY) + SPAXX
 // Layer 2: SPYI + NBOS (TTM yield from ETF cache)
-// Layer 3: Written puts (target APY on notional) + CC stock (target APY on value)
+// Layer 3: Written puts + Covered calls (target APY on notional/stock value)
 // Globals used: WORKER_URL, S, offlineMode
 // Dependencies: helpers.js, storage.js
 
-const INCOME_STORAGE_KEY   = 'income_inputs';
-const INCOME_MMF_CACHE_KEY = 'income_mmf_yields';
 const INCOME_MMF_TTL_HRS   = 24;
 const CA_STATE_TAX_RATE    = 0.093; // CA MFJ $200-300K bracket
+
+// ── Account color palette (8 colors, assigned by creation order) ──────────────
+const ACCT_COLORS = [
+  '#00d4aa', // 1 teal   (--accent)    Taxable
+  '#ff6b35', // 2 orange (--accent2)   Rollover IRA
+  '#7c6af7', // 3 purple (--accent3)   Roth IRA
+  '#64b5f6', // 4 blue
+  '#ffd32a', // 5 yellow (--yellow)
+  '#00c896', // 6 green  (--green)
+  '#f06292', // 7 pink   (avoids red which signals warnings)
+  '#ffa502', // 8 amber  (--warn)
+];
+
+// ── Account metadata ──────────────────────────────────────────────────────────
+// income_accounts_meta: [{id, name, color, createdAt}, ...]
+// income_active_account: id string
+// Per-account keys: income_ACCTID_inputs, income_ACCTID_mmf_yield,
+//   income_ACCTID_put_positions, income_ACCTID_cc_positions
+
+const ACCT_META_KEY   = 'income_accounts_meta';
+const ACCT_ACTIVE_KEY = 'income_active_account';
+const MIGRATION_FLAG  = 'income_migration_v1';
+
+// Module-level active account ID -- set atomically on switch, used by all saves
+let _activeAccountId = '';
+
+function _acctKey(suffix){ return 'income_' + _activeAccountId + '_' + suffix; }
+function _acctKeyFor(id, suffix){ return 'income_' + id + '_' + suffix; }
+
+function _getAccounts(){
+  return S.get(ACCT_META_KEY) || [];
+}
+
+function _saveAccounts(accounts){
+  S.set(ACCT_META_KEY, accounts);
+}
+
+function _getActiveAccount(){
+  const accounts = _getAccounts();
+  return accounts.find(a => a.id === _activeAccountId) || accounts[0] || null;
+}
+
+function _acctColor(account){
+  if(!account) return ACCT_COLORS[0];
+  const accounts = _getAccounts();
+  const idx = accounts.findIndex(a => a.id === account.id);
+  return ACCT_COLORS[Math.max(0, idx) % ACCT_COLORS.length];
+}
+
+function _genAcctId(){
+  return 'acct_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+}
+
+// ── One-time migration from flat keys to per-account namespaced keys ──────────
+// Called from init() in index.html -- runs once, then sets MIGRATION_FLAG.
+// Safe to call multiple times: no-ops if flag already set.
+// Also called after backup restore if old flat keys detected.
+
+function runIncomeMigration(){
+  if(S.get(MIGRATION_FLAG)) return;
+  // Create default 3 accounts
+  const acct1Id = _genAcctId();
+  const acct2Id = _genAcctId();
+  const acct3Id = _genAcctId();
+  const now = new Date().toISOString();
+  const accounts = [
+    {id: acct1Id, name: 'Taxable',      createdAt: now},
+    {id: acct2Id, name: 'Rollover IRA', createdAt: now},
+    {id: acct3Id, name: 'Roth IRA',     createdAt: now},
+  ];
+  _saveAccounts(accounts);
+
+  // Migrate existing flat-key data into Account 1 (Taxable)
+  const oldInputs = S.get('income_inputs');
+  if(oldInputs) S.set(_acctKeyFor(acct1Id, 'inputs'), oldInputs);
+
+  const oldMMF = S.get('income_mmf_yields');
+  if(oldMMF) S.set(_acctKeyFor(acct1Id, 'mmf_yield'), oldMMF);
+
+  const oldPuts = S.get('put_positions');
+  if(oldPuts) S.set(_acctKeyFor(acct1Id, 'put_positions'), oldPuts);
+
+  const oldCC = S.get('cc_positions');
+  if(oldCC) S.set(_acctKeyFor(acct1Id, 'cc_positions'), oldCC);
+
+  // Set active account to Taxable
+  S.set(ACCT_ACTIVE_KEY, acct1Id);
+
+  // Run expired position cleanup across all accounts
+  _cleanupAllAccountExpiredPositions(accounts);
+
+  S.set(MIGRATION_FLAG, '1');
+}
+
+// Cleans up expired positions past linger window across ALL accounts.
+// Called at migration time and can be called on init for ongoing hygiene.
+function _cleanupAllAccountExpiredPositions(accounts){
+  if(!accounts) accounts = _getAccounts();
+  accounts.forEach(a => {
+    try{
+      const puts = S.get(_acctKeyFor(a.id, 'put_positions')) || [];
+      const putKeep = puts.filter(p => _posExpiryStatus(p) !== 'remove');
+      if(putKeep.length !== puts.length) S.set(_acctKeyFor(a.id, 'put_positions'), putKeep);
+
+      const ccs = S.get(_acctKeyFor(a.id, 'cc_positions')) || [];
+      const ccKeep = ccs.filter(p => _posExpiryStatus(p) !== 'remove');
+      if(ccKeep.length !== ccs.length) S.set(_acctKeyFor(a.id, 'cc_positions'), ccKeep);
+    }catch(e){ console.warn('Cleanup error for account', a.id, e?.message); }
+  });
+}
 
 // ── Colour tokens matching Market tab Income Engine Summary ───────────────────
 const L1_BG     = 'rgba(33,150,243,0.1)';
@@ -22,26 +130,30 @@ const L3_BG     = 'rgba(0,212,170,0.1)';
 const L3_BORDER = 'rgba(0,212,170,0.3)';
 const L3_TEXT   = '#00d4aa';
 
-// ── Input persistence ─────────────────────────────────────────────────────────
+// ── Input persistence (per active account) ────────────────────────────────────
 
 function _defaultIncomeInputs(){
+  // targetAPY defaults to global dashboard value if set, else 12
+  const globalAPY = parseFloat(document.getElementById('target-apy')?.value) || 12;
   return{
-    tbillAmt:0,fdlxxAmt:0,spaxxAmt:0,
-    spyiShares:0,nbosShares:0,
-    putsNotional:0,ccStockAmt:0,
+    tbillAmt:0, fdlxxAmt:0, spaxxAmt:0,
+    spyiShares:0, nbosShares:0,
+    putsNotional:0, ccStockAmt:0,
     fdlxxYieldManual:null,
     spaxxYieldManual:null,
-    fdlxxUseManual:false,   // toggle: true = manual value overrides fetched yield
+    fdlxxUseManual:false,
     spaxxUseManual:false,
+    targetAPY: globalAPY,
   };
 }
 
 function _loadIncomeInputs(){
-  return{..._defaultIncomeInputs(),...(S.get(INCOME_STORAGE_KEY)||{})};
+  return{..._defaultIncomeInputs(),...(S.get(_acctKey('inputs'))||{})};
 }
 
 function _saveIncomeInputs(){
-  const existing=S.get(INCOME_STORAGE_KEY)||{};
+  const _saveKey = _acctKey('inputs'); // capture active account at save time
+  const existing = S.get(_saveKey) || {};
   const inp={
     tbillAmt:    _numVal('inc-tbill-amt'),
     fdlxxAmt:    _numVal('inc-fdlxx-amt'),
@@ -50,13 +162,14 @@ function _saveIncomeInputs(){
     nbosShares:  _numVal('inc-nbos-shares'),
     putsNotional:_numVal('inc-puts-notional'),
     ccStockAmt:  _numVal('inc-cc-stock-amt'),
+    targetAPY:   parseFloat(document.getElementById('inc-target-apy')?.value) || 12,
     // Preserve manual yield overrides and toggle states
     fdlxxYieldManual:existing.fdlxxYieldManual??null,
     spaxxYieldManual:existing.spaxxYieldManual??null,
     fdlxxUseManual:existing.fdlxxUseManual??false,
     spaxxUseManual:existing.spaxxUseManual??false,
   };
-  S.set(INCOME_STORAGE_KEY,inp);
+  S.set(_saveKey, inp);
   return inp;
 }
 
@@ -64,7 +177,8 @@ function _saveManualYields(){
   // Persist the entered values immediately.
   // Recalculation is triggered by onblur (when user taps outside the field)
   // rather than oninput, so the user can type freely without interruption.
-  const existing=S.get(INCOME_STORAGE_KEY)||{};
+  const _saveKey = _acctKey('inputs'); // capture active account at save time
+  const existing = S.get(_saveKey) || {};
   const fdlxxEl=document.getElementById('inc-fdlxx-yield-manual');
   const spaxxEl=document.getElementById('inc-spaxx-yield-manual');
   if(fdlxxEl){const v=parseFloat(fdlxxEl.value);existing.fdlxxYieldManual=isNaN(v)||v<=0?null:v;}
@@ -73,7 +187,7 @@ function _saveManualYields(){
   const spaxxToggle=document.getElementById('inc-spaxx-use-manual');
   if(fdlxxToggle)existing.fdlxxUseManual=fdlxxToggle.checked;
   if(spaxxToggle)existing.spaxxUseManual=spaxxToggle.checked;
-  S.set(INCOME_STORAGE_KEY,existing);
+  S.set(_saveKey, existing);
   recalcIncome();
 }
 
@@ -91,6 +205,9 @@ function _fillInputs(inp){
   set('inc-nbos-shares',  inp.nbosShares);
   set('inc-puts-notional',inp.putsNotional);
   set('inc-cc-stock-amt', inp.ccStockAmt);
+  // Per-account target APY
+  const apyEl = document.getElementById('inc-target-apy');
+  if(apyEl) apyEl.value = inp.targetAPY || 12;
 }
 
 // ── Money-market yield fetch ──────────────────────────────────────────────────
@@ -138,10 +255,12 @@ async function _fetchMMFYieldLive(ticker){
   }
 }
 
-async function _getMMFYields(manualFdlxx,manualSpaxx){
+async function _getMMFYields(manualFdlxx, manualSpaxx){
   // Returns {fdlxx, spaxx, ts, fromCache, fdlxxManual, spaxxManual}
-  const cached=S.get(INCOME_MMF_CACHE_KEY);
-  if(cached?.fdlxx!=null&&cached?.spaxx!=null){
+  // Cache key is per-account -- capture at call time to avoid race conditions
+  const mmfKey = _acctKey('mmf_yield');
+  const cached = S.get(mmfKey);
+  if(cached?.fdlxx!=null && cached?.spaxx!=null){
     const ageHrs=(Date.now()-new Date(cached.ts).getTime())/3600000;
     if(ageHrs<INCOME_MMF_TTL_HRS)
       return{...cached,fromCache:true,fdlxxManual:false,spaxxManual:false};
@@ -169,14 +288,14 @@ async function _getMMFYields(manualFdlxx,manualSpaxx){
     spaxxManual=manualSpaxx!=null;
   }
 
-  // Cache only auto-fetched values
+  // Cache only auto-fetched values -- write to per-account key only
   if(!fdlxxManual||!spaxxManual){
     const rec={
       fdlxx:fdlxxManual?(cached?.fdlxx??null):fdlxx,
       spaxx:spaxxManual?(cached?.spaxx??null):spaxx,
       ts:new Date().toISOString()
     };
-    if(rec.fdlxx!=null||rec.spaxx!=null)S.set(INCOME_MMF_CACHE_KEY,rec);
+    if(rec.fdlxx!=null||rec.spaxx!=null) S.set(mmfKey, rec);
   }
 
   return{fdlxx,spaxx,ts:new Date().toISOString(),fromCache:false,fdlxxManual,spaxxManual};
@@ -200,11 +319,15 @@ function _getETFYield(ticker){
   return{price:snap.price,yld:tot/snap.price*100};
 }
 
-// ── Target APY ────────────────────────────────────────────────────────────────
+// ── Target APY (per-account) ──────────────────────────────────────────────────
 
 function _getTargetAPY(){
-  const el=document.getElementById('target-apy');
-  return parseFloat(el?.value)||12;
+  // Reads from the per-account APY field in the Income tab.
+  // Falls back to global dashboard value if not set.
+  const acctEl = document.getElementById('inc-target-apy');
+  if(acctEl && parseFloat(acctEl.value) > 0) return parseFloat(acctEl.value);
+  const globalEl = document.getElementById('target-apy');
+  return parseFloat(globalEl?.value) || 12;
 }
 
 // ── Calculation engine ────────────────────────────────────────────────────────
@@ -564,12 +687,369 @@ function _buildAndRender(inp,mmf){
   const result=_calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targetAPY);
   const el=document.getElementById('income-results');
   if(el)el.innerHTML=_renderResults(result,mmf.ts,mmf.fromCache,mmf,{fdlxx:mmf.fdlxx,spaxx:mmf.spaxx});
-  S.set('income_ts',new Date().toISOString());
+}
+
+// ── Account switcher ──────────────────────────────────────────────────────────
+
+// Modal state: track which account a modal was opened for (race condition guard)
+let _pendingModalAccountId = null;
+let _modalOpen = false; // true while any income modal is open -- blocks account switching
+
+function _setModalOpen(open){
+  _modalOpen = open;
+  // Disable/enable account switcher chips while modal is open
+  document.querySelectorAll('.acct-chip').forEach(chip => {
+    chip.style.pointerEvents = open ? 'none' : '';
+    chip.style.opacity = open ? '0.5' : '';
+  });
+}
+
+function _applyAccountGlow(color){
+  const panel = document.getElementById('tab-income');
+  if(!panel) return;
+  // Pure box-shadow inset -- no border, no layout shift
+  // Tweak --acct-glow-spread and --acct-glow-alpha in app.css to adjust luminescence
+  const spread = getComputedStyle(document.documentElement)
+    .getPropertyValue('--acct-glow-spread').trim() || '24px';
+  const alpha = getComputedStyle(document.documentElement)
+    .getPropertyValue('--acct-glow-alpha').trim() || '50';
+  panel.style.boxShadow = `inset 8px 0 ${spread} -2px ${color}${alpha}`;
+}
+
+function _renderAccountSwitcher(){
+  const bar = document.getElementById('income-acct-bar');
+  if(!bar) return;
+  const accounts = _getAccounts();
+  const chips = accounts.map((a, i) => {
+    const color = ACCT_COLORS[i % ACCT_COLORS.length];
+    const isActive = a.id === _activeAccountId;
+    const activeStyle = isActive
+      ? `background:${color};color:#000;border-color:${color}`
+      : '';
+    return `<div class="acct-chip${isActive?' active':''}" style="${activeStyle}" ` +
+      `onclick="_switchAccount('${a.id}')" ` +
+      `oncontextmenu="event.preventDefault();_openRenameAccountModal('${a.id}')"` +
+      `>${a.name}</div>`;
+  }).join('');
+  document.getElementById('income-acct-chips').innerHTML =
+    chips +
+    `<div class="acct-chip-add" onclick="_openAddAccountModal()">＋</div>`;
+}
+
+function _switchAccount(id){
+  if(_modalOpen) return; // race condition guard
+  if(id === _activeAccountId) return;
+  // Flush any pending saves to the current account before switching
+  try{ _saveIncomeInputs(); }catch(e){}
+  // Switch
+  _activeAccountId = id;
+  S.set(ACCT_ACTIVE_KEY, id);
+  // Re-render switcher and apply new glow
+  _renderAccountSwitcher();
+  const accounts = _getAccounts();
+  const idx = accounts.findIndex(a => a.id === id);
+  _applyAccountGlow(ACCT_COLORS[Math.max(0, idx) % ACCT_COLORS.length]);
+  // Load the new account's data
+  restoreIncomeFromCache();
+}
+
+// ── Account management modals ─────────────────────────────────────────────────
+
+function _openAddAccountModal(){
+  if(_modalOpen) return;
+  _setModalOpen(true);
+  let el = document.getElementById('income-acct-add-modal');
+  if(!el){
+    el = document.createElement('div');
+    el.className = 'modal-overlay';
+    el.id = 'income-acct-add-modal';
+    document.body.appendChild(el);
+  }
+  el.innerHTML =
+    '<div class="modal-box">' +
+      '<div class="modal-title modal-title-neutral">Add Account</div>' +
+      '<div class="modal-body">Choose a name for the new account (e.g. "SEP IRA", "HSA").</div>' +
+      '<input class="input" id="new-acct-name-inp" placeholder="Account name" style="margin-bottom:12px" maxlength="30">' +
+      '<div style="display:flex;gap:8px">' +
+        '<button class="btn btn-secondary btn-sm" onclick="_closeAddAccountModal()">Cancel</button>' +
+        '<button class="btn btn-primary btn-sm" onclick="_confirmAddAccount()">Add</button>' +
+      '</div>' +
+    '</div>';
+  el.classList.add('open');
+  setTimeout(() => document.getElementById('new-acct-name-inp')?.focus(), 100);
+}
+
+function _closeAddAccountModal(){
+  document.getElementById('income-acct-add-modal')?.classList.remove('open');
+  _setModalOpen(false);
+}
+
+function _confirmAddAccount(){
+  const name = document.getElementById('new-acct-name-inp')?.value?.trim();
+  if(!name){ toast('Please enter an account name'); return; }
+  const accounts = _getAccounts();
+  if(accounts.some(a => a.name.toLowerCase() === name.toLowerCase())){
+    toast('An account with that name already exists'); return;
+  }
+  const newId = _genAcctId();
+  accounts.push({id: newId, name, createdAt: new Date().toISOString()});
+  _saveAccounts(accounts);
+  _closeAddAccountModal();
+  _renderAccountSwitcher();
+  toast('Account "' + name + '" added');
+}
+
+function _openRenameAccountModal(id){
+  if(_modalOpen) return;
+  _setModalOpen(true);
+  _pendingModalAccountId = id;
+  const accounts = _getAccounts();
+  const acct = accounts.find(a => a.id === id);
+  if(!acct){ _setModalOpen(false); return; }
+  let el = document.getElementById('income-acct-rename-modal');
+  if(!el){
+    el = document.createElement('div');
+    el.className = 'modal-overlay';
+    el.id = 'income-acct-rename-modal';
+    document.body.appendChild(el);
+  }
+  el.innerHTML =
+    '<div class="modal-box">' +
+      '<div class="modal-title modal-title-neutral">Rename Account</div>' +
+      '<div class="modal-body">Current name: <strong>' + acct.name + '</strong></div>' +
+      '<input class="input" id="rename-acct-inp" value="' + acct.name + '" maxlength="30" style="margin-bottom:8px">' +
+      '<div style="display:flex;gap:8px;margin-top:8px">' +
+        '<button class="btn btn-secondary btn-sm" onclick="_closeRenameAccountModal()">Cancel</button>' +
+        '<button class="btn btn-primary btn-sm" onclick="_confirmRenameAccount()">Rename</button>' +
+        '<button class="btn btn-danger btn-sm" onclick="_openDeleteAccountModal(\'' + id + '\')">Delete…</button>' +
+      '</div>' +
+    '</div>';
+  el.classList.add('open');
+  setTimeout(() => { const i = document.getElementById('rename-acct-inp'); if(i){i.focus();i.select();} }, 100);
+}
+
+function _closeRenameAccountModal(){
+  document.getElementById('income-acct-rename-modal')?.classList.remove('open');
+  _pendingModalAccountId = null;
+  _setModalOpen(false);
+}
+
+function _confirmRenameAccount(){
+  const id = _pendingModalAccountId;
+  if(!id) return;
+  const newName = document.getElementById('rename-acct-inp')?.value?.trim();
+  if(!newName){ toast('Please enter a name'); return; }
+  const accounts = _getAccounts();
+  const acct = accounts.find(a => a.id === id);
+  if(!acct) return;
+  if(accounts.some(a => a.id !== id && a.name.toLowerCase() === newName.toLowerCase())){
+    toast('Another account already has that name'); return;
+  }
+  acct.name = newName;
+  _saveAccounts(accounts);
+  _closeRenameAccountModal();
+  _renderAccountSwitcher();
+  toast('Renamed to "' + newName + '"');
+}
+
+function _openDeleteAccountModal(id){
+  // Close rename modal first
+  document.getElementById('income-acct-rename-modal')?.classList.remove('open');
+  const accounts = _getAccounts();
+  const acct = accounts.find(a => a.id === id);
+  if(!acct) return;
+  if(accounts.length <= 1){ toast('Cannot delete the only account'); _setModalOpen(false); return; }
+  _pendingModalAccountId = id;
+
+  // Check for active positions
+  const puts = S.get(_acctKeyFor(id, 'put_positions')) || [];
+  const ccs  = S.get(_acctKeyFor(id, 'cc_positions'))  || [];
+  const activePuts = puts.filter(p => _posExpiryStatus(p) !== 'remove' && _posExpiryStatus(p) !== 'expired-linger');
+  const activeCCs  = ccs.filter(p  => _posExpiryStatus(p) !== 'remove' && _posExpiryStatus(p) !== 'expired-linger');
+  const hasPositions = activePuts.length > 0 || activeCCs.length > 0;
+
+  let el = document.getElementById('income-acct-delete-modal');
+  if(!el){
+    el = document.createElement('div');
+    el.className = 'modal-overlay';
+    el.id = 'income-acct-delete-modal';
+    document.body.appendChild(el);
+  }
+
+  const posWarning = hasPositions
+    ? `<div style="background:rgba(255,71,87,0.1);border:1px solid rgba(255,71,87,0.3);border-radius:8px;padding:10px;margin-bottom:12px;font-family:var(--mono);font-size:11px;color:var(--red);line-height:1.5">` +
+      `⚠ This account has ${activePuts.length} put position${activePuts.length!==1?'s':''} and ${activeCCs.length} CC position${activeCCs.length!==1?'s':''}.<br>` +
+      `Export a backup first so this data is recoverable.</div>` +
+      `<div style="display:flex;gap:8px;margin-bottom:12px">` +
+        `<button class="btn btn-secondary btn-sm" onclick="_exportBeforeDelete()" style="flex:1">Export Backup Now</button>` +
+      `</div>`
+    : '';
+
+  el.innerHTML =
+    '<div class="modal-box">' +
+      '<div class="modal-title">Delete "' + acct.name + '"?</div>' +
+      '<div class="modal-body">This permanently deletes this account and all its data. This cannot be undone.</div>' +
+      posWarning +
+      '<div style="font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:6px">Type <strong>' + acct.name.toUpperCase() + '</strong> to confirm:</div>' +
+      '<input class="input" id="delete-acct-confirm-inp" placeholder="' + acct.name.toUpperCase() + '" style="margin-bottom:12px" autocomplete="off">' +
+      '<div style="display:flex;gap:8px">' +
+        '<button class="btn btn-secondary btn-sm" onclick="_closeDeleteAccountModal()">Cancel</button>' +
+        '<button class="btn btn-danger btn-sm" id="delete-acct-confirm-btn" disabled onclick="_confirmDeleteAccount()">Delete</button>' +
+      '</div>' +
+    '</div>';
+  el.classList.add('open');
+
+  // Enable delete button only when name matches
+  const inp = document.getElementById('delete-acct-confirm-inp');
+  const btn = document.getElementById('delete-acct-confirm-btn');
+  if(inp && btn){
+    inp.addEventListener('input', () => {
+      btn.disabled = inp.value.trim().toUpperCase() !== acct.name.toUpperCase();
+    });
+    setTimeout(() => inp.focus(), 100);
+  }
+}
+
+function _exportBeforeDelete(){
+  try{
+    const data = typeof _buildExportData === 'function' ? _buildExportData() : null;
+    if(!data){ toast('Open Settings > Data Portability to export manually'); return; }
+    const json = JSON.stringify(data, null, 2);
+    if(navigator.clipboard){ navigator.clipboard.writeText(json).then(() => toast('Backup copied to clipboard — paste it somewhere safe')); }
+    else{ toast('Copy your backup from Settings > Data Portability'); }
+  }catch(e){ toast('Export failed — use Settings > Data Portability'); }
+}
+
+function _closeDeleteAccountModal(){
+  document.getElementById('income-acct-delete-modal')?.classList.remove('open');
+  _pendingModalAccountId = null;
+  _setModalOpen(false);
+}
+
+function _confirmDeleteAccount(){
+  const id = _pendingModalAccountId;
+  if(!id) return;
+  const accounts = _getAccounts();
+  if(accounts.length <= 1){ toast('Cannot delete the only account'); return; }
+  const acctName = accounts.find(a => a.id === id)?.name || '';
+
+  // Delete all per-account keys
+  ['inputs','mmf_yield','put_positions','cc_positions'].forEach(suffix => {
+    S.del(_acctKeyFor(id, suffix));
+  });
+
+  // Remove from accounts meta
+  const remaining = accounts.filter(a => a.id !== id);
+  _saveAccounts(remaining);
+
+  // Switch to first remaining account if deleted account was active
+  if(_activeAccountId === id){
+    _activeAccountId = remaining[0].id;
+    S.set(ACCT_ACTIVE_KEY, _activeAccountId);
+  }
+
+  _closeDeleteAccountModal();
+  _renderAccountSwitcher();
+  const newIdx = remaining.findIndex(a => a.id === _activeAccountId);
+  _applyAccountGlow(ACCT_COLORS[Math.max(0, newIdx) % ACCT_COLORS.length]);
+  restoreIncomeFromCache();
+  toast('"' + acctName + '" deleted');
+}
+
+// ── Aggregate All-Accounts Overview pop-up ────────────────────────────────────
+
+function openIncomeOverview(){
+  const accounts = _getAccounts();
+  let el = document.getElementById('income-overview-modal');
+  if(!el){
+    el = document.createElement('div');
+    el.className = 'modal-overlay';
+    el.id = 'income-overview-modal';
+    document.body.appendChild(el);
+  }
+
+  const rows = accounts.map((a, i) => {
+    const color = ACCT_COLORS[i % ACCT_COLORS.length];
+    const puts = (S.get(_acctKeyFor(a.id, 'put_positions')) || [])
+      .filter(p => _posExpiryStatus(p) !== 'remove');
+    const ccs  = (S.get(_acctKeyFor(a.id, 'cc_positions'))  || [])
+      .filter(p => _posExpiryStatus(p) !== 'remove');
+
+    const activePuts = puts.filter(p => _posExpiryStatus(p) !== 'expired-linger');
+    const activeCCs  = ccs.filter(p  => _posExpiryStatus(p) !== 'expired-linger');
+
+    const putNotional = activePuts.reduce((s,p) => s + _posNotional(p), 0);
+    const ccNotional  = activeCCs.reduce((s,p)  => s + _ccPosNotional(p), 0);
+
+    // Urgency: find worst status across all active positions
+    const allActive = [...activePuts, ...activeCCs];
+    let urgency = 'none';
+    let urgencyColor = 'var(--text3)';
+    let urgencyLabel = '';
+    let itmFlag = '';
+
+    if(allActive.length){
+      const statuses = allActive.map(p => _posExpiryStatus(p));
+      if(statuses.includes('expiring-imminent')){ urgency='imminent'; urgencyColor='var(--red)'; urgencyLabel='⚠ Expires ≤2d'; }
+      else if(statuses.includes('expiring-soon')){ urgency='soon'; urgencyColor='var(--warn)'; urgencyLabel='⚡ Expires ≤7d'; }
+      else{ urgencyLabel=''; }
+
+      // ITM check on put positions
+      const itmPuts = activePuts.filter(p => {
+        const pricing = _getPosPricing(p);
+        return pricing.itm === true;
+      });
+      if(itmPuts.length){
+        itmFlag = `<span style="color:var(--red);font-size:10px;margin-left:6px">⚠ ${itmPuts.length} ITM put${itmPuts.length!==1?'s':''}</span>`;
+      }
+    }
+
+    const isActive = a.id === _activeAccountId;
+    return `<div style="background:${isActive?'var(--surface2)':'var(--surface)'};border:1px solid var(--border);border-left:3px solid ${color};border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer" onclick="_switchFromOverview('${a.id}')">` +
+      `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">` +
+        `<div style="font-family:var(--sans);font-size:13px;font-weight:700;color:${color}">${a.name}${isActive?' <span style="font-size:9px;color:var(--text3)">(active)</span>':''}</div>` +
+        `<div style="font-family:var(--mono);font-size:10px;color:${urgencyColor}">${urgencyLabel}</div>` +
+      `</div>` +
+      `<div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.8">` +
+        `<div>Puts: ${activePuts.length} position${activePuts.length!==1?'s':''} · ${_fmtDollar(putNotional)} notional${itmFlag}</div>` +
+        `<div>CCs: ${activeCCs.length} position${activeCCs.length!==1?'s':''} · ${_fmtDollar(ccNotional)} notional</div>` +
+      `</div>` +
+    `</div>`;
+  }).join('');
+
+  el.innerHTML =
+    '<div class="modal-box" style="max-width:380px">' +
+      '<div class="modal-title modal-title-neutral" style="margin-bottom:14px">All Accounts Overview</div>' +
+      '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Tap an account to switch to it</div>' +
+      rows +
+      '<button class="btn btn-secondary btn-sm" style="margin-top:4px;width:100%" onclick="document.getElementById(\'income-overview-modal\').classList.remove(\'open\')">Close</button>' +
+    '</div>';
+  el.classList.add('open');
+}
+
+function _switchFromOverview(id){
+  document.getElementById('income-overview-modal')?.classList.remove('open');
+  _switchAccount(id);
 }
 
 // ── Tab entry points ──────────────────────────────────────────────────────────
 
+function _initAccountState(){
+  // Ensure _activeAccountId is set from storage before any income operation runs
+  const accounts = _getAccounts();
+  if(!accounts.length) return; // migration hasn't run yet
+  const stored = S.get(ACCT_ACTIVE_KEY);
+  const valid = accounts.find(a => a.id === stored);
+  _activeAccountId = valid ? valid.id : accounts[0].id;
+  if(!valid) S.set(ACCT_ACTIVE_KEY, _activeAccountId);
+  // Apply glow
+  const idx = accounts.findIndex(a => a.id === _activeAccountId);
+  _applyAccountGlow(ACCT_COLORS[Math.max(0, idx) % ACCT_COLORS.length]);
+  _renderAccountSwitcher();
+}
+
 async function loadIncomeTab(){
+  _initAccountState();
   const el=document.getElementById('income-results');
   if(!el)return;
   const inp=_loadIncomeInputs();
@@ -580,9 +1060,11 @@ async function loadIncomeTab(){
 }
 
 function restoreIncomeFromCache(){
+  _initAccountState();
   const inp=_loadIncomeInputs();
   _fillInputs(inp);
-  const cached=S.get(INCOME_MMF_CACHE_KEY)||{fdlxx:null,spaxx:null,ts:null};
+  const mmfKey = _acctKey('mmf_yield');
+  const cached = S.get(mmfKey) || {fdlxx:null,spaxx:null,ts:null};
   const mmf={
     ...cached,fromCache:true,
     fdlxxManual:cached.fdlxx==null,
@@ -593,7 +1075,8 @@ function restoreIncomeFromCache(){
 
 function recalcIncome(){
   const inp=_saveIncomeInputs();
-  const cached=S.get(INCOME_MMF_CACHE_KEY)||{fdlxx:null,spaxx:null,ts:null};
+  const mmfKey = _acctKey('mmf_yield');
+  const cached = S.get(mmfKey) || {fdlxx:null,spaxx:null,ts:null};
   const mmf={
     ...cached,fromCache:true,
     fdlxxManual:cached.fdlxx==null,
@@ -602,19 +1085,13 @@ function recalcIncome(){
   _buildAndRender(inp,mmf);
 }
 
-function refreshIncomeYields(){
-  S.del(INCOME_MMF_CACHE_KEY);
-  loadIncomeTab();
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // PUT POSITIONS TRACKER
 // Manages individual naked put positions for Layer 3 notional calculation.
-// Storage key: 'put_positions' → array of position objects:
+// Storage key: income_ACCTID_put_positions → array of position objects:
 //   {id, ticker, strike, expDate, contracts, addedTs}
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const PUT_POS_KEY = 'put_positions';
 const PUT_POS_SORT_KEY = 'put_pos_sort'; // 'ticker' | 'expiry'
 const POS_LINGER_DAYS = 7; // expired positions linger this many days before auto-removal
 
@@ -647,11 +1124,11 @@ function _sortPositions(positions){
 // ── Position storage helpers ──────────────────────────────────────────────────
 
 function _loadPositions(){
-  return S.get(PUT_POS_KEY)||[];
+  return S.get(_acctKey('put_positions')) || [];
 }
 
 function _savePositions(positions){
-  S.set(PUT_POS_KEY, positions);
+  S.set(_acctKey('put_positions'), positions);
 }
 
 function _posNotional(pos){
@@ -763,6 +1240,10 @@ function _openAddPositionModal(){
   const wl = [...watchlist].sort((a,b) => a.localeCompare(b));
   if(!wl.length){toast('Add tickers to your watchlist first');return;}
 
+  // Capture account ID at modal-open time (race condition guard)
+  _pendingModalAccountId = _activeAccountId;
+  _setModalOpen(true);
+
   let el = document.getElementById('pos-add-modal');
   if(!el){
     el = document.createElement('div');
@@ -813,6 +1294,8 @@ function _openAddPositionModal(){
 function _closePosModal(){
   const el = document.getElementById('pos-add-modal');
   if(el) el.classList.remove('open');
+  _pendingModalAccountId = null;
+  _setModalOpen(false);
 }
 
 function _onPosTickerChange(){
@@ -887,10 +1370,13 @@ function _confirmAddPosition(){
     return;
   }
 
-  const positions = _loadPositions();
+  // Use account captured at modal-open time (race condition guard)
+  const targetAcctId = _pendingModalAccountId || _activeAccountId;
+  const posKey = _acctKeyFor(targetAcctId, 'put_positions');
+  const positions = S.get(posKey) || [];
   const id = 'pos_' + Date.now();
   positions.push({id, ticker, strike, expDate, contracts, addedTs: new Date().toISOString()});
-  _savePositions(positions);
+  S.set(posKey, positions);
   _closePosModal();
   recalcIncome();
   toast('Position added: ' + ticker + ' $' + strike.toFixed(0) + ' x' + contracts);
@@ -900,9 +1386,11 @@ let _pendingRemovePosId = null;
 
 function _openRemovePosModal(id){
   _pendingRemovePosId = id;
+  _pendingModalAccountId = _activeAccountId; // capture account at open time
+  _setModalOpen(true);
   const positions = _loadPositions();
   const pos = positions.find(p => p.id === id);
-  if(!pos) return;
+  if(!pos){ _setModalOpen(false); return; }
 
   let el = document.getElementById('pos-remove-modal');
   if(!el){
@@ -921,11 +1409,13 @@ function _openRemovePosModal(id){
     document.body.appendChild(el);
     document.getElementById('prm-cancel').addEventListener('click', () => {
       _pendingRemovePosId = null;
+      _pendingModalAccountId = null;
+      _setModalOpen(false);
       el.classList.remove('open');
     });
     document.getElementById('prm-confirm').addEventListener('click', _confirmRemovePos);
     el.addEventListener('click', e => {
-      if(e.target === el){ _pendingRemovePosId = null; el.classList.remove('open'); }
+      if(e.target === el){ _pendingRemovePosId = null; _pendingModalAccountId = null; _setModalOpen(false); el.classList.remove('open'); }
     });
   }
   document.getElementById('prm-body').textContent =
@@ -937,11 +1427,16 @@ function _openRemovePosModal(id){
 
 function _confirmRemovePos(){
   const id = _pendingRemovePosId;
+  const acctId = _pendingModalAccountId || _activeAccountId;
   _pendingRemovePosId = null;
+  _pendingModalAccountId = null;
+  _setModalOpen(false);
   document.getElementById('pos-remove-modal')?.classList.remove('open');
   if(!id) return;
-  const positions = _loadPositions().filter(p => p.id !== id);
-  _savePositions(positions);
+  // Use captured account ID -- guards against account switching while modal open
+  const posKey = _acctKeyFor(acctId, 'put_positions');
+  const positions = (S.get(posKey) || []).filter(p => p.id !== id);
+  S.set(posKey, positions);
   recalcIncome();
   toast('Position removed');
 }
@@ -1044,12 +1539,11 @@ function _clearExpiredPositions(){
 // ═══════════════════════════════════════════════════════════════════════════════
 // COVERED CALL POSITIONS TRACKER
 // Mirrors put positions tracker for Layer 3 CC stock notional.
-// Storage key: 'cc_positions' → array of position objects:
+// Storage key: income_ACCTID_cc_positions → array of position objects:
 //   {id, ticker, strike, expDate, contracts, stockPriceAtWrite, addedTs}
 // Notional per position: stockPriceAtWrite × 100 × contracts
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const CC_POS_KEY      = 'cc_positions';
 const CC_POS_SORT_KEY = 'cc_pos_sort'; // 'ticker' | 'expiry'
 
 // ── CC sort ───────────────────────────────────────────────────────────────────
@@ -1079,11 +1573,11 @@ function _sortCCPositions(positions){
 // ── CC storage helpers ────────────────────────────────────────────────────────
 
 function _loadCCPositions(){
-  return S.get(CC_POS_KEY)||[];
+  return S.get(_acctKey('cc_positions')) || [];
 }
 
 function _saveCCPositions(positions){
-  S.set(CC_POS_KEY, positions);
+  S.set(_acctKey('cc_positions'), positions);
 }
 
 function _ccPosNotional(pos){
@@ -1123,6 +1617,10 @@ function _getCallStrikesForExpiration(ticker, expDate){
 function _openAddCCModal(){
   const wl = [...watchlist].sort((a,b) => a.localeCompare(b));
   if(!wl.length){toast('Add tickers to your watchlist first');return;}
+
+  // Capture account ID at modal-open time (race condition guard)
+  _pendingModalAccountId = _activeAccountId;
+  _setModalOpen(true);
 
   let el = document.getElementById('cc-add-modal');
   if(!el){
@@ -1179,6 +1677,8 @@ function _openAddCCModal(){
 function _closeAddCCModal(){
   const el = document.getElementById('cc-add-modal');
   if(el) el.classList.remove('open');
+  _pendingModalAccountId = null;
+  _setModalOpen(false);
 }
 
 function _onCCTickerChange(){
@@ -1270,10 +1770,13 @@ function _confirmAddCC(){
     return;
   }
 
-  const positions = _loadCCPositions();
+  // Use account captured at modal-open time (race condition guard)
+  const targetAcctId = _pendingModalAccountId || _activeAccountId;
+  const ccKey = _acctKeyFor(targetAcctId, 'cc_positions');
+  const positions = S.get(ccKey) || [];
   const id = 'cc_' + Date.now();
   positions.push({id, ticker, strike, expDate, contracts, stockPriceAtWrite, addedTs: new Date().toISOString()});
-  _saveCCPositions(positions);
+  S.set(ccKey, positions);
   _closeAddCCModal();
   recalcIncome();
   toast('CC position added: ' + ticker + ' $' + strike.toFixed(0) + ' call x' + contracts);
@@ -1283,8 +1786,10 @@ let _pendingRemoveCCId = null;
 
 function _openRemoveCCModal(id){
   _pendingRemoveCCId = id;
+  _pendingModalAccountId = _activeAccountId; // capture account at open time
+  _setModalOpen(true);
   const pos = _loadCCPositions().find(p => p.id === id);
-  if(!pos) return;
+  if(!pos){ _setModalOpen(false); return; }
 
   let el = document.getElementById('cc-remove-modal');
   if(!el){
@@ -1303,11 +1808,13 @@ function _openRemoveCCModal(id){
     document.body.appendChild(el);
     document.getElementById('crm-cancel').addEventListener('click', () => {
       _pendingRemoveCCId = null;
+      _pendingModalAccountId = null;
+      _setModalOpen(false);
       el.classList.remove('open');
     });
     document.getElementById('crm-confirm').addEventListener('click', _confirmRemoveCC);
     el.addEventListener('click', e => {
-      if(e.target===el){_pendingRemoveCCId=null;el.classList.remove('open');}
+      if(e.target===el){_pendingRemoveCCId=null;_pendingModalAccountId=null;_setModalOpen(false);el.classList.remove('open');}
     });
   }
   document.getElementById('crm-body').textContent =
@@ -1319,10 +1826,15 @@ function _openRemoveCCModal(id){
 
 function _confirmRemoveCC(){
   const id = _pendingRemoveCCId;
+  const acctId = _pendingModalAccountId || _activeAccountId;
   _pendingRemoveCCId = null;
+  _pendingModalAccountId = null;
+  _setModalOpen(false);
   document.getElementById('cc-remove-modal')?.classList.remove('open');
   if(!id) return;
-  _saveCCPositions(_loadCCPositions().filter(p => p.id !== id));
+  // Use captured account ID
+  const ccKey = _acctKeyFor(acctId, 'cc_positions');
+  S.set(ccKey, (S.get(ccKey)||[]).filter(p => p.id !== id));
   recalcIncome();
   toast('CC position removed');
 }

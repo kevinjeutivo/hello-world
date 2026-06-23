@@ -7,6 +7,9 @@
   --green:#00c896;--red:#ff4757;--yellow:#ffd32a;
   --mono:'DM Mono',monospace;--sans:'Syne',sans-serif;
   --radius:10px;--radius-lg:16px;
+  /* Income account glow -- tune these two values to adjust the left-edge luminescence */
+  --acct-glow-spread:24px;
+  --acct-glow-alpha:50;
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 /* font-size is NOT set here -- applyFontSize() controls scaling via zoom on #app */
@@ -153,3 +156,16 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .earnings-card-soon{background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.3);border-left:4px solid rgba(255,165,2,0.7)}
 .earnings-card-normal{background:rgba(0,212,170,0.05);border:1px solid var(--border);border-left:4px solid rgba(0,212,170,0.4)}
 a{color:inherit}
+/* ── Income account switcher ─────────────────────────────────────────────── */
+#income-acct-bar{position:sticky;top:130px;z-index:98;background:var(--bg);padding:8px 0 6px;margin:-4px 0 10px;display:flex;align-items:center;gap:6px}
+#income-acct-chips{display:flex;gap:6px;overflow-x:auto;flex:1;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+#income-acct-chips::-webkit-scrollbar{display:none}
+.acct-chip{flex:0 0 auto;font-family:var(--mono);font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--text3);cursor:pointer;transition:all 0.2s;white-space:nowrap;user-select:none;-webkit-user-select:none}
+.acct-chip.active{color:#000;font-weight:500;border-color:transparent}
+.acct-chip-add{flex:0 0 auto;font-family:var(--mono);font-size:14px;padding:3px 10px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--text3);cursor:pointer;transition:all 0.2s;line-height:1}
+.acct-chip-add:active{opacity:0.7}
+#income-overview-btn{flex:0 0 auto;font-family:var(--mono);font-size:10px;padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer;white-space:nowrap;transition:all 0.2s}
+#income-overview-btn:active{opacity:0.7}
+/* account modal non-destructive title color override */
+.modal-title-neutral{color:var(--accent)!important}
+.modal-title-warn{color:var(--warn)!important}

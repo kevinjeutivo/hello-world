@@ -358,14 +358,19 @@ a{color:inherit}
 
 <!-- INCOME TAB -->
 <div id="tab-income" class="tab-panel">
-  <div class="card" style="border-left:4px solid rgba(0,212,170,0.5)">
+  <!-- Account switcher -- sticky, always visible regardless of scroll position -->
+  <div id="income-acct-bar">
+    <div id="income-acct-chips"></div>
+    <button id="income-overview-btn" onclick="openIncomeOverview()">All Accounts ↗</button>
+  </div>
+  <div class="card">
     <div class="card-title"><span class="dot" style="background:#00d4aa"></span>Income Engine Calculator</div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:14px">Three-layer blended yield on your Fidelity income sleeve. Inputs saved automatically.</div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:14px">Three-layer blended yield. Inputs saved per account automatically.</div>
     <!-- Layer 1 -->
     <div style="font-family:var(--mono);font-size:9px;color:#64b5f6;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Layer 1 &mdash; Fixed Income</div>
     <div class="input-group"><label class="input-label">T-Bills allocated ($)</label><input class="input" id="inc-tbill-amt" type="number" min="0" placeholder="e.g. 50000" oninput="recalcIncome()"></div>
     <div class="input-group"><label class="input-label">FDLXX ($)</label><input class="input" id="inc-fdlxx-amt" type="number" min="0" placeholder="e.g. 25000" oninput="recalcIncome()"></div>
-    <div class="input-group"><label class="input-label">SPAXX / Free cash ($)</label><input class="input" id="inc-spaxx-amt" type="number" min="0" placeholder="e.g. 10000" oninput="recalcIncome()"></div>
+    <div class="input-group"><label class="input-label">SPAXX / FDRXX / free cash ($)</label><input class="input" id="inc-spaxx-amt" type="number" min="0" placeholder="e.g. 10000" oninput="recalcIncome()"></div>
     <!-- Layer 2 -->
     <div style="font-family:var(--mono);font-size:9px;color:#ff6b35;text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px">Layer 2 &mdash; ETF Income</div>
     <div class="input-group"><label class="input-label">SPYI shares held</label><input class="input" id="inc-spyi-shares" type="number" min="0" placeholder="e.g. 200" oninput="recalcIncome()"></div>
@@ -374,6 +379,8 @@ a{color:inherit}
     <div style="font-family:var(--mono);font-size:9px;color:#00d4aa;text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px">Layer 3 &mdash; Wheel Strategy</div>
     <div class="input-group"><label class="input-label">Written puts &mdash; manual notional ($) <span style="font-family:var(--mono);font-size:9px;color:var(--text3)">(overridden by position tracker)</span></label><input class="input" id="inc-puts-notional" type="number" min="0" placeholder="e.g. 140000" oninput="recalcIncome()"></div>
     <div class="input-group"><label class="input-label">Stock held for CC writing ($) <span style="font-family:var(--mono);font-size:9px;color:var(--text3)">(overridden by position tracker)</span></label><input class="input" id="inc-cc-stock-amt" type="number" min="0" placeholder="e.g. 30000" oninput="recalcIncome()"></div>
+    <!-- Per-account Target APY -->
+    <div class="input-group" style="margin-top:10px"><label class="input-label">Target APY % <span style="font-family:var(--mono);font-size:9px;color:var(--text3)">(per account)</span></label><input class="input" id="inc-target-apy" type="number" min="1" max="100" placeholder="12" oninput="recalcIncome()"></div>
     <div style="display:flex;gap:8px;margin-top:4px">
       <button class="btn btn-primary" style="flex:2" onclick="recalcIncome()">Calculate</button>
       <button class="btn btn-secondary" style="flex:1" onclick="refreshIncomeYields()">Refresh Yields</button>
@@ -652,9 +659,18 @@ a{color:inherit}
   <div class="gs-body" id="gb-income">
     <div class="guide-kv"><span class="guide-key">Blended yield</span><span class="guide-val">Weighted average of all three layers based on your capital allocation. Shows what your total portfolio is earning on an annualized basis.</span></div>
     <div class="guide-kv"><span class="guide-key">Tax-equivalent yield</span><span class="guide-val">T-bill and money market yields are state-tax-exempt. The app grosses these up by your state tax rate (defaulting to California) so they are comparable to taxable yields on an after-tax basis.</span></div>
-    <div class="guide-kv"><span class="guide-key">MMF yields</span><span class="guide-val">FDLXX and SPAXX 7-day yields are fetched from Yahoo Finance and updated during prefetch. You can manually override these if the fetched values look stale.</span></div>
+    <div class="guide-kv"><span class="guide-key">MMF yields</span><span class="guide-val">FDLXX and SPAXX/FDRXX 7-day yields are fetched from Yahoo Finance and cached per account. Tap Refresh Yields to update. Layer 2 ETF yields come from the ETF tab — refresh the ETF tab if SPYI or NBOS shows no yield.</span></div>
     <div class="guide-kv"><span class="guide-key">Layer 3 capital</span><span class="guide-val">Your active put and covered call positions feed into the Layer 3 denominator as deployed notional capital. The blended yield calculation uses actual position notional, not a flat allocation.</span></div>
     <div class="guide-kv"><span class="guide-key">Position tracker</span><span class="guide-val">Log each put and covered call with strike, premium, expiration, and DTE. The tracker shows annualized APY per position and tracks lifecycle (open → approaching expiry → expired).</span></div>
+    <div class="guide-kv"><span class="guide-key">Target APY</span><span class="guide-val">Set per account. Controls the Layer 3 benchmark line and highlighted positions. Defaults to the global Dashboard APY setting when an account is first created.</span></div>
+    <div class="guide-h3">Multiple Accounts</div>
+    <div class="guide-kv"><span class="guide-key">Account switcher</span><span class="guide-val">The chip row at the top of the Income tab shows all your accounts. Tap any chip to switch. The active account is highlighted in its assigned color, and a soft glow on the left edge of the tab identifies which account you are viewing at all times, even while scrolled.</span></div>
+    <div class="guide-kv"><span class="guide-key">Firewall</span><span class="guide-val">Each account has completely independent Layer 1, Layer 2, Layer 3 inputs, position trackers, MMF yield cache, and target APY. Switching accounts loads that account's data. Nothing is shared between accounts except Layer 2 ETF yields (market data, not account-specific).</span></div>
+    <div class="guide-kv"><span class="guide-key">Add account</span><span class="guide-val">Tap the ＋ button at the end of the chip row. Enter a name (e.g. "SEP IRA", "HSA"). New accounts start empty.</span></div>
+    <div class="guide-kv"><span class="guide-key">Rename / delete</span><span class="guide-val">Long-press (or right-tap on desktop) any account chip to rename or delete it. Renaming does not affect stored data. Deleting an account with active positions requires exporting a backup first.</span></div>
+    <div class="guide-kv"><span class="guide-key">All Accounts overview</span><span class="guide-val">Tap "All Accounts ↗" to open a summary pop-up showing all accounts at a glance: position counts, notional values, ITM flags, and expiry urgency (⚠ red = ≤2 days, ⚡ amber = ≤7 days). Tap any account row in the overview to switch directly to that account.</span></div>
+    <div class="guide-kv"><span class="guide-key">Sticky selection</span><span class="guide-val">The last-viewed account is remembered across app launches. When you open the Income tab, you land on the same account you were last viewing.</span></div>
+    <div class="guide-kv"><span class="guide-key">Export / import</span><span class="guide-val">Backups include all accounts. The import preview shows each account by name with its position count. Restoring a backup replaces all accounts simultaneously.</span></div>
   </div>
 </div>
 
@@ -1336,6 +1352,8 @@ let cachedOIRows=null;
 
 
 function init(){
+  // Run income account migration before anything else touches income data
+  try{ runIncomeMigration(); }catch(e){ console.error('Income migration error:',e); }
   loadOptionsPrefs();
   updateOfflineModeBar();
   const cp=S.get('conviction_puts'),cc=S.get('conviction_cc');

@@ -356,31 +356,31 @@ function clearMarketDataCache(){
     'watchlist','tz_pref','font_size','vix_threshold','offline_mode',
     'watchlist_sort','heatmap_mode','put_pos_sort','cc_pos_sort',
     'options_cutoff_et','rp_earnings_toggle','rp_span','bb_span',
-    'income_inputs','income_mmf_yields','put_positions','cc_positions',
     'vol_badge_state','conviction_weights','last_ticker',
+    'income_accounts_meta','income_active_account','income_migration_v1',
+    'debug_options_fetch',
   ]);
-  // Also preserve earnings_hist (contains overrides) and income/settings related keys
   const toDelete=[];
   for(let i=0;i<localStorage.length;i++){
     const k=localStorage.key(i);
     if(!k)continue;
-    // Preserve earnings_hist (has overrides inside), income, settings
     if(PRESERVE.has(k))continue;
-    if(k.startsWith('earnings_hist_'))continue; // has manual override data
-    if(k.startsWith('earnings_confirmed_'))continue; // confirmed historical cache -- nuclear option only
-    if(k.startsWith('earnings_pending_'))continue; // pending promotions -- nuclear option only
-    if(k.startsWith('income_'))continue;
+    if(k.startsWith('earnings_hist_'))continue;
+    if(k.startsWith('earnings_confirmed_'))continue;
+    if(k.startsWith('earnings_pending_'))continue;
+    // Preserve all income account data (inputs, positions, MMF yields)
+    if(k.startsWith('income_acct_'))continue;
+    if(k.startsWith('income_'))continue; // catches income_accounts_meta, income_active_account etc.
     if(k.startsWith('conviction_'))continue;
     if(k.startsWith('put_pos'))continue;
     if(k.startsWith('cc_pos'))continue;
     if(k.startsWith('vol_badge'))continue;
-    // Clear all market data keys
     if(k.startsWith('snap_')||k.startsWith('hist_')||k.startsWith('hist1y_')||
        k.startsWith('hist2y_')||k.startsWith('options_')||k.startsWith('news_')||
        k.startsWith('rec_')||k.startsWith('upgrades_')||
        k.startsWith('mkt_')||k.startsWith('tbills_')||k.startsWith('vix')||
        k.startsWith('div_')||k==='market_news'||k==='fed_futures'||
-       k==='hist2y_sp500'||k==='income_ts'){
+       k==='hist2y_sp500'){
       toDelete.push(k);
     }
   }
@@ -394,35 +394,36 @@ const EXPORT_KEYS_STATIC=[
   'watchlist','tz_pref','font_size','vix_threshold',
   'offline_mode','watchlist_sort','heatmap_mode','put_pos_sort','cc_pos_sort',
   'options_cutoff_et','rp_earnings_toggle','conviction_weights',
-  'put_positions','cc_positions','vol_badge_state','last_ticker',
-  'income_inputs','income_mmf_yields','income_ts',
+  'vol_badge_state','last_ticker',
   'etf_research_tickers',
+  'income_accounts_meta','income_active_account','income_migration_v1',
+  'debug_options_fetch',
 ];
 
 function _buildExportData(){
-  const data={_version:'1.0',_exportedAt:new Date().toISOString(),keys:{}};
+  const data={_version:'2.0',_exportedAt:new Date().toISOString(),keys:{}};
   // Use S.get which JSON.parses the stored value -- avoids double-stringified values
   EXPORT_KEYS_STATIC.forEach(k=>{
     const v=S.get(k);
     if(v!=null)data.keys[k]=v;
   });
-  // Per-ticker earnings history (contains overrides) and confirmed cache
-  // Use all keys in localStorage to catch tickers no longer on watchlist
+  // Per-ticker earnings history and confirmed/pending caches
   const _allKeys=Object.keys(localStorage);
   _allKeys.forEach(k=>{
-    if(k.startsWith('"earnings_hist_')||k.startsWith('earnings_hist_')){
-      const v=S.get(k.replace(/^"/,'').replace(/"$/,''));
-      if(v!=null)data.keys[k.replace(/^"|"$/g,'')]=v;
+    const _k=k.replace(/^"|"$/g,'');
+    if(_k.startsWith('earnings_hist_')||_k.startsWith('earnings_confirmed_')||_k.startsWith('earnings_pending_')){
+      const v=S.get(_k);
+      if(v!=null&&(!Array.isArray(v)||v.length>0))data.keys[_k]=v;
     }
-    if(k.startsWith('"earnings_confirmed_')||k.startsWith('earnings_confirmed_')){
-      const _ck=k.replace(/^"|"$/g,'');
-      const v=S.get(_ck);
-      if(Array.isArray(v)&&v.length>0)data.keys[_ck]=v;
+    // All per-account income keys: income_ACCTID_*
+    if(_k.startsWith('income_acct_')){
+      const v=S.get(_k);
+      if(v!=null)data.keys[_k]=v;
     }
-    if(k.startsWith('"earnings_pending_')||k.startsWith('earnings_pending_')){
-      const _pk=k.replace(/^"|"$/g,'');
-      const v=S.get(_pk);
-      if(Array.isArray(v)&&v.length>0)data.keys[_pk]=v;
+    // Legacy flat income keys (pre-migration backups) -- include if present
+    if(_k==='income_inputs'||_k==='income_mmf_yields'||_k==='put_positions'||_k==='cc_positions'){
+      const v=S.get(_k);
+      if(v!=null)data.keys[_k]=v;
     }
   });
 
@@ -557,20 +558,36 @@ function previewImport(){
     }
   }catch{}
 
-  // Income inputs
+  // Income accounts -- read from backup's income_accounts_meta (not current app state)
   try{
-    const inc=(keys.income_inputs&&typeof keys.income_inputs==='object')?keys.income_inputs:(JSON.parse(keys.income_inputs||'{}'));
-    const hasIncome=inc.tbillAmt||inc.fdlxxAmt||inc.spaxxAmt||inc.spyiShares||inc.nbosShares;
-    if(hasIncome){
-      lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">INCOME ENGINE</span>');
-      if(inc.tbillAmt)lines.push('<div style="color:var(--text2);padding-left:10px">T-Bills: $'+Number(inc.tbillAmt).toLocaleString()+'</div>');
-      if(inc.fdlxxAmt)lines.push('<div style="color:var(--text2);padding-left:10px">FDLXX: $'+Number(inc.fdlxxAmt).toLocaleString()+'</div>');
-      if(inc.spaxxAmt)lines.push('<div style="color:var(--text2);padding-left:10px">SPAXX: $'+Number(inc.spaxxAmt).toLocaleString()+'</div>');
-      if(inc.spyiShares)lines.push('<div style="color:var(--text2);padding-left:10px">SPYI: '+inc.spyiShares+' shares</div>');
-      if(inc.nbosShares)lines.push('<div style="color:var(--text2);padding-left:10px">NBOS: '+inc.nbosShares+' shares</div>');
-      if(inc.putsNotional)lines.push('<div style="color:var(--text2);padding-left:10px">Manual put notional: $'+Number(inc.putsNotional).toLocaleString()+'</div>');
-      if(inc.ccStockAmt)lines.push('<div style="color:var(--text2);padding-left:10px">Manual CC stock: $'+Number(inc.ccStockAmt).toLocaleString()+'</div>');
-      if(inc.targetAPY)lines.push('<div style="color:var(--text2);padding-left:10px">Target APY: '+inc.targetAPY+'%</div>');
+    const acctMeta = keys.income_accounts_meta;
+    const accounts = Array.isArray(acctMeta) ? acctMeta
+      : (acctMeta ? JSON.parse(String(acctMeta)) : null);
+    if(accounts && accounts.length){
+      lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">INCOME ACCOUNTS ('+accounts.length+' account'+(accounts.length!==1?'s':'')+')</span>');
+      accounts.forEach((a,i)=>{
+        try{
+          const putKey = 'income_'+a.id+'_put_positions';
+          const ccKey  = 'income_'+a.id+'_cc_positions';
+          const puts = Array.isArray(keys[putKey]) ? keys[putKey] : (keys[putKey] ? JSON.parse(String(keys[putKey])) : []);
+          const ccs  = Array.isArray(keys[ccKey])  ? keys[ccKey]  : (keys[ccKey]  ? JSON.parse(String(keys[ccKey]))  : []);
+          const incKey = 'income_'+a.id+'_inputs';
+          const inc = (keys[incKey]&&typeof keys[incKey]==='object') ? keys[incKey] : (keys[incKey] ? JSON.parse(String(keys[incKey])) : {});
+          lines.push('<div style="color:var(--text2);padding-left:10px;margin-top:4px"><strong>'+a.name+'</strong>: '+puts.length+' put'+(puts.length!==1?'s':'')+', '+ccs.length+' CC'+(ccs.length!==1?'s':'')+(inc.tbillAmt||inc.fdlxxAmt||inc.spaxxAmt?' · Layer 1 configured':'')+'</div>');
+        }catch(e){ lines.push('<div style="color:var(--text2);padding-left:10px">'+a.name+': (data unreadable)</div>'); }
+      });
+      lines.push('</div>');
+    }else if(keys.income_inputs||keys.put_positions||keys.cc_positions){
+      // Pre-migration backup: show legacy flat-key summary
+      lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">INCOME ENGINE (legacy format -- will migrate to Taxable account)</span>');
+      try{
+        const inc=(keys.income_inputs&&typeof keys.income_inputs==='object')?keys.income_inputs:(JSON.parse(keys.income_inputs||'{}'));
+        const puts=Array.isArray(keys.put_positions)?keys.put_positions:(keys.put_positions?JSON.parse(String(keys.put_positions)):[]);
+        const ccs=Array.isArray(keys.cc_positions)?keys.cc_positions:(keys.cc_positions?JSON.parse(String(keys.cc_positions)):[]);
+        lines.push('<div style="color:var(--text2);padding-left:10px">'+puts.length+' put position'+(puts.length!==1?'s':'')+', '+ccs.length+' CC'+(ccs.length!==1?'s':'')+'</div>');
+        if(inc.tbillAmt)lines.push('<div style="color:var(--text2);padding-left:10px">T-Bills: $'+Number(inc.tbillAmt).toLocaleString()+'</div>');
+        if(inc.fdlxxAmt)lines.push('<div style="color:var(--text2);padding-left:10px">FDLXX: $'+Number(inc.fdlxxAmt).toLocaleString()+'</div>');
+      }catch{}
       lines.push('</div>');
     }
   }catch{}
@@ -645,6 +662,14 @@ function confirmImport(){
   Object.entries(keys).forEach(([k,v])=>{
     try{S.set(k,v);count++;}catch(e){console.warn('Import failed for key',k,e);}
   });
+  // If this is a pre-migration backup (has old flat keys, no income_accounts_meta),
+  // clear the migration flag so runIncomeMigration() re-runs on next income tab load
+  const isPreMigration = !keys.income_accounts_meta &&
+    (keys.income_inputs || keys.put_positions || keys.cc_positions);
+  if(isPreMigration){
+    S.del('income_migration_v1');
+    console.log('Pre-migration backup detected -- income migration will re-run on next income tab load');
+  }
   _parsedImportData=null;
   document.getElementById('restore-btn').disabled=true;
   document.getElementById('import-preview').style.display='none';

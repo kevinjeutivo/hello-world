@@ -529,34 +529,39 @@ function previewImport(){
     lines.push('</div>');
   }
 
-  // Put positions
-  try{
-    const puts=Array.isArray(keys.put_positions)?keys.put_positions:(JSON.parse(keys.put_positions||'[]'));
-    if(puts.length){
-      lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">PUT POSITIONS ('+puts.length+')</span>');
-      puts.forEach(p=>{
-        lines.push('<div style="color:var(--text2);padding-left:10px">'+
-          p.ticker+' $'+p.strike+' put · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
-        '</div>');
-      });
-      lines.push('</div>');
-    }
-  }catch{}
+  // Put positions -- only show flat-key section if no per-account structure present
+  // (i.e. pre-migration backup). Post-migration backups show positions per account below.
+  const _hasAccountsMeta = !!(keys.income_accounts_meta &&
+    (Array.isArray(keys.income_accounts_meta) ? keys.income_accounts_meta.length
+      : JSON.parse(String(keys.income_accounts_meta||'[]')).length));
+  if(!_hasAccountsMeta){
+    try{
+      const puts=Array.isArray(keys.put_positions)?keys.put_positions:(JSON.parse(keys.put_positions||'[]'));
+      if(puts.length){
+        lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">PUT POSITIONS ('+puts.length+')</span>');
+        puts.forEach(p=>{
+          lines.push('<div style="color:var(--text2);padding-left:10px">'+
+            p.ticker+' $'+p.strike+' put · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
+          '</div>');
+        });
+        lines.push('</div>');
+      }
+    }catch{}
 
-  // CC positions
-  try{
-    const ccs=Array.isArray(keys.cc_positions)?keys.cc_positions:(JSON.parse(keys.cc_positions||'[]'));
-    if(ccs.length){
-      lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">COVERED CALL POSITIONS ('+ccs.length+')</span>');
-      ccs.forEach(p=>{
-        lines.push('<div style="color:var(--text2);padding-left:10px">'+
-          p.ticker+' $'+p.strike+' call · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
-          ' · written @ $'+p.stockPriceAtWrite+
-        '</div>');
-      });
-      lines.push('</div>');
-    }
-  }catch{}
+    try{
+      const ccs=Array.isArray(keys.cc_positions)?keys.cc_positions:(JSON.parse(keys.cc_positions||'[]'));
+      if(ccs.length){
+        lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">COVERED CALL POSITIONS ('+ccs.length+')</span>');
+        ccs.forEach(p=>{
+          lines.push('<div style="color:var(--text2);padding-left:10px">'+
+            p.ticker+' $'+p.strike+' call · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
+            ' · written @ $'+p.stockPriceAtWrite+
+          '</div>');
+        });
+        lines.push('</div>');
+      }
+    }catch{}
+  }
 
   // Income accounts -- read from backup's income_accounts_meta (not current app state)
   try{
@@ -573,20 +578,53 @@ function previewImport(){
           const ccs  = Array.isArray(keys[ccKey])  ? keys[ccKey]  : (keys[ccKey]  ? JSON.parse(String(keys[ccKey]))  : []);
           const incKey = 'income_'+a.id+'_inputs';
           const inc = (keys[incKey]&&typeof keys[incKey]==='object') ? keys[incKey] : (keys[incKey] ? JSON.parse(String(keys[incKey])) : {});
-          lines.push('<div style="color:var(--text2);padding-left:10px;margin-top:4px"><strong>'+a.name+'</strong>: '+puts.length+' put'+(puts.length!==1?'s':'')+', '+ccs.length+' CC'+(ccs.length!==1?'s':'')+(inc.tbillAmt||inc.fdlxxAmt||inc.spaxxAmt?' · Layer 1 configured':'')+'</div>');
+          // Account header line
+          lines.push('<div style="color:var(--accent);padding-left:10px;margin-top:6px;font-weight:600">'+a.name+'</div>');
+          // Layer 1 summary if configured
+          if(inc.tbillAmt||inc.fdlxxAmt||inc.spaxxAmt){
+            const l1Parts=[];
+            if(inc.tbillAmt)l1Parts.push('T-Bills $'+Number(inc.tbillAmt).toLocaleString());
+            if(inc.fdlxxAmt)l1Parts.push('FDLXX $'+Number(inc.fdlxxAmt).toLocaleString());
+            if(inc.spaxxAmt)l1Parts.push('SPAXX $'+Number(inc.spaxxAmt).toLocaleString());
+            lines.push('<div style="color:var(--text2);padding-left:20px">Layer 1: '+l1Parts.join(', ')+'</div>');
+          }
+          // Put positions
+          if(puts.length){
+            lines.push('<div style="color:var(--text2);padding-left:20px">Puts ('+puts.length+'):</div>');
+            puts.forEach(p=>{
+              lines.push('<div style="color:var(--text2);padding-left:30px">'+
+                p.ticker+' $'+p.strike+' · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
+              '</div>');
+            });
+          }else{
+            lines.push('<div style="color:var(--text3);padding-left:20px">No put positions</div>');
+          }
+          // CC positions
+          if(ccs.length){
+            lines.push('<div style="color:var(--text2);padding-left:20px">CCs ('+ccs.length+'):</div>');
+            ccs.forEach(p=>{
+              lines.push('<div style="color:var(--text2);padding-left:30px">'+
+                p.ticker+' $'+p.strike+' call · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
+                (p.stockPriceAtWrite?' · written @ $'+p.stockPriceAtWrite:'')+
+              '</div>');
+            });
+          }else{
+            lines.push('<div style="color:var(--text3);padding-left:20px">No CC positions</div>');
+          }
         }catch(e){ lines.push('<div style="color:var(--text2);padding-left:10px">'+a.name+': (data unreadable)</div>'); }
       });
       lines.push('</div>');
     }else if(keys.income_inputs||keys.put_positions||keys.cc_positions){
-      // Pre-migration backup: show legacy flat-key summary
+      // Pre-migration backup: show legacy flat-key summary with individual positions
       lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">INCOME ENGINE (legacy format -- will migrate to Taxable account)</span>');
       try{
         const inc=(keys.income_inputs&&typeof keys.income_inputs==='object')?keys.income_inputs:(JSON.parse(keys.income_inputs||'{}'));
         const puts=Array.isArray(keys.put_positions)?keys.put_positions:(keys.put_positions?JSON.parse(String(keys.put_positions)):[]);
         const ccs=Array.isArray(keys.cc_positions)?keys.cc_positions:(keys.cc_positions?JSON.parse(String(keys.cc_positions)):[]);
-        lines.push('<div style="color:var(--text2);padding-left:10px">'+puts.length+' put position'+(puts.length!==1?'s':'')+', '+ccs.length+' CC'+(ccs.length!==1?'s':'')+'</div>');
         if(inc.tbillAmt)lines.push('<div style="color:var(--text2);padding-left:10px">T-Bills: $'+Number(inc.tbillAmt).toLocaleString()+'</div>');
         if(inc.fdlxxAmt)lines.push('<div style="color:var(--text2);padding-left:10px">FDLXX: $'+Number(inc.fdlxxAmt).toLocaleString()+'</div>');
+        puts.forEach(p=>lines.push('<div style="color:var(--text2);padding-left:10px">'+p.ticker+' $'+p.strike+' put · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+'</div>'));
+        ccs.forEach(p=>lines.push('<div style="color:var(--text2);padding-left:10px">'+p.ticker+' $'+p.strike+' call · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+(p.stockPriceAtWrite?' · written @ $'+p.stockPriceAtWrite:'')+'</div>'));
       }catch{}
       lines.push('</div>');
     }

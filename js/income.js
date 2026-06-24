@@ -99,6 +99,12 @@ function runIncomeMigration(){
   // Run expired position cleanup across all accounts
   _cleanupAllAccountExpiredPositions(accounts);
 
+  // Clean up old flat keys -- migration is complete, these are now redundant.
+  // Leave income_inputs and income_mmf_yields since they may still be read
+  // by the market tab income summary widget. Only remove position keys.
+  S.del('put_positions');
+  S.del('cc_positions');
+
   S.set(MIGRATION_FLAG, '1');
 }
 
@@ -1336,6 +1342,7 @@ function _openAddPositionModal(){
   el.innerHTML =
     '<div class="modal-box" style="max-width:340px">' +
       '<div class="modal-title">Add Put Position</div>' +
+      '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Adding to: <strong style="color:var(--accent)">' + (_getActiveAccount()?.name || 'Unknown account') + '</strong></div>' +
       '<div class="input-group" style="margin-bottom:10px">' +
         '<label class="input-label">Ticker</label>' +
         '<select class="input" id="pos-ticker-sel" onchange="_onPosTickerChange()">' +
@@ -1451,7 +1458,10 @@ function _confirmAddPosition(){
   }
 
   // Use account captured at modal-open time (race condition guard)
-  const targetAcctId = _pendingModalAccountId || _activeAccountId;
+  // Fall back to first account if both are empty (defensive guard)
+  const targetAcctId = _pendingModalAccountId || _activeAccountId ||
+    (_getAccounts()[0]?.id ?? '');
+  if(!targetAcctId){ toast('No account selected -- please switch to an account first'); return; }
   const posKey = _acctKeyFor(targetAcctId, 'put_positions');
   const positions = S.get(posKey) || [];
   const id = 'pos_' + Date.now();
@@ -1714,6 +1724,7 @@ function _openAddCCModal(){
   el.innerHTML =
     '<div class="modal-box" style="max-width:340px">' +
       '<div class="modal-title">Add Covered Call Position</div>' +
+      '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Adding to: <strong style="color:var(--accent)">' + (_getActiveAccount()?.name || 'Unknown account') + '</strong></div>' +
       '<div class="input-group" style="margin-bottom:10px">' +
         '<label class="input-label">Ticker</label>' +
         '<select class="input" id="cc-ticker-sel" onchange="_onCCTickerChange()">' +
@@ -1851,7 +1862,9 @@ function _confirmAddCC(){
   }
 
   // Use account captured at modal-open time (race condition guard)
-  const targetAcctId = _pendingModalAccountId || _activeAccountId;
+  const targetAcctId = _pendingModalAccountId || _activeAccountId ||
+    (_getAccounts()[0]?.id ?? '');
+  if(!targetAcctId){ toast('No account selected -- please switch to an account first'); return; }
   const ccKey = _acctKeyFor(targetAcctId, 'cc_positions');
   const positions = S.get(ccKey) || [];
   const id = 'cc_' + Date.now();

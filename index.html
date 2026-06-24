@@ -1349,6 +1349,15 @@ let cachedOIRows=null;
 function init(){
   // Run income account migration before anything else touches income data
   try{ runIncomeMigration(); }catch(e){ console.error('Income migration error:',e); }
+  // One-time cleanup: remove orphaned flat income position keys left over from
+  // pre-migration state. Safe to call every init -- S.del is a no-op if key absent.
+  // Only runs when migration is already complete (flag set) and accounts exist.
+  try{
+    if(S.get('income_migration_v1')&&(S.get('income_accounts_meta')||[]).length){
+      S.del('put_positions');
+      S.del('cc_positions');
+    }
+  }catch(e){}
   loadOptionsPrefs();
   updateOfflineModeBar();
   const cp=S.get('conviction_puts'),cc=S.get('conviction_cc');
@@ -1387,8 +1396,10 @@ if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.se
 </script>
 <!-- Income account switcher bar -- OUTSIDE #app to escape CSS zoom context.
      position:fixed keeps it viewport-anchored regardless of scroll or zoom.
+     -webkit-transform:translateZ(0) forces GPU compositing layer on iOS Safari,
+     preventing the bar from disappearing after downward scroll interactions.
      Shown/hidden by showTab(). Top is set dynamically by _updateAcctBarStickyTop(). -->
-<div id="income-acct-bar" style="display:none;position:fixed;left:0;right:0;z-index:98;background:var(--bg);padding:6px 14px 8px;border-bottom:1px solid var(--border);box-sizing:border-box">
+<div id="income-acct-bar" style="display:none;position:fixed;left:0;right:0;z-index:98;background:var(--bg);padding:6px 14px 8px;border-bottom:1px solid var(--border);box-sizing:border-box;-webkit-transform:translateZ(0);transform:translateZ(0);will-change:transform">
   <div id="income-acct-chips" style="display:flex;flex:1;overflow-x:auto"></div>
   <button id="income-overview-btn" onclick="openIncomeOverview()">All Accounts ↗</button>
 </div>

@@ -308,13 +308,19 @@ function updateVIXIndicator(vixValue){
   const existing=tabBtn?.querySelector('.vix-dot');
   if(existing)existing.remove();
   if(banner){banner.style.display='none';banner.className='';}
-  if(!vixValue||vixValue<vixThreshold)return;
+  if(!vixValue||vixValue<vixThreshold){
+    // VIX banner hidden -- reposition account bar in case it was showing before
+    if(typeof _updateAcctBarStickyTop==='function') _updateAcctBarStickyTop();
+    return;
+  }
   let dotClass,bannerClass,label;
   if(vixValue>=40){dotClass='vix-dot vix-dot-extreme';bannerClass='vix-status-extreme';label=`VIX ${vixValue.toFixed(1)} EXTREME`;}
   else if(vixValue>=30){dotClass='vix-dot vix-dot-high';bannerClass='vix-status-high';label=`VIX ${vixValue.toFixed(1)} FEAR SPIKE`;}
   else{dotClass='vix-dot vix-dot-elevated';bannerClass='vix-status-elevated';label=`VIX ${vixValue.toFixed(1)} ELEVATED`;}
   if(tabBtn){const dot=document.createElement('span');dot.className=dotClass;tabBtn.appendChild(dot);}
   if(banner){banner.textContent=label;banner.className=bannerClass;banner.style.display='block';}
+  // VIX banner now visible -- reposition account bar to account for extra height
+  if(typeof _updateAcctBarStickyTop==='function') _updateAcctBarStickyTop();
 }
 
 function toast(msg,dur=2500){
@@ -413,16 +419,27 @@ function refreshTsChipAges(){
   });
 }
 
+// Per-session scroll position memory -- in-memory only, never persisted or exported
+const _tabScrollPos = {};
+let _activeTabName = 'dashboard'; // tracks which tab is currently shown
+let _lastTickerTabTicker = '';    // tracks which ticker was last shown on ticker tab
+
 function showTab(name){
+  // Save scroll position of the tab we're leaving
+  _tabScrollPos[_activeTabName] = window.scrollY;
+
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
   const tabs=['dashboard','watchlist','ticker','options','income','vix','earnings','etf','market','guide'];
   document.querySelectorAll('.nav-tab')[tabs.indexOf(name)].classList.add('active');
+  _activeTabName = name;
+
   // Show income account bar only when income tab is active
   const acctBar=document.getElementById('income-acct-bar');
   if(acctBar){
     acctBar.style.display=name==='income'?'flex':'none';
+    if(name==='income'&&typeof _updateAcctBarStickyTop==='function') _updateAcctBarStickyTop();
     if(name!=='income'&&typeof _removeAcctBarPadding==='function') _removeAcctBarPadding();
   }
   refreshTsChipAges();
@@ -430,16 +447,27 @@ function showTab(name){
   if(name==='ticker'&&currentTicker){
     document.getElementById('ticker-select').value=currentTicker;
     const c=document.getElementById('ticker-content');
-    if(!c||c.querySelector('.empty'))restoreTickerFromCache(currentTicker);
+    if(!c||c.querySelector('.empty')){
+      // Ticker changed since last visit -- reset scroll
+      if(currentTicker!==_lastTickerTabTicker) _tabScrollPos['ticker']=0;
+      _lastTickerTabTicker=currentTicker;
+      restoreTickerFromCache(currentTicker);
+    }
   }
   if(name==='options'&&currentTicker){
     document.getElementById('options-ticker-select').value=currentTicker;
-    if(currentTicker!==lastOptionsTickerLoaded)loadOptionsForTicker();
-    else restoreOIChartFromCache();
+    if(currentTicker!==lastOptionsTickerLoaded){
+      // Ticker changed -- reset scroll and load fresh
+      _tabScrollPos['options']=0;
+      loadOptionsForTicker();
+    }else restoreOIChartFromCache();
   }
   if(name==='vix'){const vc=document.getElementById('vix-content');if(!vc||vc.querySelector('.empty'))restoreVIXFromCache();}
   if(name==='earnings'){const ec=document.getElementById('earnings-content');if(!ec||ec.querySelector('.empty'))renderEarningsCards();}
   if(name==='etf'){const etc=document.getElementById('etf-content');if(!etc||etc.querySelector('.empty'))restoreETFFromCache();restoreSandboxFromCache();}
   if(name==='market'){const mc=document.getElementById('market-content');if(!mc||mc.querySelector('.empty'))restoreMarketFromCache();}
   if(name==='income'){restoreIncomeFromCache();}
+
+  // Restore scroll position for this tab (0 if never visited or reset)
+  window.scrollTo(0, _tabScrollPos[name] || 0);
 }

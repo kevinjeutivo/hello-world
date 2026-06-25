@@ -702,21 +702,28 @@ function refreshIncomeYields(){
 }
 
 function _updateAcctBarStickyTop(){
-  // Sum the heights of all sticky elements above the account bar:
-  // market-status-banner + .header (which includes #vix-status-banner when visible) + .nav-tabs
-  // This is scroll-independent and VIX-banner-aware.
-  // offsetHeight is always the rendered height regardless of scroll position.
-  try{
-    const bar = document.getElementById('income-acct-bar');
-    if(!bar) return;
-    const mktBanner  = document.getElementById('market-status-banner');
-    const header     = document.querySelector('.header');
-    const nav        = document.querySelector('.nav-tabs');
-    const h = (mktBanner ? mktBanner.offsetHeight : 0) +
-              (header     ? header.offsetHeight     : 0) +
-              (nav        ? nav.offsetHeight         : 0);
-    bar.style.top = h + 'px';
-  }catch(e){}
+  // Defer to next frame so GPU-composited layers (will-change:transform) have
+  // settled before we measure offsetHeight / getBoundingClientRect.
+  requestAnimationFrame(()=>{
+    try{
+      const bar = document.getElementById('income-acct-bar');
+      if(!bar) return;
+      const nav = document.querySelector('.nav-tabs');
+      if(!nav){ bar.style.top = '130px'; return; }
+      // Read nav's CSS sticky top -- reliable, unaffected by compositing
+      const navStickyTop = parseInt(window.getComputedStyle(nav).top) || 94;
+      // getBoundingClientRect().height is more reliable than offsetHeight
+      // for composited elements on iOS Safari
+      const navH = nav.getBoundingClientRect().height || nav.offsetHeight || 36;
+      bar.style.top = (navStickyTop + navH) + 'px';
+      // Update .main padding so income content isn't hidden under fixed bar
+      const main = document.querySelector('.main');
+      if(main && bar.style.display !== 'none'){
+        const barH = bar.getBoundingClientRect().height || bar.offsetHeight || 44;
+        main.style.paddingTop = barH + 'px';
+      }
+    }catch(e){}
+  });
 }
 
 function _removeAcctBarPadding(){

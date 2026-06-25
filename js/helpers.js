@@ -18,9 +18,10 @@ function applyFontSize(size){
   const app=document.getElementById('app');
   if(app){
     app.style.zoom=zoom;
-    // transform-origin ensures the app scales from the top-left corner,
-    // preventing horizontal overflow on narrow iPhone screens.
     app.style.transformOrigin='top left';
+    // Reposition the income account bar which is outside #app and uses
+    // unzoomed viewport pixels -- must recalculate when zoom changes
+    if(typeof _updateAcctBarStickyTop==='function') _updateAcctBarStickyTop();
   }
   // Keep the CSS variable updated for any code that reads it.
   document.documentElement.style.setProperty('--base-font',size+'px');

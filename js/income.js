@@ -702,28 +702,16 @@ function refreshIncomeYields(){
 }
 
 function _updateAcctBarStickyTop(){
-  // Defer to next frame so GPU-composited layers (will-change:transform) have
-  // settled before we measure offsetHeight / getBoundingClientRect.
-  requestAnimationFrame(()=>{
-    try{
-      const bar = document.getElementById('income-acct-bar');
-      if(!bar) return;
-      const nav = document.querySelector('.nav-tabs');
-      if(!nav){ bar.style.top = '130px'; return; }
-      // Read nav's CSS sticky top -- reliable, unaffected by compositing
-      const navStickyTop = parseInt(window.getComputedStyle(nav).top) || 94;
-      // getBoundingClientRect().height is more reliable than offsetHeight
-      // for composited elements on iOS Safari
-      const navH = nav.getBoundingClientRect().height || nav.offsetHeight || 36;
-      bar.style.top = (navStickyTop + navH) + 'px';
-      // Update .main padding so income content isn't hidden under fixed bar
-      const main = document.querySelector('.main');
-      if(main && bar.style.display !== 'none'){
-        const barH = bar.getBoundingClientRect().height || bar.offsetHeight || 44;
-        main.style.paddingTop = barH + 'px';
-      }
-    }catch(e){}
-  });
+  // The account bar sits below the nav tabs which always sticks at top:94px
+  // with a height of ~36px = 130px total. Fixed by CSS, doesn't change with VIX.
+  // .main gets 44px top padding to clear the fixed bar (6px+8px padding + ~22px chips + border).
+  try{
+    const bar = document.getElementById('income-acct-bar');
+    if(!bar) return;
+    bar.style.top = '130px';
+    const main = document.querySelector('.main');
+    if(main && bar.style.display !== 'none') main.style.paddingTop = '44px';
+  }catch(e){}
 }
 
 function _removeAcctBarPadding(){

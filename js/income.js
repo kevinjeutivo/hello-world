@@ -702,23 +702,20 @@ function refreshIncomeYields(){
 }
 
 function _updateAcctBarStickyTop(){
-  // Bar uses position:fixed (outside #app's zoom context).
-  // Top must be set in viewport pixels using getBoundingClientRect,
-  // which correctly accounts for CSS zoom on #app.
-  // Also pad .main top so income tab content isn't hidden under the fixed bar.
+  // Sum the heights of all sticky elements above the account bar:
+  // market-status-banner + .header (which includes #vix-status-banner when visible) + .nav-tabs
+  // This is scroll-independent and VIX-banner-aware.
+  // offsetHeight is always the rendered height regardless of scroll position.
   try{
-    const nav = document.querySelector('.nav-tabs');
     const bar = document.getElementById('income-acct-bar');
-    const main = document.querySelector('.main');
-    if(nav && bar){
-      const navBottom = nav.getBoundingClientRect().bottom;
-      bar.style.top = navBottom + 'px';
-      // Add top padding to .main equal to bar height so content isn't obscured
-      if(main && bar.style.display !== 'none'){
-        const barH = bar.offsetHeight || 44;
-        main.style.paddingTop = barH + 'px';
-      }
-    }
+    if(!bar) return;
+    const mktBanner  = document.getElementById('market-status-banner');
+    const header     = document.querySelector('.header');
+    const nav        = document.querySelector('.nav-tabs');
+    const h = (mktBanner ? mktBanner.offsetHeight : 0) +
+              (header     ? header.offsetHeight     : 0) +
+              (nav        ? nav.offsetHeight         : 0);
+    bar.style.top = h + 'px';
   }catch(e){}
 }
 
@@ -821,19 +818,18 @@ function _renderAccountSwitcher(){
 }
 
 function _switchAccount(id){
-  if(_modalOpen) return; // race condition guard
+  if(_modalOpen) return;
   if(id === _activeAccountId) return;
-  // Flush any pending saves to the current account before switching
   try{ _saveIncomeInputs(); }catch(e){}
-  // Switch
   _activeAccountId = id;
   S.set(ACCT_ACTIVE_KEY, id);
-  // Re-render switcher and apply new glow
+  // Reset income tab scroll to top when switching accounts
+  if(typeof _tabScrollPos !== 'undefined') _tabScrollPos['income'] = 0;
+  window.scrollTo(0, 0);
   _renderAccountSwitcher();
   const accounts = _getAccounts();
   const idx = accounts.findIndex(a => a.id === id);
   _applyAccountGlow(ACCT_COLORS[Math.max(0, idx) % ACCT_COLORS.length]);
-  // Load the new account's data
   restoreIncomeFromCache();
 }
 
@@ -1119,19 +1115,22 @@ function _switchFromOverview(id){
 // ── Tab entry points ──────────────────────────────────────────────────────────
 
 function _initAccountState(){
-  // Ensure _activeAccountId is set from storage before any income operation runs
   const accounts = _getAccounts();
-  if(!accounts.length) return; // migration hasn't run yet
+  if(!accounts.length) return;
   const stored = S.get(ACCT_ACTIVE_KEY);
   const valid = accounts.find(a => a.id === stored);
   _activeAccountId = valid ? valid.id : accounts[0].id;
   if(!valid) S.set(ACCT_ACTIVE_KEY, _activeAccountId);
-  // Apply glow
   const idx = accounts.findIndex(a => a.id === _activeAccountId);
   _applyAccountGlow(ACCT_COLORS[Math.max(0, idx) % ACCT_COLORS.length]);
   _renderAccountSwitcher();
-  // Set sticky top offset after render, measuring actual nav height
-  requestAnimationFrame(_updateAcctBarStickyTop);
+  // Update bar position immediately -- offsetHeight is scroll-independent
+  _updateAcctBarStickyTop();
+  // Also reposition on resize (handles zoom changes)
+  if(!window._acctBarResizeListenerAdded){
+    window.addEventListener('resize', _updateAcctBarStickyTop);
+    window._acctBarResizeListenerAdded = true;
+  }
 }
 
 async function loadIncomeTab(){

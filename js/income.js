@@ -702,22 +702,26 @@ function refreshIncomeYields(){
 }
 
 function _updateAcctBarStickyTop(){
-  // The account bar is position:fixed OUTSIDE #app, so it uses unzoomed viewport pixels.
-  // The nav tabs are INSIDE #app which has CSS zoom applied.
-  // Nav CSS values: top:94px, height:~36px -- but these are in zoomed px.
-  // We must multiply by the zoom factor to get unzoomed viewport pixels.
+  // Use a dynamic <style> tag to set the bar's top position.
+  // This avoids any inline style ordering or specificity conflicts.
+  // The bar is position:fixed OUTSIDE #app (unzoomed viewport pixels).
+  // Nav tabs are inside #app with CSS zoom applied -- multiply by zoom to convert.
   try{
-    const bar = document.getElementById('income-acct-bar');
-    if(!bar) return;
     const app = document.getElementById('app');
     const zoom = app ? (parseFloat(app.style.zoom) || 1) : 1;
-    // Nav sticks at top:94px (zoomed), height ~36px (zoomed)
-    // In viewport px: (94 + 36) * zoom
     const navBottomPx = Math.round((94 + 36) * zoom);
-    bar.style.top = navBottomPx + 'px';
-    // .main padding: bar height in unzoomed px (~37px)
+    // Inject or update a dedicated style rule
+    let styleEl = document.getElementById('_acct-bar-top-style');
+    if(!styleEl){
+      styleEl = document.createElement('style');
+      styleEl.id = '_acct-bar-top-style';
+      document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = `#income-acct-bar { top: ${navBottomPx}px !important; }`;
+    // Update .main padding so content clears the fixed bar
     const main = document.querySelector('.main');
-    if(main && bar.style.display !== 'none') main.style.paddingTop = '44px';
+    const bar = document.getElementById('income-acct-bar');
+    if(main && bar && bar.style.display !== 'none') main.style.paddingTop = '44px';
   }catch(e){}
 }
 

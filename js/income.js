@@ -702,13 +702,20 @@ function refreshIncomeYields(){
 }
 
 function _updateAcctBarStickyTop(){
-  // The account bar sits below the nav tabs which always sticks at top:94px
-  // with a height of ~36px = 130px total. Fixed by CSS, doesn't change with VIX.
-  // .main gets 44px top padding to clear the fixed bar (6px+8px padding + ~22px chips + border).
+  // The account bar is position:fixed OUTSIDE #app, so it uses unzoomed viewport pixels.
+  // The nav tabs are INSIDE #app which has CSS zoom applied.
+  // Nav CSS values: top:94px, height:~36px -- but these are in zoomed px.
+  // We must multiply by the zoom factor to get unzoomed viewport pixels.
   try{
     const bar = document.getElementById('income-acct-bar');
     if(!bar) return;
-    bar.style.top = '130px';
+    const app = document.getElementById('app');
+    const zoom = app ? (parseFloat(app.style.zoom) || 1) : 1;
+    // Nav sticks at top:94px (zoomed), height ~36px (zoomed)
+    // In viewport px: (94 + 36) * zoom
+    const navBottomPx = Math.round((94 + 36) * zoom);
+    bar.style.top = navBottomPx + 'px';
+    // .main padding: bar height in unzoomed px (~37px)
     const main = document.querySelector('.main');
     if(main && bar.style.display !== 'none') main.style.paddingTop = '44px';
   }catch(e){}

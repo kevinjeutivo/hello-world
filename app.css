@@ -16,7 +16,7 @@
 html,body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overscroll-behavior:none}
 #app{display:flex;flex-direction:column;min-height:100vh;transform-origin:top left}
 /* Market status banner */
-#market-status-banner{font-family:var(--mono);font-size:12px;font-weight:600;padding:6px 16px;text-align:center;position:sticky;top:0;z-index:200;transition:background 0.5s}
+#market-status-banner{font-family:var(--mono);font-size:12px;font-weight:600;padding:6px 16px;text-align:center;position:sticky;top:0;z-index:200;transition:background 0.5s;-webkit-transform:translateZ(0);transform:translateZ(0);will-change:transform}
 .mkt-open{background:rgba(0,200,150,0.9);color:#000}
 .mkt-prepost{background:rgba(255,165,2,0.9);color:#000}
 .mkt-closed{background:rgba(255,71,87,0.85);color:#fff}
@@ -24,7 +24,7 @@ html,body{background:var(--bg);color:var(--text);font-family:var(--sans);min-hei
 #top-progress-bar{position:fixed;top:0;left:0;right:0;height:3px;z-index:9999;background:transparent;pointer-events:none}
 #top-progress-bar .top-bar-fill{height:3px;width:0%;background:linear-gradient(90deg,#00d4aa,#4fc3f7);transition:width 0.3s ease;border-radius:0 2px 2px 0}
 #top-progress-bar.active .top-bar-fill{box-shadow:0 0 8px rgba(0,212,170,0.6)}
-.header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px 8px;position:sticky;top:36px;z-index:100;display:flex;align-items:center;justify-content:space-between}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px 8px;position:sticky;top:36px;z-index:100;display:flex;align-items:center;justify-content:space-between;-webkit-transform:translateZ(0);transform:translateZ(0);will-change:transform}
 .header-left{display:flex;flex-direction:column;gap:2px}
 .header-title{font-family:var(--sans);font-size:18px;font-weight:800;letter-spacing:-0.5px;color:var(--accent)}
 .header-sub{font-family:var(--mono);font-size:10px;color:var(--text3);display:flex;align-items:center;gap:6px}
@@ -38,7 +38,7 @@ html,body{background:var(--bg);color:var(--text);font-family:var(--sans);min-hei
 .vix-status-high{background:rgba(255,71,87,0.2);color:var(--red);border:1px solid rgba(255,71,87,0.4)}
 .vix-status-extreme{background:rgba(124,106,247,0.2);color:#b39ddb;border:1px solid rgba(124,106,247,0.4)}
 /* Nav tabs */
-.nav-tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;position:sticky;top:94px;z-index:99}
+.nav-tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;position:sticky;top:94px;z-index:99;-webkit-transform:translateZ(0);transform:translateZ(0);will-change:transform}
 .nav-tabs::-webkit-scrollbar{display:none}
 .nav-tab{flex:0 0 auto;padding:10px 13px;font-family:var(--mono);font-size:11px;color:var(--text3);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all 0.2s}
 .nav-tab.active{color:var(--accent);border-bottom-color:var(--accent)}

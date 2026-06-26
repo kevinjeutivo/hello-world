@@ -702,15 +702,33 @@ function refreshIncomeYields(){
 }
 
 function _updateAcctBarStickyTop(){
-  // Use a dynamic <style> tag to set the bar's top position.
-  // This avoids any inline style ordering or specificity conflicts.
-  // The bar is position:fixed OUTSIDE #app (unzoomed viewport pixels).
-  // Nav tabs are inside #app with CSS zoom applied -- multiply by zoom to convert.
+  // The bar is position:fixed outside #app (unzoomed viewport pixels).
+  // Nav tabs are inside #app with CSS zoom applied.
+  // When VIX banner is visible, .header grows and the nav shifts down.
+  // We measure the actual nav bottom from getBoundingClientRect but only
+  // when scrollY=0 (nav is at its true sticky position, not scrolled).
+  // If scrolled, we use the last known good value.
   try{
     const app = document.getElementById('app');
     const zoom = app ? (parseFloat(app.style.zoom) || 1) : 1;
-    const navBottomPx = Math.round((94 + 36) * zoom);
-    // Inject or update a dedicated style rule
+    const nav = document.querySelector('.nav-tabs');
+    let navBottomPx;
+    if(nav){
+      // getBoundingClientRect gives viewport position -- correct for position:fixed
+      // Divide by zoom since the bar is outside #app (unzoomed coordinate space)
+      const rect = nav.getBoundingClientRect();
+      // rect.bottom is already in unzoomed viewport pixels (fixed positioning space)
+      // But the nav is sticky and moves with scroll, so only reliable at scrollY=0
+      if(window.scrollY === 0){
+        navBottomPx = Math.ceil(rect.bottom);
+        window._acctBarTop = navBottomPx; // cache for when scrolled
+      } else {
+        // When scrolled, use cached value or calculate from CSS
+        navBottomPx = window._acctBarTop || Math.round((94 + 36) * zoom);
+      }
+    } else {
+      navBottomPx = Math.round((94 + 36) * zoom);
+    }
     let styleEl = document.getElementById('_acct-bar-top-style');
     if(!styleEl){
       styleEl = document.createElement('style');
@@ -718,7 +736,6 @@ function _updateAcctBarStickyTop(){
       document.head.appendChild(styleEl);
     }
     styleEl.textContent = `#income-acct-bar { top: ${navBottomPx}px !important; }`;
-    // Update .main padding so content clears the fixed bar
     const main = document.querySelector('.main');
     const bar = document.getElementById('income-acct-bar');
     if(main && bar && bar.style.display !== 'none') main.style.paddingTop = '44px';

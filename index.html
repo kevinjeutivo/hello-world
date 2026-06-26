@@ -1369,7 +1369,7 @@ function init(){
   const lt=S.get('last_ticker');
   if(lt){currentTicker=lt;document.getElementById('ticker-select').value=lt;document.getElementById('options-ticker-select').value=lt;restoreTickerFromCache(lt);}
   restoreVIXFromCache();
-  const cv=S.get('vix_hist');if(cv?.closes){const c=cv.closes.filter(x=>x!==null);if(c.length)updateVIXIndicator(c[c.length-1]);}
+  const cv=S.get('vix_hist');if(cv?.closes){const c=cv.closes.filter(x=>x!==null);if(c.length)updateVIXIndicator(c[c.length-1]);}else{_updateNavTop();}
   const ce=S.get('earnings_data');if(ce?.data){const today=new Date();earningsAllData=ce.data.map(e=>({...e,daysUntil:daysUntilDate(e.earningsDate)??Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);}
   updateOnlineIndicator();
   // Start market status banner ticker -- every second

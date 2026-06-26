@@ -302,6 +302,27 @@ function showOfflineBanner(fetchTs){
   setTimeout(()=>b.classList.remove('show'),4500);
 }
 
+function _updateNavTop(){
+  // Recalculate nav-tabs sticky top based on whether VIX banner is visible.
+  // VIX banner adds ~20px to .header height, requiring nav top to increase.
+  try{
+    const vixBanner = document.getElementById('vix-status-banner');
+    const vixVisible = vixBanner && vixBanner.style.display !== 'none';
+    const navTop = vixVisible
+      ? Math.ceil(36 + (document.querySelector('.header')?.offsetHeight || 78))
+      : 94;
+    let styleEl = document.getElementById('_nav-top-style');
+    if(!styleEl){
+      styleEl = document.createElement('style');
+      styleEl.id = '_nav-top-style';
+      document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = `.nav-tabs { top: ${navTop}px !important; }`;
+    // After updating nav top, also recalculate account bar position
+    if(typeof _updateAcctBarStickyTop === 'function') _updateAcctBarStickyTop();
+  }catch(e){}
+}
+
 function updateVIXIndicator(vixValue){
   const tabBtn=document.getElementById('vix-tab-btn');
   const banner=document.getElementById('vix-status-banner');
@@ -309,8 +330,7 @@ function updateVIXIndicator(vixValue){
   if(existing)existing.remove();
   if(banner){banner.style.display='none';banner.className='';}
   if(!vixValue||vixValue<vixThreshold){
-    // VIX banner hidden -- reposition account bar in case it was showing before
-    if(typeof _updateAcctBarStickyTop==='function') _updateAcctBarStickyTop();
+    _updateNavTop();
     return;
   }
   let dotClass,bannerClass,label;
@@ -319,8 +339,7 @@ function updateVIXIndicator(vixValue){
   else{dotClass='vix-dot vix-dot-elevated';bannerClass='vix-status-elevated';label=`VIX ${vixValue.toFixed(1)} ELEVATED`;}
   if(tabBtn){const dot=document.createElement('span');dot.className=dotClass;tabBtn.appendChild(dot);}
   if(banner){banner.textContent=label;banner.className=bannerClass;banner.style.display='block';}
-  // VIX banner now visible -- reposition account bar to account for extra height
-  if(typeof _updateAcctBarStickyTop==='function') _updateAcctBarStickyTop();
+  _updateNavTop();
 }
 
 function toast(msg,dur=2500){

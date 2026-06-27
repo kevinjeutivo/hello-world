@@ -310,24 +310,28 @@ function _sparklineHtml(ticker){
     if(!cache || !cache.closes || cache.closes.length < 2) return '';
     const closes = cache.closes.filter(v => v != null);
     if(closes.length < 2) return '';
-    // Use prevClose from snap cache as the reference for color -- same source
-    // as the change badge, so green/red matches the price change display exactly.
-    // Fall back to closes[0] if snap not available.
     const snap = S.get('snap_'+ticker);
-    const ref = (snap && snap.prevClose != null) ? snap.prevClose : closes[0];
+    const prevClose = (snap && snap.prevClose != null) ? snap.prevClose : null;
     const last = closes[closes.length-1];
+    const ref = prevClose != null ? prevClose : closes[0];
     const color = last >= ref ? 'var(--green)' : 'var(--red)';
-    // Normalize to viewBox 0 0 60 20
+    // Extend Y scale to include prevClose so gap moves are shown honestly
+    const allValues = prevClose != null ? [...closes, prevClose] : closes;
     const W=60, H=20, PAD=1;
-    const mn = Math.min(...closes);
-    const mx = Math.max(...closes);
+    const mn = Math.min(...allValues);
+    const mx = Math.max(...allValues);
     const range = mx - mn || 1;
+    const toY = v => H - PAD - ((v - mn) / range) * (H - PAD*2);
     const pts = closes.map((v,i)=>{
       const x = PAD + (i/(closes.length-1)) * (W - PAD*2);
-      const y = H - PAD - ((v-mn)/range) * (H - PAD*2);
-      return x.toFixed(1)+','+y.toFixed(1);
+      return x.toFixed(1)+','+toY(v).toFixed(1);
     }).join(' ');
+    // Reference line at prevClose Y position -- only when prevClose is available
+    const refLine = prevClose != null
+      ? `<line x1="${PAD}" y1="${toY(prevClose).toFixed(1)}" x2="${W-PAD}" y2="${toY(prevClose).toFixed(1)}" stroke="var(--text3)" stroke-width="0.7" stroke-dasharray="2,2" opacity="0.6"/>`
+      : '';
     return '<svg width="60" height="20" viewBox="0 0 60 20" style="display:block;flex-shrink:0" xmlns="http://www.w3.org/2000/svg">'+
+      refLine+
       '<polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'+
     '</svg>';
   }catch(e){ return ''; }
@@ -416,3 +420,4 @@ function populateSelects(){
   document.getElementById('ticker-select').innerHTML=opts;
   document.getElementById('options-ticker-select').innerHTML=opts;
 }
+    

@@ -310,10 +310,13 @@ function _sparklineHtml(ticker){
     if(!cache || !cache.closes || cache.closes.length < 2) return '';
     const closes = cache.closes.filter(v => v != null);
     if(closes.length < 2) return '';
-    // Determine color: green if last >= open, red if below open
-    const open = closes[0];
+    // Use prevClose from snap cache as the reference for color -- same source
+    // as the change badge, so green/red matches the price change display exactly.
+    // Fall back to closes[0] if snap not available.
+    const snap = S.get('snap_'+ticker);
+    const ref = (snap && snap.prevClose != null) ? snap.prevClose : closes[0];
     const last = closes[closes.length-1];
-    const color = last >= open ? 'var(--green)' : 'var(--red)';
+    const color = last >= ref ? 'var(--green)' : 'var(--red)';
     // Normalize to viewBox 0 0 60 20
     const W=60, H=20, PAD=1;
     const mn = Math.min(...closes);

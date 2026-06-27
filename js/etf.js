@@ -66,7 +66,7 @@ async function loadETFTab(){
   const etfChartQueue=[];
   const etfs=[
     {ticker:'SPYI',name:'NEOS S&P 500 High Income ETF',strategy:'Covered calls on S&P 500 components. Targets high monthly income while maintaining equity-like upside participation. Monthly distributions.',color:'#00d4aa'},
-    {ticker:'NBOS',name:'Roundhill N-Buffer Outcome Strategy',strategy:'Put-writing strategy providing monthly income with defined downside buffers on the S&P 500. Monthly distributions.',color:'#ff6b35'}
+    {ticker:'NBOS',name:'Neuberger Berman Options Strategy Fund',strategy:'Put-write strategy that sells cash-secured puts on broad equity indices to generate option premium income. Monthly distributions. Retains more upside participation than covered-call funds.',color:'#ff6b35'}
   ];
   let html='';
   for(const etf of etfs){

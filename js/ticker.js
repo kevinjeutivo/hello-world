@@ -1518,9 +1518,12 @@ async function refreshSingleTicker(){
     S.set('upgrades_'+t,{data:upgrades&&upgrades.length?upgrades.slice(0,6):[],ts:nowPT()});
     // Step 3: Price history
     setP(35,'Fetching '+t+' price history...');
-    // Single 2Y fetch populates all three history cache keys
+    // Single 2Y fetch populates all three history cache keys; intraday in parallel
     try{
-      const _rh2=await _tkTimeout(yahooHistory(t,'2y','1d'),15000,'hist2y');
+      const [_rh2,_idRes]=await Promise.all([
+        _tkTimeout(yahooHistory(t,'2y','1d'),15000,'hist2y'),
+        _tkTimeout(yahooHistory(t,'1d','5m'),10000,'intraday').catch(e=>{console.warn('intraday failed:',t,e?.message);return null;})
+      ]);
       const _rts=_rh2.timestamps.map(d=>Math.floor(d.getTime()/1000));
       const _rcl=_rh2.closes.map(v=>v!=null?Math.round(v*100)/100:null);
       const _rvl=_rh2.volumes?_rh2.volumes.map(v=>v||0):null;
@@ -1530,6 +1533,9 @@ async function refreshSingleTicker(){
       S.set('hist1y_'+t,{timestamps:_rts.slice(_r1),closes:_rcl.slice(_r1),volumes:_rvl?_rvl.slice(_r1):[],ts:_rn});
       const _r6=Math.max(0,_rts.length-126);
       S.set('hist_'+t,{timestamps:_rts.slice(_r6),closes:_rcl.slice(_r6),volumes:_rvl?_rvl.slice(_r6):[],ts:_rn});
+      if(_idRes&&_idRes.closes&&_idRes.closes.length>=2){
+        S.set('intraday_'+t,{closes:_idRes.closes,ts:_rn});
+      }
     }catch(e){console.warn('refreshSingle hist2y failed:',t,e?.message);}
     // Step 4: News
     setP(50,'Fetching '+t+' news...');

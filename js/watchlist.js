@@ -302,6 +302,34 @@ function getSortedWatchlist(){
   return watchlist;
 }
 
+// ── Intraday sparkline ────────────────────────────────────────────────────────
+
+function _sparklineHtml(ticker){
+  try{
+    const cache = S.get('intraday_'+ticker);
+    if(!cache || !cache.closes || cache.closes.length < 2) return '';
+    const closes = cache.closes.filter(v => v != null);
+    if(closes.length < 2) return '';
+    // Determine color: green if last >= open, red if below open
+    const open = closes[0];
+    const last = closes[closes.length-1];
+    const color = last >= open ? 'var(--green)' : 'var(--red)';
+    // Normalize to viewBox 0 0 60 20
+    const W=60, H=20, PAD=1;
+    const mn = Math.min(...closes);
+    const mx = Math.max(...closes);
+    const range = mx - mn || 1;
+    const pts = closes.map((v,i)=>{
+      const x = PAD + (i/(closes.length-1)) * (W - PAD*2);
+      const y = H - PAD - ((v-mn)/range) * (H - PAD*2);
+      return x.toFixed(1)+','+y.toFixed(1);
+    }).join(' ');
+    return '<svg width="60" height="20" viewBox="0 0 60 20" style="display:block;flex-shrink:0" xmlns="http://www.w3.org/2000/svg">'+
+      '<polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'+
+    '</svg>';
+  }catch(e){ return ''; }
+}
+
 function renderWatchlist(){
   // Sync heatmap button states with current mode on every render
   ['off','change','ivr'].forEach(m=>{
@@ -338,11 +366,14 @@ function renderWatchlist(){
     const volBadge=_volBadgeHtml(_checkVolumeBadge(t));
     const ivrBadge=_ivrBadgeHtml(t);
     return '<div class="watchlist-item" style="'+bgStyle+'" onclick="selectTickerFromWatchlist(\''+t+'\')">'+
-      '<div>'+
+      '<div style="min-width:0;flex-shrink:1">'+
         '<div class="watchlist-ticker">'+t+ivrBadge+volBadge+'</div>'+
         (c?'<div class="watchlist-ts">'+c.ts+(age?' ('+age+')':'')+'</div>':'')+
       '</div>'+
-      '<div style="text-align:right">'+
+      '<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:0 8px">'+
+        _sparklineHtml(t)+
+      '</div>'+
+      '<div style="text-align:right;flex-shrink:0">'+
         '<div class="watchlist-price">'+price+'</div>'+
         (hasChg?'<div class="watchlist-change" style="color:'+cc+'">'+(chg>=0?'+':'')+chg.toFixed(2)+' ('+(chgPct>=0?'+':'')+chgPct.toFixed(2)+'%)</div>':'')+
       '</div>'+

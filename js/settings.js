@@ -425,6 +425,11 @@ function _buildExportData(){
       const v=S.get(_k);
       if(v!=null)data.keys[_k]=v;
     }
+    // Per-ticker watchlist notes
+    if(_k.startsWith('watchlist_note_')){
+      const v=S.get(_k);
+      if(v)data.keys[_k]=v;
+    }
   });
 
   return data;
@@ -669,6 +674,20 @@ function previewImport(){
         const t=k.replace('earnings_confirmed_','');
         const entries=Array.isArray(keys[k])?keys[k]:(JSON.parse(keys[k]||'[]'));
         if(entries.length)lines.push('<div style="color:var(--text2);padding-left:10px">'+t+': '+entries.length+' confirmed date'+(entries.length>1?'s':'')+' ('+entries.map(e=>e.date+(e.hour?' '+e.hour.toUpperCase():'')).join(', ')+')</div>');
+      });
+      lines.push('</div>');
+    }
+  }catch{}
+
+  // Watchlist notes
+  try{
+    const noteKeys=Object.keys(keys).filter(k=>k.startsWith('watchlist_note_'));
+    if(noteKeys.length){
+      const tickers=noteKeys.map(k=>k.replace('watchlist_note_',''));
+      lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">WATCHLIST NOTES ('+tickers.length+' ticker'+(tickers.length!==1?'s':'')+')</span>');
+      tickers.forEach(t=>{
+        const note=typeof keys['watchlist_note_'+t]==='string'?keys['watchlist_note_'+t]:'';
+        lines.push('<div style="color:var(--text2);padding-left:10px">'+t+': '+note.slice(0,60)+(note.length>60?'…':'')+'</div>');
       });
       lines.push('</div>');
     }

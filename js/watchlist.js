@@ -151,13 +151,109 @@ function _clearNote(){
 
 let _activeMenuTicker=null;
 
+// ── Income position lookup (reads income localStorage keys directly) ──────────
+
+function _posExpiryStatusWL(pos){
+  // Inline version of _posExpiryStatus from income.js -- avoids cross-module dependency
+  const today=new Date();today.setHours(0,0,0,0);
+  const exp=new Date(pos.expDate+'T12:00:00Z');
+  const d=Math.round((exp-today)/86400000);
+  if(d<-7)return'remove';
+  if(d<0)return'expired-linger';
+  if(d<=2)return'expiring-imminent';
+  if(d<=7)return'expiring-soon';
+  return'active';
+}
+
+function _getIncomePositionsForTicker(ticker){
+  // Returns [{acctName, acctId, acctIdx, puts:[], ccs:[]}] for accounts that have positions
+  const accounts=S.get('income_accounts_meta')||[];
+  const result=[];
+  accounts.forEach((a,i)=>{
+    const puts=(S.get('income_'+a.id+'_put_positions')||[])
+      .filter(p=>p.ticker===ticker&&_posExpiryStatusWL(p)!=='remove');
+    const ccs=(S.get('income_'+a.id+'_cc_positions')||[])
+      .filter(p=>p.ticker===ticker&&_posExpiryStatusWL(p)!=='remove');
+    if(puts.length||ccs.length) result.push({acctName:a.name,acctId:a.id,acctIdx:i,puts,ccs});
+  });
+  return result;
+}
+
+function _openPositionsModal(ticker){
+  _closeTickerMenu();
+  const accountPositions=_getIncomePositionsForTicker(ticker);
+  if(!accountPositions.length){toast('No active positions found for '+ticker);return;}
+
+  const ACCT_COLORS=['#00d4aa','#ff6b35','#7c6af7','#64b5f6','#ffd32a','#00c896','#f06292','#ffa502'];
+  const snap=S.get('snap_'+ticker);
+  const currentPrice=snap?.price||null;
+
+  const acctSections=accountPositions.map(({acctName,acctId,acctIdx,puts,ccs})=>{
+    const color=ACCT_COLORS[acctIdx%ACCT_COLORS.length];
+    const statusStyle=s=>{
+      if(s==='expiring-imminent')return'color:var(--red)';
+      if(s==='expiring-soon')return'color:var(--warn)';
+      if(s==='expired-linger')return'color:var(--text3)';
+      return'color:var(--text2)';
+    };
+    const putRows=puts.map(p=>{
+      const s=_posExpiryStatusWL(p);
+      const today=new Date();today.setHours(0,0,0,0);
+      const exp=new Date(p.expDate+'T12:00:00Z');
+      const dte=Math.round((exp-today)/86400000);
+      const itm=currentPrice!=null&&currentPrice<p.strike;
+      return '<div style="font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--border);'+statusStyle(s)+'">'+
+        '<span style="background:rgba(100,181,246,0.2);color:#64b5f6;font-size:9px;padding:1px 4px;border-radius:3px;margin-right:6px">PUT</span>'+
+        '$'+p.strike.toFixed(0)+' · exp '+p.expDate+' ('+dte+'d) · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
+        (itm?' <span style="color:var(--red);font-size:9px">⚠ ITM</span>':'')+
+      '</div>';
+    }).join('');
+    const ccRows=ccs.map(p=>{
+      const s=_posExpiryStatusWL(p);
+      const today=new Date();today.setHours(0,0,0,0);
+      const exp=new Date(p.expDate+'T12:00:00Z');
+      const dte=Math.round((exp-today)/86400000);
+      const itm=currentPrice!=null&&currentPrice>p.strike;
+      return '<div style="font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--border);'+statusStyle(s)+'">'+
+        '<span style="background:rgba(255,107,53,0.2);color:#ff6b35;font-size:9px;padding:1px 4px;border-radius:3px;margin-right:6px">CC</span>'+
+        '$'+p.strike.toFixed(0)+' · exp '+p.expDate+' ('+dte+'d) · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
+        (itm?' <span style="color:var(--warn);font-size:9px">⚠ ITM</span>':'')+
+      '</div>';
+    }).join('');
+    return '<div style="margin-bottom:12px">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'+
+        '<div style="font-family:var(--sans);font-size:12px;font-weight:700;color:'+color+'">'+acctName+'</div>'+
+        '<button onclick="document.getElementById(\'wl-pos-modal\').classList.remove(\'open\');_switchAccount&&_switchAccount(\''+acctId+'\');showTab&&showTab(\'income\')" '+
+          'style="font-family:var(--mono);font-size:9px;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text3);cursor:pointer">'+
+          'Go to account ↗</button>'+
+      '</div>'+
+      putRows+ccRows+
+    '</div>';
+  }).join('');
+
+  let el=document.getElementById('wl-pos-modal');
+  if(!el){
+    el=document.createElement('div');
+    el.className='modal-overlay';
+    el.id='wl-pos-modal';
+    document.body.appendChild(el);
+    el.addEventListener('click',e=>{if(e.target===el)el.classList.remove('open');});
+  }
+  el.innerHTML=
+    '<div class="modal-box" style="max-width:380px;max-height:80vh;overflow-y:auto">'+
+      '<div class="modal-title modal-title-neutral" style="margin-bottom:4px">'+ticker+' Positions</div>'+
+      (currentPrice?'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px">Current price: $'+currentPrice.toFixed(2)+'</div>':'')+
+      acctSections+
+      '<button class="btn btn-secondary btn-sm" style="width:100%;margin-top:4px" onclick="document.getElementById(\'wl-pos-modal\').classList.remove(\'open\')">Close</button>'+
+    '</div>';
+  el.classList.add('open');
+}
+
 function _openTickerMenu(ticker,btnEl){
-  // If already open for this ticker, close it
   if(_activeMenuTicker===ticker){ _closeTickerMenu(); return; }
   _closeTickerMenu();
   _activeMenuTicker=ticker;
 
-  // Remove any existing menu
   const existing=document.getElementById('ticker-action-menu');
   if(existing)existing.remove();
 
@@ -165,12 +261,18 @@ function _openTickerMenu(ticker,btnEl){
   menu.id='ticker-action-menu';
   menu.style.cssText=
     'position:fixed;z-index:500;background:var(--surface);border:1px solid var(--border);'+
-    'border-radius:var(--radius);box-shadow:0 4px 20px rgba(0,0,0,0.5);min-width:160px;overflow:hidden';
+    'border-radius:var(--radius);box-shadow:0 4px 20px rgba(0,0,0,0.5);min-width:170px;overflow:hidden';
 
   const hasNote=!!(S.get('watchlist_note_'+ticker));
+  const hasPositions=_getIncomePositionsForTicker(ticker).length>0;
+
   menu.innerHTML=
     '<div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:8px 12px 6px;border-bottom:1px solid var(--border)">'+ticker+'</div>'+
     '<div style="padding:4px 0">'+
+      (hasPositions?
+        '<div onclick="event.stopPropagation();_openPositionsModal(\''+ticker+'\')" style="display:flex;align-items:center;gap:8px;padding:10px 14px;cursor:pointer;font-family:var(--mono);font-size:12px;color:var(--accent)" onmouseenter="this.style.background=\'var(--surface2)\'" onmouseleave="this.style.background=\'\'">'+
+          '<span style="font-size:14px">📋</span>View Positions'+
+        '</div>':'')+
       '<div onclick="event.stopPropagation();_openNoteModal(\''+ticker+'\')" style="display:flex;align-items:center;gap:8px;padding:10px 14px;cursor:pointer;font-family:var(--mono);font-size:12px;color:var(--text2)" onmouseenter="this.style.background=\'var(--surface2)\'" onmouseleave="this.style.background=\'\'">'+
         '<span style="font-size:14px">✎</span>'+(hasNote?'Edit Note':'Add Note')+
       '</div>'+
@@ -181,18 +283,16 @@ function _openTickerMenu(ticker,btnEl){
 
   document.body.appendChild(menu);
 
-  // Position near the button
   const rect=btnEl.getBoundingClientRect();
-  const menuW=170;
+  const menuW=175;
   let left=rect.right-menuW;
   if(left<8)left=8;
   let top=rect.bottom+4;
-  // Flip up if too close to bottom
-  if(top+130>window.innerHeight)top=rect.top-134;
+  const menuH=hasPositions?150:110;
+  if(top+menuH>window.innerHeight)top=rect.top-menuH-4;
   menu.style.left=left+'px';
   menu.style.top=top+'px';
 
-  // Dismiss on outside tap
   setTimeout(()=>{
     document.addEventListener('click',_closeTickerMenu,{once:true});
   },0);

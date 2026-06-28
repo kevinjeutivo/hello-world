@@ -2,6 +2,30 @@
 
 // Validate options data before caching -- rejects synthetic/after-hours placeholder data.
 // Yahoo returns geometric IV values (50%, 25%, 12.5%...) and zero OI when market is closed.
+// Slim a per-expiry Yahoo options response to a flat, compact structure.
+// Strips the optionChain wrapper, unused fields (inTheMoney, expiration, hasMiniOptions),
+// and shortens field names to save ~10KB per expiry cache entry.
+// Readers must use .puts/.calls directly on the cache object.
+function slimExpData(data){
+  const opts=data?.optionChain?.result?.[0]?.options?.[0];
+  if(!opts)return null;
+  const slim=c=>({s:c.strike,b:c.bid,a:c.ask,l:c.lastPrice,oi:c.openInterest,v:c.volume,iv:c.impliedVolatility});
+  return{puts:(opts.puts||[]).map(slim),calls:(opts.calls||[]).map(slim)};
+}
+
+// Expand a slimmed per-expiry cache entry back to a contract object for readers.
+// Supports both old format (optionChain...) and new flat format ({puts,calls}).
+function _expPuts(cache){
+  if(!cache)return[];
+  if(cache.puts)return cache.puts.map(c=>({strike:c.s,bid:c.b,ask:c.a,lastPrice:c.l,openInterest:c.oi,volume:c.v,impliedVolatility:c.iv}));
+  return cache?.optionChain?.result?.[0]?.options?.[0]?.puts||[]; // legacy fallback
+}
+function _expCalls(cache){
+  if(!cache)return[];
+  if(cache.calls)return cache.calls.map(c=>({strike:c.s,bid:c.b,ask:c.a,lastPrice:c.l,openInterest:c.oi,volume:c.v,impliedVolatility:c.iv}));
+  return cache?.optionChain?.result?.[0]?.options?.[0]?.calls||[]; // legacy fallback
+}
+
 function _validateOptionsData(data){
   const result=data?.optionChain?.result?.[0];
   if(!result)return{valid:false,reason:'no result'};
@@ -319,11 +343,11 @@ async function loadOptionsForTicker(){
       date:new Date(ts*1000).toISOString().split('T')[0]
     }));
     // Prefer standard monthly expirations (3rd Fri/Thu, 15th-21st)
-    let monthlyPairs=allExpPairs.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
+    let monthlyPairs=allExpPairs.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,2);
     if(monthlyPairs.length===0){
       const twoWeeksOut=Date.now()+14*86400000;
-      monthlyPairs=allExpPairs.filter(p=>p.ts*1000>=twoWeeksOut).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
-      if(monthlyPairs.length===0)monthlyPairs=allExpPairs.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
+      monthlyPairs=allExpPairs.filter(p=>p.ts*1000>=twoWeeksOut).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,2);
+      if(monthlyPairs.length===0)monthlyPairs=allExpPairs.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,2);
     }
     const monthly=monthlyPairs.map(p=>p.date);
     currentExpirations=monthly;selectedExpirations=[...monthly];
@@ -339,7 +363,8 @@ async function loadOptionsForTicker(){
           const _expVal=_validateOptionsData(ed);
           if(_expVal.valid){
             // Validation passed -- write regardless of live window.
-            S.set(_expKey,{...ed,ts:nowPT()});
+            const _slimmed=slimExpData(ed);
+            if(_slimmed)S.set(_expKey,{..._slimmed,ts:nowPT()});
             if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp fetch valid -- wrote fresh',4000);
           }else if(!_expInWindow&&_expHasSameDay){
             // Outside window AND invalid -- preserve same-day cache.
@@ -347,7 +372,7 @@ async function loadOptionsForTicker(){
           }else{
             const _existing=S.get(_expKey);
             const ok=_existing&&!_existing.synthetic;
-            if(!ok){S.set(_expKey,{...ed,ts:nowPT(),synthetic:true});if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp INVALID ('+_expVal.reason+') no prior cache -- wrote synthetic',5000);}
+            if(!ok){const _s=slimExpData(ed);if(_s)S.set(_expKey,{..._s,ts:nowPT(),synthetic:true});if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp INVALID ('+_expVal.reason+') no prior cache -- wrote synthetic',5000);}
             else{if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp INVALID ('+_expVal.reason+') -- kept stale cache',5000);console.warn(t+' '+pair.date+': rejecting fresh fetch ('+_expVal.reason+'), preserving cache from '+(_existing?.ts||'unknown ts'));}
           }
         }catch(e){if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp fetch ERROR: '+(e?.message||'unknown'),5000);console.warn(t+' '+pair.date+': exp fetch error',e?.message);}
@@ -408,10 +433,10 @@ function buildOptionsTable(){
   const hlApy=parseFloat(document.getElementById('highlight-apy').value)||12;
   const today=new Date();const rows=[];
   for(const exp of selectedExpirations){
-    const expCached=S.get('options_exp_'+t+'_'+exp);const res=expCached?.optionChain?.result?.[0];if(!res)continue;
+    const expCached=S.get('options_exp_'+t+'_'+exp);if(!expCached)continue;
     const expD=new Date(exp+'T12:00:00Z');const dte=Math.max(Math.round((expD-today)/86400000),1);
     const proc=(contracts,isCall)=>{if(!contracts)return;contracts.forEach(o=>{const s=o.strike||0;if(s<lowerBound||s>upperBound)return;const bid=o.bid||0,ask=o.ask||0,last=o.lastPrice||0,oi=o.openInterest||0,vol=o.volume||0,iv=o.impliedVolatility||0;const premium=(bid>0?bid:last)*100;const apy=isCall?premium/(currentPrice*100)*(365/dte)*100:premium/(s*100)*(365/dte)*100;const pctOTM=isCall?(s-currentPrice)/currentPrice*100:(currentPrice-s)/currentPrice*100;rows.push({expDate:exp,strike:s,bid,ask,last,premium,apy,oi,vol,iv,dte,pctOTM});});};
-    if(currentMode==='puts')proc(res.options?.[0]?.puts,false);else proc(res.options?.[0]?.calls,true);
+    if(currentMode==='puts')proc(_expPuts(expCached),false);else proc(_expCalls(expCached),true);
   }
   rows.sort((a,b)=>a.expDate.localeCompare(b.expDate)||a.strike-b.strike);
   if(!rows.length){document.getElementById('options-content').innerHTML='<div class="card"><div class="empty"><div class="empty-icon">&#x1F50D;</div>No options found in selected range</div></div>';document.getElementById('oi-chart-section').style.display='none';return;}

@@ -73,10 +73,6 @@ async function prefetchAll(){
         const _ac2=_h2res.adjcloses?_h2res.adjcloses.map(v=>v!=null?Math.round(v*100)/100:null):null;
         const _now=nowPT();
         S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,adjcloses:_ac2,ts:_now});
-        const _1y=Math.max(0,_ts2.length-252);
-        S.set('hist1y_'+t,{timestamps:_ts2.slice(_1y),closes:_cl2.slice(_1y),volumes:_vl2?_vl2.slice(_1y):[],adjcloses:_ac2?_ac2.slice(_1y):null,ts:_now});
-        const _6m=Math.max(0,_ts2.length-126);
-        S.set('hist_'+t,{timestamps:_ts2.slice(_6m),closes:_cl2.slice(_6m),volumes:_vl2?_vl2.slice(_6m):[],adjcloses:_ac2?_ac2.slice(_6m):null,ts:_now});
         _health.tickers[t].hist=true;_h2ok=true;
       }
       // Process options
@@ -161,9 +157,9 @@ async function prefetchAll(){
     if(_savedOpts&&_opts){
       const yr=_opts?.optionChain?.result?.[0];const rawTs2=yr?.expirationDates||[];
         const allExpPairs2=rawTs2.map(ts=>({ts,date:new Date(ts*1000).toISOString().split('T')[0]}));
-        let monthlyPairs2=allExpPairs2.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
-        if(monthlyPairs2.length===0){const tw=Date.now()+14*86400000;monthlyPairs2=allExpPairs2.filter(p=>p.ts*1000>=tw).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);}
-        if(monthlyPairs2.length===0)monthlyPairs2=allExpPairs2.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
+        let monthlyPairs2=allExpPairs2.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,2);
+        if(monthlyPairs2.length===0){const tw=Date.now()+14*86400000;monthlyPairs2=allExpPairs2.filter(p=>p.ts*1000>=tw).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,2);}
+        if(monthlyPairs2.length===0)monthlyPairs2=allExpPairs2.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,2);
         // Parallel: fetch all monthly expiry chains simultaneously (independent Yahoo calls)
         const _expResults=await Promise.all(monthlyPairs2.map(pair=>
           _pfTimeout(yahooOptionsViaProxy(t,String(pair.ts)),12000,t+' exp '+pair.date)
@@ -177,11 +173,11 @@ async function prefetchAll(){
           const _pExpHasSameDay=_hasGoodSameDayCache(_pExpKey);
           const _ev=_validateOptionsData(data);
           if(_ev.valid){
-            S.set(_pExpKey,{...data,ts:nowPT()});
+            const _ps=slimExpData(data);if(_ps)S.set(_pExpKey,{..._ps,ts:nowPT()});
           }else if(!_pExpInWindow&&_pExpHasSameDay){
             console.log(t+' '+pair.date+': outside live window, fetch INVALID ('+_ev.reason+') -- preserving same-day exp cache');
           }else if(!S.get(_pExpKey)){
-            S.set(_pExpKey,{...data,ts:nowPT(),synthetic:true});
+            const _ps=slimExpData(data);if(_ps)S.set(_pExpKey,{..._ps,ts:nowPT(),synthetic:true});
           }else{
             const _ex=S.get(_pExpKey);console.warn(t+' '+pair.date+': exp rejected ('+_ev.reason+'), preserving cache from '+(_ex?.ts||'unknown ts'));
           }

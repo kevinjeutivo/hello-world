@@ -1358,6 +1358,13 @@ function init(){
       S.del('cc_positions');
     }
   }catch(e){}
+  // Cleanup stale hist_ and hist1y_ keys -- now derived from hist2y_ on the fly
+  try{
+    const _sk=[];
+    for(let _i=0;_i<localStorage.length;_i++){const _k=localStorage.key(_i);if(_k&&(_k.startsWith('hist_')||_k.startsWith('hist1y_')))_sk.push(_k);}
+    _sk.forEach(k=>localStorage.removeItem(k));
+    if(_sk.length)console.log('Cleaned up',_sk.length,'stale hist keys, saving ~'+Math.round(_sk.length*12)+'KB');
+  }catch(e){}
   loadOptionsPrefs();
   updateOfflineModeBar();
   const cp=S.get('conviction_puts'),cc=S.get('conviction_cc');

@@ -446,6 +446,8 @@ let _lastTickerTabTicker = '';    // tracks which ticker was last shown on ticke
 function showTab(name){
   // Save scroll position of the tab we're leaving
   _tabScrollPos[_activeTabName] = window.scrollY;
+  // Reset watchlist note expansions when leaving the watchlist tab
+  if(_activeTabName==='watchlist'&&typeof _resetNoteExpansions==='function') _resetNoteExpansions();
 
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));

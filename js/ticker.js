@@ -82,12 +82,13 @@ async function loadTicker(){
       const _ts2=h2.timestamps.map(d=>Math.floor(d.getTime()/1000));
       const _cl2=h2.closes.map(v=>v!=null?Math.round(v*100)/100:null);
       const _vl2=h2.volumes?h2.volumes.map(v=>v||0):null;
+      const _ac2=h2.adjcloses?h2.adjcloses.map(v=>v!=null?Math.round(v*100)/100:null):null;
       const _now=nowPT();
-      S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,ts:_now});
+      S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,adjcloses:_ac2,ts:_now});
       const _1y=Math.max(0,_ts2.length-252);
-      S.set('hist1y_'+t,{timestamps:_ts2.slice(_1y),closes:_cl2.slice(_1y),volumes:_vl2?_vl2.slice(_1y):[],ts:_now});
+      S.set('hist1y_'+t,{timestamps:_ts2.slice(_1y),closes:_cl2.slice(_1y),volumes:_vl2?_vl2.slice(_1y):[],adjcloses:_ac2?_ac2.slice(_1y):null,ts:_now});
       const _6m=Math.max(0,_ts2.length-126);
-      S.set('hist_'+t,{timestamps:_ts2.slice(_6m),closes:_cl2.slice(_6m),volumes:_vl2?_vl2.slice(_6m):[],ts:_now});
+      S.set('hist_'+t,{timestamps:_ts2.slice(_6m),closes:_cl2.slice(_6m),volumes:_vl2?_vl2.slice(_6m):[],adjcloses:_ac2?_ac2.slice(_6m):null,ts:_now});
       // Build live hist objects for rendering
       hist6mo={timestamps:h2.timestamps.slice(-126),closes:h2.closes.slice(-126),volumes:h2.volumes?h2.volumes.slice(-126):[]};
       hist1y={timestamps:h2.timestamps.slice(-252),closes:h2.closes.slice(-252),volumes:h2.volumes?h2.volumes.slice(-252):[]};
@@ -119,9 +120,16 @@ async function loadTicker(){
     }catch{}
 
     // hist2y_ already populated by single 2Y fetch above
-    // ^GSPC 2Y history for relative performance chart (shared across tickers)
-    try{const cacheAge=(Date.now()-(S.get('hist2y_sp500')?.ts||0))/3600000;
-      if(cacheAge>4){const sp2=await _tkTimeout(yahooHistory('^GSPC','2y','1d'),15000,'GSPC');S.set('hist2y_sp500',{timestamps:sp2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:sp2.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});}
+    // ^GSPC + ^SP500TR 2Y history for relative performance chart (shared across tickers)
+    try{
+      const cacheAge=(Date.now()-(S.get('hist2y_sp500')?.ts||0))/3600000;
+      const cacheAgeTR=(Date.now()-(S.get('hist2y_sp500tr')?.ts||0))/3600000;
+      const [_gspc,_sp500tr]=await Promise.all([
+        cacheAge>4?_tkTimeout(yahooHistory('^GSPC','2y','1d'),15000,'GSPC').catch(()=>null):Promise.resolve(null),
+        cacheAgeTR>4?_tkTimeout(yahooHistory('^SP500TR','2y','1d'),15000,'SP500TR').catch(()=>null):Promise.resolve(null)
+      ]);
+      if(_gspc)S.set('hist2y_sp500',{timestamps:_gspc.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:_gspc.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});
+      if(_sp500tr)S.set('hist2y_sp500tr',{timestamps:_sp500tr.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:_sp500tr.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});
     }catch{}
     // Historical earnings dates: extrapolate backwards from confirmed next earnings date
     // using ~91-day quarterly cadence, then refine each estimate by finding the
@@ -234,8 +242,13 @@ async function loadTicker(){
     // Re-read snap from localStorage to pick up fetchQuoteSummary enrichment
     // (ptMean, pegRatio, earningsTrend etc. are saved there by fetchQuoteSummary)
     const snapFinal=S.get('snap_'+t)||snap;
-    const _h2=S.get('hist2y_'+t);const _hist2y=_h2?{timestamps:_h2.timestamps.map(d=>new Date(d*1000)),closes:_h2.closes}:null;
-    const _sp2=S.get('hist2y_sp500');const _hist2ySP=_sp2?{timestamps:_sp2.timestamps.map(d=>new Date(d*1000)),closes:_sp2.closes}:null;
+    const _h2=S.get('hist2y_'+t);
+    const _useTR=getRPTotalReturn();
+    const _tkCl=_useTR&&_h2?.adjcloses?_h2.adjcloses:_h2?.closes;
+    const _hist2y=_h2?{timestamps:_h2.timestamps.map(d=>new Date(d*1000)),closes:_tkCl}:null;
+    const _spKey=_useTR?'hist2y_sp500tr':'hist2y_sp500';
+    const _sp2=S.get(_spKey)||((_useTR)?S.get('hist2y_sp500'):null);
+    const _hist2ySP=_sp2?{timestamps:_sp2.timestamps.map(d=>new Date(d*1000)),closes:_sp2.closes}:null;
     const _ehc=S.get('earnings_hist_'+t);const _earningsHistory=_ehc?.data||null;
     renderTickerContent(snapFinal,hist6mo,hist1y,news,recData,upgradesData,isLive,_hist2y,_hist2ySP,_earningsHistory);renderWatchlist();
   }catch(err){document.getElementById('ticker-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
@@ -249,8 +262,13 @@ function restoreTickerFromCache(t){
   const snap=S.get('snap_'+t);if(!snap)return;
   const ch=S.get('hist_'+t);const hist6mo=ch?{timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes}:null;
   const ch1=S.get('hist1y_'+t);const hist1y=ch1?{timestamps:ch1.timestamps.map(d=>new Date(d)),closes:ch1.closes,volumes:ch1.volumes}:null;
-  const ch2=S.get('hist2y_'+t);const hist2y=ch2?{timestamps:ch2.timestamps.map(d=>new Date(d*1000)),closes:ch2.closes,volumes:ch2.volumes||null}:null;
-  const sp2c=S.get('hist2y_sp500');const hist2ySP=sp2c?{timestamps:sp2c.timestamps.map(d=>new Date(d*1000)),closes:sp2c.closes}:null;
+  const ch2=S.get('hist2y_'+t);
+  const _rUseTR=getRPTotalReturn();
+  const _rTkCl=_rUseTR&&ch2?.adjcloses?ch2.adjcloses:ch2?.closes;
+  const hist2y=ch2?{timestamps:ch2.timestamps.map(d=>new Date(d*1000)),closes:_rTkCl,volumes:ch2.volumes||null}:null;
+  const _rSpKey=_rUseTR?'hist2y_sp500tr':'hist2y_sp500';
+  const sp2c=S.get(_rSpKey)||((_rUseTR)?S.get('hist2y_sp500'):null);
+  const hist2ySP=sp2c?{timestamps:sp2c.timestamps.map(d=>new Date(d*1000)),closes:sp2c.closes}:null;
   const ehc=S.get('earnings_hist_'+t);const earningsHistory=ehc?.data||null;
   const cn=S.get('news_'+t);const cr=S.get('rec_'+t);
   const cu=S.get('upgrades_'+t);
@@ -588,20 +606,42 @@ function renderBBChart(bbData,hist){
 
 // State for earnings overlay toggle -- persisted to localStorage
 function getRelPerfEarningsToggle(){return S.get('rp_earnings_toggle')!=='off';}
+
+// State for total return toggle -- persisted to localStorage
+function getRPTotalReturn(){return S.get('rp_total_return')==='on';}
+
+function toggleRPTotalReturn(){
+  const newVal=!getRPTotalReturn();
+  S.set('rp_total_return',newVal?'on':'off');
+  const btn=document.getElementById('rp-tr-btn');
+  if(btn)btn.style.opacity=newVal?'1':'0.4';
+  _triggerRelPerfRedraw();
+}
+
+function _triggerRelPerfRedraw(){
+  const t=currentTicker;
+  const useTR=getRPTotalReturn();
+  const h2c=S.get('hist2y_'+t);
+  // Use adjcloses for total return if available, else fall back to closes
+  const tkCloses=useTR&&h2c?.adjcloses?h2c.adjcloses:h2c?.closes;
+  if(!h2c||!tkCloses)return;
+  // S&P baseline: ^SP500TR for total return, ^GSPC for price return
+  const spKey=useTR?'hist2y_sp500tr':'hist2y_sp500';
+  const spc=S.get(spKey)||(useTR?S.get('hist2y_sp500'):null); // fallback to price if TR not cached yet
+  if(!spc)return;
+  renderRelPerfChart(t,
+    {timestamps:h2c.timestamps,closes:tkCloses},
+    {timestamps:spc.timestamps,closes:spc.closes},
+    _getEarningsWithOverrides(t),currentRPSpan||'2y');
+}
+
 function toggleRPSpan(span){
   currentRPSpan=span;
   ['6m','1y','2y'].forEach(s=>{
     const btn=document.getElementById('rp-btn-'+s);
     if(btn)btn.style.opacity=s===span?'1':'0.4';
   });
-  const t=currentTicker;
-  const h2c=S.get('hist2y_'+t);
-  const spc=S.get('hist2y_sp500');
-  const ehc=S.get('earnings_hist_'+t);
-  if(h2c&&spc)renderRelPerfChart(t,
-    {timestamps:h2c.timestamps,closes:h2c.closes},
-    {timestamps:spc.timestamps,closes:spc.closes},
-    _getEarningsWithOverrides(t),span);
+  _triggerRelPerfRedraw();
   const titleEl=document.getElementById('rp-title-span');
   if(titleEl){
     const label=span==='6m'?'6 Months':span==='1y'?'1 Year':'2 Years';
@@ -611,15 +651,7 @@ function toggleRPSpan(span){
 
 function toggleRelPerfEarnings(){
   S.set('rp_earnings_toggle',getRelPerfEarningsToggle()?'off':'on');
-  // Re-render by triggering chart update
-  const ctx=document.getElementById('rp-chart')?.getContext('2d');
-  if(!ctx)return;
-  const t=currentTicker;
-  const h2c=S.get('hist2y_'+t);const h2=h2c?{timestamps:h2c.timestamps.map(d=>new Date(d*1000)),closes:h2c.closes}:null;
-  const spc=S.get('hist2y_sp500');const sp=spc?{timestamps:spc.timestamps.map(d=>new Date(d*1000)),closes:spc.closes}:null;
-  const ehc=S.get('earnings_hist_'+t);
-  if(h2&&sp)renderRelPerfChart(t,h2,sp,_getEarningsWithOverrides(t),currentRPSpan||'2y');
-  // Update button
+  _triggerRelPerfRedraw();
   const btn=document.getElementById('rp-earn-btn');
   if(btn)btn.style.opacity=getRelPerfEarningsToggle()?'1':'0.4';
 }
@@ -960,19 +992,22 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
   const _rpSpan=currentRPSpan||'2y';
   const _rpSpanLabel=_rpSpan==='6m'?'6 Months':_rpSpan==='1y'?'1 Year':'2 Years';
   const _rpBtn=(s,lbl)=>'<button class="btn btn-secondary" id="rp-btn-'+s+'" onclick="toggleRPSpan(\''+s+'\')" style="font-size:10px;padding:2px 8px;opacity:'+(s===_rpSpan?'1':'0.4')+'">'+lbl+'</button>';
+  const _trActive=getRPTotalReturn();
+  const _sp500trAvail=!!S.get('hist2y_sp500tr');
   return `<div class="card">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
       <span id="rp-title-span"><span class="dot" style="background:var(--accent)"></span>Relative Performance vs S&P 500 (${_rpSpanLabel})</span>
       <button id="rp-earn-btn" class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${earnToggleOpacity}" onclick="toggleRelPerfEarnings()">Earnings</button>
     </div>
-    <div style="display:flex;gap:4px;margin-bottom:6px">
+    <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
       ${_rpBtn('6m','6M')+_rpBtn('1y','1Y')+_rpBtn('2y','2Y')}
+      <button id="rp-tr-btn" class="btn btn-secondary" style="font-size:10px;padding:2px 8px;margin-left:6px;opacity:${_trActive?'1':'0.4'}" onclick="toggleRPTotalReturn()" title="${_sp500trAvail?'Toggle total return (dividends reinvested)':'Total return data loads on next refresh'}">Total Return</button>
     </div>
-    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">Both indexed to 100 at start of window. Above 100 = outperforming S&amp;P 500.</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">Both indexed to 100 at start of window. Above 100 = outperforming S&amp;P 500.${_trActive?' Dividends reinvested (total return).':''}</div>
     <div class="chart-wrap" style="height:200px"><canvas id="rp-chart"></canvas></div>
     <div id="rp-legend" style="display:flex;gap:12px;margin-top:6px">
-      <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:var(--accent)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">${ticker}</span></div>
-      <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:#8b8fa8"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">S&P 500</span></div>
+      <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:var(--accent)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">${ticker}${_trActive?' (TR)':''}</span></div>
+      <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:#8b8fa8"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">S&P 500${_trActive?' (TR)':''}</span></div>
       ${earningsWithOvr?.length?'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:2px;height:12px;background:rgba(255,165,2,0.75)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">Solid=confirmed · Dashed=estimated · Teal=overridden</span></div>':''}
     </div>
     ${earnSummary?`<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">${earnSummary}</div>`:''}
@@ -1527,12 +1562,13 @@ async function refreshSingleTicker(){
       const _rts=_rh2.timestamps.map(d=>Math.floor(d.getTime()/1000));
       const _rcl=_rh2.closes.map(v=>v!=null?Math.round(v*100)/100:null);
       const _rvl=_rh2.volumes?_rh2.volumes.map(v=>v||0):null;
+      const _rac=_rh2.adjcloses?_rh2.adjcloses.map(v=>v!=null?Math.round(v*100)/100:null):null;
       const _rn=nowPT();
-      S.set('hist2y_'+t,{timestamps:_rts,closes:_rcl,volumes:_rvl,ts:_rn});
+      S.set('hist2y_'+t,{timestamps:_rts,closes:_rcl,volumes:_rvl,adjcloses:_rac,ts:_rn});
       const _r1=Math.max(0,_rts.length-252);
-      S.set('hist1y_'+t,{timestamps:_rts.slice(_r1),closes:_rcl.slice(_r1),volumes:_rvl?_rvl.slice(_r1):[],ts:_rn});
+      S.set('hist1y_'+t,{timestamps:_rts.slice(_r1),closes:_rcl.slice(_r1),volumes:_rvl?_rvl.slice(_r1):[],adjcloses:_rac?_rac.slice(_r1):null,ts:_rn});
       const _r6=Math.max(0,_rts.length-126);
-      S.set('hist_'+t,{timestamps:_rts.slice(_r6),closes:_rcl.slice(_r6),volumes:_rvl?_rvl.slice(_r6):[],ts:_rn});
+      S.set('hist_'+t,{timestamps:_rts.slice(_r6),closes:_rcl.slice(_r6),volumes:_rvl?_rvl.slice(_r6):[],adjcloses:_rac?_rac.slice(_r6):null,ts:_rn});
       if(_idRes&&_idRes.closes&&_idRes.closes.length>=2){
         S.set('intraday_'+t,{closes:_idRes.closes,ts:_rn});
       }

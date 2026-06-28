@@ -1287,10 +1287,13 @@ function _getPosPricing(pos){
   let timeValue = null;
   try{
     const cache = S.get('options_exp_' + pos.ticker + '_' + pos.expDate);
-    const puts = cache?.optionChain?.result?.[0]?.options?.[0]?.puts || [];
-    const match = puts.find(p => Math.abs(p.strike - pos.strike) < 0.005);
+    // Support both new flat format {puts:[{s,b,l,...}]} and legacy format
+    let puts;
+    if(cache?.puts) puts = cache.puts.map(c=>({strike:c.s,bid:c.b,lastPrice:c.l}));
+    else puts = cache?.optionChain?.result?.[0]?.options?.[0]?.puts || [];
+    const match = puts.find(p => Math.abs((p.strike||p.s||0) - pos.strike) < 0.005);
     if(match){
-      const premium = (match.bid > 0 ? match.bid : (match.lastPrice || 0));
+      const premium = ((match.bid||match.b||0) > 0 ? (match.bid||match.b) : (match.lastPrice||match.l||0));
       if(premium > 0){
         const totalPremium = premium * 100 * pos.contracts;
         timeValue = Math.max(totalPremium - intrinsic, 0);
@@ -1329,16 +1332,16 @@ function _getMonthlyExpirations(ticker){
 
 function _getStrikesForExpiration(ticker, expDate){
   const cache = S.get('options_exp_' + ticker + '_' + expDate);
-  const result = cache?.optionChain?.result?.[0];
-  if(!result) return [];
-  const puts = result.options?.[0]?.puts || [];
-  // No price-based filter -- show all strikes so existing positions at any
-  // moneyness (deeply ITM or deeply OTM) can be entered accurately.
+  if(!cache) return [];
+  // Support both new flat format {puts:[{s,...}]} and legacy format
+  let puts;
+  if(cache.puts) puts = cache.puts.map(c=>({strike:c.s}));
+  else puts = cache?.optionChain?.result?.[0]?.options?.[0]?.puts || [];
   return puts
-    .filter(p => p.strike > 0)
-    .map(p => p.strike)
-    .filter((v,i,a) => a.indexOf(v) === i) // dedupe
-    .sort((a,b) => b - a); // descending (higher strikes first)
+    .filter(p => (p.strike||p.s||0) > 0)
+    .map(p => p.strike||p.s)
+    .filter((v,i,a) => a.indexOf(v) === i)
+    .sort((a,b) => b - a);
 }
 
 // ── Position add/remove UI ────────────────────────────────────────────────────
@@ -1712,16 +1715,15 @@ function _activeCCNotionalTotal(){
 
 function _getCallStrikesForExpiration(ticker, expDate){
   const cache = S.get('options_exp_' + ticker + '_' + expDate);
-  const result = cache?.optionChain?.result?.[0];
-  if(!result) return [];
-  const calls = result.options?.[0]?.calls || [];
-  // No price-based filter -- show all strikes so existing CC positions at any
-  // moneyness (deeply ITM or deeply OTM) can be entered accurately.
+  if(!cache) return [];
+  let calls;
+  if(cache.calls) calls = cache.calls.map(c=>({strike:c.s}));
+  else calls = cache?.optionChain?.result?.[0]?.options?.[0]?.calls || [];
   return calls
-    .filter(c => c.strike > 0)
-    .map(c => c.strike)
+    .filter(c => (c.strike||c.s||0) > 0)
+    .map(c => c.strike||c.s)
     .filter((v,i,a) => a.indexOf(v) === i)
-    .sort((a,b) => a - b); // ascending (lower/ITM strikes first for calls)
+    .sort((a,b) => a - b);
 }
 
 // ── CC add/remove UI ──────────────────────────────────────────────────────────

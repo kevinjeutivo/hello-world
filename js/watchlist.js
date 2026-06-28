@@ -405,9 +405,9 @@ function _checkVolumeBadge(ticker){
   const today=etDate.toLocaleDateString('en-US',{timeZone:'America/New_York'});
 
   function _getAvgVol(){
-    const hist=S.get('hist_'+ticker)||S.get('hist1y_'+ticker);
+    const hist=S.get('hist2y_'+ticker);
     if(!hist?.volumes?.length)return null;
-    const vols=hist.volumes.filter(v=>v>0);
+    const vols=hist.volumes.slice(-126).filter(v=>v>0);
     if(vols.length<VOL_AVG_DAYS+1)return null;
     // Use all but the last entry for avg (last = today or most recent session)
     return vols.slice(-VOL_AVG_DAYS-1,-1).reduce((s,v)=>s+v,0)/VOL_AVG_DAYS;
@@ -415,9 +415,9 @@ function _checkVolumeBadge(ticker){
 
   // Retroactive path: last completed session volume from history cache
   function _retroCheck(){
-    const hist=S.get('hist_'+ticker)||S.get('hist1y_'+ticker);
+    const hist=S.get('hist2y_'+ticker);
     if(!hist?.volumes?.length)return null;
-    const vols=hist.volumes.filter(v=>v>0);
+    const vols=hist.volumes.slice(-126).filter(v=>v>0);
     if(vols.length<VOL_AVG_DAYS+1)return null;
     const lastVol=vols[vols.length-1];
     const avgVol=vols.slice(-VOL_AVG_DAYS-1,-1).reduce((s,v)=>s+v,0)/VOL_AVG_DAYS;
@@ -435,8 +435,8 @@ function _checkVolumeBadge(ticker){
     if(ms.totalMins<windowStart)return null;
     // Prefer hist1y last volume entry (accumulates all day via full refresh)
     // over snap.intradayVolume which only updates on explicit ticker refresh
-    const hist1yC=S.get('hist1y_'+ticker);
-    const histVols=hist1yC?.volumes?.filter(v=>v>0)||[];
+    const hist2yC=S.get('hist2y_'+ticker);
+    const histVols=hist2yC?.volumes?.slice(-252).filter(v=>v>0)||[];
     const histLastVol=histVols.length?histVols[histVols.length-1]:null;
     const snap=S.get('snap_'+ticker);
     const intradayVol=histLastVol||snap?.intradayVolume||null;

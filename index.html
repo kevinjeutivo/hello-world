@@ -197,7 +197,7 @@ a{color:inherit}
     <div class="header-title">PutSeller Pro <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
-      <span>Options Income Strategy v3.0.0</span>
+      <span>Options Income Strategy <span id="app-build-label"></span></span>
     </div>
     <div id="vix-status-banner"></div>
   </div>
@@ -676,7 +676,7 @@ a{color:inherit}
     <span class="gs-chevron" id="gc-about">&#9658;</span>
   </div>
   <div class="gs-body" id="gb-about">
-    <div class="guide-kv"><span class="guide-key">Version</span><span class="guide-val">v3.0.0 — Options Income Strategy Dashboard</span></div>
+    <div class="guide-kv"><span class="guide-key">Version</span><span class="guide-val">Build number shown in header — increments with every deploy and matches the service worker cache version.</span></div>
     <div class="guide-kv"><span class="guide-key">Platform</span><span class="guide-val">Progressive Web App (PWA). Install from Safari on iPhone for full-screen experience and offline capability.</span></div>
     <div class="guide-kv"><span class="guide-key">Data privacy</span><span class="guide-val">All data stored locally on your device. No account required. No data sent to any server other than Finnhub (for market data) and your own Cloudflare Worker (Yahoo Finance proxy).</span></div>
     <div class="guide-kv"><span class="guide-key">Disclaimer</span><span class="guide-val">For personal research and education only. Not financial advice. Options trading involves substantial risk of loss. Always verify data with your broker before placing trades.</span></div>
@@ -1381,7 +1381,19 @@ function init(){
   if(!FINNHUB_KEY)setTimeout(()=>toast('Add your Finnhub API key in Settings to get started',4000),500);
 }
 
-// Call init when DOM is ready -- with fallback
+// Populate build label from SW cache name -- no hardcoded version in HTML needed
+function _updateBuildLabel(){
+  if(!('caches'in window))return;
+  caches.keys().then(keys=>{
+    const cn=keys.find(k=>k.startsWith('putseller-v'));
+    if(cn){const el=document.getElementById('app-build-label');if(el)el.textContent='build '+cn.replace('putseller-v','');}
+  });
+}
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded',_updateBuildLabel);
+}else{
+  _updateBuildLabel();
+}
 if(document.readyState==='loading'){
   document.addEventListener('DOMContentLoaded', function(){
     try{init();}catch(e){console.error('Init error:',e);toast('App init error: '+e.message,5000);}
@@ -1391,7 +1403,7 @@ if(document.readyState==='loading'){
   try{init();}catch(e){console.error('Init error:',e);toast('App init error: '+e.message,5000);}
 }
 
-if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').then(reg=>{window._swReg=reg;}).catch(err=>console.warn('SW:',err));});
+if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').then(reg=>{window._swReg=reg;_updateBuildLabel();}).catch(err=>console.warn('SW:',err));});
 }
 </script>
 <!-- Income account switcher bar -- OUTSIDE #app to escape CSS zoom context.

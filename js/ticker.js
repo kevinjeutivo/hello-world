@@ -85,17 +85,19 @@ async function loadTicker(){
       const _ac2=h2.adjcloses?h2.adjcloses.map(v=>v!=null?Math.round(v*100)/100:null):null;
       const _now=nowPT();
       S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,adjcloses:_ac2,ts:_now});
-      const _1y=Math.max(0,_ts2.length-252);
-      S.set('hist1y_'+t,{timestamps:_ts2.slice(_1y),closes:_cl2.slice(_1y),volumes:_vl2?_vl2.slice(_1y):[],adjcloses:_ac2?_ac2.slice(_1y):null,ts:_now});
-      const _6m=Math.max(0,_ts2.length-126);
-      S.set('hist_'+t,{timestamps:_ts2.slice(_6m),closes:_cl2.slice(_6m),volumes:_vl2?_vl2.slice(_6m):[],adjcloses:_ac2?_ac2.slice(_6m):null,ts:_now});
-      // Build live hist objects for rendering
+      // Build live hist objects for rendering (sliced from 2Y data -- no separate keys stored)
       hist6mo={timestamps:h2.timestamps.slice(-126),closes:h2.closes.slice(-126),volumes:h2.volumes?h2.volumes.slice(-126):[]};
       hist1y={timestamps:h2.timestamps.slice(-252),closes:h2.closes.slice(-252),volumes:h2.volumes?h2.volumes.slice(-252):[]};
     }catch{
-      // Fallback to cached data
-      const ch=S.get('hist_'+t);if(ch){hist6mo={timestamps:ch.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:ch.closes,volumes:ch.volumes||[]};if(!isLive)showOfflineBanner(ch.ts);}
-      const ch1=S.get('hist1y_'+t);if(ch1)hist1y={timestamps:ch1.timestamps.map(d=>new Date(d*1000)),closes:ch1.closes,volumes:ch1.volumes||[]};
+      // Fallback to hist2y_ cache -- slice for the spans needed
+      const ch2=S.get('hist2y_'+t);
+      if(ch2){
+        const _ts=ch2.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d));
+        const _cl=ch2.closes,_vl=ch2.volumes||[];
+        hist6mo={timestamps:_ts.slice(-126),closes:_cl.slice(-126),volumes:_vl.slice(-126)};
+        hist1y={timestamps:_ts.slice(-252),closes:_cl.slice(-252),volumes:_vl.slice(-252)};
+        if(!isLive)showOfflineBanner(ch2.ts);
+      }
     }
     // ── Save pending earnings date + promote passed dates to confirmed ────────
     try{
@@ -260,9 +262,15 @@ function restoreTickerFromCache(t){
   if(_lastLiveRenderTicker===t&&Date.now()-_lastLiveRenderTime<5000)return;
   // Always read the latest snap -- may be enriched by fetchQuoteSummary since last render
   const snap=S.get('snap_'+t);if(!snap)return;
-  const ch=S.get('hist_'+t);const hist6mo=ch?{timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes,volumes:ch.volumes}:null;
-  const ch1=S.get('hist1y_'+t);const hist1y=ch1?{timestamps:ch1.timestamps.map(d=>new Date(d)),closes:ch1.closes,volumes:ch1.volumes}:null;
   const ch2=S.get('hist2y_'+t);
+  // Derive 6M and 1Y slices from hist2y_ -- no separate hist_ or hist1y_ keys stored
+  let hist6mo=null,hist1y=null;
+  if(ch2){
+    const _ts=ch2.timestamps.map(d=>new Date(d));
+    const _cl=ch2.closes,_vl=ch2.volumes||[];
+    hist6mo={timestamps:_ts.slice(-126),closes:_cl.slice(-126),volumes:_vl.slice(-126)};
+    hist1y={timestamps:_ts.slice(-252),closes:_cl.slice(-252),volumes:_vl.slice(-252)};
+  }
   const _rUseTR=getRPTotalReturn();
   const _rTkCl=_rUseTR&&ch2?.adjcloses?ch2.adjcloses:ch2?.closes;
   const hist2y=ch2?{timestamps:ch2.timestamps.map(d=>new Date(d*1000)),closes:_rTkCl,volumes:ch2.volumes||null}:null;
@@ -393,9 +401,14 @@ function toggleBBSpan(span){
   if(bbData)renderBBChart(bbData,hist);
   // Re-render volume chart for new span
   const _vt=currentTicker;
-  const _vh6=S.get('hist_'+_vt);const _vh6m=_vh6?{timestamps:_vh6.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:_vh6.closes,volumes:_vh6.volumes}:null;
-  const _vh1=S.get('hist1y_'+_vt);const _vh1y=_vh1?{timestamps:_vh1.timestamps.map(d=>new Date(d*1000)),closes:_vh1.closes,volumes:_vh1.volumes}:null;
-  const _vh2=S.get('hist2y_'+_vt);const _vh2y=_vh2?{timestamps:_vh2.timestamps,closes:_vh2.closes,volumes:_vh2.volumes||null}:null;
+  const _vh2=S.get('hist2y_'+_vt);
+  const _vh2y=_vh2?{timestamps:_vh2.timestamps,closes:_vh2.closes,volumes:_vh2.volumes||null}:null;
+  let _vh6m=null,_vh1y=null;
+  if(_vh2){
+    const _vts=_vh2.timestamps;const _vcl=_vh2.closes;const _vvl=_vh2.volumes||[];
+    _vh6m={timestamps:_vts.slice(-126).map(d=>new Date(typeof d==='number'?d*1000:d)),closes:_vcl.slice(-126),volumes:_vvl.slice(-126)};
+    _vh1y={timestamps:_vts.slice(-252).map(d=>new Date(d*1000)),closes:_vcl.slice(-252),volumes:_vvl.slice(-252)};
+  }
   const _vSnap=S.get('snap_'+_vt);const _avg20=_vSnap?.avgVol20||null;
   renderVolChart(_vh6m,_vh1y,_vh2y,span,_avg20);
   renderHVRChart(_vt,span);
@@ -622,17 +635,28 @@ function _triggerRelPerfRedraw(){
   const t=currentTicker;
   const useTR=getRPTotalReturn();
   const h2c=S.get('hist2y_'+t);
-  // Use adjcloses for total return if available, else fall back to closes
   const tkCloses=useTR&&h2c?.adjcloses?h2c.adjcloses:h2c?.closes;
   if(!h2c||!tkCloses)return;
-  // S&P baseline: ^SP500TR for total return, ^GSPC for price return
   const spKey=useTR?'hist2y_sp500tr':'hist2y_sp500';
-  const spc=S.get(spKey)||(useTR?S.get('hist2y_sp500'):null); // fallback to price if TR not cached yet
+  const spc=S.get(spKey)||(useTR?S.get('hist2y_sp500'):null);
   if(!spc)return;
   renderRelPerfChart(t,
     {timestamps:h2c.timestamps,closes:tkCloses},
     {timestamps:spc.timestamps,closes:spc.closes},
     _getEarningsWithOverrides(t),currentRPSpan||'2y');
+  // Update legend labels to reflect current TR state
+  const trSuffix=useTR?' (TR)':'';
+  const legend=document.getElementById('rp-legend');
+  if(legend){
+    const spans=legend.querySelectorAll('span[data-rp-label]');
+    spans.forEach(s=>{
+      if(s.dataset.rpLabel==='ticker') s.textContent=t+trSuffix;
+      if(s.dataset.rpLabel==='sp500') s.textContent='S&P 500'+trSuffix;
+    });
+  }
+  // Update subtitle text
+  const sub=document.getElementById('rp-subtitle');
+  if(sub) sub.textContent='Both lines indexed to 100 at start of window. Stock line above S&P line = outperforming.'+(useTR?' Dividends reinvested (total return.)':'');
 }
 
 function toggleRPSpan(span){
@@ -1005,11 +1029,11 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
     <div style="margin-bottom:6px">
       <button id="rp-tr-btn" class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${_trActive?'1':'0.4'}" onclick="toggleRPTotalReturn()" title="${_sp500trAvail?'Toggle total return (dividends reinvested)':'Total return data loads on next refresh'}">Total Return</button>
     </div>
-    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">Both indexed to 100 at start of window. Above 100 = outperforming S&amp;P 500.${_trActive?' Dividends reinvested (total return).':''}</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px" id="rp-subtitle">Both lines indexed to 100 at start of window. Stock line above S&amp;P line = outperforming.${_trActive?' Dividends reinvested (total return).':''}</div>
     <div class="chart-wrap" style="height:200px"><canvas id="rp-chart"></canvas></div>
     <div id="rp-legend" style="display:flex;gap:12px;margin-top:6px">
-      <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:var(--accent)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">${ticker}${_trActive?' (TR)':''}</span></div>
-      <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:#8b8fa8"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">S&P 500${_trActive?' (TR)':''}</span></div>
+      <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:var(--accent)"></span><span data-rp-label="ticker" style="font-family:var(--mono);font-size:9px;color:var(--text3)">${ticker}${_trActive?' (TR)':''}</span></div>
+      <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:#8b8fa8"></span><span data-rp-label="sp500" style="font-family:var(--mono);font-size:9px;color:var(--text3)">S&P 500${_trActive?' (TR)':''}</span></div>
       ${earningsWithOvr?.length?'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:2px;height:12px;background:rgba(255,165,2,0.75)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">Solid=confirmed · Dashed=estimated · Teal=overridden</span></div>':''}
     </div>
     ${earnSummary?`<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">${earnSummary}</div>`:''}
@@ -1567,10 +1591,6 @@ async function refreshSingleTicker(){
       const _rac=_rh2.adjcloses?_rh2.adjcloses.map(v=>v!=null?Math.round(v*100)/100:null):null;
       const _rn=nowPT();
       S.set('hist2y_'+t,{timestamps:_rts,closes:_rcl,volumes:_rvl,adjcloses:_rac,ts:_rn});
-      const _r1=Math.max(0,_rts.length-252);
-      S.set('hist1y_'+t,{timestamps:_rts.slice(_r1),closes:_rcl.slice(_r1),volumes:_rvl?_rvl.slice(_r1):[],adjcloses:_rac?_rac.slice(_r1):null,ts:_rn});
-      const _r6=Math.max(0,_rts.length-126);
-      S.set('hist_'+t,{timestamps:_rts.slice(_r6),closes:_rcl.slice(_r6),volumes:_rvl?_rvl.slice(_r6):[],adjcloses:_rac?_rac.slice(_r6):null,ts:_rn});
       if(_idRes&&_idRes.closes&&_idRes.closes.length>=2){
         S.set('intraday_'+t,{closes:_idRes.closes,ts:_rn});
       }

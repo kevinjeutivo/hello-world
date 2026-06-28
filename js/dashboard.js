@@ -92,12 +92,12 @@ function runDashboards(){
       const price=snap.price||null;
       if(!price){putResults.push(_dashErr(t,'No cached price'));ccResults.push(_dashErr(t,'No cached price'));continue;}
 
-      // 52W range -- from snap, fallback to hist1y
+      // 52W range -- from snap, fallback to hist2y (sliced to 1Y)
       let w52h=snap.week52High||null,w52l=snap.week52Low||null;
       let rsiVal=null,ma50=null,ma200=null,rangePos=null;
-      const ch1=S.get('hist1y_'+t);
+      const ch1=S.get('hist2y_'+t);
       if(ch1?.closes?.length){
-        const closes=ch1.closes.filter(c=>c!=null&&c>0);
+        const closes=ch1.closes.slice(-252).filter(c=>c!=null&&c>0);
         if(closes.length>=21){
           const rsi=computeRSI(closes);rsiVal=rsi[rsi.length-1];
           if(closes.length>=50)ma50=avg(closes.slice(-50));

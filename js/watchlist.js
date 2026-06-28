@@ -1,5 +1,5 @@
 // PutSeller Pro -- watchlist.js
-// Watchlist tab: render, add, remove (with confirmation modal), sort.
+// Watchlist tab: render, add, remove (with confirmation modal), sort, per-ticker notes.
 // Heatmap: daily % change or IVR coloring on chips.
 // Volume badge: 🔥 VOL when unusual volume detected in final 2h of session or lingers overnight.
 // Globals used: watchlist, watchlistSort, currentTicker, S
@@ -33,6 +33,7 @@ function _ensureRemoveModal(){
 }
 
 function _openRemoveModal(ticker){
+  _closeTickerMenu(); // close ⋯ menu if open
   _pendingRemoveTicker=ticker;
   const el=_ensureRemoveModal();
   document.getElementById('wrm-body').textContent=
@@ -44,6 +45,131 @@ function _closeRemoveModal(){
   _pendingRemoveTicker=null;
   const el=document.getElementById('watchlist-remove-modal');
   if(el)el.classList.remove('open');
+}
+
+// ── Per-ticker note modal ─────────────────────────────────────────────────────
+
+let _pendingNoteTicker=null;
+
+function _openNoteModal(ticker){
+  _closeTickerMenu();
+  _pendingNoteTicker=ticker;
+  const existing=S.get('watchlist_note_'+ticker)||'';
+  let el=document.getElementById('watchlist-note-modal');
+  if(!el){
+    el=document.createElement('div');
+    el.className='modal-overlay';
+    el.id='watchlist-note-modal';
+    document.body.appendChild(el);
+    el.addEventListener('click',e=>{if(e.target===el)_closeNoteModal();});
+  }
+  el.innerHTML=
+    '<div class="modal-box">'+
+      '<div class="modal-title modal-title-neutral" id="wnm-title">Note for '+ticker+'</div>'+
+      '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">Appears below the ticker row. Max 200 characters.</div>'+
+      '<textarea id="wnm-text" maxlength="200" rows="3" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:12px;padding:8px;resize:none;outline:none">'+existing.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</textarea>'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">'+
+        '<span id="wnm-counter" style="font-family:var(--mono);font-size:9px;color:var(--text3)">'+existing.length+'/200</span>'+
+        '<div style="display:flex;gap:8px">'+
+          '<button class="btn btn-secondary btn-sm" onclick="_closeNoteModal()">Cancel</button>'+
+          (existing?'<button class="btn btn-danger btn-sm" onclick="_clearNote()">Clear</button>':'')+
+          '<button class="btn btn-primary btn-sm" onclick="_saveNote()">Save</button>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  el.classList.add('open');
+  const ta=document.getElementById('wnm-text');
+  if(ta){
+    ta.addEventListener('input',()=>{
+      const c=document.getElementById('wnm-counter');
+      if(c)c.textContent=ta.value.length+'/200';
+    });
+    setTimeout(()=>ta.focus(),100);
+  }
+}
+
+function _closeNoteModal(){
+  _pendingNoteTicker=null;
+  const el=document.getElementById('watchlist-note-modal');
+  if(el)el.classList.remove('open');
+}
+
+function _saveNote(){
+  const ticker=_pendingNoteTicker;
+  if(!ticker)return;
+  const ta=document.getElementById('wnm-text');
+  const text=(ta?ta.value.trim():'');
+  if(text) S.set('watchlist_note_'+ticker,text);
+  else S.del('watchlist_note_'+ticker);
+  _closeNoteModal();
+  renderWatchlist();
+  toast(text?'Note saved':'Note cleared');
+}
+
+function _clearNote(){
+  const ticker=_pendingNoteTicker;
+  if(!ticker)return;
+  S.del('watchlist_note_'+ticker);
+  _closeNoteModal();
+  renderWatchlist();
+  toast('Note cleared');
+}
+
+// ── ⋯ ticker action menu ──────────────────────────────────────────────────────
+
+let _activeMenuTicker=null;
+
+function _openTickerMenu(ticker,btnEl){
+  // If already open for this ticker, close it
+  if(_activeMenuTicker===ticker){ _closeTickerMenu(); return; }
+  _closeTickerMenu();
+  _activeMenuTicker=ticker;
+
+  // Remove any existing menu
+  const existing=document.getElementById('ticker-action-menu');
+  if(existing)existing.remove();
+
+  const menu=document.createElement('div');
+  menu.id='ticker-action-menu';
+  menu.style.cssText=
+    'position:fixed;z-index:500;background:var(--surface);border:1px solid var(--border);'+
+    'border-radius:var(--radius);box-shadow:0 4px 20px rgba(0,0,0,0.5);min-width:160px;overflow:hidden';
+
+  const hasNote=!!(S.get('watchlist_note_'+ticker));
+  menu.innerHTML=
+    '<div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:8px 12px 6px;border-bottom:1px solid var(--border)">'+ticker+'</div>'+
+    '<div style="padding:4px 0">'+
+      '<div onclick="event.stopPropagation();_openNoteModal(\''+ticker+'\')" style="display:flex;align-items:center;gap:8px;padding:10px 14px;cursor:pointer;font-family:var(--mono);font-size:12px;color:var(--text2)" onmouseenter="this.style.background=\'var(--surface2)\'" onmouseleave="this.style.background=\'\'">'+
+        '<span style="font-size:14px">✎</span>'+(hasNote?'Edit Note':'Add Note')+
+      '</div>'+
+      '<div onclick="event.stopPropagation();_openRemoveModal(\''+ticker+'\')" style="display:flex;align-items:center;gap:8px;padding:10px 14px;cursor:pointer;font-family:var(--mono);font-size:12px;color:var(--red)" onmouseenter="this.style.background=\'var(--surface2)\'" onmouseleave="this.style.background=\'\'">'+
+        '<span style="font-size:14px">✕</span>Remove from Watchlist'+
+      '</div>'+
+    '</div>';
+
+  document.body.appendChild(menu);
+
+  // Position near the button
+  const rect=btnEl.getBoundingClientRect();
+  const menuW=170;
+  let left=rect.right-menuW;
+  if(left<8)left=8;
+  let top=rect.bottom+4;
+  // Flip up if too close to bottom
+  if(top+130>window.innerHeight)top=rect.top-134;
+  menu.style.left=left+'px';
+  menu.style.top=top+'px';
+
+  // Dismiss on outside tap
+  setTimeout(()=>{
+    document.addEventListener('click',_closeTickerMenu,{once:true});
+  },0);
+}
+
+function _closeTickerMenu(){
+  _activeMenuTicker=null;
+  const el=document.getElementById('ticker-action-menu');
+  if(el)el.remove();
 }
 
 function _confirmRemove(){
@@ -372,6 +498,7 @@ function renderWatchlist(){
     const bgStyle=hmBg?'background:'+hmBg+';':'';
     const volBadge=_volBadgeHtml(_checkVolumeBadge(t));
     const ivrBadge=_ivrBadgeHtml(t);
+    const note=S.get('watchlist_note_'+t)||'';
     return '<div class="watchlist-item" style="'+bgStyle+'" onclick="selectTickerFromWatchlist(\''+t+'\')">'+
       '<div style="min-width:0;flex-shrink:1">'+
         '<div class="watchlist-ticker">'+t+ivrBadge+volBadge+'</div>'+
@@ -384,8 +511,13 @@ function renderWatchlist(){
         '<div class="watchlist-price">'+price+'</div>'+
         (hasChg?'<div class="watchlist-change" style="color:'+cc+'">'+(chg>=0?'+':'')+chg.toFixed(2)+' ('+(chgPct>=0?'+':'')+chgPct.toFixed(2)+'%)</div>':'')+
       '</div>'+
-      '<button class="watchlist-remove" onclick="event.stopPropagation();_openRemoveModal(\''+t+'\')">&#x2715;</button>'+
-    '</div>';
+      '<button class="watchlist-remove" title="Actions" onclick="event.stopPropagation();_openTickerMenu(\''+t+'\',this)">&#x22EF;</button>'+
+    '</div>'+
+    (note?
+      '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);padding:3px 12px 5px;margin-top:-4px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;background:var(--surface2);border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius)" onclick="selectTickerFromWatchlist(\''+t+'\')">'+
+        note.replace(/</g,'&lt;').replace(/>/g,'&gt;')+
+      '</div>'
+    :'');
   }).join('')+legendHtml;
 }
 
@@ -420,4 +552,3 @@ function populateSelects(){
   document.getElementById('ticker-select').innerHTML=opts;
   document.getElementById('options-ticker-select').innerHTML=opts;
 }
-    

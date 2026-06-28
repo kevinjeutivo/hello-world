@@ -499,25 +499,27 @@ function renderWatchlist(){
     const volBadge=_volBadgeHtml(_checkVolumeBadge(t));
     const ivrBadge=_ivrBadgeHtml(t);
     const note=S.get('watchlist_note_'+t)||'';
-    return '<div class="watchlist-item" style="'+bgStyle+'" onclick="selectTickerFromWatchlist(\''+t+'\')">'+
-      '<div style="min-width:0;flex-shrink:1">'+
-        '<div class="watchlist-ticker">'+t+ivrBadge+volBadge+'</div>'+
-        (c?'<div class="watchlist-ts">'+c.ts+(age?' ('+age+')':'')+'</div>':'')+
+    return '<div class="watchlist-item" style="flex-direction:column;align-items:stretch;'+bgStyle+'" onclick="selectTickerFromWatchlist(\''+t+'\')">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;width:100%">'+
+        '<div style="min-width:0;flex-shrink:1">'+
+          '<div class="watchlist-ticker">'+t+ivrBadge+volBadge+'</div>'+
+          (c?'<div class="watchlist-ts">'+c.ts+(age?' ('+age+')':'')+'</div>':'')+
+        '</div>'+
+        '<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:0 8px">'+
+          _sparklineHtml(t)+
+        '</div>'+
+        '<div style="text-align:right;flex-shrink:0">'+
+          '<div class="watchlist-price">'+price+'</div>'+
+          (hasChg?'<div class="watchlist-change" style="color:'+cc+'">'+(chg>=0?'+':'')+chg.toFixed(2)+' ('+(chgPct>=0?'+':'')+chgPct.toFixed(2)+'%)</div>':'')+
+        '</div>'+
+        '<button class="watchlist-remove" title="Actions" onclick="event.stopPropagation();_openTickerMenu(\''+t+'\',this)">&#x22EF;</button>'+
       '</div>'+
-      '<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:0 8px">'+
-        _sparklineHtml(t)+
-      '</div>'+
-      '<div style="text-align:right;flex-shrink:0">'+
-        '<div class="watchlist-price">'+price+'</div>'+
-        (hasChg?'<div class="watchlist-change" style="color:'+cc+'">'+(chg>=0?'+':'')+chg.toFixed(2)+' ('+(chgPct>=0?'+':'')+chgPct.toFixed(2)+'%)</div>':'')+
-      '</div>'+
-      '<button class="watchlist-remove" title="Actions" onclick="event.stopPropagation();_openTickerMenu(\''+t+'\',this)">&#x22EF;</button>'+
-    '</div>'+
-    (note?
-      '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);padding:3px 12px 5px;margin-top:-4px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;background:var(--surface2);border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius)" onclick="selectTickerFromWatchlist(\''+t+'\')">'+
-        note.replace(/</g,'&lt;').replace(/>/g,'&gt;')+
-      '</div>'
-    :'');
+      (note?
+        '<div style="width:100%;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-family:var(--mono);font-size:10px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" onclick="event.stopPropagation();selectTickerFromWatchlist(\''+t+'\')">'+
+          note.replace(/</g,'&lt;').replace(/>/g,'&gt;')+
+        '</div>'
+      :'')+
+    '</div>';
   }).join('')+legendHtml;
 }
 

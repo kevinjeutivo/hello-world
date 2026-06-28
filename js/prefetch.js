@@ -21,9 +21,17 @@ async function prefetchAll(){
     toast('Note: options data fetched outside market hours may have synthetic IV. Fetch again during market hours for accurate IVR.',6000);
   }
   const btn=document.getElementById('prefetch-btn');if(btn)btn.disabled=true;
-  // Fetch ^GSPC 2Y history once per prefetch run (shared across all tickers)
-  try{const cacheAge=(Date.now()-(S.get('hist2y_sp500')?.ts||0))/3600000;
-    if(cacheAge>4){const sp2=await _pfTimeout(yahooHistory('^GSPC','2y','1d'),15000,'GSPC hist2y');S.set('hist2y_sp500',{timestamps:sp2.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:sp2.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});}
+  // Fetch ^GSPC and ^SP500TR 2Y history once per prefetch run (shared across all tickers)
+  // ^GSPC = price return; ^SP500TR = total return index (dividends reinvested, no expense ratio)
+  try{
+    const cacheAge=(Date.now()-(S.get('hist2y_sp500')?.ts||0))/3600000;
+    const cacheAgeTR=(Date.now()-(S.get('hist2y_sp500tr')?.ts||0))/3600000;
+    const [_gspc,_sp500tr]=await Promise.all([
+      cacheAge>4?_pfTimeout(yahooHistory('^GSPC','2y','1d'),15000,'GSPC').catch(()=>null):Promise.resolve(null),
+      cacheAgeTR>4?_pfTimeout(yahooHistory('^SP500TR','2y','1d'),15000,'SP500TR').catch(()=>null):Promise.resolve(null)
+    ]);
+    if(_gspc)S.set('hist2y_sp500',{timestamps:_gspc.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:_gspc.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});
+    if(_sp500tr)S.set('hist2y_sp500tr',{timestamps:_sp500tr.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:_sp500tr.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});
   }catch{}
   const progressEl=document.getElementById('prefetch-progress');const barEl=document.getElementById('prefetch-progress-bar');const labelEl=document.getElementById('prefetch-label');
   if(progressEl)progressEl.style.display='block';
@@ -62,12 +70,13 @@ async function prefetchAll(){
         const _ts2=_h2res.timestamps.map(d=>Math.floor(d.getTime()/1000));
         const _cl2=_h2res.closes.map(v=>v!=null?Math.round(v*100)/100:null);
         const _vl2=_h2res.volumes?_h2res.volumes.map(v=>v||0):null;
+        const _ac2=_h2res.adjcloses?_h2res.adjcloses.map(v=>v!=null?Math.round(v*100)/100:null):null;
         const _now=nowPT();
-        S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,ts:_now});
+        S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,adjcloses:_ac2,ts:_now});
         const _1y=Math.max(0,_ts2.length-252);
-        S.set('hist1y_'+t,{timestamps:_ts2.slice(_1y),closes:_cl2.slice(_1y),volumes:_vl2?_vl2.slice(_1y):[],ts:_now});
+        S.set('hist1y_'+t,{timestamps:_ts2.slice(_1y),closes:_cl2.slice(_1y),volumes:_vl2?_vl2.slice(_1y):[],adjcloses:_ac2?_ac2.slice(_1y):null,ts:_now});
         const _6m=Math.max(0,_ts2.length-126);
-        S.set('hist_'+t,{timestamps:_ts2.slice(_6m),closes:_cl2.slice(_6m),volumes:_vl2?_vl2.slice(_6m):[],ts:_now});
+        S.set('hist_'+t,{timestamps:_ts2.slice(_6m),closes:_cl2.slice(_6m),volumes:_vl2?_vl2.slice(_6m):[],adjcloses:_ac2?_ac2.slice(_6m):null,ts:_now});
         _health.tickers[t].hist=true;_h2ok=true;
       }
       // Process options

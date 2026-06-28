@@ -999,9 +999,11 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
       <span id="rp-title-span"><span class="dot" style="background:var(--accent)"></span>Relative Performance vs S&P 500 (${_rpSpanLabel})</span>
       <button id="rp-earn-btn" class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${earnToggleOpacity}" onclick="toggleRelPerfEarnings()">Earnings</button>
     </div>
-    <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap;align-items:center">
+    <div style="display:flex;gap:4px;margin-bottom:4px">
       ${_rpBtn('6m','6M')+_rpBtn('1y','1Y')+_rpBtn('2y','2Y')}
-      <button id="rp-tr-btn" class="btn btn-secondary" style="font-size:10px;padding:2px 8px;margin-left:6px;opacity:${_trActive?'1':'0.4'}" onclick="toggleRPTotalReturn()" title="${_sp500trAvail?'Toggle total return (dividends reinvested)':'Total return data loads on next refresh'}">Total Return</button>
+    </div>
+    <div style="margin-bottom:6px">
+      <button id="rp-tr-btn" class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${_trActive?'1':'0.4'}" onclick="toggleRPTotalReturn()" title="${_sp500trAvail?'Toggle total return (dividends reinvested)':'Total return data loads on next refresh'}">Total Return</button>
     </div>
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">Both indexed to 100 at start of window. Above 100 = outperforming S&amp;P 500.${_trActive?' Dividends reinvested (total return).':''}</div>
     <div class="chart-wrap" style="height:200px"><canvas id="rp-chart"></canvas></div>

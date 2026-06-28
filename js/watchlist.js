@@ -47,6 +47,19 @@ function _closeRemoveModal(){
   if(el)el.classList.remove('open');
 }
 
+// ── Per-ticker note expand/collapse (session-only, resets on tab leave) ───────
+const _expandedNotes = new Set();
+
+function _toggleNoteExpand(ticker){
+  if(_expandedNotes.has(ticker)) _expandedNotes.delete(ticker);
+  else _expandedNotes.add(ticker);
+  renderWatchlist();
+}
+
+function _resetNoteExpansions(){
+  _expandedNotes.clear();
+}
+
 // ── Per-ticker note modal ─────────────────────────────────────────────────────
 
 let _pendingNoteTicker=null;
@@ -65,14 +78,14 @@ function _openNoteModal(ticker){
   }
   el.innerHTML=
     '<div class="modal-box">'+
-      '<div class="modal-title modal-title-neutral" id="wnm-title">Note for '+ticker+'</div>'+
+      '<div class="modal-title modal-title-neutral">Note for '+ticker+'</div>'+
       '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">Appears below the ticker row. Max 200 characters.</div>'+
       '<textarea id="wnm-text" maxlength="200" rows="3" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:12px;padding:8px;resize:none;outline:none">'+existing.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</textarea>'+
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">'+
         '<span id="wnm-counter" style="font-family:var(--mono);font-size:9px;color:var(--text3)">'+existing.length+'/200</span>'+
-        '<div style="display:flex;gap:8px">'+
+        '<div id="wnm-btns" style="display:flex;gap:8px">'+
           '<button class="btn btn-secondary btn-sm" onclick="_closeNoteModal()">Cancel</button>'+
-          (existing?'<button class="btn btn-danger btn-sm" onclick="_clearNote()">Clear</button>':'')+
+          (existing?'<button class="btn btn-danger btn-sm" onclick="_confirmClearNote()">Clear</button>':'')+
           '<button class="btn btn-primary btn-sm" onclick="_saveNote()">Save</button>'+
         '</div>'+
       '</div>'+
@@ -86,6 +99,25 @@ function _openNoteModal(ticker){
     });
     setTimeout(()=>ta.focus(),100);
   }
+}
+
+function _confirmClearNote(){
+  // Replace button row with inline "are you sure?" prompt
+  const btns=document.getElementById('wnm-btns');
+  if(!btns)return;
+  btns.innerHTML=
+    '<span style="font-family:var(--mono);font-size:11px;color:var(--text2)">Clear note?</span>'+
+    '<button class="btn btn-secondary btn-sm" onclick="_restoreClearBtn()">Cancel</button>'+
+    '<button class="btn btn-danger btn-sm" onclick="_clearNote()">Yes, clear it</button>';
+}
+
+function _restoreClearBtn(){
+  const btns=document.getElementById('wnm-btns');
+  if(!btns)return;
+  btns.innerHTML=
+    '<button class="btn btn-secondary btn-sm" onclick="_closeNoteModal()">Cancel</button>'+
+    '<button class="btn btn-danger btn-sm" onclick="_confirmClearNote()">Clear</button>'+
+    '<button class="btn btn-primary btn-sm" onclick="_saveNote()">Save</button>';
 }
 
 function _closeNoteModal(){
@@ -499,6 +531,7 @@ function renderWatchlist(){
     const volBadge=_volBadgeHtml(_checkVolumeBadge(t));
     const ivrBadge=_ivrBadgeHtml(t);
     const note=S.get('watchlist_note_'+t)||'';
+    const expanded=_expandedNotes.has(t);
     return '<div class="watchlist-item" style="flex-direction:column;align-items:stretch;'+bgStyle+'" onclick="selectTickerFromWatchlist(\''+t+'\')">'+
       '<div style="display:flex;align-items:center;justify-content:space-between;width:100%">'+
         '<div style="min-width:0;flex-shrink:1">'+
@@ -515,8 +548,9 @@ function renderWatchlist(){
         '<button class="watchlist-remove" title="Actions" onclick="event.stopPropagation();_openTickerMenu(\''+t+'\',this)">&#x22EF;</button>'+
       '</div>'+
       (note?
-        '<div style="width:100%;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-family:var(--mono);font-size:10px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" onclick="event.stopPropagation();selectTickerFromWatchlist(\''+t+'\')">'+
-          note.replace(/</g,'&lt;').replace(/>/g,'&gt;')+
+        '<div onclick="event.stopPropagation();_toggleNoteExpand(\''+t+'\')" style="width:100%;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-family:var(--mono);font-size:10px;color:var(--text2);cursor:pointer;display:flex;align-items:flex-start;gap:4px">'+
+          '<span style="flex:1;'+(expanded?'white-space:normal;word-break:break-word':'white-space:nowrap;overflow:hidden;text-overflow:ellipsis')+'">'+note.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</span>'+
+          '<span style="flex-shrink:0;color:var(--text3);font-size:8px;padding-top:1px">'+(expanded?'▲':'▼')+'</span>'+
         '</div>'
       :'')+
     '</div>';

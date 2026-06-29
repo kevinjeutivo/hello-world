@@ -428,8 +428,15 @@ function buildR40Tile(snap){
   else if(Math.abs(marginNorm)<=1&&marginNorm!==0)marginNorm=marginNorm*100;
   // Clamp to reasonable range (-100% to +100%)
   marginNorm=Math.max(-100,Math.min(100,marginNorm));
-  // revenueGrowthTTMYoy is consistently returned as a decimal by Finnhub (0.25 = 25%)
-  const growthPct=(revGrowth*100).toFixed(1);
+  // Finnhub returns revenueGrowthTTMYoy inconsistently across tickers:
+  // sometimes decimal (0.25 = 25%), sometimes percentage (25.0), sometimes large int (2500).
+  // Apply same normalization logic as margin.
+  let growthNorm=revGrowth;
+  if(Math.abs(growthNorm)>200)growthNorm=growthNorm/100;       // large int → percentage
+  else if(Math.abs(growthNorm)<=2&&growthNorm!==0)growthNorm=growthNorm*100; // decimal → percentage
+  // Clamp to reasonable range (-100% to +500% for hypergrowth)
+  growthNorm=Math.max(-100,Math.min(500,growthNorm));
+  const growthPct=growthNorm.toFixed(1);
   const marginPct=marginNorm.toFixed(1);
   const score=parseFloat(growthPct)+parseFloat(marginPct);
   const scoreStr=score.toFixed(1);

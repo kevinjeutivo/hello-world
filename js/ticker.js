@@ -69,6 +69,11 @@ async function loadTicker(){
           if(qs.shortPctFloat!=null){snap.shortPctFloat=qs.shortPctFloat;snap.shortRatioYahoo=qs.shortRatioYahoo;}
           if(qs.earningsTrend&&qs.earningsTrend.length)snap.earningsTrend=qs.earningsTrend;
           if(qs.recTrend&&qs.recTrend.length)snap.recTrend=qs.recTrend;
+          // Yahoo Rule of 40 inputs -- clean decimals, no normalization needed
+          if(qs.revenueGrowthYahoo!=null)snap.revenueGrowthYahoo=qs.revenueGrowthYahoo;
+          if(qs.operatingMarginsYahoo!=null)snap.operatingMarginsYahoo=qs.operatingMarginsYahoo;
+          if(qs.freeCashflowYahoo!=null&&qs.totalRevenueYahoo!=null&&qs.totalRevenueYahoo!==0)
+            snap.fcfMarginYahoo=qs.freeCashflowYahoo/qs.totalRevenueYahoo;
           S.set('snap_'+t,snap);
         }
       }catch{}
@@ -415,41 +420,49 @@ function toggleBBSpan(span){
 }
 
 function buildR40Tile(snap){
-  const revGrowth=snap.revenueGrowthTTM;
-  const margin=snap.fcfMargin||snap.operatingMargin;
-  if(revGrowth===null||revGrowth===undefined||margin===null||margin===undefined)return'';
-  // revenueGrowthTTMYoy is a decimal (0.25 = 25%) -- multiply by 100
-  // fcfMargin / operatingMargin: Finnhub returns inconsistently --
-  // sometimes as a percentage (42.3) sometimes as a decimal (0.423)
-  // and occasionally as a large integer (4230 -- bug in their API).
-  // Normalize: if |value| > 200, divide by 100. If |value| <= 1, multiply by 100.
-  let marginNorm=margin;
-  if(Math.abs(marginNorm)>200)marginNorm=marginNorm/100;
-  else if(Math.abs(marginNorm)<=1&&marginNorm!==0)marginNorm=marginNorm*100;
-  // Clamp to reasonable range (-100% to +100%)
-  marginNorm=Math.max(-100,Math.min(100,marginNorm));
-  // Finnhub returns revenueGrowthTTMYoy inconsistently across tickers:
-  // sometimes decimal (0.25 = 25%), sometimes percentage (25.0), sometimes large int (2500).
-  // Apply same normalization logic as margin.
-  let growthNorm=revGrowth;
-  if(Math.abs(growthNorm)>200)growthNorm=growthNorm/100;       // large int → percentage
-  else if(Math.abs(growthNorm)<=2&&growthNorm!==0)growthNorm=growthNorm*100; // decimal → percentage
-  // Clamp to reasonable range (-100% to +500% for hypergrowth)
-  growthNorm=Math.max(-100,Math.min(500,growthNorm));
-  const growthPct=growthNorm.toFixed(1);
-  const marginPct=marginNorm.toFixed(1);
+  // Prefer Yahoo financialData fields -- clean decimals, no normalization needed.
+  // Fall back to Finnhub fields with normalization if Yahoo not yet cached.
+  const hasYahoo=snap.revenueGrowthYahoo!=null&&(snap.fcfMarginYahoo!=null||snap.operatingMarginsYahoo!=null);
+
+  let growthPct,marginPct,marginLabel;
+
+  if(hasYahoo){
+    // Yahoo: all fields are clean decimals (0.09 = 9%, 0.15 = 15%)
+    growthPct=(snap.revenueGrowthYahoo*100).toFixed(1);
+    const margin=snap.fcfMarginYahoo??snap.operatingMarginsYahoo;
+    marginPct=(margin*100).toFixed(1);
+    marginLabel=snap.fcfMarginYahoo!=null?'FCF':'Operating';
+  }else{
+    // Finnhub fallback with normalization
+    const revGrowth=snap.revenueGrowthTTM;
+    const margin=snap.fcfMargin||snap.operatingMargin;
+    if(revGrowth===null||revGrowth===undefined||margin===null||margin===undefined)return'';
+    let marginNorm=margin;
+    if(Math.abs(marginNorm)>200)marginNorm=marginNorm/100;
+    else if(Math.abs(marginNorm)<=1&&marginNorm!==0)marginNorm=marginNorm*100;
+    marginNorm=Math.max(-100,Math.min(100,marginNorm));
+    let growthNorm=revGrowth;
+    if(Math.abs(growthNorm)>200)growthNorm=growthNorm/100;
+    else if(Math.abs(growthNorm)<=2&&growthNorm!==0)growthNorm=growthNorm*100;
+    growthNorm=Math.max(-100,Math.min(500,growthNorm));
+    growthPct=growthNorm.toFixed(1);
+    marginPct=marginNorm.toFixed(1);
+    marginLabel=snap.fcfMargin?'FCF':'Operating';
+  }
+
+  if(growthPct===undefined||marginPct===undefined)return'';
   const score=parseFloat(growthPct)+parseFloat(marginPct);
   const scoreStr=score.toFixed(1);
   const scoreColor=score>=40?'var(--green)':score>=20?'var(--warn)':'var(--red)';
   const scoreLabel=score>=40?'Healthy (above 40)':score>=20?'Below threshold (20-40)':'Weak (below 20)';
-  const marginLabel=snap.fcfMargin?'FCF':'Operating';
+  const src=hasYahoo?'Yahoo':'Finnhub';
   return '<div class="metric-tile" style="grid-column:span 2">'
     +'<div class="metric-label">Rule of 40 (software/SaaS)</div>'
     +'<div style="display:flex;align-items:baseline;gap:8px;margin-top:4px">'
     +'<div style="font-family:var(--mono);font-size:22px;font-weight:600;color:'+scoreColor+'">'+scoreStr+'</div>'
     +'<div style="font-family:var(--mono);font-size:11px;color:'+scoreColor+'">'+scoreLabel+'</div>'
     +'</div>'
-    +'<div class="metric-sub" style="margin-top:4px">Revenue growth '+growthPct+'% + '+marginLabel+' margin '+marginPct+'% = '+scoreStr+'.'
+    +'<div class="metric-sub" style="margin-top:4px">Revenue growth '+growthPct+'% + '+marginLabel+' margin '+marginPct+'% = '+scoreStr+' ('+src+').'
     +' Applies primarily to software and SaaS companies. Score above 40 indicates healthy growth-profitability balance.</div>'
     +'</div>';
 }
@@ -1613,6 +1626,11 @@ async function refreshSingleTicker(){
         if(qs.shortPctFloat!=null){snap.shortPctFloat=qs.shortPctFloat;snap.shortRatioYahoo=qs.shortRatioYahoo;}
         if(qs.earningsTrend&&qs.earningsTrend.length)snap.earningsTrend=qs.earningsTrend;
         if(qs.recTrend&&qs.recTrend.length)snap.recTrend=qs.recTrend;
+        // Yahoo Rule of 40 inputs -- clean decimals, no normalization needed
+        if(qs.revenueGrowthYahoo!=null)snap.revenueGrowthYahoo=qs.revenueGrowthYahoo;
+        if(qs.operatingMarginsYahoo!=null)snap.operatingMarginsYahoo=qs.operatingMarginsYahoo;
+        if(qs.freeCashflowYahoo!=null&&qs.totalRevenueYahoo!=null&&qs.totalRevenueYahoo!==0)
+          snap.fcfMarginYahoo=qs.freeCashflowYahoo/qs.totalRevenueYahoo;
       }}catch{}
       if(priceTargetS&&priceTargetS.targetMean){snap.ptMean=priceTargetS.targetMean||null;snap.ptHigh=priceTargetS.targetHigh||null;snap.ptLow=priceTargetS.targetLow||null;}
     S.set('snap_'+t,snap);

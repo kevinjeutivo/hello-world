@@ -41,16 +41,44 @@ async function prefetchAll(){
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];if(barEl)barEl.style.width=Math.round((i/watchlist.length)*100)+'%';if(labelEl)labelEl.textContent=`Fetching ${t} (${i+1}/${watchlist.length})...`;
     _health.tickers[t]={snap:false,hist:false,options:false};
-    try{const[quote,profile,metrics,earnings]=await _pfTimeout(Promise.all([fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),fh(`/stock/metric?symbol=${t}&metric=all`),fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`)]),12000,t+' Finnhub main');
-      // Fetch rec and upgrades sequentially to avoid rate limit (60/min on free tier)
-      let rec2=null,upgrades2=null,priceTarget2=null;
-      // Skip rec/upgrades/pt if cached less than 24h ago -- they change slowly
+    try{
+      // Yahoo /quote and quoteSummary in parallel -- replaces Finnhub quote+profile2+metric
+      const [_ahQ,_qs]=await Promise.all([
+        _pfTimeout(fetchAfterHoursPrice(t),10000,t+' Yahoo quote').catch(()=>null),
+        _pfTimeout(fetchQuoteSummary(t),10000,t+' quoteSummary').catch(()=>null)
+      ]);
+      // Finnhub earnings calendar (BMO/AMC timing -- keep on Finnhub)
+      const earnings=await _pfTimeout(fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),10000,t+' earnings').catch(()=>null);
+      // Rec/upgrades (skip if cached <24h)
+      let rec2=null,upgrades2=null;
       const _recAge=(Date.now()-(S.get('rec_'+t)?.ts?new Date(S.get('rec_'+t).ts).getTime():0))/3600000;
       if(_recAge>=24){
         try{rec2=await _pfTimeout(fh(`/stock/recommendation?symbol=${t}`),8000,t+' rec');}catch{}
         try{upgrades2=await _pfTimeout(fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`),8000,t+' upgrades');}catch{}
-        try{priceTarget2=await _pfTimeout(fh(`/stock/price-target?symbol=${t}`),8000,t+' pt');}catch{}
-      }S.set('snap_'+t,{ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true});_health.tickers[t].snap=true;}catch{}
+      }
+      if(_ahQ&&_ahQ.price){
+        const _pf=_ahQ.price,_pp=_ahQ.prevClose||_ahQ.price;
+        const _futE=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
+        const _sn2={ticker:t,name:_ahQ.name||t,price:_pf,prevClose:_pp,
+          change:_pf-_pp,changePct:((_pf-_pp)/_pp*100),
+          high:_ahQ.high||null,low:_ahQ.low||null,
+          marketCap:_ahQ.marketCap||null,
+          peRatio:_ahQ.peRatio||null,peForward:_ahQ.forwardPE||null,
+          epsTTM:_ahQ.trailingEps||null,
+          dividendYield:_ahQ.dividendYield!=null?_ahQ.dividendYield*100:null,
+          marketState:_ahQ.marketState||null,
+          intradayVolume:_ahQ.intradayVolume||null,
+          postMarketPrice:_ahQ.postMarketPrice||null,
+          postMarketChange:_ahQ.postMarketChange||null,
+          postMarketChangePct:_ahQ.postMarketChangePct||null,
+          earningsDate:_futE[0]?.date||null,earningsHour:_futE[0]?.hour||null,
+          ts:nowPT(),isLive:true};
+        if(_qs){if(_qs.beta!=null)_sn2.beta=_qs.beta;if(_qs.ptMean){_sn2.ptMean=_qs.ptMean;_sn2.ptHigh=_qs.ptHigh||null;_sn2.ptLow=_qs.ptLow||null;_sn2.ptAnalysts=_qs.ptAnalysts||null;}if(_qs.pegRatio!=null)_sn2.pegRatio=_qs.pegRatio;if(_qs.evToEbitda!=null)_sn2.evToEbitda=_qs.evToEbitda;if(_qs.shortPctFloat!=null){_sn2.shortPctFloat=_qs.shortPctFloat;_sn2.shortRatioYahoo=_qs.shortRatioYahoo;}if(_qs.earningsTrend&&_qs.earningsTrend.length)_sn2.earningsTrend=_qs.earningsTrend;if(_qs.recTrend&&_qs.recTrend.length)_sn2.recTrend=_qs.recTrend;if(_qs.revenueGrowthYahoo!=null)_sn2.revenueGrowthYahoo=_qs.revenueGrowthYahoo;if(_qs.operatingMarginsYahoo!=null)_sn2.operatingMarginsYahoo=_qs.operatingMarginsYahoo;if(_qs.freeCashflowYahoo!=null&&_qs.totalRevenueYahoo!=null&&_qs.totalRevenueYahoo!==0)_sn2.fcfMarginYahoo=_qs.freeCashflowYahoo/_qs.totalRevenueYahoo;}
+        S.set('snap_'+t,_sn2);_health.tickers[t].snap=true;
+        if(rec2&&rec2.length)S.set('rec_'+t,{data:rec2[0],ts:nowPT()});
+        if(upgrades2&&upgrades2.length)S.set('upgrades_'+t,{data:upgrades2.slice(0,6),ts:nowPT()});
+      }
+    }catch{}
     // Parallel: 2Y history + options main fetch + intraday (all Yahoo, independent)
     // Always fetch options fresh -- validation guards against writing bad data.
     let _h2ok=false,_opts=null;
@@ -183,21 +211,6 @@ async function prefetchAll(){
           }
         });
     }
-    // Also fetch quote data for after-hours price and forwardPE
-
-    // Parallel: after-hours price + quoteSummary (both Yahoo, independent)
-    try{
-      const[_ah,_qs]=await Promise.all([
-        _pfTimeout(fetchAfterHoursPrice(t),10000,t+' AH').catch(()=>null),
-        _pfTimeout(fetchQuoteSummary(t),12000,t+' QS').catch(()=>null)
-      ]);
-      const _sn2=S.get('snap_'+t);
-      if(_sn2){
-        if(_ah){const _ms=_ah.marketState||'';const _live=_ms==='PRE'||_ms==='POST'||_ms==='POSTPOST'||_ms==='REGULAR';if(_live||_ah.postMarketPrice){_sn2.postMarketPrice=_ah.postMarketPrice;_sn2.postMarketChange=_ah.postMarketChange||null;_sn2.postMarketChangePct=_ah.postMarketChangePct||null;}_sn2.marketState=_ah.marketState||null;_sn2.peForward=_ah.forwardPE||null;if(_ah.trailingEps!==null)_sn2.epsTTM=_ah.trailingEps;}
-        if(_qs){if(_qs.ptMean){_sn2.ptMean=_qs.ptMean;_sn2.ptHigh=_qs.ptHigh||null;_sn2.ptLow=_qs.ptLow||null;_sn2.ptAnalysts=_qs.ptAnalysts||null;}if(_qs.pegRatio!=null)_sn2.pegRatio=_qs.pegRatio;if(_qs.evToEbitda!=null)_sn2.evToEbitda=_qs.evToEbitda;if(_qs.shortPctFloat!=null){_sn2.shortPctFloat=_qs.shortPctFloat;_sn2.shortRatioYahoo=_qs.shortRatioYahoo;}if(_qs.earningsTrend&&_qs.earningsTrend.length)_sn2.earningsTrend=_qs.earningsTrend;if(_qs.recTrend&&_qs.recTrend.length)_sn2.recTrend=_qs.recTrend;if(_qs.revenueGrowthYahoo!=null)_sn2.revenueGrowthYahoo=_qs.revenueGrowthYahoo;if(_qs.operatingMarginsYahoo!=null)_sn2.operatingMarginsYahoo=_qs.operatingMarginsYahoo;if(_qs.freeCashflowYahoo!=null&&_qs.totalRevenueYahoo!=null&&_qs.totalRevenueYahoo!==0)_sn2.fcfMarginYahoo=_qs.freeCashflowYahoo/_qs.totalRevenueYahoo;}
-        S.set('snap_'+t,_sn2);
-      }
-    }catch{}
     try{const news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}
     if(i<watchlist.length-1)await sleep(1000);
   }

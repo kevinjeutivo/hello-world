@@ -92,6 +92,11 @@ async function fetchQuoteSummary(symbol){
       ptHigh:fd.targetHighPrice?.raw||null,
       ptLow:fd.targetLowPrice?.raw||null,
       ptAnalysts:fd.numberOfAnalystOpinions?.raw||null,
+      // Rule of 40 inputs (financialData -- backward-looking reported financials, reliable)
+      revenueGrowthYahoo:fd.revenueGrowth?.raw??null,         // decimal (0.09 = 9%)
+      operatingMarginsYahoo:fd.operatingMargins?.raw??null,   // decimal (0.15 = 15%)
+      freeCashflowYahoo:fd.freeCashflow?.raw??null,           // dollars
+      totalRevenueYahoo:fd.totalRevenue?.raw??null,           // dollars
       // Valuation (defaultKeyStatistics)
       pegRatio:ks.pegRatio?.raw||null,
       evToEbitda:ks.enterpriseToEbitda?.raw||null,

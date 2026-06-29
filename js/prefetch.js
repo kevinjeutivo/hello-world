@@ -90,7 +90,8 @@ async function prefetchAll(){
       ]);
       // Process intraday sparkline data
       if(_idRes && _idRes.closes && _idRes.closes.length >= 2){
-        S.set('intraday_'+t,{closes:_idRes.closes,ts:nowPT()});
+        const _idTs=_idRes.timestamps?_idRes.timestamps.map(d=>d instanceof Date?d.getTime():d):null;
+        S.set('intraday_'+t,{closes:_idRes.closes,timestamps:_idTs,ts:nowPT()});
         _health.tickers[t].intraday=true;
       }
       // Process history

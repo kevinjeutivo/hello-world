@@ -428,10 +428,8 @@ function buildR40Tile(snap){
   else if(Math.abs(marginNorm)<=1&&marginNorm!==0)marginNorm=marginNorm*100;
   // Clamp to reasonable range (-100% to +100%)
   marginNorm=Math.max(-100,Math.min(100,marginNorm));
-  // Same normalization for revenue growth
-  let growthNorm=revGrowth;
-  if(Math.abs(growthNorm)>5)growthNorm=growthNorm/100; // already a percentage
-  const growthPct=(growthNorm*100).toFixed(1);
+  // revenueGrowthTTMYoy is consistently returned as a decimal by Finnhub (0.25 = 25%)
+  const growthPct=(revGrowth*100).toFixed(1);
   const marginPct=marginNorm.toFixed(1);
   const score=parseFloat(growthPct)+parseFloat(marginPct);
   const scoreStr=score.toFixed(1);
@@ -450,6 +448,36 @@ function buildR40Tile(snap){
 }
 
 function fmtVol(v){if(v==null)return'N/A';if(v>=1e9)return(v/1e9).toFixed(2)+'B';if(v>=1e6)return(v/1e6).toFixed(2)+'M';if(v>=1e3)return(v/1e3).toFixed(0)+'K';return v.toFixed(0);}
+
+// Compute 52W high and low with dates from Yahoo hist2y_ cache.
+// Returns {high, highDate, low, lowDate} or null if insufficient data.
+// Uses unadjusted closes (not adjcloses) to match market convention.
+function _compute52W(ticker){
+  try{
+    const h=S.get('hist2y_'+ticker);
+    if(!h||!h.closes||!h.timestamps||h.closes.length<2)return null;
+    // Slice to last 252 trading days (~1 year)
+    const n=Math.min(252,h.closes.length);
+    const closes=h.closes.slice(-n);
+    const timestamps=h.timestamps.slice(-n);
+    let hiIdx=0,loIdx=0;
+    for(let i=1;i<closes.length;i++){
+      if(closes[i]!=null&&(closes[hiIdx]==null||closes[i]>closes[hiIdx]))hiIdx=i;
+      if(closes[i]!=null&&(closes[loIdx]==null||closes[i]<closes[loIdx]))loIdx=i;
+    }
+    if(closes[hiIdx]==null||closes[loIdx]==null)return null;
+    const toDate=ts=>{
+      const d=new Date(typeof ts==='number'?ts*1000:ts);
+      return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    };
+    return{
+      high:closes[hiIdx],
+      highDate:toDate(timestamps[hiIdx]),
+      low:closes[loIdx],
+      lowDate:toDate(timestamps[loIdx])
+    };
+  }catch{return null;}
+}
 
 function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,hist2y,hist2ySP,earningsHistory){
   if(isLive){_lastLiveRenderTicker=snap.ticker;_lastLiveRenderTime=Date.now();}
@@ -547,8 +575,14 @@ if(!snap.postMarketPrice||snap.postMarketPrice===snap.price)return'';
 const _label=snap.marketState==='PRE'?'Pre-market':'After-hours';
 return`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarketPrice>snap.price?'var(--green)':'var(--red)'};margin-bottom:8px">${_label}: $${snap.postMarketPrice.toFixed(2)}${snap.postMarketChange?` <span style="font-size:11px">${snap.postMarketChange>=0?'+':''}${snap.postMarketChange.toFixed(2)} (${snap.postMarketChange>=0?'+':''}${snap.postMarketChangePct?.toFixed(2)||'0.00'}%)</span>`:''} <span style="font-size:10px;color:var(--text3)">(${snap.marketState||'extended'})</span></div>`;})()}
     <div class="metrics-grid">
-      <div class="metric-tile"><div class="metric-label">52W High</div><div class="metric-value" style="font-size:13px">$${snap.week52High?.toFixed(2)||'N/A'}</div></div>
-      <div class="metric-tile"><div class="metric-label">52W Low</div><div class="metric-value" style="font-size:13px">$${snap.week52Low?.toFixed(2)||'N/A'}</div></div>
+      ${(()=>{const _52w=_compute52W(snap.ticker);
+        const hi=_52w?.high??snap.week52High;const hiDate=_52w?.highDate||null;
+        const lo=_52w?.low??snap.week52Low;const loDate=_52w?.lowDate||null;
+        const hiPct=hi&&snap.price?((snap.price-hi)/hi*100).toFixed(1):null;
+        const loPct=lo&&snap.price?((snap.price-lo)/lo*100).toFixed(1):null;
+        return`<div class="metric-tile"><div class="metric-label">52W High</div><div class="metric-value" style="font-size:13px">$${hi?.toFixed(2)||'N/A'}</div>${hiDate?`<div class="metric-sub">${hiDate}${hiPct?` · ${hiPct}% from high`:''}</div>`:hiPct?`<div class="metric-sub">${hiPct}% from high</div>`:''}</div>`+
+        `<div class="metric-tile"><div class="metric-label">52W Low</div><div class="metric-value" style="font-size:13px">$${lo?.toFixed(2)||'N/A'}</div>${loDate?`<div class="metric-sub">${loDate}${loPct?` · +${loPct}% from low`:''}</div>`:loPct?`<div class="metric-sub">+${loPct}% from low</div>`:''}</div>`;
+      })()}
       <div class="metric-tile"><div class="metric-label">Market Cap</div><div class="metric-value" style="font-size:12px">${fmtCap(snap.marketCap)}</div></div>
       <div class="metric-tile"><div class="metric-label">Beta</div><div class="metric-value">${snap.beta?.toFixed(2)||'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">P/E (TTM)</div><div class="metric-value">${snap.peRatio?.toFixed(1)||'N/A'}</div></div>

@@ -15,61 +15,60 @@ async function loadTicker(){
       // Only fetch /stock/earnings history if confirmed cache is sparse (<4 entries)
       const _confCacheCount=(S.get('earnings_confirmed_'+t)||[]).length;
       const _needEarningsHist=_confCacheCount<4;
-      const[quote,profile,metrics,earnings,earningsHist]=await Promise.all([
-        fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),
-        fh(`/stock/metric?symbol=${t}&metric=all`),
+      // Finnhub retained only for earnings calendar (BMO/AMC timing most reliable there)
+      // and news/upgrades/recommendations. All price/fundamental fields now from Yahoo.
+      const[earnings,earningsHist]=await Promise.all([
         fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),
         _needEarningsHist?fh(`/stock/earnings?symbol=${t}&limit=8`):Promise.resolve(null)
       ]);
       let rec=null,upgrades=null;
       try{rec=await fh(`/stock/recommendation?symbol=${t}`);}catch{}
       try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch{}
-      // price targets fetched via fetchQuoteSummary below (Yahoo, free tier)
-      snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),high:quote.h,low:quote.l,week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,peForward:metrics.metric?.peForwardAnnual||null,epsTTM:metrics.metric?.epsBasicExclExtraTTM||null,epsGrowth:metrics.metric?.epsGrowthTTMYoy||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,shortInterestPct:metrics.metric?.shortInterestPercentage||metrics.metric?.shortInterestPercent||null,revenueGrowthTTM:metrics.metric?.revenueGrowthTTMYoy||null,fcfMargin:metrics.metric?.freeCashFlowMarginAnnual||null,operatingMargin:metrics.metric?.operatingMarginAnnual||null,earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),ts:nowPT(),isLive:true};
+
+      // Build snap from Yahoo /quote (via fetchAfterHoursPrice which now returns full quote fields)
+      const ah=await fetchAfterHoursPrice(t);
+      if(!ah||!ah.price)throw new Error('Yahoo quote failed for '+t);
+      const _price=ah.price;
+      const _prev=ah.prevClose||_price;
+      snap={
+        ticker:t,
+        name:ah.name||t,
+        price:_price,
+        prevClose:_prev,
+        change:_price-_prev,
+        changePct:((_price-_prev)/_prev*100),
+        high:ah.high||null,
+        low:ah.low||null,
+        marketCap:ah.marketCap||null,
+        peRatio:ah.peRatio||null,
+        peForward:ah.forwardPE||null,
+        epsTTM:ah.trailingEps||null,
+        dividendYield:ah.dividendYield!=null?ah.dividendYield*100:null, // convert decimal→%
+        marketState:ah.marketState||null,
+        intradayVolume:ah.intradayVolume||null,
+        postMarketPrice:ah.postMarketPrice||null,
+        postMarketChange:ah.postMarketChange||null,
+        postMarketChangePct:ah.postMarketChangePct||null,
+        // Earnings from Finnhub calendar (BMO/AMC timing)
+        earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),
+        earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),
+        ts:nowPT(),isLive:true
+      };
       recData=rec&&rec.length?rec[0]:null;
       const upgradeData=upgrades&&upgrades.length?upgrades.slice(0,6):[];
-      // Sanity-check 52W range -- Finnhub can return TWD values for ADRs like TSM
-      if(snap.week52High&&snap.week52Low&&snap.price){
-        const hiRatio=snap.week52High/snap.price,loRatio=snap.price/snap.week52Low;
-        if(hiRatio>5||loRatio>5||snap.week52High<snap.price*0.5||snap.week52Low>snap.price*1.5){
-          console.warn(t+': implausible 52W range from Finnhub, clearing');
-          snap.week52High=null;snap.week52Low=null;
-        }
-      }
       S.set('snap_'+t,snap);S.set('rec_'+t,{data:recData||null,ts:nowPT()});S.set('upgrades_'+t,{data:upgradeData||[],ts:nowPT()});
-      try{const ah=await fetchAfterHoursPrice(t);if(ah){
-        // Preserve after-hours price through overnight until premarket --
-        // Yahoo stops returning postMarketPrice once CLOSED, so only overwrite
-        // with null if we're actually in a live extended or regular session.
-        const _ahMs=ah.marketState||'';
-        const _isLiveSession=_ahMs==='PRE'||_ahMs==='POST'||_ahMs==='POSTPOST'||_ahMs==='REGULAR';
-        if(_ahMs==='PRE'){
-          // Premarket started -- clear lingered after-hours price, show pre-market price instead
-          snap.postMarketPrice=ah.postMarketPrice;
-          snap.postMarketChange=ah.postMarketChange||null;
-          snap.postMarketChangePct=ah.postMarketChangePct||null;
-        }else if(_isLiveSession||ah.postMarketPrice){
-          snap.postMarketPrice=ah.postMarketPrice;
-          snap.postMarketChange=ah.postMarketChange||null;
-          snap.postMarketChangePct=ah.postMarketChangePct||null;
-        }
-        // CLOSED overnight: postMarketPrice preserved from previous fetch
-        // Always update marketState and other fields
-        snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;
-        if(ah.trailingEps!==null)snap.epsTTM=ah.trailingEps;
-        if(ah.intradayVolume!=null)snap.intradayVolume=ah.intradayVolume;
-      }}catch{}
-      // Fetch enriched data from Yahoo quoteSummary (4 modules in one call)
+
+      // Enrich with Yahoo quoteSummary (beta, short interest, R40 inputs, price targets, trends)
       try{
         const qs=await fetchQuoteSummary(t);
         if(qs){
+          if(qs.beta!=null)snap.beta=qs.beta;
           if(qs.ptMean){snap.ptMean=qs.ptMean;snap.ptHigh=qs.ptHigh||null;snap.ptLow=qs.ptLow||null;snap.ptAnalysts=qs.ptAnalysts||null;}
           if(qs.pegRatio!=null)snap.pegRatio=qs.pegRatio;
           if(qs.evToEbitda!=null)snap.evToEbitda=qs.evToEbitda;
           if(qs.shortPctFloat!=null){snap.shortPctFloat=qs.shortPctFloat;snap.shortRatioYahoo=qs.shortRatioYahoo;}
           if(qs.earningsTrend&&qs.earningsTrend.length)snap.earningsTrend=qs.earningsTrend;
           if(qs.recTrend&&qs.recTrend.length)snap.recTrend=qs.recTrend;
-          // Yahoo Rule of 40 inputs -- clean decimals, no normalization needed
           if(qs.revenueGrowthYahoo!=null)snap.revenueGrowthYahoo=qs.revenueGrowthYahoo;
           if(qs.operatingMarginsYahoo!=null)snap.operatingMarginsYahoo=qs.operatingMarginsYahoo;
           if(qs.freeCashflowYahoo!=null&&qs.totalRevenueYahoo!=null&&qs.totalRevenueYahoo!==0)
@@ -232,17 +231,6 @@ async function loadTicker(){
         }
       }
     }catch{}
-    // Backfill 52W high/low from Yahoo history when Finnhub values are null or were cleared as implausible
-    if((!snap.week52High||!snap.week52Low)&&hist1y?.closes?.length){
-      const valid=hist1y.closes.filter(c=>c!=null&&c>0);
-      if(valid.length){
-        const histHigh=Math.max(...valid),histLow=Math.min(...valid);
-        if(!snap.week52High)snap.week52High=histHigh;
-        if(!snap.week52Low)snap.week52Low=histLow;
-        S.set('snap_'+t,{...S.get('snap_'+t)||snap,week52High:snap.week52High,week52Low:snap.week52Low});
-        console.log(t+': backfilled 52W range from history: '+histLow+'-'+histHigh);
-      }
-    }
     try{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}
     catch{const cn=S.get('news_'+t);if(cn)news=cn.items;}
     const upgradesData=S.get('upgrades_'+t)?.data||[];
@@ -543,7 +531,10 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
   const volRatioColor=volRatio==null?'var(--text3)':volRatio>=2?'var(--red)':volRatio>=1.5?'rgba(255,165,2,1)':volRatio>=1.2?'var(--warn)':'var(--text2)';
   const earningsTiming=snap.earningsHour==='bmo'?' (before open)':snap.earningsHour==='amc'?' (after close)':'';
   const earningsStr=snap.earningsDate?`<div class="earnings-warn" style="margin-top:10px">Earnings: ${snap.earningsDate}${earningsTiming}</div>`:'';
-  const ivrVal=computeIVR(snap.ticker,snap.week52High,snap.week52Low,snap.price);
+  const _52wForIVR=_compute52W(snap.ticker);
+  const _w52h=_52wForIVR?.high??snap.week52High??null;
+  const _w52l=_52wForIVR?.low??snap.week52Low??null;
+  const ivrVal=computeIVR(snap.ticker,_w52h,_w52l,snap.price);
   const ivr=ivrInfo(ivrVal);
   // Persist IVR back to snap so watchlist/dashboard can read it without recomputing
   if(ivrVal!=null){snap.ivrVal=ivrVal;S.set('snap_'+snap.ticker,snap);}
@@ -651,7 +642,7 @@ RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red
   if(bbData)renderBBChart(bbData,hist);
   renderVolChart(hist,hist1y,hist2y,currentBBSpan||'6m',avgVol20);
   renderHVRChart(snap.ticker,currentBBSpan||'6m');
-  if(hist1y)renderVPChart(hist1y,snap.price,snap.week52High,snap.week52Low);
+  if(hist1y)renderVPChart(hist1y,snap.price,_w52h,_w52l);
   if(hist2y&&hist2ySP)_initRelPerfChart(snap.ticker,hist2y,hist2ySP,earningsHistory,currentRPSpan||'2y');
 }
 
@@ -1555,37 +1546,40 @@ async function refreshSingleTicker(){
   try{
     // Step 1: Core ticker data
     setP(10,'Fetching '+t+' quote & metrics...');
-    // Only fetch /stock/earnings history if confirmed cache is sparse (<4 entries)
     const _rConfCount=(S.get('earnings_confirmed_'+t)||[]).length;
     const _rNeedEarningsHist=_rConfCount<4;
-    const[quote,profile,metrics,earnings,earningsHist]=await Promise.all([
-      fh(`/quote?symbol=${t}`),fh(`/stock/profile2?symbol=${t}`),
-      fh(`/stock/metric?symbol=${t}&metric=all`),
+    // Finnhub: only earnings calendar + news/upgrades/recs. All price/fundamentals from Yahoo.
+    const[earnings,earningsHist]=await Promise.all([
       fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),
       _rNeedEarningsHist?fh(`/stock/earnings?symbol=${t}&limit=8`):Promise.resolve(null)
     ]);
     let rec=null,upgrades=null,priceTargetS=null;
     try{rec=await fh(`/stock/recommendation?symbol=${t}`);}catch{}
     try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch{}
-    try{priceTargetS=await fh(`/stock/price-target?symbol=${t}`);}catch{}
+    // Build snap from Yahoo /quote
+    setP(20,'Fetching '+t+' Yahoo quote...');
+    const ah=await fetchAfterHoursPrice(t);
+    if(!ah||!ah.price)throw new Error('Yahoo quote failed for '+t);
+    const _rPrice=ah.price,_rPrev=ah.prevClose||ah.price;
     const futE=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
-    const snap={ticker:t,name:profile.name||t,price:quote.c,prevClose:quote.pc,
-      change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),
-      high:quote.h,low:quote.l,
-      week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,
-      marketCap:profile.marketCapitalization?profile.marketCapitalization*1e6:null,
-      beta:metrics.metric?.beta||null,peRatio:metrics.metric?.peBasicExclExtraTTM||null,
-      peForward:metrics.metric?.peForwardAnnual||null,
-      dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,
-      shortInterest:metrics.metric?.shortInterest||null,shortRatio:metrics.metric?.shortRatio||null,
-      shortInterestPct:metrics.metric?.shortInterestPercentage||metrics.metric?.shortInterestPercent||null,
-      revenueGrowthTTM:metrics.metric?.revenueGrowthTTMYoy||null,
-      fcfMargin:metrics.metric?.freeCashFlowMarginAnnual||null,
-      operatingMargin:metrics.metric?.operatingMarginAnnual||null,
-      epsTTM:metrics.metric?.epsBasicExclExtraTTM||null,
-      epsGrowth:metrics.metric?.epsGrowthTTMYoy||null,
+    const snap={
+      ticker:t,name:ah.name||t,
+      price:_rPrice,prevClose:_rPrev,
+      change:_rPrice-_rPrev,changePct:((_rPrice-_rPrev)/_rPrev*100),
+      high:ah.high||null,low:ah.low||null,
+      marketCap:ah.marketCap||null,
+      peRatio:ah.peRatio||null,
+      peForward:ah.forwardPE||null,
+      epsTTM:ah.trailingEps||null,
+      dividendYield:ah.dividendYield!=null?ah.dividendYield*100:null,
+      marketState:ah.marketState||null,
+      intradayVolume:ah.intradayVolume||null,
+      postMarketPrice:ah.postMarketPrice||null,
+      postMarketChange:ah.postMarketChange||null,
+      postMarketChangePct:ah.postMarketChangePct||null,
       earningsDate:futE[0]?.date||null,earningsHour:futE[0]?.hour||null,
-      ts:nowPT(),isLive:true};
+      ts:nowPT(),isLive:true
+    };
     // Save pending earnings date + promote passed dates to confirmed
     try{
       promoteEarningsPending(t);
@@ -1605,28 +1599,16 @@ async function refreshSingleTicker(){
       });
       if(_rChg)S.set('earnings_confirmed_'+t,_rConf.filter(c=>new Date(c.date)>=_rCut));
     }catch{}
-    // Step 2: Yahoo quote for forwardPE and EPS
-    setP(20,'Fetching '+t+' extended quote...');
-    try{const ah=await fetchAfterHoursPrice(t);if(ah){
-        const _ahMs2=ah.marketState||'';
-        const _isLive2=_ahMs2==='PRE'||_ahMs2==='POST'||_ahMs2==='POSTPOST'||_ahMs2==='REGULAR';
-        if(_isLive2||ah.postMarketPrice){
-          snap.postMarketPrice=ah.postMarketPrice;
-          snap.postMarketChange=ah.postMarketChange||null;
-          snap.postMarketChangePct=ah.postMarketChangePct||null;
-        }
-        snap.marketState=ah.marketState;snap.peForward=ah.forwardPE||null;
-        if(ah.trailingEps!=null)snap.epsTTM=ah.trailingEps;
-        if(ah.intradayVolume!=null)snap.intradayVolume=ah.intradayVolume;
-      }}catch{}
+    // Step 2: Yahoo quoteSummary (beta, short interest, R40 inputs, price targets, trends)
+    setP(20,'Fetching '+t+' extended data...');
       try{const qs=await fetchQuoteSummary(t);if(qs){
+        if(qs.beta!=null)snap.beta=qs.beta;
         if(qs.ptMean){snap.ptMean=qs.ptMean;snap.ptHigh=qs.ptHigh||null;snap.ptLow=qs.ptLow||null;snap.ptAnalysts=qs.ptAnalysts||null;}
         if(qs.pegRatio!=null)snap.pegRatio=qs.pegRatio;
         if(qs.evToEbitda!=null)snap.evToEbitda=qs.evToEbitda;
         if(qs.shortPctFloat!=null){snap.shortPctFloat=qs.shortPctFloat;snap.shortRatioYahoo=qs.shortRatioYahoo;}
         if(qs.earningsTrend&&qs.earningsTrend.length)snap.earningsTrend=qs.earningsTrend;
         if(qs.recTrend&&qs.recTrend.length)snap.recTrend=qs.recTrend;
-        // Yahoo Rule of 40 inputs -- clean decimals, no normalization needed
         if(qs.revenueGrowthYahoo!=null)snap.revenueGrowthYahoo=qs.revenueGrowthYahoo;
         if(qs.operatingMarginsYahoo!=null)snap.operatingMarginsYahoo=qs.operatingMarginsYahoo;
         if(qs.freeCashflowYahoo!=null&&qs.totalRevenueYahoo!=null&&qs.totalRevenueYahoo!==0)

@@ -378,27 +378,27 @@ function toggleBBSpan(span){
   if(btn2)btn2.style.opacity=span==='2y'?'1':'0.4';
   const t=document.getElementById('ticker-select').value;
   if(!t)return;
-  const cacheKey=span==='6m'?'hist_'+t:(span==='2y'?'hist2y_'+t:'hist1y_'+t);
-  const h=S.get(cacheKey);
-  if(!h){toast((span==='1y'?'1Y':'6M')+' history not cached -- run full refresh',2500);return;}
-  const hist={
-    timestamps:h.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),
-    closes:h.closes,
-    volumes:h.volumes||[]
+  const h2=S.get('hist2y_'+t);
+  if(!h2){toast('History not cached -- run full refresh',2500);return;}
+  const sliceN=span==='6m'?126:span==='1y'?252:h2.timestamps.length;
+  const h={
+    timestamps:h2.timestamps.slice(-sliceN).map(d=>new Date(typeof d==='number'?d*1000:d)),
+    closes:h2.closes.slice(-sliceN),
+    volumes:(h2.volumes||[]).slice(-sliceN)
   };
   // Recompute Bollinger Band data from history (same logic as renderTickerContent)
   let bbData=null;
-  if(hist.closes&&hist.closes.length>20){
-    const closes=hist.closes.filter(c=>c!==null);
+  if(h.closes&&h.closes.length>20){
+    const closes=h.closes.filter(c=>c!==null);
     const sma20=closes.map((_,i)=>i<19?null:avg(closes.slice(i-19,i+1)));
     const stdDev=closes.map((_,i)=>{if(i<19)return null;const sl=closes.slice(i-19,i+1);const m=avg(sl);return Math.sqrt(sl.reduce((s,v)=>s+(v-m)**2,0)/20);});
     const upper=sma20.map((m,i)=>m?m+2*stdDev[i]:null);
     const lower=sma20.map((m,i)=>m?m-2*stdDev[i]:null);
     // Align with timestamps (filter nulls from front)
-    const fullCloses=hist.closes;
-    bbData={timestamps:hist.timestamps,closes:fullCloses,sma20,upper,lower};
+    const fullCloses=h.closes;
+    bbData={timestamps:h.timestamps,closes:fullCloses,sma20,upper,lower};
   }
-  if(bbData)renderBBChart(bbData,hist);
+  if(bbData)renderBBChart(bbData,h);
   // Re-render volume chart for new span
   const _vt=currentTicker;
   const _vh2=S.get('hist2y_'+_vt);

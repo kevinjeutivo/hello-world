@@ -566,28 +566,51 @@ function _sparklineHtml(ticker){
   try{
     const cache = S.get('intraday_'+ticker);
     if(!cache || !cache.closes || cache.closes.length < 2) return '';
-    const closes = cache.closes.filter(v => v != null);
+    const closes = cache.closes.filter((v,i) => v != null);
     if(closes.length < 2) return '';
+
+    // Filter closes alongside timestamps to keep indices aligned
+    const rawCloses = cache.closes;
+    const rawTs = cache.timestamps; // array of ms epoch values, or null for old caches
+    const paired = rawCloses.map((v,i) => ({v, t: rawTs?rawTs[i]:null})).filter(p => p.v != null);
+    if(paired.length < 2) return '';
+
     const snap = S.get('snap_'+ticker);
     const prevClose = (snap && snap.prevClose != null) ? snap.prevClose : null;
-    const last = closes[closes.length-1];
-    const ref = prevClose != null ? prevClose : closes[0];
+    const last = paired[paired.length-1].v;
+    const ref = prevClose != null ? prevClose : paired[0].v;
     const color = last >= ref ? 'var(--green)' : 'var(--red)';
-    // Extend Y scale to include prevClose so gap moves are shown honestly
-    const allValues = prevClose != null ? [...closes, prevClose] : closes;
+
     const W=60, H=20, PAD=1;
+    // Extend Y scale to include prevClose for gap moves
+    const allValues = prevClose != null ? [...paired.map(p=>p.v), prevClose] : paired.map(p=>p.v);
     const mn = Math.min(...allValues);
     const mx = Math.max(...allValues);
     const range = mx - mn || 1;
     const toY = v => H - PAD - ((v - mn) / range) * (H - PAD*2);
-    const pts = closes.map((v,i)=>{
-      const x = PAD + (i/(closes.length-1)) * (W - PAD*2);
-      return x.toFixed(1)+','+toY(v).toFixed(1);
-    }).join(' ');
-    // Reference line at prevClose Y position -- only when prevClose is available
+
+    // X mapping: time-proportional across full 390-minute trading day
+    // Uses elapsed time from first bar so it's timezone-agnostic.
+    // Falls back to index-based mapping if timestamps not available (old cache entries).
+    const TRADING_MS = 390 * 60 * 1000; // 9:30am–4:00pm = 390 minutes
+    const hasTs = rawTs && paired[0].t != null;
+    const t0 = hasTs ? paired[0].t : 0;
+    const toX = (p, i) => {
+      if(hasTs && p.t != null){
+        const elapsed = p.t - t0;
+        return PAD + Math.min(elapsed / TRADING_MS, 1) * (W - PAD*2);
+      }
+      // Fallback: index-based (old cache without timestamps)
+      return PAD + (i/(paired.length-1)) * (W - PAD*2);
+    };
+
+    const pts = paired.map((p,i) => toX(p,i).toFixed(1)+','+toY(p.v).toFixed(1)).join(' ');
+
+    // Reference line at prevClose Y
     const refLine = prevClose != null
       ? `<line x1="${PAD}" y1="${toY(prevClose).toFixed(1)}" x2="${W-PAD}" y2="${toY(prevClose).toFixed(1)}" stroke="var(--text3)" stroke-width="0.7" stroke-dasharray="2,2" opacity="0.6"/>`
       : '';
+
     return '<svg width="60" height="20" viewBox="0 0 60 20" style="display:block;flex-shrink:0" xmlns="http://www.w3.org/2000/svg">'+
       refLine+
       '<polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'+

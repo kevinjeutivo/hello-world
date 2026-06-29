@@ -98,6 +98,7 @@ async function fetchQuoteSummary(symbol){
       freeCashflowYahoo:fd.freeCashflow?.raw??null,           // dollars
       totalRevenueYahoo:fd.totalRevenue?.raw??null,           // dollars
       // Valuation (defaultKeyStatistics)
+      beta:ks.beta?.raw??null,
       pegRatio:ks.pegRatio?.raw||null,
       evToEbitda:ks.enterpriseToEbitda?.raw||null,
       // Short interest (defaultKeyStatistics -- more reliable than Finnhub free tier)
@@ -130,9 +131,8 @@ async function fetchPriceTarget(symbol){
 }
 
 async function fetchAfterHoursPrice(symbol){
-  // Use Yahoo Finance quote endpoint (same source as yfinance stock.info)
-  // This is the most reliable source for postMarketPrice and preMarketPrice.
-  // The chart endpoint meta fields are unreliable for extended-hours data.
+  // Yahoo Finance quote endpoint -- primary source for all real-time and fundamental fields.
+  // Replaces Finnhub /quote, /stock/profile2, and most of /stock/metric.
   if(offlineMode)return null;
   try{
     const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=quote&_t=${Date.now()}`);
@@ -141,34 +141,37 @@ async function fetchAfterHoursPrice(symbol){
     const q=d.quoteResponse?.result?.[0];
     if(!q)return null;
     const marketState=q.marketState||'';
-    // postMarketPrice populated after 4pm ET, preMarketPrice before 9:30am ET
-    // During REGULAR session, suppress extended-hours price entirely --
-    // Yahoo often returns a stale prior-session value which must not be shown.
     const postPrice=q.postMarketPrice||null;
     const prePrice=q.preMarketPrice||null;
     const isExtended=marketState==='PRE'||marketState==='POST'||marketState==='POSTPOST';
-    // During CLOSED (overnight): preserve whatever postMarketPrice Yahoo returns
-    // so after-hours price lingers until premarket clears it.
-    // During REGULAR: always null (suppressed).
-    // During PRE: use preMarketPrice.
     const isClosed=marketState==='CLOSED';
     const extPrice=marketState==='REGULAR'?null:
       isExtended?(marketState==='PRE'?prePrice:postPrice):
-      isClosed?postPrice:null; // overnight: keep last known after-hours price
+      isClosed?postPrice:null;
     return{
+      // Extended-hours price
       postMarketPrice:extPrice,
       postMarketChange:isExtended?(marketState==='PRE'?q.preMarketChange:q.postMarketChange):(isClosed?q.postMarketChange||null:null),
       postMarketChangePct:isExtended?(marketState==='PRE'?q.preMarketChangePercent:q.postMarketChangePercent):(isClosed?q.postMarketChangePercent||null:null),
       marketState,
       hasExtended:!!extPrice,
+      // Primary price fields (replaces Finnhub /quote)
+      price:q.regularMarketPrice||null,
+      prevClose:q.regularMarketPreviousClose||null,
+      high:q.regularMarketDayHigh||null,
+      low:q.regularMarketDayLow||null,
       intradayVolume:q.regularMarketVolume||null,
+      // Company info (replaces Finnhub /stock/profile2)
+      name:q.shortName||q.longName||null,
+      marketCap:q.marketCap||null,                    // already in dollars
+      // Valuation (replaces Finnhub /stock/metric)
+      peRatio:q.trailingPE||null,
       forwardPE:q.forwardPE||null,
       trailingEps:q.epsTrailingTwelveMonths||q.trailingEps||null,
+      dividendYield:q.trailingAnnualDividendYield??q.dividendYield??null, // decimal (0.02 = 2%)
+      // Not in Yahoo /quote -- comes from quoteSummary defaultKeyStatistics
       epsGrowth:null,
-      ptMean:null,
-      ptHigh:null,
-      ptLow:null,
-      ptAnalysts:null
+      ptMean:null,ptHigh:null,ptLow:null,ptAnalysts:null
     };
   }catch{return null;}
 }

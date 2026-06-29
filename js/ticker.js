@@ -1633,7 +1633,8 @@ async function refreshSingleTicker(){
       const _rn=nowPT();
       S.set('hist2y_'+t,{timestamps:_rts,closes:_rcl,volumes:_rvl,adjcloses:_rac,ts:_rn});
       if(_idRes&&_idRes.closes&&_idRes.closes.length>=2){
-        S.set('intraday_'+t,{closes:_idRes.closes,ts:_rn});
+        const _idTs=_idRes.timestamps?_idRes.timestamps.map(d=>d instanceof Date?d.getTime():d):null;
+        S.set('intraday_'+t,{closes:_idRes.closes,timestamps:_idTs,ts:_rn});
       }
     }catch(e){console.warn('refreshSingle hist2y failed:',t,e?.message);}
     // Step 4: News

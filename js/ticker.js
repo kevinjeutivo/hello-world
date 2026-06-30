@@ -676,11 +676,59 @@ function toggleRPTotalReturn(){
   _triggerRelPerfRedraw();
 }
 
+let _rpCmpMenuOpen=false;
+
+function _closeRPCompareMenu(){
+  _rpCmpMenuOpen=false;
+  const el=document.getElementById('rp-cmp-menu');
+  if(el)el.remove();
+}
+
+function _openRPCompareMenu(btnEl){
+  if(_rpCmpMenuOpen){_closeRPCompareMenu();return;}
+  _closeRPCompareMenu();
+  _rpCmpMenuOpen=true;
+  const t=currentTicker;
+  const cmpTicker=S.get('rp_compare_'+t)||'';
+  const opts=(watchlist||[]).filter(x=>x!==t).sort();
+
+  const menu=document.createElement('div');
+  menu.id='rp-cmp-menu';
+  menu.style.cssText=
+    'position:fixed;z-index:500;background:var(--surface);border:1px solid var(--border);'+
+    'border-radius:var(--radius);box-shadow:0 4px 20px rgba(0,0,0,0.5);min-width:160px;max-height:280px;overflow-y:auto';
+
+  const rows=opts.map(x=>
+    `<div onclick="event.stopPropagation();setRPCompareTicker('${x}');_closeRPCompareMenu()" style="padding:8px 14px;cursor:pointer;font-family:var(--mono);font-size:12px;color:${x===cmpTicker?'var(--accent)':'var(--text2)'}" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">${x}${x===cmpTicker?' ✓':''}</div>`
+  ).join('');
+
+  menu.innerHTML=
+    '<div onclick="event.stopPropagation();setRPCompareTicker(\'\');_closeRPCompareMenu()" style="padding:8px 14px;cursor:pointer;font-family:var(--mono);font-size:12px;color:var(--text3);border-bottom:1px solid var(--border)" onmouseenter="this.style.background=\'var(--surface2)\'" onmouseleave="this.style.background=\'\'">— None —</div>'+
+    rows;
+
+  document.body.appendChild(menu);
+
+  const rect=btnEl.getBoundingClientRect();
+  const menuW=180;
+  let left=Math.min(rect.left,window.innerWidth-menuW-8);
+  if(left<8)left=8;
+  let top=rect.bottom+4;
+  if(top+280>window.innerHeight)top=Math.max(8,rect.top-284);
+  menu.style.left=left+'px';
+  menu.style.top=top+'px';
+  menu.style.width=Math.max(menuW,rect.width)+'px';
+
+  setTimeout(()=>{document.addEventListener('click',_closeRPCompareMenu,{once:true});},0);
+}
+
 function setRPCompareTicker(cmp){
   const t=currentTicker;
   if(!t)return;
   if(cmp) S.set('rp_compare_'+t,cmp);
   else S.del('rp_compare_'+t);
+  // Update trigger button label
+  const btn=document.getElementById('rp-cmp-btn');
+  if(btn)btn.textContent=cmp?'Compare: '+cmp+' ▾':'+ Compare ▾';
   // Update legend visibility
   const cmpLegend=document.getElementById('rp-cmp-legend');
   if(cmpLegend){
@@ -1104,8 +1152,6 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
   const _trActive=getRPTotalReturn();
   const _sp500trAvail=!!S.get('hist2y_sp500tr');
   const _cmpTicker=S.get('rp_compare_'+ticker)||'';
-  // Build watchlist dropdown options excluding current ticker
-  const _wlOpts=(watchlist||[]).filter(t=>t!==ticker).sort().map(t=>`<option value="${t}"${t===_cmpTicker?'selected':''}>${t}</option>`).join('');
   return `<div class="card">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
       <span id="rp-title-span"><span class="dot" style="background:var(--accent)"></span>Relative Performance vs S&P 500 (${_rpSpanLabel})</span>
@@ -1116,10 +1162,7 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
     </div>
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;width:100%">
       <button id="rp-tr-btn" class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${_trActive?'1':'0.4'};white-space:nowrap;flex-shrink:0" onclick="toggleRPTotalReturn()" title="${_sp500trAvail?'Toggle total return (dividends reinvested)':'Total return data loads on next refresh'}">Total Return</button>
-      <select id="rp-cmp-select" onchange="setRPCompareTicker(this.value)" style="-webkit-appearance:none;appearance:none;font-family:var(--mono);font-size:10px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);border-radius:4px;padding:2px 6px 2px 6px;flex:1;width:0;overflow:hidden;text-overflow:ellipsis">
-        <option value="">+ Compare</option>
-        ${_wlOpts}
-      </select>
+      <button id="rp-cmp-btn" onclick="_openRPCompareMenu(this)" style="font-family:var(--mono);font-size:10px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);border-radius:4px;padding:2px 8px;flex:1;width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer">${_cmpTicker?'Compare: '+_cmpTicker+' ▾':'+ Compare ▾'}</button>
     </div>
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px" id="rp-subtitle">Both lines indexed to 100 at start of window. Stock line above S&amp;P line = outperforming.${_trActive?' Dividends reinvested (total return).':''}</div>
     <div class="chart-wrap" style="height:200px"><canvas id="rp-chart"></canvas></div>

@@ -1161,7 +1161,7 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
       ${_rpBtn('6m','6M')+_rpBtn('1y','1Y')+_rpBtn('2y','2Y')}
     </div>
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;width:100%">
-      <button id="rp-tr-btn" class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${_trActive?'1':'0.4'};white-space:nowrap;flex-shrink:0" onclick="toggleRPTotalReturn()" title="${_sp500trAvail?'Toggle total return (dividends reinvested)':'Total return data loads on next refresh'}">Total Return</button>
+      <button id="rp-tr-btn" onclick="toggleRPTotalReturn()" style="font-family:var(--mono);font-size:10px;padding:2px 8px;opacity:${_trActive?'1':'0.4'};white-space:nowrap;flex-shrink:0;background:var(--surface3);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer" title="${_sp500trAvail?'Toggle total return (dividends reinvested)':'Total return data loads on next refresh'}">Total Return</button>
       <button id="rp-cmp-btn" onclick="_openRPCompareMenu(this)" style="font-family:var(--mono);font-size:10px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);border-radius:4px;padding:2px 8px;flex:1;width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer">${_cmpTicker?'Compare: '+_cmpTicker+' ▾':'+ Compare ▾'}</button>
     </div>
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px" id="rp-subtitle">Both lines indexed to 100 at start of window. Stock line above S&amp;P line = outperforming.${_trActive?' Dividends reinvested (total return).':''}</div>

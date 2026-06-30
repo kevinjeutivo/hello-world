@@ -699,12 +699,24 @@ function _openRPCompareMenu(btnEl){
     'border-radius:var(--radius);box-shadow:0 4px 20px rgba(0,0,0,0.5);min-width:160px;max-height:280px;overflow-y:auto';
 
   const rows=opts.map(x=>
-    `<div onclick="event.stopPropagation();setRPCompareTicker('${x}');_closeRPCompareMenu()" style="padding:8px 14px;cursor:pointer;font-family:var(--mono);font-size:12px;color:${x===cmpTicker?'var(--accent)':'var(--text2)'}" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">${x}${x===cmpTicker?' ✓':''}</div>`
+    `<div data-rp-cmp-opt="${x}" style="padding:8px 14px;cursor:pointer;font-family:var(--mono);font-size:12px;color:${x===cmpTicker?'var(--accent)':'var(--text2)'}" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">${x}${x===cmpTicker?' ✓':''}</div>`
   ).join('');
 
   menu.innerHTML=
-    '<div onclick="event.stopPropagation();setRPCompareTicker(\'\');_closeRPCompareMenu()" style="padding:8px 14px;cursor:pointer;font-family:var(--mono);font-size:12px;color:var(--text3);border-bottom:1px solid var(--border)" onmouseenter="this.style.background=\'var(--surface2)\'" onmouseleave="this.style.background=\'\'">— None —</div>'+
+    '<div data-rp-cmp-opt="" style="padding:8px 14px;cursor:pointer;font-family:var(--mono);font-size:12px;color:var(--text3);border-bottom:1px solid var(--border)" onmouseenter="this.style.background=\'var(--surface2)\'" onmouseleave="this.style.background=\'\'">— None —</div>'+
     rows;
+
+  // Single delegated listener handles both option selection and outside-tap dismissal.
+  // This avoids the stale-listener race that made the trigger button unresponsive
+  // after a selection (the old approach mixed inline onclick + a separate document listener).
+  menu.addEventListener('click',e=>{
+    e.stopPropagation();
+    const optEl=e.target.closest('[data-rp-cmp-opt]');
+    if(optEl){
+      setRPCompareTicker(optEl.dataset.rpCmpOpt);
+      _closeRPCompareMenu();
+    }
+  });
 
   document.body.appendChild(menu);
 
@@ -718,7 +730,11 @@ function _openRPCompareMenu(btnEl){
   menu.style.top=top+'px';
   menu.style.width=Math.max(menuW,rect.width)+'px';
 
-  setTimeout(()=>{document.addEventListener('click',_closeRPCompareMenu,{once:true});},0);
+  // Outside-tap dismissal: attach after this click finishes propagating so the
+  // very click that opened the menu doesn't immediately close it.
+  requestAnimationFrame(()=>{
+    document.addEventListener('click',_closeRPCompareMenu,{once:true});
+  });
 }
 
 function setRPCompareTicker(cmp){

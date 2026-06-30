@@ -1115,9 +1115,9 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
       ${_rpBtn('6m','6M')+_rpBtn('1y','1Y')+_rpBtn('2y','2Y')}
     </div>
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
-      <button id="rp-tr-btn" class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${_trActive?'1':'0.4'}" onclick="toggleRPTotalReturn()" title="${_sp500trAvail?'Toggle total return (dividends reinvested)':'Total return data loads on next refresh'}">Total Return</button>
-      <select id="rp-cmp-select" onchange="setRPCompareTicker(this.value)" style="font-family:var(--mono);font-size:10px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);border-radius:4px;padding:2px 4px;flex:1;min-width:0">
-        <option value="">— Compare with —</option>
+      <button id="rp-tr-btn" class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${_trActive?'1':'0.4'};flex-shrink:0" onclick="toggleRPTotalReturn()" title="${_sp500trAvail?'Toggle total return (dividends reinvested)':'Total return data loads on next refresh'}">Total Return</button>
+      <select id="rp-cmp-select" onchange="setRPCompareTicker(this.value)" style="font-family:var(--mono);font-size:10px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);border-radius:4px;padding:2px 6px;flex:1;width:0;min-width:0;max-width:100%">
+        <option value="">+ Compare</option>
         ${_wlOpts}
       </select>
     </div>

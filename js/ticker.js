@@ -685,56 +685,49 @@ function _closeRPCompareMenu(){
 }
 
 function _openRPCompareMenu(btnEl){
-  if(_rpCmpMenuOpen){_closeRPCompareMenu();return;}
   _closeRPCompareMenu();
   _rpCmpMenuOpen=true;
   const t=currentTicker;
   const cmpTicker=S.get('rp_compare_'+t)||'';
   const opts=(watchlist||[]).filter(x=>x!==t).sort();
 
-  const menu=document.createElement('div');
-  menu.id='rp-cmp-menu';
-  menu.style.cssText=
-    'position:fixed;z-index:500;background:var(--surface);border:1px solid var(--border);'+
-    'border-radius:var(--radius);box-shadow:0 4px 20px rgba(0,0,0,0.5);min-width:160px;max-height:280px;overflow-y:auto';
+  // Full-screen backdrop + centered list -- same proven pattern as modal-overlay
+  // elsewhere in the app, rather than a custom positioned popover with manual
+  // dismissal listeners (which was unreliable on iOS for this element).
+  const backdrop=document.createElement('div');
+  backdrop.id='rp-cmp-menu';
+  backdrop.style.cssText=
+    'position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.5);'+
+    'display:flex;align-items:center;justify-content:center;padding:20px';
+
+  const box=document.createElement('div');
+  box.style.cssText=
+    'background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);'+
+    'max-width:280px;width:100%;max-height:70vh;overflow-y:auto;padding:8px 0';
 
   const rows=opts.map(x=>
-    `<div data-rp-cmp-opt="${x}" style="padding:8px 14px;cursor:pointer;font-family:var(--mono);font-size:12px;color:${x===cmpTicker?'var(--accent)':'var(--text2)'}" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">${x}${x===cmpTicker?' ✓':''}</div>`
+    `<div data-rp-cmp-opt="${x}" style="padding:10px 16px;cursor:pointer;font-family:var(--mono);font-size:13px;color:${x===cmpTicker?'var(--accent)':'var(--text2)'}">${x}${x===cmpTicker?' ✓':''}</div>`
   ).join('');
 
-  menu.innerHTML=
-    '<div data-rp-cmp-opt="" style="padding:8px 14px;cursor:pointer;font-family:var(--mono);font-size:12px;color:var(--text3);border-bottom:1px solid var(--border)" onmouseenter="this.style.background=\'var(--surface2)\'" onmouseleave="this.style.background=\'\'">— None —</div>'+
+  box.innerHTML=
+    '<div style="font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);padding:8px 16px 10px;border-bottom:1px solid var(--border)">Compare with</div>'+
+    `<div data-rp-cmp-opt="" style="padding:10px 16px;cursor:pointer;font-family:var(--mono);font-size:13px;color:var(--text3);border-bottom:1px solid var(--border)">— None —</div>`+
     rows;
 
-  // Single delegated listener handles both option selection and outside-tap dismissal.
-  // This avoids the stale-listener race that made the trigger button unresponsive
-  // after a selection (the old approach mixed inline onclick + a separate document listener).
-  menu.addEventListener('click',e=>{
-    e.stopPropagation();
+  box.addEventListener('click',e=>{
     const optEl=e.target.closest('[data-rp-cmp-opt]');
     if(optEl){
       setRPCompareTicker(optEl.dataset.rpCmpOpt);
       _closeRPCompareMenu();
     }
   });
-
-  document.body.appendChild(menu);
-
-  const rect=btnEl.getBoundingClientRect();
-  const menuW=180;
-  let left=Math.min(rect.left,window.innerWidth-menuW-8);
-  if(left<8)left=8;
-  let top=rect.bottom+4;
-  if(top+280>window.innerHeight)top=Math.max(8,rect.top-284);
-  menu.style.left=left+'px';
-  menu.style.top=top+'px';
-  menu.style.width=Math.max(menuW,rect.width)+'px';
-
-  // Outside-tap dismissal: attach after this click finishes propagating so the
-  // very click that opened the menu doesn't immediately close it.
-  requestAnimationFrame(()=>{
-    document.addEventListener('click',_closeRPCompareMenu,{once:true});
+  // Tapping the backdrop itself (outside the box) closes the menu
+  backdrop.addEventListener('click',e=>{
+    if(e.target===backdrop)_closeRPCompareMenu();
   });
+
+  backdrop.appendChild(box);
+  document.body.appendChild(backdrop);
 }
 
 function setRPCompareTicker(cmp){

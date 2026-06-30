@@ -8,6 +8,24 @@ function _tkTimeout(p,ms,label){return Promise.race([p,new Promise((_,rej)=>setT
 async function loadTicker(){
   const t=document.getElementById('ticker-select').value;if(!t)return;
   if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('options-ticker-select').value=t;clearOptionsState();currentBBSpan='6m';currentRPSpan='2y';}
+  // Cache-freshness gate: if we already have a snap fetched within the last 2
+  // minutes, serve from cache instead of doing a redundant live fetch. This
+  // avoids re-fetching every time you navigate to the Ticker tab from the
+  // watchlist/dashboard or switch tickers in the dropdown -- the same data
+  // would just come back from Yahoo/Finnhub seconds or minutes later anyway.
+  // Force Refresh / the ticker-level refresh button bypass this entirely since
+  // they call refreshSingleTicker() directly, not loadTicker().
+  // Uses tsEpoch (a true Date.now() value) rather than parsing the locale-
+  // formatted `ts` display string, which has no timezone offset and cannot
+  // be reliably reconstructed into an absolute time.
+  const _cachedSnap=S.get('snap_'+t);
+  if(_cachedSnap?.tsEpoch){
+    const _ageMs=Date.now()-_cachedSnap.tsEpoch;
+    if(_ageMs>=0&&_ageMs<120000){
+      restoreTickerFromCache(t);
+      return;
+    }
+  }
   document.getElementById('ticker-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading ${t}...</div></div>`;
   try{
     let snap,hist6mo,hist1y,news,recData,isLive=true;
@@ -52,7 +70,7 @@ async function loadTicker(){
         // Earnings from Finnhub calendar (BMO/AMC timing)
         earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),
         earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),
-        ts:nowPT(),isLive:true
+        ts:nowPT(),tsEpoch:Date.now(),isLive:true
       };
       recData=rec&&rec.length?rec[0]:null;
       const upgradeData=upgrades&&upgrades.length?upgrades.slice(0,6):[];
@@ -1701,7 +1719,7 @@ async function refreshSingleTicker(){
       postMarketChange:ah.postMarketChange||null,
       postMarketChangePct:ah.postMarketChangePct||null,
       earningsDate:futE[0]?.date||null,earningsHour:futE[0]?.hour||null,
-      ts:nowPT(),isLive:true
+      ts:nowPT(),tsEpoch:Date.now(),isLive:true
     };
     // Save pending earnings date + promote passed dates to confirmed
     try{

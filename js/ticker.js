@@ -676,6 +676,21 @@ function toggleRPTotalReturn(){
   _triggerRelPerfRedraw();
 }
 
+function setRPCompareTicker(cmp){
+  const t=currentTicker;
+  if(!t)return;
+  if(cmp) S.set('rp_compare_'+t,cmp);
+  else S.del('rp_compare_'+t);
+  // Update legend visibility
+  const cmpLegend=document.getElementById('rp-cmp-legend');
+  if(cmpLegend){
+    cmpLegend.style.display=cmp?'flex':'none';
+    const cmpSpan=cmpLegend.querySelector('[data-rp-label="compare"]');
+    if(cmpSpan)cmpSpan.textContent=cmp+(getRPTotalReturn()?' (TR)':'');
+  }
+  _triggerRelPerfRedraw();
+}
+
 function _triggerRelPerfRedraw(){
   const t=currentTicker;
   const useTR=getRPTotalReturn();
@@ -685,10 +700,29 @@ function _triggerRelPerfRedraw(){
   const spKey=useTR?'hist2y_sp500tr':'hist2y_sp500';
   const spc=S.get(spKey)||(useTR?S.get('hist2y_sp500'):null);
   if(!spc)return;
+
+  // Comparison ticker (optional third series)
+  const cmpTicker=S.get('rp_compare_'+t)||'';
+  let cmpData=null;
+  if(cmpTicker){
+    const cmpC=S.get('hist2y_'+cmpTicker);
+    if(cmpC&&cmpC.closes&&cmpC.closes.length>=2){
+      const cmpCloses=useTR&&cmpC.adjcloses?cmpC.adjcloses:cmpC.closes;
+      cmpData={timestamps:cmpC.timestamps,closes:cmpCloses};
+      // Note if TR was requested but adjcloses unavailable
+      if(useTR&&!cmpC.adjcloses){
+        const cmpSpan=document.querySelector('[data-rp-label="compare"]');
+        if(cmpSpan)cmpSpan.textContent=cmpTicker+' (price only)';
+      }
+    }
+  }
+
   renderRelPerfChart(t,
     {timestamps:h2c.timestamps,closes:tkCloses},
     {timestamps:spc.timestamps,closes:spc.closes},
-    _getEarningsWithOverrides(t),currentRPSpan||'2y');
+    _getEarningsWithOverrides(t),currentRPSpan||'2y',
+    cmpData?{ticker:cmpTicker,...cmpData}:null);
+
   // Update legend labels to reflect current TR state
   const trSuffix=useTR?' (TR)':'';
   const legend=document.getElementById('rp-legend');
@@ -697,9 +731,15 @@ function _triggerRelPerfRedraw(){
     spans.forEach(s=>{
       if(s.dataset.rpLabel==='ticker') s.textContent=t+trSuffix;
       if(s.dataset.rpLabel==='sp500') s.textContent='S&P 500'+trSuffix;
+      if(s.dataset.rpLabel==='compare'&&cmpTicker){
+        const hasTRData=!!(S.get('hist2y_'+cmpTicker)?.adjcloses);
+        s.textContent=cmpTicker+(useTR?(hasTRData?' (TR)':' (price only)'):'');
+      }
     });
+    const cmpLegend=document.getElementById('rp-cmp-legend');
+    if(cmpLegend)cmpLegend.style.display=cmpTicker?'flex':'none';
   }
-  // Update subtitle text
+  // Update subtitle
   const sub=document.getElementById('rp-subtitle');
   if(sub) sub.textContent='Both lines indexed to 100 at start of window. Stock line above S&P line = outperforming.'+(useTR?' Dividends reinvested (total return.)':'');
 }
@@ -1063,6 +1103,9 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
   const _rpBtn=(s,lbl)=>'<button class="btn btn-secondary" id="rp-btn-'+s+'" onclick="toggleRPSpan(\''+s+'\')" style="font-size:10px;padding:2px 8px;opacity:'+(s===_rpSpan?'1':'0.4')+'">'+lbl+'</button>';
   const _trActive=getRPTotalReturn();
   const _sp500trAvail=!!S.get('hist2y_sp500tr');
+  const _cmpTicker=S.get('rp_compare_'+ticker)||'';
+  // Build watchlist dropdown options excluding current ticker
+  const _wlOpts=(watchlist||[]).filter(t=>t!==ticker).sort().map(t=>`<option value="${t}"${t===_cmpTicker?'selected':''}>${t}</option>`).join('');
   return `<div class="card">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
       <span id="rp-title-span"><span class="dot" style="background:var(--accent)"></span>Relative Performance vs S&P 500 (${_rpSpanLabel})</span>
@@ -1071,14 +1114,19 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
     <div style="display:flex;gap:4px;margin-bottom:4px">
       ${_rpBtn('6m','6M')+_rpBtn('1y','1Y')+_rpBtn('2y','2Y')}
     </div>
-    <div style="margin-bottom:6px">
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
       <button id="rp-tr-btn" class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${_trActive?'1':'0.4'}" onclick="toggleRPTotalReturn()" title="${_sp500trAvail?'Toggle total return (dividends reinvested)':'Total return data loads on next refresh'}">Total Return</button>
+      <select id="rp-cmp-select" onchange="setRPCompareTicker(this.value)" style="font-family:var(--mono);font-size:10px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);border-radius:4px;padding:2px 4px;flex:1;min-width:0">
+        <option value="">— Compare with —</option>
+        ${_wlOpts}
+      </select>
     </div>
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px" id="rp-subtitle">Both lines indexed to 100 at start of window. Stock line above S&amp;P line = outperforming.${_trActive?' Dividends reinvested (total return).':''}</div>
     <div class="chart-wrap" style="height:200px"><canvas id="rp-chart"></canvas></div>
-    <div id="rp-legend" style="display:flex;gap:12px;margin-top:6px">
+    <div id="rp-legend" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px">
       <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:var(--accent)"></span><span data-rp-label="ticker" style="font-family:var(--mono);font-size:9px;color:var(--text3)">${ticker}${_trActive?' (TR)':''}</span></div>
       <div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:#8b8fa8"></span><span data-rp-label="sp500" style="font-family:var(--mono);font-size:9px;color:var(--text3)">S&P 500${_trActive?' (TR)':''}</span></div>
+      <div id="rp-cmp-legend" style="display:${_cmpTicker?'flex':'none'};align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:2px;background:#ffd32a"></span><span data-rp-label="compare" style="font-family:var(--mono);font-size:9px;color:var(--text3)">${_cmpTicker}${_trActive?' (TR)':''}</span></div>
       ${earningsWithOvr?.length?'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:2px;height:12px;background:rgba(255,165,2,0.75)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">Solid=confirmed · Dashed=estimated · Teal=overridden</span></div>':''}
     </div>
     ${earnSummary?`<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">${earnSummary}</div>`:''}
@@ -1109,7 +1157,7 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
   </div>`;
 }
 
-function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
+function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span,cmpSeries){
   const ctx=document.getElementById('rp-chart')?.getContext('2d');
   if(!ctx)return;
 
@@ -1121,10 +1169,8 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
   // Align series by date -- find common date range
   const _toDateStr=d=>{
     if(d instanceof Date)return d.toISOString().split('T')[0];
-    // Stored as Unix seconds -- multiply by 1000
     return new Date(d*1000).toISOString().split('T')[0];
   };
-  // Filter timestamps to the selected timeframe window
   const stockDates=hist2y.timestamps
     .map((d,i)=>({d:_toDateStr(d),i}))
     .filter(({d})=>new Date(d+'T00:00:00Z')>=cutoff)
@@ -1133,7 +1179,6 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
     .map((d,i)=>({d:_toDateStr(d),i}))
     .filter(({d})=>new Date(d+'T00:00:00Z')>=cutoff)
     .map(({d})=>d);
-  // Rebuild closes aligned to filtered dates
   const _stockFiltered=hist2y.timestamps
     .map((d,i)=>({d:_toDateStr(d),c:hist2y.closes[i]}))
     .filter(({d})=>new Date(d+'T00:00:00Z')>=cutoff);
@@ -1141,25 +1186,39 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
     .map((d,i)=>({d:_toDateStr(d),c:hist2ySP.closes[i]}))
     .filter(({d})=>new Date(d+'T00:00:00Z')>=cutoff);
 
-  // Build date-keyed maps from filtered data
   const stockMap={};_stockFiltered.forEach(({d,c})=>{if(c!=null)stockMap[d]=c;});
   const spMap={};_spFiltered.forEach(({d,c})=>{if(c!=null)spMap[d]=c;});
 
-  // Filter to selected span before finding common dates
+  // Build comparison ticker map if provided
+  let cmpMap=null;
+  if(cmpSeries&&cmpSeries.timestamps&&cmpSeries.closes){
+    cmpMap={};
+    cmpSeries.timestamps
+      .map((d,i)=>({d:_toDateStr(d),c:cmpSeries.closes[i]}))
+      .filter(({d})=>new Date(d+'T00:00:00Z')>=cutoff)
+      .forEach(({d,c})=>{if(c!=null)cmpMap[d]=c;});
+  }
+
   const _spanDays={'6m':183,'1y':365,'2y':730}[span||'2y']||730;
   const _cutoff=new Date(Date.now()-_spanDays*86400000).toISOString().split('T')[0];
 
-  // Common dates only, filtered to span
+  // Common dates: stock + S&P required; comparison allowed to have gaps
   const commonDates=stockDates.filter(d=>stockMap[d]!=null&&spMap[d]!=null&&d>=_cutoff).sort();
   if(commonDates.length<10)return;
 
-  // Normalize both to 100 at first common date
   const base=commonDates[0];
   const stockBase=stockMap[base];
   const spBase=spMap[base];
+  // For comparison, find first date where both stock and comparison have data
+  const cmpBase=cmpMap?commonDates.find(d=>cmpMap[d]!=null):null;
+  const cmpBaseVal=cmpBase?cmpMap[cmpBase]:null;
 
   const stockNorm=commonDates.map(d=>Math.round(stockMap[d]/stockBase*10000)/100);
   const spNorm=commonDates.map(d=>Math.round(spMap[d]/spBase*10000)/100);
+  // Comparison: normalize to 100 at same base date as stock; null where data missing
+  const cmpNorm=cmpMap&&cmpBaseVal
+    ?commonDates.map(d=>cmpMap[d]!=null?Math.round(cmpMap[d]/cmpBaseVal*10000)/100:null)
+    :null;
 
   const labels=commonDates.map(d=>{
     const dt=new Date(d+'T12:00:00Z');
@@ -1218,7 +1277,8 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
       labels,
       datasets:[
         {label:ticker,data:stockNorm,borderColor:'#00d4aa',borderWidth:2,pointRadius:0,tension:0.2,fill:false},
-        {label:'S&P 500',data:spNorm,borderColor:'#8b8fa8',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false,borderDash:[3,2]}
+        {label:'S&P 500',data:spNorm,borderColor:'#8b8fa8',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false,borderDash:[3,2]},
+        ...(cmpNorm?[{label:cmpSeries.ticker,data:cmpNorm,borderColor:'#ffd32a',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false,spanGaps:false}]:[])
       ]
     },
     options:{
@@ -1241,9 +1301,20 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
   });
 }
 
-// Called after renderTickerContent to render the rel perf chart
 function _initRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
-  if(hist2y&&hist2ySP)renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span||'2y');
+  if(!hist2y||!hist2ySP)return;
+  // Load comparison series from cache if a comparison ticker is saved
+  const cmpTicker=S.get('rp_compare_'+ticker)||'';
+  let cmpData=null;
+  if(cmpTicker){
+    const cmpC=S.get('hist2y_'+cmpTicker);
+    if(cmpC&&cmpC.closes&&cmpC.closes.length>=2){
+      const useTR=getRPTotalReturn();
+      const cmpCloses=useTR&&cmpC.adjcloses?cmpC.adjcloses:cmpC.closes;
+      cmpData={ticker:cmpTicker,timestamps:cmpC.timestamps,closes:cmpCloses};
+    }
+  }
+  renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span||'2y',cmpData);
 }
 
 function renderVolChart(hist6m,hist1y,hist2y,span,avgVol20){

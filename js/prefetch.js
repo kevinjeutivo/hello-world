@@ -72,7 +72,7 @@ async function prefetchAll(){
           postMarketChange:_ahQ.postMarketChange||null,
           postMarketChangePct:_ahQ.postMarketChangePct||null,
           earningsDate:_futE[0]?.date||null,earningsHour:_futE[0]?.hour||null,
-          ts:nowPT(),isLive:true};
+          ts:nowPT(),tsEpoch:Date.now(),isLive:true};
         if(_qs){if(_qs.beta!=null)_sn2.beta=_qs.beta;if(_qs.ptMean){_sn2.ptMean=_qs.ptMean;_sn2.ptHigh=_qs.ptHigh||null;_sn2.ptLow=_qs.ptLow||null;_sn2.ptAnalysts=_qs.ptAnalysts||null;}if(_qs.pegRatio!=null)_sn2.pegRatio=_qs.pegRatio;if(_qs.evToEbitda!=null)_sn2.evToEbitda=_qs.evToEbitda;if(_qs.shortPctFloat!=null){_sn2.shortPctFloat=_qs.shortPctFloat;_sn2.shortRatioYahoo=_qs.shortRatioYahoo;}if(_qs.earningsTrend&&_qs.earningsTrend.length)_sn2.earningsTrend=_qs.earningsTrend;if(_qs.recTrend&&_qs.recTrend.length)_sn2.recTrend=_qs.recTrend;if(_qs.revenueGrowthYahoo!=null)_sn2.revenueGrowthYahoo=_qs.revenueGrowthYahoo;if(_qs.operatingMarginsYahoo!=null)_sn2.operatingMarginsYahoo=_qs.operatingMarginsYahoo;if(_qs.freeCashflowYahoo!=null&&_qs.totalRevenueYahoo!=null&&_qs.totalRevenueYahoo!==0)_sn2.fcfMarginYahoo=_qs.freeCashflowYahoo/_qs.totalRevenueYahoo;}
         S.set('snap_'+t,_sn2);_health.tickers[t].snap=true;
         if(rec2&&rec2.length)S.set('rec_'+t,{data:rec2[0],ts:nowPT()});

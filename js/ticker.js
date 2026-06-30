@@ -6,22 +6,45 @@ function _tkTimeout(p,ms,label){return Promise.race([p,new Promise((_,rej)=>setT
 // Dependencies: helpers.js, api.js, storage.js
 
 async function loadTicker(){
+  // Returns true if we're within market hours through 1 hour after close
+  // (9:30am ET open through 5:00pm ET, since market closes 4:00pm ET).
+  // Used to decide the cache-freshness TTL: 5 minutes during this window,
+  // unlimited (always serve cache) outside it -- since after-hours data
+  // doesn't change and Yahoo's post-close print needs ~1hr to fully settle.
+  function _isMarketActiveWindow(){
+    try{
+      const now=new Date();
+      const etFmt=new Intl.DateTimeFormat('en-US',{
+        timeZone:'America/New_York',
+        weekday:'short',hour:'numeric',minute:'numeric',hour12:false
+      });
+      const parts=etFmt.formatToParts(now);
+      const etWeekday=parts.find(p=>p.type==='weekday').value; // 'Mon'..'Sun'
+      if(etWeekday==='Sat'||etWeekday==='Sun')return false; // weekends always outside active window
+      const etHour=parseInt(parts.find(p=>p.type==='hour').value);
+      const etMin=parseInt(parts.find(p=>p.type==='minute').value);
+      const etMins=etHour*60+etMin;
+      const openMins=9*60+30;  // 9:30am ET
+      const closeBufferMins=17*60; // 5:00pm ET (4:00pm close + 1hr buffer)
+      return etMins>=openMins&&etMins<closeBufferMins;
+    }catch{return true;} // default to live-fetch behavior on error
+  }
   const t=document.getElementById('ticker-select').value;if(!t)return;
   if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('options-ticker-select').value=t;clearOptionsState();currentBBSpan='6m';currentRPSpan='2y';}
-  // Cache-freshness gate: if we already have a snap fetched within the last 2
-  // minutes, serve from cache instead of doing a redundant live fetch. This
-  // avoids re-fetching every time you navigate to the Ticker tab from the
-  // watchlist/dashboard or switch tickers in the dropdown -- the same data
-  // would just come back from Yahoo/Finnhub seconds or minutes later anyway.
-  // Force Refresh / the ticker-level refresh button bypass this entirely since
-  // they call refreshSingleTicker() directly, not loadTicker().
-  // Uses tsEpoch (a true Date.now() value) rather than parsing the locale-
-  // formatted `ts` display string, which has no timezone offset and cannot
-  // be reliably reconstructed into an absolute time.
+  // Cache-freshness gate. Two policies depending on session:
+  //  - Market hours through 1hr after close (9:30am-5:00pm ET): 5-minute TTL.
+  //    Prices are actively moving so a short TTL keeps things reasonably current
+  //    while still avoiding a fetch on every single tab navigation.
+  //  - Outside that window (evening research, weekends): cache is always treated
+  //    as fresh regardless of age. After-hours/weekend data doesn't change, and
+  //    the 1hr buffer past close gives Yahoo's official close print time to settle.
+  //    Force Refresh / Prefetch All / the individual ticker refresh button remain
+  //    the only ways to pull fresh data in this window.
   const _cachedSnap=S.get('snap_'+t);
   if(_cachedSnap?.tsEpoch){
     const _ageMs=Date.now()-_cachedSnap.tsEpoch;
-    if(_ageMs>=0&&_ageMs<120000){
+    const _ttlMs=_isMarketActiveWindow()?300000:Infinity; // 5min vs always-fresh
+    if(_ageMs>=0&&_ageMs<_ttlMs){
       restoreTickerFromCache(t);
       return;
     }

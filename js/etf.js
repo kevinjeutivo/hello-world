@@ -1,4 +1,4 @@
-// PutSeller Pro -- etf.js
+// Income Engine -- etf.js
 // ETF tab: load, render charts, toggle span.
 // Globals used: WORKER_URL, S
 // Dependencies: helpers.js, storage.js
@@ -74,8 +74,9 @@ async function loadETFTab(){
       let snap,hist6mo,distributions=[],trailingYield=null,isLive=true;
       const snapKey='snap_etf_'+etf.ticker;const histKey='hist_etf_'+etf.ticker;const divKey='div_etf_'+etf.ticker;
       try{
-        const[quote,metrics]=await Promise.all([fh(`/quote?symbol=${etf.ticker}`),fh(`/stock/metric?symbol=${etf.ticker}&metric=all`)]);
-        snap={ticker:etf.ticker,price:quote.c,change:quote.c-quote.pc,changePct:((quote.c-quote.pc)/quote.pc*100),week52High:metrics.metric?.['52WeekHigh']||null,week52Low:metrics.metric?.['52WeekLow']||null,dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,ts:nowPT()};
+        const _etfQ=await fetchAfterHoursPrice(etf.ticker);
+        if(!_etfQ||!_etfQ.price)throw new Error('no quote');
+        snap={ticker:etf.ticker,price:_etfQ.price,change:_etfQ.price-(_etfQ.prevClose||_etfQ.price),changePct:((_etfQ.price-(_etfQ.prevClose||_etfQ.price))/(_etfQ.prevClose||_etfQ.price)*100),week52High:_etfQ.week52High||null,week52Low:_etfQ.week52Low||null,dividendYield:_etfQ.dividendYield!=null?_etfQ.dividendYield*100:null,ts:nowPT()};
         S.set(snapKey,snap);
       }catch{const c=S.get(snapKey);if(c){snap=c;isLive=false;showOfflineBanner(c.ts);}else snap=null;}
       try{hist6mo=await yahooHistory(etf.ticker,'1y','1d');S.set(histKey,{timestamps:hist6mo.timestamps.map(d=>d.toISOString()),closes:hist6mo.closes,ts:nowPT()});}
@@ -317,27 +318,20 @@ async function _sbFetch(ticker){
 
   let fundName=ticker,fundDesc='';
   try{
-    const[quote,metrics]=await Promise.all([
-      fh(`/quote?symbol=${ticker}`),
-      fh(`/stock/metric?symbol=${ticker}&metric=all`)
-    ]);
-    snap={ticker,price:quote.c,change:quote.c-quote.pc,
-      changePct:((quote.c-quote.pc)/quote.pc*100),
-      week52High:metrics.metric?.['52WeekHigh']||null,
-      week52Low:metrics.metric?.['52WeekLow']||null,
-      dividendYield:metrics.metric?.dividendYieldIndicatedAnnual||null,
+    const quote=await fetchAfterHoursPrice(ticker);
+    if(!quote||!quote.price)throw new Error('no quote');
+    snap={ticker,price:quote.price,change:quote.price-(quote.prevClose||quote.price),
+      changePct:((quote.price-(quote.prevClose||quote.price))/(quote.prevClose||quote.price)*100),
+      week52High:quote.week52High||null,
+      week52Low:quote.week52Low||null,
+      dividendYield:quote.dividendYield!=null?quote.dividendYield*100:null,
       ts:nowPT()};
+    if(quote.name&&quote.name!==ticker)fundName=quote.name;
   }catch{
     const c=S.get('etf_research_'+ticker);
     if(c?.snap){snap=c.snap;fundName=c.fundName||ticker;fundDesc=c.fundDesc||'';}
   }
-  // Fetch fund name from Finnhub /stock/profile2 (most reliable for ETFs)
-  try{
-    const prof=await fh(`/stock/profile2?symbol=${ticker}`);
-    if(prof?.name)fundName=prof.name;
-    if(prof?.description)fundDesc=prof.description;
-  }catch{}
-  // Fallback: Yahoo quoteType longName
+  // Fund name: Yahoo quoteType longName (primary)
   if(fundName===ticker){
     try{
       const qr=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(ticker)}&type=summary&modules=quoteType&_t=${Date.now()}`);

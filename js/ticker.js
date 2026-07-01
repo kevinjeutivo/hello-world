@@ -1,4 +1,4 @@
-// PutSeller Pro -- ticker.js
+// Income Engine -- ticker.js
 // currentBBSpan declared as global in index.html
 function _tkTimeout(p,ms,label){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error('Timeout: '+label)),ms))]);}
 // Ticker tab: load, render, restore from cache, chart functions.
@@ -62,8 +62,7 @@ async function loadTicker(){
         fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),
         _needEarningsHist?fh(`/stock/earnings?symbol=${t}&limit=8`):Promise.resolve(null)
       ]);
-      let rec=null,upgrades=null;
-      try{rec=await fh(`/stock/recommendation?symbol=${t}`);}catch{}
+      let upgrades=null;
       try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch{}
 
       // Build snap from Yahoo /quote (via fetchAfterHoursPrice which now returns full quote fields)
@@ -95,9 +94,8 @@ async function loadTicker(){
         earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),
         ts:nowPT(),tsEpoch:Date.now(),isLive:true
       };
-      recData=rec&&rec.length?rec[0]:null;
       const upgradeData=upgrades&&upgrades.length?upgrades.slice(0,6):[];
-      S.set('snap_'+t,snap);S.set('rec_'+t,{data:recData||null,ts:nowPT()});S.set('upgrades_'+t,{data:upgradeData||[],ts:nowPT()});
+      S.set('snap_'+t,snap);S.set('upgrades_'+t,{data:upgradeData||[],ts:nowPT()});
 
       // Enrich with Yahoo quoteSummary (beta, short interest, R40 inputs, price targets, trends)
       try{
@@ -117,9 +115,10 @@ async function loadTicker(){
           S.set('snap_'+t,snap);
         }
       }catch{}
+      recData=snap.recTrend&&snap.recTrend.length?snap.recTrend[0]:null;
     }catch{
       const cached=S.get('snap_'+t);if(cached){snap=cached;isLive=false;showOfflineBanner(cached.ts);}else throw new Error('No data available');
-      const cr=S.get('rec_'+t);if(cr)recData=cr.data;
+      recData=snap.recTrend&&snap.recTrend.length?snap.recTrend[0]:null;
     }
     // Single 2Y fetch populates all three history cache keys
     try{
@@ -312,9 +311,10 @@ function restoreTickerFromCache(t){
   const sp2c=S.get(_rSpKey)||((_rUseTR)?S.get('hist2y_sp500'):null);
   const hist2ySP=sp2c?{timestamps:sp2c.timestamps.map(d=>new Date(d*1000)),closes:sp2c.closes}:null;
   const ehc=S.get('earnings_hist_'+t);const earningsHistory=ehc?.data||null;
-  const cn=S.get('news_'+t);const cr=S.get('rec_'+t);
+  const cn=S.get('news_'+t);
   const cu=S.get('upgrades_'+t);
-  renderTickerContent(snap,hist6mo,hist1y,cn?cn.items:null,cr?cr.data:null,cu?cu.data:[],false,hist2y,hist2ySP,earningsHistory);
+  const _cRecData=snap.recTrend&&snap.recTrend.length?snap.recTrend[0]:null;
+  renderTickerContent(snap,hist6mo,hist1y,cn?cn.items:null,_cRecData,cu?cu.data:[],false,hist2y,hist2ySP,earningsHistory);
   setTimeout(refreshTsChipAges,50);
 }
 
@@ -1717,8 +1717,7 @@ async function refreshSingleTicker(){
       fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),
       _rNeedEarningsHist?fh(`/stock/earnings?symbol=${t}&limit=8`):Promise.resolve(null)
     ]);
-    let rec=null,upgrades=null,priceTargetS=null;
-    try{rec=await fh(`/stock/recommendation?symbol=${t}`);}catch{}
+    let upgrades=null,priceTargetS=null;
     try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch{}
     // Build snap from Yahoo /quote
     setP(20,'Fetching '+t+' Yahoo quote...');
@@ -1780,7 +1779,6 @@ async function refreshSingleTicker(){
       }}catch{}
       if(priceTargetS&&priceTargetS.targetMean){snap.ptMean=priceTargetS.targetMean||null;snap.ptHigh=priceTargetS.targetHigh||null;snap.ptLow=priceTargetS.targetLow||null;}
     S.set('snap_'+t,snap);
-    S.set('rec_'+t,{data:rec&&rec.length?rec[0]:null,ts:nowPT()});
     S.set('upgrades_'+t,{data:upgrades&&upgrades.length?upgrades.slice(0,6):[],ts:nowPT()});
     // Step 3: Price history
     setP(35,'Fetching '+t+' price history...');

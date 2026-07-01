@@ -1,4 +1,4 @@
-// PutSeller Pro -- api.js
+// Income Engine -- api.js
 // All network fetch functions: Finnhub, Yahoo Finance via Worker.
 // Globals used: FINNHUB_KEY, WORKER_URL, offlineMode
 // Dependencies: storage.js, helpers.js
@@ -169,6 +169,9 @@ async function fetchAfterHoursPrice(symbol){
       forwardPE:q.forwardPE||null,
       trailingEps:q.epsTrailingTwelveMonths||q.trailingEps||null,
       dividendYield:q.trailingAnnualDividendYield??q.dividendYield??null, // decimal (0.02 = 2%)
+      // 52-week range (available directly in Yahoo /quote)
+      week52High:q.fiftyTwoWeekHigh||null,
+      week52Low:q.fiftyTwoWeekLow||null,
       // Not in Yahoo /quote -- comes from quoteSummary defaultKeyStatistics
       epsGrowth:null,
       ptMean:null,ptHigh:null,ptLow:null,ptAnalysts:null

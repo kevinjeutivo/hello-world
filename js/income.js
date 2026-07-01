@@ -2035,7 +2035,7 @@ function _renderCCPositionList(){
           (nearStrike!==null&&!expired?
             '<div style="font-family:var(--mono);font-size:9px;color:'+(nearStrike<=5?'var(--warn)':'var(--text3)')+'">'+
               'Strike '+(nearStrike>=0?nearStrike.toFixed(1)+'% above':Math.abs(nearStrike).toFixed(1)+'% below')+' current price'+
-              (nearStrike<=5&&nearStrike>=0?' &#x26A0; Call-away risk':'')+(nearStrike<0?' &#x26A0; ITM':'')+
+              (nearStrike<=5&&nearStrike>=0?' &#x26A0; Approaching strike':'')+(nearStrike<0?' &#x26A0; ITM':'')+
             '</div>':'')+
           '<div style="font-family:var(--mono);font-size:10px;color:'+(expired?'var(--text3)':L2_TEXT)+'">'+
             _fmtDollar(notional)+' notional'+(expired?' (excluded)':'')+

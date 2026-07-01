@@ -1295,15 +1295,20 @@ function _getPosPricing(pos, isCall){
     // Support both new flat format {puts:[{s,b,l,...}],calls:[...]} and legacy format
     let contracts;
     if(isCall){
-      if(cache?.calls) contracts = cache.calls.map(c=>({strike:c.s,bid:c.b,lastPrice:c.l}));
+      if(cache?.calls) contracts = cache.calls.map(c=>({strike:c.s,bid:c.b,ask:c.a,lastPrice:c.l}));
       else contracts = cache?.optionChain?.result?.[0]?.options?.[0]?.calls || [];
     }else{
-      if(cache?.puts) contracts = cache.puts.map(c=>({strike:c.s,bid:c.b,lastPrice:c.l}));
+      if(cache?.puts) contracts = cache.puts.map(c=>({strike:c.s,bid:c.b,ask:c.a,lastPrice:c.l}));
       else contracts = cache?.optionChain?.result?.[0]?.options?.[0]?.puts || [];
     }
     const match = contracts.find(c => Math.abs((c.strike||c.s||0) - pos.strike) < 0.005);
     if(match){
-      const premium = ((match.bid||match.b||0) > 0 ? (match.bid||match.b) : (match.lastPrice||match.l||0));
+      const bid=(match.bid||match.b||0);
+      const ask=(match.ask||match.a||0);
+      // Use ask price: this is what you'd pay to close a short position (buy back
+      // the option), making it the most conservative and actionable figure for
+      // deciding whether to roll. Falls back to bid then last price if ask unavailable.
+      const premium = ask>0 ? ask : (bid>0 ? bid : (match.lastPrice||match.l||0));
       if(premium > 0){
         const totalPremium = premium * 100 * pos.contracts;
         timeValue = Math.max(totalPremium - intrinsic, 0);

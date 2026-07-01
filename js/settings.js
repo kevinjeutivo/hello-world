@@ -1,4 +1,4 @@
-// PutSeller Pro -- settings.js
+// Income Engine -- settings.js
 // Settings panel: open/close, save, conviction weights, storage, worker health.
 // Globals used: FINNHUB_KEY, watchlist, vixThreshold, tzPref, offlineMode, fontSize, S
 // Dependencies: helpers.js, ui.js, storage.js
@@ -479,7 +479,7 @@ function shareExport(){
   if(!json){toast('Generate export first');return;}
   const ts=new Date().toISOString().split('T')[0];
   if(navigator.share){
-    navigator.share({title:'PutSeller Pro Backup '+ts,text:json})
+    navigator.share({title:'Income Engine Backup '+ts,text:json})
       .catch(e=>{if(e.name!=='AbortError')toast('Share failed: '+e.message);});
   }else{
     toast('Share not available — use Copy to Clipboard instead');

@@ -1,12 +1,12 @@
 // ============================================
-// PutSeller Pro — Service Worker
+// Income Engine — Service Worker
 // Caches the entire app shell on first visit
 // so the app loads offline with no internet.
 // Version bump this string to force a refresh
 // of the cache when you deploy a new version.
 // ============================================
-const CACHE_NAME = 'putseller-v194';
-const APP_BUILD = 194; // increment with every deploy, matches CACHE_NAME version
+const CACHE_NAME = 'putseller-v195';
+const APP_BUILD = 195; // increment with every deploy, matches CACHE_NAME version
 
 // Files to cache on install — the app shell
 const APP_SHELL = [

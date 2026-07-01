@@ -1275,23 +1275,33 @@ function _activePosNotionalTotal(){
 // derive time value (extrinsic) remaining -- the signal for roll/assignment risk.
 // Degrades gracefully: missing snap -> no price; missing/unmatched options
 // cache -> price + moneyness only, no time value. Never throws.
+// Works for both puts and covered calls -- pass isCall:true for CC positions.
+// Put: ITM when price < strike, intrinsic = max(strike - price, 0)
+// Call: ITM when price > strike, intrinsic = max(price - strike, 0)
 
-function _getPosPricing(pos){
+function _getPosPricing(pos, isCall){
   const snap = S.get('snap_' + pos.ticker);
   const currentPrice = snap?.price ?? null;
   if(currentPrice == null) return { currentPrice: null, itm: null, intrinsic: null, timeValue: null };
 
-  const itm = currentPrice < pos.strike;
-  const intrinsic = Math.max(pos.strike - currentPrice, 0) * 100 * pos.contracts;
+  const itm = isCall ? (currentPrice > pos.strike) : (currentPrice < pos.strike);
+  const intrinsic = isCall
+    ? Math.max(currentPrice - pos.strike, 0) * 100 * pos.contracts
+    : Math.max(pos.strike - currentPrice, 0) * 100 * pos.contracts;
 
   let timeValue = null;
   try{
     const cache = S.get('options_exp_' + pos.ticker + '_' + pos.expDate);
-    // Support both new flat format {puts:[{s,b,l,...}]} and legacy format
-    let puts;
-    if(cache?.puts) puts = cache.puts.map(c=>({strike:c.s,bid:c.b,lastPrice:c.l}));
-    else puts = cache?.optionChain?.result?.[0]?.options?.[0]?.puts || [];
-    const match = puts.find(p => Math.abs((p.strike||p.s||0) - pos.strike) < 0.005);
+    // Support both new flat format {puts:[{s,b,l,...}],calls:[...]} and legacy format
+    let contracts;
+    if(isCall){
+      if(cache?.calls) contracts = cache.calls.map(c=>({strike:c.s,bid:c.b,lastPrice:c.l}));
+      else contracts = cache?.optionChain?.result?.[0]?.options?.[0]?.calls || [];
+    }else{
+      if(cache?.puts) contracts = cache.puts.map(c=>({strike:c.s,bid:c.b,lastPrice:c.l}));
+      else contracts = cache?.optionChain?.result?.[0]?.options?.[0]?.puts || [];
+    }
+    const match = contracts.find(c => Math.abs((c.strike||c.s||0) - pos.strike) < 0.005);
     if(match){
       const premium = ((match.bid||match.b||0) > 0 ? (match.bid||match.b) : (match.lastPrice||match.l||0));
       if(premium > 0){
@@ -2002,6 +2012,12 @@ function _renderCCPositionList(){
     const nearStrike = currentPrice&&pos.strike
       ? ((pos.strike-currentPrice)/currentPrice*100)
       : null;
+    const pricing = expired ? { itm: null, timeValue: null } : _getPosPricing(pos, true);
+    const timeValueLine = pricing.timeValue != null
+      ? '<div style="font-family:var(--mono);font-size:9px;color:'+(pricing.itm?'var(--warn)':'var(--text3)')+'">'+
+          'Time value: '+_fmtDollar(pricing.timeValue)+(pricing.itm?' remaining &mdash; consider rolling':'')+
+        '</div>'
+      : '';
 
     return '<div style="background:'+ss.bg+';border:1px solid '+ss.border+';border-radius:8px;padding:10px;margin-bottom:6px;'+(expired?'opacity:0.5':'')+'">' +
       '<div style="display:flex;justify-content:space-between;align-items:flex-start">' +
@@ -2024,6 +2040,7 @@ function _renderCCPositionList(){
           '<div style="font-family:var(--mono);font-size:10px;color:'+(expired?'var(--text3)':L2_TEXT)+'">'+
             _fmtDollar(notional)+' notional'+(expired?' (excluded)':'')+
           '</div>'+
+          timeValueLine+
         '</div>'+
         '<button style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:4px 8px" '+
           'onclick="_openRemoveCCModal(\''+pos.id+'\')">&times;</button>'+

@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="PutSeller">
+<meta name="apple-mobile-web-app-title" content="Income Engine">
 <link rel="apple-touch-icon" sizes="180x180" href="icon-saturn4.png">
 <link rel="apple-touch-startup-image" href="icon-saturn4.png">
-<title>PutSeller Pro</title>
+<title>Income Engine</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap');
@@ -35,7 +35,7 @@ html,body{background:var(--bg);color:var(--text);font-family:var(--sans);font-si
 #top-progress-bar.active .top-bar-fill{box-shadow:0 0 8px rgba(0,212,170,0.6)}
 .header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px 8px;position:sticky;top:36px;z-index:100;display:flex;align-items:center;justify-content:space-between}
 .header-left{display:flex;flex-direction:column;gap:2px}
-.header-title{font-family:var(--sans);font-size:18px;font-weight:800;letter-spacing:-0.5px;color:var(--accent)}
+.header-title{font-family:var(--sans);font-size:18px;font-weight:800;letter-spacing:-1px;color:var(--accent)}
 .header-sub{font-family:var(--mono);font-size:10px;color:var(--text3);display:flex;align-items:center;gap:6px}
 .online-dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex-shrink:0}
 .online-dot-on{background:var(--green)}
@@ -194,7 +194,7 @@ a{color:inherit}
 <div id="top-progress-bar"><div class="top-bar-fill" id="top-bar-fill"></div></div>
 <div class="header">
   <div class="header-left">
-    <div class="header-title">PutSeller Pro <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
+    <div class="header-title">Income Engine <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
     <div class="header-sub">
       <span class="online-dot online-dot-on" id="online-dot"></span>
       <span>Options Income Strategy <span id="app-build-label"></span></span>
@@ -487,7 +487,7 @@ a{color:inherit}
     <div class="guide-kv"><span class="guide-key">Definition</span><span class="guide-val">Where today's IV sits within its own 1-year range of daily IV readings. IVR 80 means current IV is higher than 80% of the past year's IV values.</span></div>
     <div class="guide-kv"><span class="guide-key">Requires</span><span class="guide-val">Storing a daily IV snapshot every trading day for a year. Without this history, true IVR cannot be computed. Professional platforms (ToS, tastytrade) maintain this database.</span></div>
     <div class="guide-kv"><span class="guide-key">Why it matters</span><span class="guide-val">IVR 80 means options are genuinely expensive relative to their own history — a strong signal to sell premium. IVR 20 means options are cheap — thin premiums, wait for a better environment.</span></div>
-    <div class="guide-h3">HVR — What PutSeller Pro Uses</div>
+    <div class="guide-h3">HVR — What Income Engine Uses</div>
     <div class="guide-kv"><span class="guide-key">Definition</span><span class="guide-val">Historical Volatility Rank. Where today's 21-day realized volatility sits within its own 1-year range of 21-day realized volatility readings. Apples-to-apples: HV vs HV.</span></div>
     <div class="guide-kv"><span class="guide-key">Why not IV vs HV</span><span class="guide-val">Comparing today's IV against a historical HV range is systematically biased high — IV always exceeds HV by the risk premium, so every reading would look "elevated." HVR eliminates this bias.</span></div>
     <div class="guide-kv"><span class="guide-key">What it tells you</span><span class="guide-val">Is the stock moving more or less than usual for itself? HVR 70+ means unusually active recently — premiums are likely elevated. HVR below 30 means unusually calm — premiums likely thin.</span></div>
@@ -672,7 +672,7 @@ a{color:inherit}
 <!-- ── SECTION: About ───────────────────────────────────────────────── -->
 <div class="card" style="margin-bottom:8px">
   <div class="gs-header" onclick="toggleGuide('about')">
-    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--text3)"></span>About PutSeller Pro</div>
+    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--text3)"></span>About Income Engine</div>
     <span class="gs-chevron" id="gc-about">&#9658;</span>
   </div>
   <div class="gs-body" id="gb-about">

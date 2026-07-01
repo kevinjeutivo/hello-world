@@ -1,4 +1,4 @@
-// PutSeller Pro -- prefetch.js
+// Income Engine -- prefetch.js
 // Prefetch all tickers and full refresh everything.
 // Globals used: watchlist, WORKER_URL, S
 
@@ -223,10 +223,11 @@ async function prefetchAll(){
     const _sbTs=S.get('etf_research_tickers')||[];
     for(const _sbT of _sbTs){
       try{
-        const[_sbQ,_sbM]=await Promise.all([fh(`/quote?symbol=${_sbT}`),fh(`/stock/metric?symbol=${_sbT}&metric=all`)]);
-        const _sbSnap={ticker:_sbT,price:_sbQ.c,change:_sbQ.c-_sbQ.pc,changePct:((_sbQ.c-_sbQ.pc)/_sbQ.pc*100),
-          week52High:_sbM.metric?.['52WeekHigh']||null,week52Low:_sbM.metric?.['52WeekLow']||null,
-          dividendYield:_sbM.metric?.dividendYieldIndicatedAnnual||null,ts:nowPT()};
+        const _sbQ=await fetchAfterHoursPrice(_sbT);
+        if(!_sbQ||!_sbQ.price)throw new Error('no quote for '+_sbT);
+        const _sbSnap={ticker:_sbT,price:_sbQ.price,change:_sbQ.price-(_sbQ.prevClose||_sbQ.price),changePct:((_sbQ.price-(_sbQ.prevClose||_sbQ.price))/(_sbQ.prevClose||_sbQ.price)*100),
+          week52High:_sbQ.week52High||null,week52Low:_sbQ.week52Low||null,
+          dividendYield:_sbQ.dividendYield!=null?_sbQ.dividendYield*100:null,ts:nowPT()};
         const _sbH=await yahooHistory(_sbT,'1y','1d');
         const _sbR=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(_sbT)}&type=dividends&range=3y`);
         let _sbDivs=[],_sbYield=null;

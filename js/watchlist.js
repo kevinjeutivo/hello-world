@@ -1,4 +1,4 @@
-// PutSeller Pro -- watchlist.js
+// Income Engine -- watchlist.js
 // Watchlist tab: render, add, remove (with confirmation modal), sort, per-ticker notes.
 // Heatmap: daily % change or IVR coloring on chips.
 // Volume badge: 🔥 VOL when unusual volume detected in final 2h of session or lingers overnight.
@@ -204,7 +204,7 @@ function _openPositionsModal(ticker){
       const itm=currentPrice!=null&&currentPrice<p.strike;
       return '<div style="font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--border);'+statusStyle(s)+'">'+
         '<span style="background:rgba(100,181,246,0.2);color:#64b5f6;font-size:9px;padding:1px 4px;border-radius:3px;margin-right:6px">PUT</span>'+
-        '$'+p.strike.toFixed(0)+' · exp '+p.expDate+' ('+dte+'d) · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
+        '$'+(p.strike%1===0?p.strike.toFixed(0):p.strike.toFixed(2))+' · exp '+p.expDate+' ('+dte+'d) · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
         (itm?' <span style="color:var(--red);font-size:9px">⚠ ITM</span>':'')+
       '</div>';
     }).join('');
@@ -216,7 +216,7 @@ function _openPositionsModal(ticker){
       const itm=currentPrice!=null&&currentPrice>p.strike;
       return '<div style="font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--border);'+statusStyle(s)+'">'+
         '<span style="background:rgba(255,107,53,0.2);color:#ff6b35;font-size:9px;padding:1px 4px;border-radius:3px;margin-right:6px">CC</span>'+
-        '$'+p.strike.toFixed(0)+' · exp '+p.expDate+' ('+dte+'d) · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
+        '$'+(p.strike%1===0?p.strike.toFixed(0):p.strike.toFixed(2))+' · exp '+p.expDate+' ('+dte+'d) · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
         (itm?' <span style="color:var(--warn);font-size:9px">⚠ ITM</span>':'')+
       '</div>';
     }).join('');

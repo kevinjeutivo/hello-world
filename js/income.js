@@ -1,4 +1,4 @@
-// PutSeller Pro -- income.js
+// Income Engine -- income.js
 // Income Engine tab: N-account wheel strategy tracker.
 // Layer 1: T-Bills + FDLXX (state-TEY) + SPAXX
 // Layer 2: SPYI + NBOS (TTM yield from ETF cache)
@@ -1509,7 +1509,7 @@ function _confirmAddPosition(){
   S.set(posKey, positions);
   _closePosModal();
   recalcIncome();
-  toast('Position added: ' + ticker + ' $' + strike.toFixed(0) + ' x' + contracts);
+  toast('Position added: ' + ticker + ' $' + (strike%1===0?strike.toFixed(0):strike.toFixed(2)) + ' x' + contracts);
 }
 
 let _pendingRemovePosId = null;
@@ -1549,7 +1549,7 @@ function _openRemovePosModal(id){
     });
   }
   document.getElementById('prm-body').textContent =
-    'Remove ' + pos.ticker + ' $' + pos.strike.toFixed(0) +
+    'Remove ' + pos.ticker + ' $' + (pos.strike%1===0?pos.strike.toFixed(0):pos.strike.toFixed(2)) +
     ' put expiring ' + pos.expDate + ' (' + pos.contracts + ' contract' +
     (pos.contracts > 1 ? 's' : '') + ')?';
   el.classList.add('open');
@@ -1624,7 +1624,7 @@ function _renderPositionList(){
     return '<div style="background:'+ss.bg+';border:1px solid '+ss.border+';border-radius:8px;padding:10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;'+(expired?'opacity:0.5':'')+'">' +
       '<div>' +
         '<div style="font-family:var(--mono);font-size:13px;font-weight:700;color:'+(expired?'var(--text3)':'var(--accent)')+'">'+
-          pos.ticker+' $'+pos.strike.toFixed(0)+
+          pos.ticker+' $'+(pos.strike%1===0?pos.strike.toFixed(0):pos.strike.toFixed(2))+
           (ss.label?'<span style="font-size:9px;color:'+ss.labelColor+';margin-left:6px;font-weight:400">'+ss.label+'</span>':'')+
           (itmTag&&!expired?' <span style="font-size:9px;margin-left:4px">'+itmTag+'</span>':'')+
         '</div>'+
@@ -1911,7 +1911,7 @@ function _confirmAddCC(){
   S.set(ccKey, positions);
   _closeAddCCModal();
   recalcIncome();
-  toast('CC position added: ' + ticker + ' $' + strike.toFixed(0) + ' call x' + contracts);
+  toast('CC position added: ' + ticker + ' $' + (strike%1===0?strike.toFixed(0):strike.toFixed(2)) + ' call x' + contracts);
 }
 
 let _pendingRemoveCCId = null;
@@ -1950,7 +1950,7 @@ function _openRemoveCCModal(id){
     });
   }
   document.getElementById('crm-body').textContent =
-    'Remove ' + pos.ticker + ' $' + pos.strike.toFixed(0) +
+    'Remove ' + pos.ticker + ' $' + (pos.strike%1===0?pos.strike.toFixed(0):pos.strike.toFixed(2)) +
     ' call expiring ' + pos.expDate + ' (' + pos.contracts + ' contract' +
     (pos.contracts>1?'s':'')+', stock at $'+pos.stockPriceAtWrite.toFixed(2)+' at write)?';
   el.classList.add('open');
@@ -2028,7 +2028,7 @@ function _renderCCPositionList(){
       '<div style="display:flex;justify-content:space-between;align-items:flex-start">' +
         '<div style="flex:1">' +
           '<div style="font-family:var(--mono);font-size:13px;font-weight:700;color:'+(expired?'var(--text3)':L2_TEXT)+'">'+
-            pos.ticker+' $'+pos.strike.toFixed(0)+' call'+
+            pos.ticker+' $'+(pos.strike%1===0?pos.strike.toFixed(0):pos.strike.toFixed(2))+' call'+
             (ss.label?'<span style="font-size:9px;color:'+ss.labelColor+';margin-left:6px;font-weight:400">'+ss.label+'</span>':'')+
           '</div>'+
           '<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">'+

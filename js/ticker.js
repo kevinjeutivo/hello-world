@@ -299,7 +299,7 @@ function restoreTickerFromCache(t){
   // Derive 6M and 1Y slices from hist2y_ -- no separate hist_ or hist1y_ keys stored
   let hist6mo=null,hist1y=null;
   if(ch2){
-    const _ts=ch2.timestamps.map(d=>new Date(d));
+    const _ts=ch2.timestamps.map(d=>new Date(typeof d==='number'&&d<1e10?d*1000:d));
     const _cl=ch2.closes,_vl=ch2.volumes||[];
     hist6mo={timestamps:_ts.slice(-126),closes:_cl.slice(-126),volumes:_vl.slice(-126)};
     hist1y={timestamps:_ts.slice(-252),closes:_cl.slice(-252),volumes:_vl.slice(-252)};
@@ -688,7 +688,7 @@ RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red
 }
 
 function renderBBChart(bbData,hist){
-  const labels=bbData.timestamps.map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});});
+  const labels=bbData.timestamps.map(d=>{if(!(d instanceof Date))d=new Date(typeof d==='number'&&d<1e10?d*1000:d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});});
   const rsiVals=computeRSI(hist.closes.filter(c=>c!==null));
   const bbCtx=document.getElementById('bb-chart')?.getContext('2d');
   if(bbCtx){if(window._bbChart)window._bbChart.destroy();window._bbChart=new Chart(bbCtx,{type:'line',data:{labels,datasets:[{data:bbData.closes,borderColor:'#e8eaf0',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},{data:bbData.sma20,borderColor:'#7c6af7',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false},{data:bbData.upper,borderColor:'#ff4757',borderWidth:1,pointRadius:0,borderDash:[2,3],fill:false},{data:bbData.lower,borderColor:'#00c896',borderWidth:1,pointRadius:0,borderDash:[2,3],fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});}
@@ -1425,7 +1425,7 @@ function renderVolChart(hist6m,hist1y,hist2y,span,avgVol20){
   }else if(span==='1y'&&hist1y?.volumes?.length){
     vols=hist1y.volumes;
     labels=hist1y.timestamps.map(d=>{
-      if(!(d instanceof Date))d=new Date(d);
+      if(!(d instanceof Date))d=new Date(typeof d==='number'&&d<1e10?d*1000:d);
       return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
     });
   }else if(hist6m?.volumes?.length){
@@ -1567,7 +1567,7 @@ function renderVPChart(hist1y,currentPrice,w52h,w52l){
   const ma50=closes.map((_,i)=>i<49?null:avg(closes.slice(i-49,i+1)));
   const ma200=closes.map((_,i)=>i<199?null:avg(closes.slice(i-199,i+1)));
   const labels=hist1y.timestamps.map(d=>{
-    if(!(d instanceof Date))d=new Date(d);
+    if(!(d instanceof Date))d=new Date(typeof d==='number'&&d<1e10?d*1000:d);
     return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
   });
   const topVpIdxs=new Set(vpLevels.map(l=>

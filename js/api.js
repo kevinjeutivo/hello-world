@@ -101,6 +101,7 @@ async function fetchQuoteSummary(symbol){
       beta:ks.beta?.raw??null,
       pegRatio:ks.pegRatio?.raw||null,
       evToEbitda:ks.enterpriseToEbitda?.raw||null,
+      totalAssets:ks.totalAssets?.raw||null,              // ETF AUM (null for stocks)
       // Short interest (defaultKeyStatistics -- more reliable than Finnhub free tier)
       shortPctFloat:ks.shortPercentOfFloat?.raw||null,
       shortRatioYahoo:ks.shortRatio?.raw||null,

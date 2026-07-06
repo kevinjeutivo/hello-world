@@ -106,6 +106,7 @@ async function loadTicker(){
           if(qs.pegRatio!=null)snap.pegRatio=qs.pegRatio;
           if(qs.evToEbitda!=null)snap.evToEbitda=qs.evToEbitda;
           if(qs.shortPctFloat!=null){snap.shortPctFloat=qs.shortPctFloat;snap.shortRatioYahoo=qs.shortRatioYahoo;}
+          if(qs.totalAssets!=null)snap.totalAssets=qs.totalAssets;
           if(qs.earningsTrend&&qs.earningsTrend.length)snap.earningsTrend=qs.earningsTrend;
           if(qs.recTrend&&qs.recTrend.length)snap.recTrend=qs.recTrend;
           if(qs.revenueGrowthYahoo!=null)snap.revenueGrowthYahoo=qs.revenueGrowthYahoo;
@@ -635,7 +636,7 @@ return`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarke
         return`<div class="metric-tile"><div class="metric-label">52W High</div><div class="metric-value" style="font-size:13px">$${hi?.toFixed(2)||'N/A'}</div>${hiDate?`<div class="metric-sub">${hiDate}${hiPct?` · ${hiPct}% from high`:''}</div>`:hiPct?`<div class="metric-sub">${hiPct}% from high</div>`:''}</div>`+
         `<div class="metric-tile"><div class="metric-label">52W Low</div><div class="metric-value" style="font-size:13px">$${lo?.toFixed(2)||'N/A'}</div>${loDate?`<div class="metric-sub">${loDate}${loPct?` · +${loPct}% from low`:''}</div>`:loPct?`<div class="metric-sub">+${loPct}% from low</div>`:''}</div>`;
       })()}
-      <div class="metric-tile"><div class="metric-label">Market Cap</div><div class="metric-value" style="font-size:12px">${fmtCap(snap.marketCap)}</div></div>
+      <div class="metric-tile"><div class="metric-label">${snap.marketCap?'Market Cap':snap.totalAssets?'AUM':'Market Cap'}</div><div class="metric-value" style="font-size:12px">${fmtCap(snap.marketCap||snap.totalAssets||null)}</div></div>
       <div class="metric-tile"><div class="metric-label">Beta</div><div class="metric-value">${snap.beta?.toFixed(2)||'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">P/E (TTM)</div><div class="metric-value">${snap.peRatio?.toFixed(1)||'N/A'}</div></div>
       <div class="metric-tile"><div class="metric-label">P/E (Forward)</div><div class="metric-value">${snap.peForward?.toFixed(1)||'N/A'}</div><div class="metric-sub">${snap.peRatio&&snap.peForward?(snap.peForward<snap.peRatio?'Earnings growth expected':'Earnings shrinkage expected'):'Estimated next 12m earnings'}</div></div>
@@ -1770,6 +1771,7 @@ async function refreshSingleTicker(){
         if(qs.pegRatio!=null)snap.pegRatio=qs.pegRatio;
         if(qs.evToEbitda!=null)snap.evToEbitda=qs.evToEbitda;
         if(qs.shortPctFloat!=null){snap.shortPctFloat=qs.shortPctFloat;snap.shortRatioYahoo=qs.shortRatioYahoo;}
+        if(qs.totalAssets!=null)snap.totalAssets=qs.totalAssets;
         if(qs.earningsTrend&&qs.earningsTrend.length)snap.earningsTrend=qs.earningsTrend;
         if(qs.recTrend&&qs.recTrend.length)snap.recTrend=qs.recTrend;
         if(qs.revenueGrowthYahoo!=null)snap.revenueGrowthYahoo=qs.revenueGrowthYahoo;

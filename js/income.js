@@ -1617,7 +1617,7 @@ function _renderPositionList(){
       : '';
     const timeValueLine = pricing.timeValue != null
       ? '<div style="font-family:var(--mono);font-size:9px;color:'+(pricing.itm?'var(--warn)':'var(--text3)')+'">'+
-          'Time value: '+_fmtDollar(pricing.timeValue)+(pricing.itm?' remaining &mdash; consider rolling':'')+
+          'Time value: '+_fmtDollar(pricing.timeValue)+(pos.contracts>1?' ('+_fmtDollar(pricing.timeValue/pos.contracts)+'/contract)':'')+(pricing.itm?' remaining &mdash; consider rolling':'')+
         '</div>'
       : '';
 
@@ -2020,7 +2020,7 @@ function _renderCCPositionList(){
     const pricing = expired ? { itm: null, timeValue: null } : _getPosPricing(pos, true);
     const timeValueLine = pricing.timeValue != null
       ? '<div style="font-family:var(--mono);font-size:9px;color:'+(pricing.itm?'var(--warn)':'var(--text3)')+'">'+
-          'Time value: '+_fmtDollar(pricing.timeValue)+(pricing.itm?' remaining &mdash; consider rolling':'')+
+          'Time value: '+_fmtDollar(pricing.timeValue)+(pos.contracts>1?' ('+_fmtDollar(pricing.timeValue/pos.contracts)+'/contract)':'')+(pricing.itm?' remaining &mdash; consider rolling':'')+
         '</div>'
       : '';
 

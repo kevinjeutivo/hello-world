@@ -180,6 +180,24 @@ async function fetchAfterHoursPrice(symbol){
   }catch{return null;}
 }
 
+async function fetchTopHoldings(ticker){
+  if(offlineMode)return null;
+  try{
+    const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(ticker)}&type=summary&modules=topHoldings&_t=${Date.now()}`);
+    if(!r.ok)return null;
+    const d=await r.json();
+    const th=d.quoteSummary?.result?.[0]?.topHoldings;
+    if(!th)return null;
+    const holdings=(th.holdings||[]).map(h=>({
+      symbol:h.symbol||null,
+      name:h.holdingName||h.symbol||null,
+      pct:h.holdingPercent?.raw!=null?+(h.holdingPercent.raw*100).toFixed(2):null
+    })).filter(h=>h.name&&h.pct!=null);
+    if(!holdings.length)return null;
+    return{holdings,cashPct:th.cashPosition?.raw!=null?+(th.cashPosition.raw*100).toFixed(2):null};
+  }catch{return null;}
+}
+
 async function fetchNews(ticker){
   const to=fmtDate(new Date());const from=fmtDate(addDays(new Date(),-7));
   return fh(`/company-news?symbol=${ticker}&from=${from}&to=${to}`);

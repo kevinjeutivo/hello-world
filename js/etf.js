@@ -58,6 +58,15 @@ function updateEtfReturnTiles(ticker,priceRetPct,totalRetPct,span){
   }
 }
 
+function toggleEtfHoldings(ticker){
+  const body=document.getElementById('etf-holdings-body-'+ticker);
+  const chev=document.getElementById('etf-holdings-chev-'+ticker);
+  if(!body)return;
+  const isOpen=body.classList.contains('open');
+  body.classList.toggle('open',!isOpen);
+  chev.classList.toggle('open',!isOpen);
+}
+
 async function loadETFTab(){
   if(!navigator.onLine&&!offlineMode){toast('Offline -- showing cached ETF data',2500);restoreETFFromCache();return;}
   if(offlineMode){restoreETFFromCache();return;}
@@ -72,7 +81,7 @@ async function loadETFTab(){
   for(const etf of etfs){
     try{
       let snap,hist6mo,distributions=[],trailingYield=null,isLive=true;
-      const snapKey='snap_etf_'+etf.ticker;const histKey='hist_etf_'+etf.ticker;const divKey='div_etf_'+etf.ticker;
+      const snapKey='snap_etf_'+etf.ticker;const histKey='hist_etf_'+etf.ticker;const divKey='div_etf_'+etf.ticker;const holdKey='etf_holdings_'+etf.ticker;
       try{
         const _etfQ=await fetchAfterHoursPrice(etf.ticker);
         if(!_etfQ||!_etfQ.price)throw new Error('no quote');
@@ -107,6 +116,13 @@ async function loadETFTab(){
         }
         if(!distributions.length)throw new Error('no div data');
       }catch{const cd=S.get(divKey);if(cd){distributions=cd.distributions||[];const total=distributions.slice(0,12).reduce((s,d)=>s+(d.amount||0),0);if(snap?.price&&total>0)trailingYield=(total/snap.price*100).toFixed(2);}}
+      // Top holdings (24h cache gate)
+      let holdings=[],cashPct=null;
+      const _holdAge=(Date.now()-(S.get(holdKey)?.ts?new Date(S.get(holdKey).ts).getTime():0))/3600000;
+      if(_holdAge>=24){
+        const _h=await fetchTopHoldings(etf.ticker).catch(()=>null);
+        if(_h){holdings=_h.holdings;cashPct=_h.cashPct;S.set(holdKey,{holdings,cashPct,ts:nowPT()});}
+      }else{const _hc=S.get(holdKey);if(_hc){holdings=_hc.holdings||[];cashPct=_hc.cashPct||null;}}
       const chartLabels=hist6mo?hist6mo.timestamps.slice(-126).map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});}):[];
       const chartData=hist6mo?hist6mo.closes.slice(-126):[];
       // Compute total return series: price + cumulative distributions reinvested
@@ -148,6 +164,18 @@ async function loadETFTab(){
         </div>
         <div class="commentary" style="margin-bottom:10px;font-size:11px">${etf.strategy}</div>
         ${distributions.length?`<div style="margin-bottom:10px"><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px">Recent Distributions</div>${distributions.slice(0,6).map(d=>`<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">${d.date}</span><span style="color:${etf.color}">$${d.amount?.toFixed(4)||'N/A'}</span></div>`).join('')}</div>`:'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Distribution history not available from data provider. Check fund website for latest distributions.</div>'}
+        ${holdings.length?`<div class="gs-header" onclick="toggleEtfHoldings('${etf.ticker}')" style="margin-bottom:4px">
+          <div style="font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3)">Top Holdings</div>
+          <span class="gs-chevron" id="etf-holdings-chev-${etf.ticker}">&#9658;</span>
+        </div>
+        <div class="gs-body" id="etf-holdings-body-${etf.ticker}">
+          ${holdings.map(h=>`<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--border)">
+            <span style="color:var(--text2)">${h.symbol?'<span style="color:var(--accent);margin-right:6px">'+h.symbol+'</span>':''} ${h.name}</span>
+            <span style="color:${etf.color};flex-shrink:0;margin-left:8px">${h.pct.toFixed(2)}%</span>
+          </div>`).join('')}
+          ${cashPct?`<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;padding:4px 0;color:var(--text3)"><span>Cash</span><span>${cashPct.toFixed(2)}%</span></div>`:''}
+        </div>`
+        :''}
         ${chartLabels.length?`<div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:${etf.color}"></span>6-Month Price</div><div style="display:flex;gap:6px;margin-bottom:4px">
           <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" onclick="toggleEtfSpan('${etf.ticker}','6m')" id="etf-btn-6m-${etf.ticker}">6M</button>
           <button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" onclick="toggleEtfSpan('${etf.ticker}','1y')" id="etf-btn-1y-${etf.ticker}">1Y</button>
@@ -223,8 +251,8 @@ async function loadETFTab(){
         _sbExisting.appendChild(_sbSpinner);
       }
       // Fetch fresh data
-      _sbFetch(_sbT).then(({snap,hist6mo,distributions,trailingYield,fundName,fundDesc})=>{
-        const html=_sbBuildTile(_sbT,snap,hist6mo,distributions,trailingYield,true,fundName,fundDesc);
+      _sbFetch(_sbT).then(({snap,hist6mo,distributions,trailingYield,fundName,fundDesc,holdings,cashPct})=>{
+        const html=_sbBuildTile(_sbT,snap,hist6mo,distributions,trailingYield,true,fundName,fundDesc,holdings,cashPct);
         const existing=document.getElementById('sb-tile-'+_sbT);
         if(existing){
           const wrap=document.createElement('div');wrap.innerHTML=html;
@@ -377,6 +405,15 @@ async function _sbFetch(ticker){
     }
   }
 
+  // Top holdings (24h cache gate)
+  let holdings=[],cashPct=null;
+  const _sbHoldKey='etf_holdings_'+ticker;
+  const _sbHoldAge=(Date.now()-(S.get(_sbHoldKey)?.ts?new Date(S.get(_sbHoldKey).ts).getTime():0))/3600000;
+  if(_sbHoldAge>=24){
+    const _h=await fetchTopHoldings(ticker).catch(()=>null);
+    if(_h){holdings=_h.holdings;cashPct=_h.cashPct;S.set(_sbHoldKey,{holdings,cashPct,ts:nowPT()});}
+  }else{const _hc=S.get(_sbHoldKey);if(_hc){holdings=_hc.holdings||[];cashPct=_hc.cashPct||null;}}
+
   // Persist cache
   S.set('etf_research_'+ticker,{
     snap,fundName,fundDesc,
@@ -384,12 +421,12 @@ async function _sbFetch(ticker){
     distributions,trailingYield,ts:nowPT()
   });
 
-  return{snap,hist6mo,distributions,trailingYield,fundName,fundDesc};
+  return{snap,hist6mo,distributions,trailingYield,fundName,fundDesc,holdings,cashPct};
 }
 
 // ── Tile HTML builder ─────────────────────────────────────────────────────
 
-function _sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,isLive,fundName,fundDesc){
+function _sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,isLive,fundName,fundDesc,holdings,cashPct){
   fundName=fundName||snap?.fundName||ticker;
   fundDesc=fundDesc||snap?.fundDesc||'';
   const color=_SB_COLOR;
@@ -496,6 +533,17 @@ function _sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,isLive,fun
           ${distributions.slice(0,6).map(d=>`<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">${d.date}</span><span style="color:${color}">$${d.amount?.toFixed(4)||'N/A'}</span></div>`).join('')}
         </div>`
       :'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">No distribution history from data provider.</div>'}
+    ${holdings&&holdings.length?`<div class="gs-header" onclick="toggleEtfHoldings('${ticker}')" style="margin-bottom:4px">
+      <div style="font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3)">Top Holdings</div>
+      <span class="gs-chevron" id="etf-holdings-chev-${ticker}">&#9658;</span>
+    </div>
+    <div class="gs-body" id="etf-holdings-body-${ticker}">
+      ${holdings.map(h=>`<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--border)">
+        <span style="color:var(--text2)">${h.symbol?'<span style="color:var(--accent);margin-right:6px">'+h.symbol+'</span>':''} ${h.name}</span>
+        <span style="color:${color};flex-shrink:0;margin-left:8px">${h.pct.toFixed(2)}%</span>
+      </div>`).join('')}
+      ${cashPct?`<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;padding:4px 0;color:var(--text3)"><span>Cash</span><span>${cashPct.toFixed(2)}%</span></div>`:''}
+    </div>`:``}
     ${chartLabels.length
       ?`<div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:${color}"></span>Price</div>
         <div style="display:flex;gap:6px;margin-bottom:4px">

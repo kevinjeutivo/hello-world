@@ -705,29 +705,26 @@ function _updateAcctBarStickyTop(){
   // The bar is position:fixed outside #app (unzoomed viewport pixels).
   // Nav tabs are inside #app with CSS zoom applied.
   // When VIX banner is visible, .header grows and the nav shifts down.
-  // We measure the actual nav bottom from getBoundingClientRect but only
-  // when scrollY=0 (nav is at its true sticky position, not scrolled).
-  // If scrolled, we use the last known good value.
+  // On iOS, the virtual keyboard shifts the visualViewport -- we must
+  // account for this and always use the nav's current rect offset by
+  // visualViewport.offsetTop to get the true fixed-position coordinate.
   try{
     const app = document.getElementById('app');
     const zoom = app ? (parseFloat(app.style.zoom) || 1) : 1;
     const nav = document.querySelector('.nav-tabs');
     let navBottomPx;
     if(nav){
-      // getBoundingClientRect gives viewport position -- correct for position:fixed
-      // Divide by zoom since the bar is outside #app (unzoomed coordinate space)
       const rect = nav.getBoundingClientRect();
-      // rect.bottom is already in unzoomed viewport pixels (fixed positioning space)
-      // But the nav is sticky and moves with scroll, so only reliable at scrollY=0
-      if(window.scrollY === 0){
-        navBottomPx = Math.ceil(rect.bottom);
-        window._acctBarTop = navBottomPx; // cache for when scrolled
-      } else {
-        // When scrolled, use cached value or calculate from CSS
-        navBottomPx = window._acctBarTop || Math.round((94 + 36) * zoom);
-      }
+      // visualViewport.offsetTop is non-zero when the keyboard is up on iOS;
+      // adding it converts from visual viewport coords to layout viewport coords
+      // which is what position:fixed uses.
+      const vvOffset = window.visualViewport ? window.visualViewport.offsetTop : 0;
+      navBottomPx = Math.ceil(rect.bottom + vvOffset);
+      // Only cache when keyboard is not up (offsetTop === 0) so we have a
+      // reliable baseline for when scrollY > 0 and keyboard is dismissed.
+      if(vvOffset === 0) window._acctBarTop = navBottomPx;
     } else {
-      navBottomPx = Math.round((94 + 36) * zoom);
+      navBottomPx = window._acctBarTop || Math.round((94 + 36) * zoom);
     }
     let styleEl = document.getElementById('_acct-bar-top-style');
     if(!styleEl){
@@ -1159,6 +1156,16 @@ function _initAccountState(){
   // Also reposition on resize (handles zoom changes)
   if(!window._acctBarResizeListenerAdded){
     window.addEventListener('resize', _updateAcctBarStickyTop);
+    // visualViewport fires when iOS keyboard appears/disappears -- more reliable
+    // than window resize for catching keyboard-induced viewport shifts.
+    if(window.visualViewport){
+      let _vvTimer = null;
+      window.visualViewport.addEventListener('resize', ()=>{
+        // Debounce: wait for viewport to settle after keyboard animation
+        clearTimeout(_vvTimer);
+        _vvTimer = setTimeout(_updateAcctBarStickyTop, 120);
+      });
+    }
     window._acctBarResizeListenerAdded = true;
   }
 }
@@ -1169,6 +1176,14 @@ async function loadIncomeTab(){
   if(!el)return;
   const inp=_loadIncomeInputs();
   _fillInputs(inp);
+  // Re-anchor the account bar after any input field loses focus (keyboard dismiss on iOS)
+  if(!el._blurListenerAdded){
+    el.addEventListener('focusout', ()=>{
+      // Small delay lets the keyboard finish animating down before we measure
+      setTimeout(_updateAcctBarStickyTop, 150);
+    });
+    el._blurListenerAdded = true;
+  }
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Fetching money market yields...</div></div>';
   const mmf=await _getMMFYields(inp.fdlxxYieldManual,inp.spaxxYieldManual);
   _buildAndRender(inp,mmf);

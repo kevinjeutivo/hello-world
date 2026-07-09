@@ -188,13 +188,32 @@ async function fetchTopHoldings(ticker){
     const d=await r.json();
     const th=d.quoteSummary?.result?.[0]?.topHoldings;
     if(!th)return null;
+    // Individual holdings (equity ETFs)
     const holdings=(th.holdings||[]).map(h=>({
       symbol:h.symbol||null,
       name:h.holdingName||h.symbol||null,
       pct:h.holdingPercent?.raw!=null?+(h.holdingPercent.raw*100).toFixed(2):null
     })).filter(h=>h.name&&h.pct!=null);
-    if(!holdings.length)return null;
-    return{holdings,cashPct:th.cashPosition?.raw!=null?+(th.cashPosition.raw*100).toFixed(2):null};
+    // Asset allocation (all ETFs)
+    const alloc={
+      cash:th.cashPosition?.raw!=null?+(th.cashPosition.raw*100).toFixed(2):null,
+      stock:th.stockPosition?.raw!=null?+(th.stockPosition.raw*100).toFixed(2):null,
+      bond:th.bondPosition?.raw!=null?+(th.bondPosition.raw*100).toFixed(2):null,
+      other:th.otherPosition?.raw!=null?+(th.otherPosition.raw*100).toFixed(2):null,
+    };
+    const hasAlloc=Object.values(alloc).some(v=>v!=null&&v!==0);
+    // Bond characteristics (bond/options ETFs)
+    const bh=th.bondHoldings;
+    const bond=bh?{
+      maturity:bh.maturity?.raw!=null?+bh.maturity.raw.toFixed(2):null,
+      duration:bh.duration?.raw!=null?+bh.duration.raw.toFixed(2):null,
+    }:null;
+    // Bond ratings
+    const ratings=th.bondRatings?.length
+      ?th.bondRatings.map(r=>{const k=Object.keys(r)[0];return{label:k.replace(/_/g,' '),pct:+(r[k].raw*100).toFixed(2)};})
+      :[];
+    if(!holdings.length&&!hasAlloc)return null;
+    return{holdings,alloc:hasAlloc?alloc:null,bond,ratings};
   }catch{return null;}
 }
 

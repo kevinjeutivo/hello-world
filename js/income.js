@@ -1097,13 +1097,20 @@ function openIncomeOverview(){
       else if(statuses.includes('expiring-soon')){ urgency='soon'; urgencyColor='var(--warn)'; urgencyLabel='⚡ Expires ≤7d'; }
       else{ urgencyLabel=''; }
 
-      // ITM check on put positions
+      // ITM check on puts and covered calls
       const itmPuts = activePuts.filter(p => {
         const pricing = _getPosPricing(p);
         return pricing.itm === true;
       });
-      if(itmPuts.length){
-        itmFlag = `<span style="color:var(--red);font-size:10px;margin-left:6px">⚠ ${itmPuts.length} ITM put${itmPuts.length!==1?'s':''}</span>`;
+      const itmCCs = activeCCs.filter(p => {
+        const pricing = _getPosPricing(p, true);
+        return pricing.itm === true;
+      });
+      if(itmPuts.length || itmCCs.length){
+        const parts = [];
+        if(itmPuts.length) parts.push(`${itmPuts.length} ITM put${itmPuts.length!==1?'s':''}`);
+        if(itmCCs.length) parts.push(`${itmCCs.length} ITM CC${itmCCs.length!==1?'s':''}`);
+        itmFlag = `<span style="color:var(--red);font-size:10px;margin-left:6px">⚠ ${parts.join(' · ')}</span>`;
       }
     }
 

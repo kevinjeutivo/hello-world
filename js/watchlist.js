@@ -220,6 +220,16 @@ function _openPositionsModal(ticker){
         (itm?' <span style="color:var(--warn);font-size:9px">⚠ ITM</span>':'')+
       '</div>';
     }).join('');
+    const putNotional=puts.reduce((s,p)=>s+p.strike*100*p.contracts,0);
+    const ccNotional=ccs.reduce((s,p)=>s+p.strike*100*p.contracts,0);
+    const totalNotional=putNotional+ccNotional;
+    const notionalLine=totalNotional>0
+      ?'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px;display:flex;gap:10px">'+
+          (putNotional>0?'<span>Puts: <span style="color:var(--text2)">$'+putNotional.toLocaleString()+'</span></span>':'')+
+          (ccNotional>0?'<span>CCs: <span style="color:var(--text2)">$'+ccNotional.toLocaleString()+'</span></span>':'')+
+          '<span style="margin-left:auto">Total: <span style="color:var(--accent)">$'+totalNotional.toLocaleString()+'</span></span>'+
+        '</div>'
+      :'';
     return '<div style="margin-bottom:12px">'+
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'+
         '<div style="font-family:var(--sans);font-size:12px;font-weight:700;color:'+color+'">'+acctName+'</div>'+
@@ -227,7 +237,7 @@ function _openPositionsModal(ticker){
           'style="font-family:var(--mono);font-size:9px;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text3);cursor:pointer">'+
           'Go to account ↗</button>'+
       '</div>'+
-      putRows+ccRows+
+      notionalLine+putRows+ccRows+
     '</div>';
   }).join('');
 

@@ -327,12 +327,11 @@ function restoreETFFromCache(){
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ETF RESEARCH SANDBOX
-// Analyze up to 5 ad-hoc ETF tickers for comparison with SPYI/NBOS.
+// Ad-hoc ETF sandbox for comparison with SPYI/NBOS.
 // Completely isolated from income calculations.
 // Storage keys: etf_research_tickers (array), etf_research_TICKER (per-ticker cache)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const _SB_MAX=5;
 const _SB_KEY='etf_research_tickers';
 const _SB_COLOR='#4fc3f7'; // sandbox accent color
 

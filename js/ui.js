@@ -305,21 +305,25 @@ function showOfflineBanner(fetchTs){
 
 function _updateHeaderTop(){
   try{
-    // Track keyboard state via visualViewport.offsetTop.
-    // When keyboard is up offsetTop > 0; when it dismisses offsetTop returns to 0
-    // but layout takes ~300ms to fully restore. We lock out measurements for
-    // 400ms after the keyboard fully dismisses to avoid corrupted readings.
     const vvOffset = window.visualViewport ? window.visualViewport.offsetTop : 0;
     if(vvOffset > 0){
-      // Keyboard is up -- mark that we need a deferred remeasure on dismiss
+      // Keyboard is up -- suppress measurement, mark for restore on dismiss
       window._kbWasUp = true;
       return;
     }
     if(window._kbWasUp){
-      // Keyboard just dismissed -- defer measurement until layout restores
+      // Keyboard just dismissed -- restore the last known-good style strings
+      // rather than remeasuring (layout not yet stable). Normal measurement
+      // resumes on subsequent ticks once layout has settled.
       window._kbWasUp = false;
-      clearTimeout(window._headerTopTimer);
-      window._headerTopTimer = setTimeout(_updateHeaderTop, 400);
+      if(window._goodHeaderStyle){
+        const h = document.getElementById('_header-top-style');
+        if(h) h.textContent = window._goodHeaderStyle;
+      }
+      if(window._goodNavStyle){
+        const n = document.getElementById('_nav-top-style');
+        if(n) n.textContent = window._goodNavStyle;
+      }
       return;
     }
     const banner = document.getElementById('market-status-banner');
@@ -334,7 +338,9 @@ function _updateHeaderTop(){
       styleEl.id = '_header-top-style';
       document.head.appendChild(styleEl);
     }
-    styleEl.textContent = `.header { top: ${measured}px !important; }`;
+    const headerStyle = `.header { top: ${measured}px !important; }`;
+    styleEl.textContent = headerStyle;
+    window._goodHeaderStyle = headerStyle; // cache for restore after keyboard
     _updateNavTop();
   }catch(e){}
 }
@@ -352,7 +358,9 @@ function _updateNavTop(){
       document.head.appendChild(styleEl);
     }
     const navHeight = Math.ceil(document.querySelector('.nav-tabs')?.offsetHeight || 36);
-    styleEl.textContent = `.nav-tabs { top: ${navTop}px !important; } #income-acct-bar { top: ${navTop + navHeight}px !important; }`;
+    const navStyle = `.nav-tabs { top: ${navTop}px !important; } #income-acct-bar { top: ${navTop + navHeight}px !important; }`;
+    styleEl.textContent = navStyle;
+    window._goodNavStyle = navStyle; // cache for restore after keyboard
   }catch(e){}
 }
 

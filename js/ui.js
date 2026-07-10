@@ -336,9 +336,7 @@ function _updateHeaderTop(){
       }, 600);
       return;
     }
-    const banner = document.getElementById('market-status-banner');
     if(!banner) return;
-    const measured = Math.ceil(banner.offsetHeight);
     if(measured < 20 || measured > 200) return;
     if(measured === window._cachedBannerH) return;
     window._cachedBannerH = measured;
@@ -352,7 +350,7 @@ function _updateHeaderTop(){
     styleEl.textContent = headerStyle;
     window._goodHeaderStyle = headerStyle; // cache for restore after keyboard
     _updateNavTop();
-  }catch(e){}
+  }catch(e){dbgLog('HDR ERR: '+e.message);}
 }
 
 function _updateNavTop(){

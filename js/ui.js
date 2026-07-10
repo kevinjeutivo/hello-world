@@ -323,8 +323,14 @@ function _updateHeaderTop(){
         const n = document.getElementById('_nav-top-style');
         if(n) n.textContent = window._goodNavStyle;
       }
-      // Reset cache so next tick forces a fresh measurement and style rewrite
-      window._cachedBannerH = null;
+      // Keep _cachedBannerH intact so immediate subsequent ticks don't remeasure.
+      // Schedule one deferred remeasure after layout fully stabilizes, to catch
+      // orientation changes that happened while keyboard was up.
+      clearTimeout(window._headerTopTimer);
+      window._headerTopTimer = setTimeout(()=>{
+        window._cachedBannerH = null;
+        _updateHeaderTop();
+      }, 600);
       return;
     }
     const banner = document.getElementById('market-status-banner');

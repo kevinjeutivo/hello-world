@@ -326,12 +326,6 @@ function _updateHeaderTop(){
         const n = document.getElementById('_nav-top-style');
         if(n) n.textContent = window._goodNavStyle;
       }
-      // Force iOS Safari to repaint the sticky elements -- without this,
-      // Safari ignores the correct top values during viewport restoration.
-      ['.header','.nav-tabs','#market-status-banner'].forEach(sel=>{
-        const el = document.querySelector(sel);
-        if(el){ el.style.transform='translateZ(0)'; requestAnimationFrame(()=>{ el.style.transform=''; }); }
-      });
       // Deferred remeasure for orientation-change edge case
       clearTimeout(window._headerTopTimer);
       window._headerTopTimer = setTimeout(()=>{

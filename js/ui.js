@@ -304,69 +304,27 @@ function showOfflineBanner(fetchTs){
 }
 
 function _updateHeaderTop(){
-  try{
-    const vvOffset = window.visualViewport ? window.visualViewport.offsetTop : 0;
-    const banner = document.getElementById('market-status-banner');
-    const measured = banner ? Math.ceil(banner.offsetHeight) : -1;
-    dbgLog('vvOffset='+vvOffset+' meas='+measured+' cached='+window._cachedBannerH+' kbWasUp='+window._kbWasUp);
-    if(vvOffset > 0){
-      // Keyboard is up -- suppress measurement, mark for restore on dismiss
-      window._kbWasUp = true;
-      return;
-    }
-    if(window._kbWasUp){
-      // Keyboard just dismissed -- restore the last known-good style strings
-      // rather than remeasuring (layout not yet stable).
-      window._kbWasUp = false;
-      if(window._goodHeaderStyle){
-        const h = document.getElementById('_header-top-style');
-        if(h) h.textContent = window._goodHeaderStyle;
-      }
-      if(window._goodNavStyle){
-        const n = document.getElementById('_nav-top-style');
-        if(n) n.textContent = window._goodNavStyle;
-      }
-      // Deferred remeasure for orientation-change edge case
-      clearTimeout(window._headerTopTimer);
-      window._headerTopTimer = setTimeout(()=>{
-        window._cachedBannerH = null;
-        _updateHeaderTop();
-      }, 800);
-      return;
-    }
-    if(!banner) return;
-    if(measured < 20 || measured > 200) return;
-    if(measured === window._cachedBannerH) return;
-    window._cachedBannerH = measured;
-    let styleEl = document.getElementById('_header-top-style');
-    if(!styleEl){
-      styleEl = document.createElement('style');
-      styleEl.id = '_header-top-style';
-      document.head.appendChild(styleEl);
-    }
-    const headerStyle = `.header { top: ${measured}px !important; }`;
-    styleEl.textContent = headerStyle;
-    window._goodHeaderStyle = headerStyle; // cache for restore after keyboard
-    _updateNavTop();
-  }catch(e){dbgLog('HDR ERR: '+e.message);}
+  // No-op: header/banner/nav are now a single sticky-chrome unit.
+  // Only the income account bar needs dynamic top positioning.
+  _updateNavTop();
 }
 
 function _updateNavTop(){
+  // Update income-acct-bar top to sit flush below the sticky chrome wrapper.
   try{
-    const bannerH = window._cachedBannerH || 52;
-    const headerH = Math.ceil(document.querySelector('.header')?.offsetHeight || 58);
-    if(headerH < 30 || headerH > 200) return;
-    const navTop = bannerH + headerH;
+    const chrome = document.getElementById('sticky-chrome');
+    const chromeH = chrome ? Math.ceil(chrome.offsetHeight) : 130;
+    dbgLog('chromeH='+chromeH);
+    if(chromeH < 40 || chromeH > 300) return;
+    if(chromeH === window._cachedChromeH) return;
+    window._cachedChromeH = chromeH;
     let styleEl = document.getElementById('_nav-top-style');
     if(!styleEl){
       styleEl = document.createElement('style');
       styleEl.id = '_nav-top-style';
       document.head.appendChild(styleEl);
     }
-    const navHeight = Math.ceil(document.querySelector('.nav-tabs')?.offsetHeight || 36);
-    const navStyle = `.nav-tabs { top: ${navTop}px !important; } #income-acct-bar { top: ${navTop + navHeight}px !important; }`;
-    styleEl.textContent = navStyle;
-    window._goodNavStyle = navStyle; // cache for restore after keyboard
+    styleEl.textContent = `#income-acct-bar { top: ${chromeH}px !important; }`;
   }catch(e){}
 }
 

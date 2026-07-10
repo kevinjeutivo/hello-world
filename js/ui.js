@@ -288,6 +288,28 @@ function updateMarketBanner(){
   _updateHeaderTop();
 }
 
+// iOS Safari corrupts scrollY after keyboard dismiss inside a CSS-zoomed container.
+// Detect keyboard dismiss via visualViewport resize and restore scroll position.
+(function(){
+  if(!window.visualViewport) return;
+  let _kbUp = false;
+  let _scrollBeforeKb = 0;
+  window.visualViewport.addEventListener('resize', ()=>{
+    const offset = window.visualViewport.offsetTop;
+    if(offset > 10 && !_kbUp){
+      // Keyboard appearing -- save current scroll position
+      _kbUp = true;
+      _scrollBeforeKb = window.scrollY;
+      dbgLog('KB up, scrollY='+_scrollBeforeKb);
+    } else if(offset < 2 && _kbUp){
+      // Keyboard dismissed -- restore scroll position
+      _kbUp = false;
+      dbgLog('KB down, restoring scrollY='+_scrollBeforeKb);
+      window.scrollTo(0, _scrollBeforeKb);
+    }
+  });
+})();
+
 function updateOnlineIndicator(){
   const dot=document.getElementById('online-dot');
   if(!dot)return;

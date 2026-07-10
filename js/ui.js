@@ -1,4 +1,4 @@
-// PutSeller Pro -- ui.js
+// Income Engine -- ui.js
 // UI helpers: market banner, status indicators, toast, tab navigation.
 // Globals used: tzPref, offlineMode, vixThreshold, currentTicker, watchlist, S
 // Dependencies: helpers.js, storage.js
@@ -318,8 +318,6 @@ function _updateNavTop(){
       document.head.appendChild(styleEl);
     }
     styleEl.textContent = `.nav-tabs { top: ${navTop}px !important; }`;
-    // After updating nav top, also recalculate account bar position
-    if(typeof _updateAcctBarStickyTop === 'function') _updateAcctBarStickyTop();
   }catch(e){}
 }
 
@@ -457,12 +455,7 @@ function showTab(name){
   _activeTabName = name;
 
   // Show income account bar only when income tab is active
-  const acctBar=document.getElementById('income-acct-bar');
-  if(acctBar){
-    acctBar.style.display=name==='income'?'flex':'none';
-    if(name==='income'&&typeof _updateAcctBarStickyTop==='function') _updateAcctBarStickyTop();
-    if(name!=='income'&&typeof _removeAcctBarPadding==='function') _removeAcctBarPadding();
-  }
+
   refreshTsChipAges();
   if(name==='watchlist')renderWatchlist();
   if(name==='ticker'&&currentTicker){

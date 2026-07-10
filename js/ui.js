@@ -285,6 +285,8 @@ function updateMarketBanner(){
     banner.className='mkt-closed';
     banner.textContent=`Market closed -- opens in ${diffH}h ${diffM}m (${openDisplayFmt.format(nextOpen)} ${tzLabel})`;
   }
+  // Banner text changed -- height may have changed, update header/nav sticky tops
+  _updateHeaderTop();
 }
 
 function updateOnlineIndicator(){
@@ -302,15 +304,33 @@ function showOfflineBanner(fetchTs){
   setTimeout(()=>b.classList.remove('show'),4500);
 }
 
+function _updateHeaderTop(){
+  // Dynamically set .header sticky top to actual market banner height,
+  // preventing accordion overlap when banner text wraps to two lines.
+  try{
+    const banner = document.getElementById('market-status-banner');
+    const bannerH = banner ? Math.ceil(banner.offsetHeight) : 36;
+    let styleEl = document.getElementById('_header-top-style');
+    if(!styleEl){
+      styleEl = document.createElement('style');
+      styleEl.id = '_header-top-style';
+      document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = `.header { top: ${bannerH}px !important; }`;
+    // Chain: nav top depends on header height, so update it too
+    _updateNavTop();
+  }catch(e){}
+}
+
 function _updateNavTop(){
   // Recalculate nav-tabs sticky top based on whether VIX banner is visible.
   // VIX banner adds ~20px to .header height, requiring nav top to increase.
   try{
     const vixBanner = document.getElementById('vix-status-banner');
     const vixVisible = vixBanner && vixBanner.style.display !== 'none';
-    const navTop = vixVisible
-      ? Math.ceil(36 + (document.querySelector('.header')?.offsetHeight || 78))
-      : 94;
+    const bannerH = Math.ceil(document.getElementById('market-status-banner')?.offsetHeight || 36);
+    const headerH = Math.ceil(document.querySelector('.header')?.offsetHeight || 58);
+    const navTop = bannerH + headerH;
     let styleEl = document.getElementById('_nav-top-style');
     if(!styleEl){
       styleEl = document.createElement('style');
@@ -329,7 +349,7 @@ function updateVIXIndicator(vixValue){
   if(existing)existing.remove();
   if(banner){banner.style.display='none';banner.className='';}
   if(!vixValue||vixValue<vixThreshold){
-    _updateNavTop();
+    _updateHeaderTop();
     return;
   }
   let dotClass,bannerClass,label;
@@ -338,7 +358,7 @@ function updateVIXIndicator(vixValue){
   else{dotClass='vix-dot vix-dot-elevated';bannerClass='vix-status-elevated';label=`VIX ${vixValue.toFixed(1)} ELEVATED`;}
   if(tabBtn){const dot=document.createElement('span');dot.className=dotClass;tabBtn.appendChild(dot);}
   if(banner){banner.textContent=label;banner.className=bannerClass;banner.style.display='block';}
-  _updateNavTop();
+  _updateHeaderTop();
 }
 
 function toast(msg,dur=2500){

@@ -310,7 +310,9 @@ function _updateHeaderTop(){
 }
 
 function _updateNavTop(){
-  // Update income-acct-bar top to sit flush below the sticky chrome wrapper.
+  // The sticky-chrome wrapper is position:fixed outside #app (zoom context).
+  // Set #app padding-top to match chrome height so content starts below it.
+  // Also set income-acct-bar top to chrome height.
   try{
     const chrome = document.getElementById('sticky-chrome');
     const chromeH = chrome ? Math.ceil(chrome.offsetHeight) : 130;
@@ -318,6 +320,10 @@ function _updateNavTop(){
     if(chromeH < 40 || chromeH > 300) return;
     if(chromeH === window._cachedChromeH) return;
     window._cachedChromeH = chromeH;
+    // #app is zoomed so padding-top needs to be in unzoomed pixels
+    const app = document.getElementById('app');
+    const zoom = app ? (parseFloat(app.style.zoom) || 1) : 1;
+    if(app) app.style.paddingTop = Math.ceil(chromeH / zoom) + 'px';
     let styleEl = document.getElementById('_nav-top-style');
     if(!styleEl){
       styleEl = document.createElement('style');

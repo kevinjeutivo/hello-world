@@ -309,34 +309,39 @@ function showOfflineBanner(fetchTs){
 }
 
 function _updateHeaderTop(){
-  // Dynamically set .header sticky top to actual market banner height,
-  // preventing accordion overlap when banner text wraps to two lines.
-  // Skip measurement while iOS keyboard is up -- viewport is mid-shift and
-  // offsetHeight readings are unreliable during keyboard animation.
+  // Dynamically set .header sticky top to actual market banner height.
+  // We cache the last good measurement and only update it when the banner
+  // height genuinely changes (single->double line or vice versa).
+  // Never measure during keyboard animation -- offsetHeight is unreliable then.
   if(window.visualViewport && window.visualViewport.offsetTop > 2) return;
   try{
     const banner = document.getElementById('market-status-banner');
-    const bannerH = banner ? Math.ceil(banner.offsetHeight) : 36;
+    if(!banner) return;
+    const measured = Math.ceil(banner.offsetHeight);
+    // Reject clearly wrong readings (0, or implausibly small/large)
+    if(measured < 20 || measured > 200) return;
+    // Only update if value genuinely changed
+    if(measured === window._cachedBannerH) return;
+    window._cachedBannerH = measured;
     let styleEl = document.getElementById('_header-top-style');
     if(!styleEl){
       styleEl = document.createElement('style');
       styleEl.id = '_header-top-style';
       document.head.appendChild(styleEl);
     }
-    styleEl.textContent = `.header { top: ${bannerH}px !important; }`;
+    styleEl.textContent = `.header { top: ${measured}px !important; }`;
     // Chain: nav top depends on header height, so update it too
     _updateNavTop();
   }catch(e){}
 }
 
 function _updateNavTop(){
-  // Recalculate nav-tabs sticky top based on whether VIX banner is visible.
-  // VIX banner adds ~20px to .header height, requiring nav top to increase.
+  // Recalculate nav-tabs sticky top based on measured banner+header heights.
   try{
-    const vixBanner = document.getElementById('vix-status-banner');
-    const vixVisible = vixBanner && vixBanner.style.display !== 'none';
-    const bannerH = Math.ceil(document.getElementById('market-status-banner')?.offsetHeight || 36);
+    const bannerH = window._cachedBannerH || 36;
     const headerH = Math.ceil(document.querySelector('.header')?.offsetHeight || 58);
+    // Reject implausible headerH readings during keyboard transitions
+    if(headerH < 30 || headerH > 200) return;
     const navTop = bannerH + headerH;
     let styleEl = document.getElementById('_nav-top-style');
     if(!styleEl){

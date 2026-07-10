@@ -929,7 +929,7 @@ function openEarningsOverrideModal(ticker,idx){
   const _confHourLabel=_confHour==='bmo'?' BMO':_confHour==='amc'?' AMC':'';
 
   el.innerHTML=
-    '<div class="modal-box" style="max-width:360px">'+
+    '<div class="modal-box" style="max-width:360px;max-height:80vh;overflow-y:auto">'+
       '<div class="modal-title">Override Earnings Date</div>'+
       '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">'+
         'Enter the actual US Eastern date of the earnings announcement.<br>'+

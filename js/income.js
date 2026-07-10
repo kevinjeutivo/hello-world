@@ -1041,6 +1041,8 @@ function openIncomeOverview(){
     let urgencyColor = 'var(--text3)';
     let urgencyLabel = '';
 
+    let itmPutFlag = '';
+    let itmCCFlag = '';
     if(allActive.length){
       const statuses = allActive.map(p => _posExpiryStatus(p));
       if(statuses.includes('expiring-imminent')){ urgency='imminent'; urgencyColor='var(--red)'; urgencyLabel='⚠ Expires ≤2d'; }
@@ -1056,8 +1058,6 @@ function openIncomeOverview(){
         const pricing = _getPosPricing(p, true);
         return pricing.itm === true;
       });
-      let itmPutFlag = '';
-      let itmCCFlag = '';
       if(itmPuts.length) itmPutFlag = `<span style="color:var(--red);font-size:10px;margin-left:6px">⚠ ${itmPuts.length} ITM put${itmPuts.length!==1?'s':''}</span>`;
       if(itmCCs.length) itmCCFlag = `<span style="color:var(--red);font-size:10px;margin-left:6px">⚠ ${itmCCs.length} ITM CC${itmCCs.length!==1?'s':''}</span>`;
     }

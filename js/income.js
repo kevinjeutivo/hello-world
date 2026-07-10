@@ -1040,7 +1040,6 @@ function openIncomeOverview(){
     let urgency = 'none';
     let urgencyColor = 'var(--text3)';
     let urgencyLabel = '';
-    let itmFlag = '';
 
     if(allActive.length){
       const statuses = allActive.map(p => _posExpiryStatus(p));
@@ -1057,12 +1056,10 @@ function openIncomeOverview(){
         const pricing = _getPosPricing(p, true);
         return pricing.itm === true;
       });
-      if(itmPuts.length || itmCCs.length){
-        const parts = [];
-        if(itmPuts.length) parts.push(`${itmPuts.length} ITM put${itmPuts.length!==1?'s':''}`);
-        if(itmCCs.length) parts.push(`${itmCCs.length} ITM CC${itmCCs.length!==1?'s':''}`);
-        itmFlag = `<span style="color:var(--red);font-size:10px;margin-left:6px">⚠ ${parts.join(' · ')}</span>`;
-      }
+      let itmPutFlag = '';
+      let itmCCFlag = '';
+      if(itmPuts.length) itmPutFlag = `<span style="color:var(--red);font-size:10px;margin-left:6px">⚠ ${itmPuts.length} ITM put${itmPuts.length!==1?'s':''}</span>`;
+      if(itmCCs.length) itmCCFlag = `<span style="color:var(--red);font-size:10px;margin-left:6px">⚠ ${itmCCs.length} ITM CC${itmCCs.length!==1?'s':''}</span>`;
     }
 
     const isActive = a.id === _activeAccountId;
@@ -1072,8 +1069,8 @@ function openIncomeOverview(){
         `<div style="font-family:var(--mono);font-size:10px;color:${urgencyColor}">${urgencyLabel}</div>` +
       `</div>` +
       `<div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.8">` +
-        `<div>Puts: ${activePuts.length} position${activePuts.length!==1?'s':''} · ${_fmtDollar(putNotional)} notional${itmFlag}</div>` +
-        `<div>CCs: ${activeCCs.length} position${activeCCs.length!==1?'s':''} · ${_fmtDollar(ccNotional)} notional</div>` +
+        `<div>Puts: ${activePuts.length} position${activePuts.length!==1?'s':''} · ${_fmtDollar(putNotional)} notional${itmPutFlag}</div>` +
+        `<div>CCs: ${activeCCs.length} position${activeCCs.length!==1?'s':''} · ${_fmtDollar(ccNotional)} notional${itmCCFlag}</div>` +
       `</div>` +
     `</div>`;
   }).join('');

@@ -288,13 +288,6 @@ function updateMarketBanner(){
   _updateHeaderTop();
 }
 
-// After keyboard dismiss, iOS Safari corrupts scroll position inside a CSS-zoomed
-// container. A no-op scroll forces re-evaluation of sticky positions.
-document.addEventListener('focusout', ()=>{
-  // Small delay to let the keyboard fully dismiss before nudging scroll
-  setTimeout(()=>{ window.scrollTo(0, window.scrollY); }, 100);
-});
-
 function updateOnlineIndicator(){
   const dot=document.getElementById('online-dot');
   if(!dot)return;

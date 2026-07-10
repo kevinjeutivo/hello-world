@@ -1,4 +1,4 @@
-// PutSeller Pro -- helpers.js
+// Income Engine -- helpers.js
 // Utility functions: date/time, math, formatting, display helpers.
 // Globals used: tzPref, S, watchlist, WORKER_URL, vixThreshold
 // Dependencies: storage.js (S)
@@ -312,3 +312,19 @@ function newsSentiment(h){const l=h.toLowerCase();if(POS_WORDS.some(w=>l.include
 function sentDot(s){return s.dot==='pos'?'&#x1F7E2;':s.dot==='neg'?'&#x1F534;':'&#x26AA;';}
 
 function renderNewsItems(newsArr,maxItems=5){if(!newsArr||!newsArr.length)return'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:8px 0">No recent news available</div>';const items=newsArr.slice(0,maxItems);const pos=items.filter(n=>newsSentiment(n.headline).dot==='pos').length;const neg=items.filter(n=>newsSentiment(n.headline).dot==='neg').length;return`<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">${items.length} articles -- ${pos} positive, ${neg} negative</div>`+items.map(n=>{const s=newsSentiment(n.headline);return`<div class="news-item"><div class="news-headline"><span style="${s.css}">${sentDot(s)}</span> <a href="${n.url}" target="_blank" rel="noopener">${n.headline}</a></div><div class="news-meta">${n.source} -- ${relTime(n.datetime)}</div>${n.summary?`<div class="news-summary">${n.summary.slice(0,120)}...</div>`:''}</div>`;}).join('');}
+
+// ── Debug log (rolling 20 entries, displayed in Settings) ─────────────────────
+window._dbgLog = [];
+function dbgLog(msg){
+  const ts = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+  window._dbgLog.unshift('['+ts+'] '+msg);
+  if(window._dbgLog.length > 20) window._dbgLog.pop();
+}
+function clearDbgLog(){ window._dbgLog = []; refreshDbgLogDisplay(); }
+function refreshDbgLogDisplay(){
+  const el = document.getElementById('debug-log-entries');
+  if(!el) return;
+  el.innerHTML = window._dbgLog.length
+    ? window._dbgLog.map(l=>'<div style="border-bottom:1px solid var(--border);padding:3px 0;word-break:break-all">'+l+'</div>').join('')
+    : '<div style="color:var(--text3)">No entries yet.</div>';
+}

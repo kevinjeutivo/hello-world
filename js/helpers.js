@@ -14,11 +14,16 @@ function applyFontSize(size){
   // Base size is 19 (the default option).  Zoom = selected / 19.
   // Examples: 15px -> 0.789, 19px -> 1.000, 26px -> 1.368, 36px -> 1.895
   const BASE=19;
-  const zoom=parseFloat(size)/BASE;
+  const scale=parseFloat(size)/BASE;
   const app=document.getElementById('app');
   if(app){
-    app.style.zoom=zoom;
+    // Use transform:scale() instead of zoom to avoid breaking position:sticky
+    // inside iOS Safari. scale() scales visually only, leaving layout intact.
+    // Compensate width so scaled content fills exactly the viewport width.
+    app.style.zoom='';  // clear any legacy zoom
+    app.style.transform=scale===1?'':'scale('+scale+')';
     app.style.transformOrigin='top left';
+    app.style.width=scale===1?'':(100/scale).toFixed(4)+'%';
     // Update nav/acct-bar positioning when zoom changes
     if(typeof _updateHeaderTop==='function') _updateHeaderTop();
   }

@@ -317,7 +317,8 @@ function _updateNavTop(){
       styleEl.id = '_nav-top-style';
       document.head.appendChild(styleEl);
     }
-    styleEl.textContent = `.nav-tabs { top: ${navTop}px !important; }`;
+    const navHeight = Math.ceil(document.querySelector('.nav-tabs')?.offsetHeight || 36);
+    styleEl.textContent = `.nav-tabs { top: ${navTop}px !important; } #income-acct-bar { top: ${navTop + navHeight}px !important; }`;
   }catch(e){}
 }
 

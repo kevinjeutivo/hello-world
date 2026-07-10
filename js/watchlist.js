@@ -16,7 +16,7 @@ function _ensureRemoveModal(){
     el.className='modal-overlay';
     el.id='watchlist-remove-modal';
     el.innerHTML=
-      '<div class="modal-box">'+
+      '<div class="modal-box" style="max-height:80vh;overflow-y:auto">'+
         '<div class="modal-title" id="wrm-title">Remove ticker?</div>'+
         '<div class="modal-body" id="wrm-body"></div>'+
         '<div style="display:flex;gap:8px">'+
@@ -77,7 +77,7 @@ function _openNoteModal(ticker){
     el.addEventListener('click',e=>{if(e.target===el)_closeNoteModal();});
   }
   el.innerHTML=
-    '<div class="modal-box">'+
+    '<div class="modal-box" style="max-height:80vh;overflow-y:auto">'+
       '<div class="modal-title modal-title-neutral">Note for '+ticker+'</div>'+
       '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">Appears below the ticker row. Max 200 characters.</div>'+
       '<textarea id="wnm-text" maxlength="200" rows="3" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:12px;padding:8px;resize:none;outline:none">'+existing.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</textarea>'+

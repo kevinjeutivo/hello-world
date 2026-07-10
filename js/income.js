@@ -846,6 +846,9 @@ function _switchAccount(id){
   // Reset income tab scroll to top when switching accounts
   if(typeof _tabScrollPos !== 'undefined') _tabScrollPos['income'] = 0;
   window.scrollTo(0, 0);
+  // Re-anchor bar after scroll settles -- scrollTo(0,0) is synchronous but
+  // the browser may not have reflowed yet, so defer one frame.
+  setTimeout(_updateAcctBarStickyTop, 0);
   _renderAccountSwitcher();
   const accounts = _getAccounts();
   const idx = accounts.findIndex(a => a.id === id);

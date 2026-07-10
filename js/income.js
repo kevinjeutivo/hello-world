@@ -820,7 +820,7 @@ function _openAddAccountModal(){
     document.body.appendChild(el);
   }
   el.innerHTML =
-    '<div class="modal-box">' +
+    '<div class="modal-box" style="max-height:80vh;overflow-y:auto">' +
       '<div class="modal-title modal-title-neutral">Add Account</div>' +
       '<div class="modal-body">Choose a name for the new account (e.g. "SEP IRA", "HSA").</div>' +
       '<input class="input" id="new-acct-name-inp" placeholder="Account name" style="margin-bottom:12px" maxlength="30">' +
@@ -868,7 +868,7 @@ function _openRenameAccountModal(id){
     document.body.appendChild(el);
   }
   el.innerHTML =
-    '<div class="modal-box">' +
+    '<div class="modal-box" style="max-height:80vh;overflow-y:auto">' +
       '<div class="modal-title modal-title-neutral">Rename Account</div>' +
       '<div class="modal-body">Current name: <strong>' + acct.name + '</strong></div>' +
       '<input class="input" id="rename-acct-inp" value="' + acct.name + '" maxlength="30" style="margin-bottom:8px">' +
@@ -940,7 +940,7 @@ function _openDeleteAccountModal(id){
     : '';
 
   el.innerHTML =
-    '<div class="modal-box">' +
+    '<div class="modal-box" style="max-height:80vh;overflow-y:auto">' +
       '<div class="modal-title">Delete "' + acct.name + '"?</div>' +
       '<div class="modal-body">This permanently deletes this account and all its data. This cannot be undone.</div>' +
       posWarning +
@@ -1076,7 +1076,7 @@ function openIncomeOverview(){
   }).join('');
 
   el.innerHTML =
-    '<div class="modal-box" style="max-width:380px">' +
+    '<div class="modal-box" style="max-width:380px;max-height:80vh;overflow-y:auto">' +
       '<div class="modal-title modal-title-neutral" style="margin-bottom:14px">All Accounts Overview</div>' +
       '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Tap an account to switch to it</div>' +
       rows +
@@ -1328,7 +1328,7 @@ function _openAddPositionModal(){
   }
 
   el.innerHTML =
-    '<div class="modal-box" style="max-width:340px">' +
+    '<div class="modal-box" style="max-width:340px;max-height:80vh;overflow-y:auto">' +
       '<div class="modal-title">Add Put Position</div>' +
       '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Adding to: <strong style="color:var(--accent)">' + (_getActiveAccount()?.name || 'Unknown account') + '</strong></div>' +
       '<div class="input-group" style="margin-bottom:10px">' +
@@ -1476,7 +1476,7 @@ function _openRemovePosModal(id){
     el.className = 'modal-overlay';
     el.id = 'pos-remove-modal';
     el.innerHTML =
-      '<div class="modal-box">' +
+      '<div class="modal-box" style="max-height:80vh;overflow-y:auto">' +
         '<div class="modal-title" id="prm-title">Remove position?</div>' +
         '<div class="modal-body" id="prm-body"></div>' +
         '<div style="display:flex;gap:8px">' +
@@ -1709,7 +1709,7 @@ function _openAddCCModal(){
   }
 
   el.innerHTML =
-    '<div class="modal-box" style="max-width:340px">' +
+    '<div class="modal-box" style="max-width:340px;max-height:80vh;overflow-y:auto">' +
       '<div class="modal-title">Add Covered Call Position</div>' +
       '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Adding to: <strong style="color:var(--accent)">' + (_getActiveAccount()?.name || 'Unknown account') + '</strong></div>' +
       '<div class="input-group" style="margin-bottom:10px">' +
@@ -1877,7 +1877,7 @@ function _openRemoveCCModal(id){
     el.className = 'modal-overlay';
     el.id = 'cc-remove-modal';
     el.innerHTML =
-      '<div class="modal-box">' +
+      '<div class="modal-box" style="max-height:80vh;overflow-y:auto">' +
         '<div class="modal-title">Remove CC position?</div>' +
         '<div class="modal-body" id="crm-body"></div>' +
         '<div style="display:flex;gap:8px">' +

@@ -285,8 +285,12 @@ function updateMarketBanner(){
     banner.className='mkt-closed';
     banner.textContent=`Market closed -- opens in ${diffH}h ${diffM}m (${openDisplayFmt.format(nextOpen)} ${tzLabel})`;
   }
-  // Banner text changed -- height may have changed, update header/nav sticky tops
-  _updateHeaderTop();
+  // Only remeasure sticky tops if banner text changed (height may have changed)
+  const _newText = banner.textContent;
+  if(_newText !== banner._lastMeasuredText){
+    banner._lastMeasuredText = _newText;
+    _updateHeaderTop();
+  }
 }
 
 function updateOnlineIndicator(){
@@ -307,6 +311,9 @@ function showOfflineBanner(fetchTs){
 function _updateHeaderTop(){
   // Dynamically set .header sticky top to actual market banner height,
   // preventing accordion overlap when banner text wraps to two lines.
+  // Skip measurement while iOS keyboard is up -- viewport is mid-shift and
+  // offsetHeight readings are unreliable during keyboard animation.
+  if(window.visualViewport && window.visualViewport.offsetTop > 2) return;
   try{
     const banner = document.getElementById('market-status-banner');
     const bannerH = banner ? Math.ceil(banner.offsetHeight) : 36;

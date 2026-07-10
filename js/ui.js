@@ -288,28 +288,6 @@ function updateMarketBanner(){
   _updateHeaderTop();
 }
 
-// iOS Safari corrupts scrollY after keyboard dismiss inside a CSS-zoomed container.
-// Detect keyboard dismiss via visualViewport resize and restore scroll position.
-(function(){
-  if(!window.visualViewport) return;
-  let _kbUp = false;
-  let _scrollBeforeKb = 0;
-  window.visualViewport.addEventListener('resize', ()=>{
-    const offset = window.visualViewport.offsetTop;
-    if(offset > 10 && !_kbUp){
-      // Keyboard appearing -- save current scroll position
-      _kbUp = true;
-      _scrollBeforeKb = window.scrollY;
-      dbgLog('KB up, scrollY='+_scrollBeforeKb);
-    } else if(offset < 2 && _kbUp){
-      // Keyboard dismissed -- restore scroll position
-      _kbUp = false;
-      dbgLog('KB down, restoring scrollY='+_scrollBeforeKb);
-      window.scrollTo(0, _scrollBeforeKb);
-    }
-  });
-})();
-
 function updateOnlineIndicator(){
   const dot=document.getElementById('online-dot');
   if(!dot)return;
@@ -326,38 +304,26 @@ function showOfflineBanner(fetchTs){
 }
 
 function _updateHeaderTop(){
-  try{
-    const banner = document.getElementById('market-status-banner');
-    const measured = banner ? Math.ceil(banner.offsetHeight) : -1;
-    dbgLog('vvOffset='+(window.visualViewport?window.visualViewport.offsetTop:0)+' meas='+measured+' cached='+window._cachedBannerH);
-    if(measured < 20 || measured > 200) return;
-    if(measured === window._cachedBannerH) return;
-    window._cachedBannerH = measured;
-    let styleEl = document.getElementById('_header-top-style');
-    if(!styleEl){
-      styleEl = document.createElement('style');
-      styleEl.id = '_header-top-style';
-      document.head.appendChild(styleEl);
-    }
-    styleEl.textContent = `.header { top: ${measured}px !important; }`;
-    _updateNavTop();
-  }catch(e){dbgLog('HDR ERR:'+e.message);}
+  // sticky-chrome is a single unit -- just measure its total height
+  // to position #income-acct-bar below it.
+  _updateNavTop();
 }
 
 function _updateNavTop(){
   try{
-    const bannerH = window._cachedBannerH || 36;
-    const headerH = Math.ceil(document.querySelector('.header')?.offsetHeight || 58);
-    if(headerH < 30 || headerH > 200) return;
-    const navTop = bannerH + headerH;
+    const chrome = document.getElementById('sticky-chrome');
+    const chromeH = chrome ? Math.ceil(chrome.offsetHeight) : 130;
+    dbgLog('chromeH='+chromeH);
+    if(chromeH < 40 || chromeH > 300) return;
+    if(chromeH === window._cachedChromeH) return;
+    window._cachedChromeH = chromeH;
     let styleEl = document.getElementById('_nav-top-style');
     if(!styleEl){
       styleEl = document.createElement('style');
       styleEl.id = '_nav-top-style';
       document.head.appendChild(styleEl);
     }
-    const navHeight = Math.ceil(document.querySelector('.nav-tabs')?.offsetHeight || 36);
-    styleEl.textContent = `.nav-tabs { top: ${navTop}px !important; } #income-acct-bar { top: ${navTop + navHeight}px !important; }`;
+    styleEl.textContent = `#income-acct-bar { top: ${chromeH}px !important; }`;
   }catch(e){}
 }
 

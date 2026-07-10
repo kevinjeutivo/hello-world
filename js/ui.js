@@ -285,6 +285,7 @@ function updateMarketBanner(){
     banner.className='mkt-closed';
     banner.textContent=`Market closed -- opens in ${diffH}h ${diffM}m (${openDisplayFmt.format(nextOpen)} ${tzLabel})`;
   }
+  _updateHeaderTop();
 }
 
 function updateOnlineIndicator(){
@@ -303,14 +304,29 @@ function showOfflineBanner(fetchTs){
 }
 
 function _updateHeaderTop(){
-  // Set .header sticky top to actual market banner height.
-  // Only called on init, orientation change, and VIX changes -- never from the
-  // 1-second interval, avoiding bad readings during keyboard transitions.
   try{
+    // Track keyboard state via visualViewport.offsetTop.
+    // When keyboard is up offsetTop > 0; when it dismisses offsetTop returns to 0
+    // but layout takes ~300ms to fully restore. We lock out measurements for
+    // 400ms after the keyboard fully dismisses to avoid corrupted readings.
+    const vvOffset = window.visualViewport ? window.visualViewport.offsetTop : 0;
+    if(vvOffset > 0){
+      // Keyboard is up -- mark that we need a deferred remeasure on dismiss
+      window._kbWasUp = true;
+      return;
+    }
+    if(window._kbWasUp){
+      // Keyboard just dismissed -- defer measurement until layout restores
+      window._kbWasUp = false;
+      clearTimeout(window._headerTopTimer);
+      window._headerTopTimer = setTimeout(_updateHeaderTop, 400);
+      return;
+    }
     const banner = document.getElementById('market-status-banner');
     if(!banner) return;
     const measured = Math.ceil(banner.offsetHeight);
     if(measured < 20 || measured > 200) return;
+    if(measured === window._cachedBannerH) return;
     window._cachedBannerH = measured;
     let styleEl = document.getElementById('_header-top-style');
     if(!styleEl){
@@ -357,15 +373,6 @@ function updateVIXIndicator(vixValue){
   if(tabBtn){const dot=document.createElement('span');dot.className=dotClass;tabBtn.appendChild(dot);}
   if(banner){banner.textContent=label;banner.className=bannerClass;banner.style.display='block';}
   _updateHeaderTop();
-}
-
-// Re-measure on orientation change (landscape vs portrait changes banner line count)
-if(!window._orientationListenerAdded){
-  window.addEventListener('orientationchange', ()=>{
-    // Wait for the browser to finish rotating before measuring
-    setTimeout(_updateHeaderTop, 300);
-  });
-  window._orientationListenerAdded = true;
 }
 
 function toast(msg,dur=2500){

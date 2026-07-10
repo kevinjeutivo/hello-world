@@ -358,6 +358,10 @@ a{color:inherit}
 
 <!-- INCOME TAB -->
 <div id="tab-income" class="tab-panel">
+  <div id="income-acct-bar" style="display:none;position:sticky;top:0;z-index:98;background:var(--bg);padding:6px 14px 8px;border-bottom:1px solid var(--border);box-sizing:border-box;">
+    <div id="income-acct-chips" style="display:flex;flex:1;overflow-x:auto"></div>
+    <button id="income-overview-btn" onclick="openIncomeOverview()">All Accounts ↗</button>
+  </div>
   <div class="card">
     <div class="card-title"><span class="dot" style="background:#00d4aa"></span>Income Engine Calculator</div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:14px">Three-layer blended yield. Inputs saved per account automatically.</div>
@@ -1418,10 +1422,7 @@ if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.se
      -webkit-transform:translateZ(0) forces GPU compositing layer on iOS Safari,
      preventing the bar from disappearing after downward scroll interactions.
      Shown/hidden by showTab(). Top is set dynamically by _updateAcctBarStickyTop(). -->
-<div id="income-acct-bar" style="display:none;position:fixed;left:0;right:0;z-index:98;background:var(--bg);padding:6px 14px 8px;border-bottom:1px solid var(--border);box-sizing:border-box;-webkit-transform:translateZ(0);transform:translateZ(0);will-change:transform">
-  <div id="income-acct-chips" style="display:flex;flex:1;overflow-x:auto"></div>
-  <button id="income-overview-btn" onclick="openIncomeOverview()">All Accounts ↗</button>
-</div>
+
 
 </body>
 </html>

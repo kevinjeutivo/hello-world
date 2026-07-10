@@ -306,6 +306,9 @@ function showOfflineBanner(fetchTs){
 function _updateHeaderTop(){
   try{
     const vvOffset = window.visualViewport ? window.visualViewport.offsetTop : 0;
+    const banner = document.getElementById('market-status-banner');
+    const measured = banner ? Math.ceil(banner.offsetHeight) : -1;
+    dbgLog('vvOffset='+vvOffset+' meas='+measured+' cached='+window._cachedBannerH+' kbWasUp='+window._kbWasUp);
     if(vvOffset > 0){
       // Keyboard is up -- suppress measurement, mark for restore on dismiss
       window._kbWasUp = true;

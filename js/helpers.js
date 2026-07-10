@@ -19,8 +19,8 @@ function applyFontSize(size){
   if(app){
     app.style.zoom=zoom;
     app.style.transformOrigin='top left';
-    // Update chrome/acct-bar positioning when zoom changes
-    if(typeof _updateNavTop==='function') _updateNavTop();
+    // Update nav/acct-bar positioning when zoom changes
+    if(typeof _updateHeaderTop==='function') _updateHeaderTop();
   }
   // Keep the CSS variable updated for any code that reads it.
   document.documentElement.style.setProperty('--base-font',size+'px');

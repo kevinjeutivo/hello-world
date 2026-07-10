@@ -304,33 +304,38 @@ function showOfflineBanner(fetchTs){
 }
 
 function _updateHeaderTop(){
-  // No-op: header/banner/nav are now a single sticky-chrome unit.
-  // Only the income account bar needs dynamic top positioning.
-  _updateNavTop();
+  try{
+    const banner = document.getElementById('market-status-banner');
+    const measured = banner ? Math.ceil(banner.offsetHeight) : -1;
+    dbgLog('vvOffset='+(window.visualViewport?window.visualViewport.offsetTop:0)+' meas='+measured+' cached='+window._cachedBannerH);
+    if(measured < 20 || measured > 200) return;
+    if(measured === window._cachedBannerH) return;
+    window._cachedBannerH = measured;
+    let styleEl = document.getElementById('_header-top-style');
+    if(!styleEl){
+      styleEl = document.createElement('style');
+      styleEl.id = '_header-top-style';
+      document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = `.header { top: ${measured}px !important; }`;
+    _updateNavTop();
+  }catch(e){dbgLog('HDR ERR:'+e.message);}
 }
 
 function _updateNavTop(){
-  // The sticky-chrome wrapper is position:fixed outside #app (zoom context).
-  // Set #app padding-top to match chrome height so content starts below it.
-  // Also set income-acct-bar top to chrome height.
   try{
-    const chrome = document.getElementById('sticky-chrome');
-    const chromeH = chrome ? Math.ceil(chrome.offsetHeight) : 130;
-    dbgLog('chromeH='+chromeH);
-    if(chromeH < 40 || chromeH > 300) return;
-    if(chromeH === window._cachedChromeH) return;
-    window._cachedChromeH = chromeH;
-    // #app is zoomed so padding-top needs to be in unzoomed pixels
-    const app = document.getElementById('app');
-    const zoom = app ? (parseFloat(app.style.zoom) || 1) : 1;
-    if(app) app.style.paddingTop = Math.ceil(chromeH / zoom) + 'px';
+    const bannerH = window._cachedBannerH || 36;
+    const headerH = Math.ceil(document.querySelector('.header')?.offsetHeight || 58);
+    if(headerH < 30 || headerH > 200) return;
+    const navTop = bannerH + headerH;
     let styleEl = document.getElementById('_nav-top-style');
     if(!styleEl){
       styleEl = document.createElement('style');
       styleEl.id = '_nav-top-style';
       document.head.appendChild(styleEl);
     }
-    styleEl.textContent = `#income-acct-bar { top: ${chromeH}px !important; }`;
+    const navHeight = Math.ceil(document.querySelector('.nav-tabs')?.offsetHeight || 36);
+    styleEl.textContent = `.nav-tabs { top: ${navTop}px !important; } #income-acct-bar { top: ${navTop + navHeight}px !important; }`;
   }catch(e){}
 }
 

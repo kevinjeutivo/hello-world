@@ -170,28 +170,8 @@ a{color:inherit}
 <body>
 <div class="offline-banner" id="offline-banner">No network -- showing cached data</div>
 <div id="offline-mode-bar">OFFLINE MODE -- all data served from cache</div>
-<div id="app">
-<div id="sticky-chrome" style="position:sticky;top:0;z-index:200">
+<div id="sticky-chrome" style="position:fixed;top:0;left:0;right:0;z-index:200">
 <div id="market-status-banner" class="mkt-closed">Loading market status...</div>
-<!-- Disclaimer modal -->
-<div id="disclaimer-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.8);overflow-y:auto">
-  <div style="background:var(--surface);border-radius:16px;margin:20px auto;max-width:600px;padding:24px;position:relative">
-    <div style="font-family:var(--sans);font-size:18px;font-weight:700;color:var(--accent);margin-bottom:16px">Disclaimer &amp; Terms of Use</div>
-    <div style="font-family:var(--mono);font-size:12px;color:var(--text2);line-height:1.8">
-      <p style="margin-bottom:12px"><strong style="color:var(--text)">For Informational Purposes Only</strong><br>
-      This application is an analytical tool designed to help visualize and organize publicly available market data. Nothing presented in this app constitutes financial advice, investment advice, trading advice, or any other type of professional financial guidance.</p>
-      <p style="margin-bottom:12px"><strong style="color:var(--text)">No Recommendations</strong><br>
-      Conviction scores, strategy suggestions, and any other analysis presented are purely informational and algorithmic in nature. They do not represent personalized recommendations and should not be relied upon as the basis for any investment decision.</p>
-      <p style="margin-bottom:12px"><strong style="color:var(--text)">Risk Warning</strong><br>
-      Options trading involves substantial risk of loss and is not suitable for all investors. Selling puts and covered calls can result in significant financial losses. Past performance is not indicative of future results.</p>
-      <p style="margin-bottom:12px"><strong style="color:var(--text)">Data Accuracy</strong><br>
-      Market data is sourced from third-party providers including Yahoo Finance and Finnhub. Data may be delayed, inaccurate, or incomplete. Always verify information with your broker or a licensed financial professional before making investment decisions.</p>
-      <p style="margin-bottom:0"><strong style="color:var(--text)">No Liability</strong><br>
-      The developer of this application accepts no liability for any financial losses or damages arising from use of this tool.</p>
-    </div>
-    <button class="btn btn-primary" onclick="document.getElementById('disclaimer-modal').style.display='none'" style="margin-top:20px;width:100%">I Understand</button>
-  </div>
-</div>
 <div id="top-progress-bar"><div class="top-bar-fill" id="top-bar-fill"></div></div>
 <div class="header">
   <div class="header-left">
@@ -217,6 +197,26 @@ a{color:inherit}
   <button class="nav-tab" onclick="showTab('guide')">Guide</button>
 </div>
 </div><!-- /sticky-chrome -->
+<div id="app">
+<!-- Disclaimer modal -->
+<div id="disclaimer-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.8);overflow-y:auto">
+  <div style="background:var(--surface);border-radius:16px;margin:20px auto;max-width:600px;padding:24px;position:relative">
+    <div style="font-family:var(--sans);font-size:18px;font-weight:700;color:var(--accent);margin-bottom:16px">Disclaimer &amp; Terms of Use</div>
+    <div style="font-family:var(--mono);font-size:12px;color:var(--text2);line-height:1.8">
+      <p style="margin-bottom:12px"><strong style="color:var(--text)">For Informational Purposes Only</strong><br>
+      This application is an analytical tool designed to help visualize and organize publicly available market data. Nothing presented in this app constitutes financial advice, investment advice, trading advice, or any other type of professional financial guidance.</p>
+      <p style="margin-bottom:12px"><strong style="color:var(--text)">No Recommendations</strong><br>
+      Conviction scores, strategy suggestions, and any other analysis presented are purely informational and algorithmic in nature. They do not represent personalized recommendations and should not be relied upon as the basis for any investment decision.</p>
+      <p style="margin-bottom:12px"><strong style="color:var(--text)">Risk Warning</strong><br>
+      Options trading involves substantial risk of loss and is not suitable for all investors. Selling puts and covered calls can result in significant financial losses. Past performance is not indicative of future results.</p>
+      <p style="margin-bottom:12px"><strong style="color:var(--text)">Data Accuracy</strong><br>
+      Market data is sourced from third-party providers including Yahoo Finance and Finnhub. Data may be delayed, inaccurate, or incomplete. Always verify information with your broker or a licensed financial professional before making investment decisions.</p>
+      <p style="margin-bottom:0"><strong style="color:var(--text)">No Liability</strong><br>
+      The developer of this application accepts no liability for any financial losses or damages arising from use of this tool.</p>
+    </div>
+    <button class="btn btn-primary" onclick="document.getElementById('disclaimer-modal').style.display='none'" style="margin-top:20px;width:100%">I Understand</button>
+  </div>
+</div>
 <div class="main">
 
 <!-- DASHBOARD TAB -->

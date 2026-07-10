@@ -285,7 +285,6 @@ function updateMarketBanner(){
     banner.className='mkt-closed';
     banner.textContent=`Market closed -- opens in ${diffH}h ${diffM}m (${openDisplayFmt.format(nextOpen)} ${tzLabel})`;
   }
-  _updateHeaderTop();
 }
 
 function updateOnlineIndicator(){
@@ -304,17 +303,29 @@ function showOfflineBanner(fetchTs){
 }
 
 function _updateHeaderTop(){
-  // No-op: header top is now fixed in CSS to accommodate the tallest banner.
-  // See _updateNavTop for nav/account bar dynamic positioning.
-  _updateNavTop();
+  // Set .header sticky top to actual market banner height.
+  // Only called on init, orientation change, and VIX changes -- never from the
+  // 1-second interval, avoiding bad readings during keyboard transitions.
+  try{
+    const banner = document.getElementById('market-status-banner');
+    if(!banner) return;
+    const measured = Math.ceil(banner.offsetHeight);
+    if(measured < 20 || measured > 200) return;
+    window._cachedBannerH = measured;
+    let styleEl = document.getElementById('_header-top-style');
+    if(!styleEl){
+      styleEl = document.createElement('style');
+      styleEl.id = '_header-top-style';
+      document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = `.header { top: ${measured}px !important; }`;
+    _updateNavTop();
+  }catch(e){}
 }
 
 function _updateNavTop(){
   try{
-    // Banner height: fixed at 46px (two-line worst case: 12px font * 1.4 lh * 2 + 12px padding)
-    // Header top in CSS is set to 46px to always clear the banner.
-    // We still measure header height dynamically since VIX badge can change it.
-    const bannerH = 52;
+    const bannerH = window._cachedBannerH || 52;
     const headerH = Math.ceil(document.querySelector('.header')?.offsetHeight || 58);
     if(headerH < 30 || headerH > 200) return;
     const navTop = bannerH + headerH;
@@ -346,6 +357,15 @@ function updateVIXIndicator(vixValue){
   if(tabBtn){const dot=document.createElement('span');dot.className=dotClass;tabBtn.appendChild(dot);}
   if(banner){banner.textContent=label;banner.className=bannerClass;banner.style.display='block';}
   _updateHeaderTop();
+}
+
+// Re-measure on orientation change (landscape vs portrait changes banner line count)
+if(!window._orientationListenerAdded){
+  window.addEventListener('orientationchange', ()=>{
+    // Wait for the browser to finish rotating before measuring
+    setTimeout(_updateHeaderTop, 300);
+  });
+  window._orientationListenerAdded = true;
 }
 
 function toast(msg,dur=2500){

@@ -313,8 +313,7 @@ function _updateHeaderTop(){
     }
     if(window._kbWasUp){
       // Keyboard just dismissed -- restore the last known-good style strings
-      // rather than remeasuring (layout not yet stable). Normal measurement
-      // resumes on subsequent ticks once layout has settled.
+      // rather than remeasuring (layout not yet stable).
       window._kbWasUp = false;
       if(window._goodHeaderStyle){
         const h = document.getElementById('_header-top-style');
@@ -324,6 +323,8 @@ function _updateHeaderTop(){
         const n = document.getElementById('_nav-top-style');
         if(n) n.textContent = window._goodNavStyle;
       }
+      // Reset cache so next tick forces a fresh measurement and style rewrite
+      window._cachedBannerH = null;
       return;
     }
     const banner = document.getElementById('market-status-banner');

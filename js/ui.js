@@ -285,12 +285,7 @@ function updateMarketBanner(){
     banner.className='mkt-closed';
     banner.textContent=`Market closed -- opens in ${diffH}h ${diffM}m (${openDisplayFmt.format(nextOpen)} ${tzLabel})`;
   }
-  // Only remeasure sticky tops if banner text changed (height may have changed)
-  const _newText = banner.textContent;
-  if(_newText !== banner._lastMeasuredText){
-    banner._lastMeasuredText = _newText;
-    _updateHeaderTop();
-  }
+  _updateHeaderTop();
 }
 
 function updateOnlineIndicator(){
@@ -309,38 +304,18 @@ function showOfflineBanner(fetchTs){
 }
 
 function _updateHeaderTop(){
-  // Dynamically set .header sticky top to actual market banner height.
-  // We cache the last good measurement and only update it when the banner
-  // height genuinely changes (single->double line or vice versa).
-  // Never measure during keyboard animation -- offsetHeight is unreliable then.
-  if(window.visualViewport && window.visualViewport.offsetTop > 2) return;
-  try{
-    const banner = document.getElementById('market-status-banner');
-    if(!banner) return;
-    const measured = Math.ceil(banner.offsetHeight);
-    // Reject clearly wrong readings (0, or implausibly small/large)
-    if(measured < 20 || measured > 200) return;
-    // Only update if value genuinely changed
-    if(measured === window._cachedBannerH) return;
-    window._cachedBannerH = measured;
-    let styleEl = document.getElementById('_header-top-style');
-    if(!styleEl){
-      styleEl = document.createElement('style');
-      styleEl.id = '_header-top-style';
-      document.head.appendChild(styleEl);
-    }
-    styleEl.textContent = `.header { top: ${measured}px !important; }`;
-    // Chain: nav top depends on header height, so update it too
-    _updateNavTop();
-  }catch(e){}
+  // No-op: header top is now fixed in CSS to accommodate the tallest banner.
+  // See _updateNavTop for nav/account bar dynamic positioning.
+  _updateNavTop();
 }
 
 function _updateNavTop(){
-  // Recalculate nav-tabs sticky top based on measured banner+header heights.
   try{
-    const bannerH = window._cachedBannerH || 36;
+    // Banner height: fixed at 46px (two-line worst case: 12px font * 1.4 lh * 2 + 12px padding)
+    // Header top in CSS is set to 46px to always clear the banner.
+    // We still measure header height dynamically since VIX badge can change it.
+    const bannerH = 52;
     const headerH = Math.ceil(document.querySelector('.header')?.offsetHeight || 58);
-    // Reject implausible headerH readings during keyboard transitions
     if(headerH < 30 || headerH > 200) return;
     const navTop = bannerH + headerH;
     let styleEl = document.getElementById('_nav-top-style');

@@ -19,9 +19,8 @@ function applyFontSize(size){
   if(app){
     app.style.zoom=zoom;
     app.style.transformOrigin='top left';
-    // Reposition the income account bar which is outside #app and uses
-    // unzoomed viewport pixels -- must recalculate when zoom changes
-    if(typeof _updateAcctBarStickyTop==='function') _updateAcctBarStickyTop();
+    // Update chrome/acct-bar positioning when zoom changes
+    if(typeof _updateNavTop==='function') _updateNavTop();
   }
   // Keep the CSS variable updated for any code that reads it.
   document.documentElement.style.setProperty('--base-font',size+'px');

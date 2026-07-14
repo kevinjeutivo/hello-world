@@ -1043,11 +1043,20 @@ function openIncomeOverview(){
 
     let itmPutFlag = '';
     let itmCCFlag = '';
+    let expiringPutFlag = '';
+    let expiringCCFlag = '';
     if(allActive.length){
       const statuses = allActive.map(p => _posExpiryStatus(p));
       if(statuses.includes('expiring-imminent')){ urgency='imminent'; urgencyColor='var(--red)'; urgencyLabel='⚠ Expires ≤2d'; }
       else if(statuses.includes('expiring-soon')){ urgency='soon'; urgencyColor='var(--warn)'; urgencyLabel='⚡ Expires ≤7d'; }
       else{ urgencyLabel=''; }
+
+      // Expiring counts per type
+      const expiringPuts = activePuts.filter(p => { const s=_posExpiryStatus(p); return s==='expiring-soon'||s==='expiring-imminent'; });
+      const expiringCCs  = activeCCs.filter(p  => { const s=_posExpiryStatus(p); return s==='expiring-soon'||s==='expiring-imminent'; });
+      const expiringColor = statuses.includes('expiring-imminent') ? 'var(--red)' : 'var(--warn)';
+      if(expiringPuts.length) expiringPutFlag = `<span style="color:${expiringColor};font-size:10px;margin-left:6px">⚡ ${expiringPuts.length} expiring</span>`;
+      if(expiringCCs.length)  expiringCCFlag  = `<span style="color:${expiringColor};font-size:10px;margin-left:6px">⚡ ${expiringCCs.length} expiring</span>`;
 
       // ITM check on puts and covered calls
       const itmPuts = activePuts.filter(p => {
@@ -1069,8 +1078,8 @@ function openIncomeOverview(){
         `<div style="font-family:var(--mono);font-size:10px;color:${urgencyColor}">${urgencyLabel}</div>` +
       `</div>` +
       `<div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.8">` +
-        `<div>Puts: ${activePuts.length} position${activePuts.length!==1?'s':''} · ${_fmtDollar(putNotional)} notional${itmPutFlag}</div>` +
-        `<div>CCs: ${activeCCs.length} position${activeCCs.length!==1?'s':''} · ${_fmtDollar(ccNotional)} notional${itmCCFlag}</div>` +
+        `<div>Puts: ${activePuts.length} position${activePuts.length!==1?'s':''} · ${_fmtDollar(putNotional)} notional${expiringPutFlag}${itmPutFlag}</div>` +
+        `<div>CCs: ${activeCCs.length} position${activeCCs.length!==1?'s':''} · ${_fmtDollar(ccNotional)} notional${expiringCCFlag}${itmCCFlag}</div>` +
       `</div>` +
     `</div>`;
   }).join('');

@@ -51,11 +51,15 @@ async function prefetchAll(){
     try{
       const _upgradesAge=(Date.now()-(S.get('upgrades_'+t)?.ts?new Date(S.get('upgrades_'+t).ts).getTime():0))/3600000;
       const _needUpgrades=_upgradesAge>=24;
-      // Yahoo batch (quote, quoteSummary, hist2y, main options chain, intraday) and
-      // Finnhub batch (earnings calendar, upgrades) fire concurrently -- independent
-      // providers, independent data, no dependency between them. The per-expiry
-      // options fetch further down still has to run after this, since it needs the
-      // expiration dates from this batch's main options result.
+      // Yahoo batch (quote, quoteSummary, hist2y, main options chain, intraday) fires
+      // concurrently with the Finnhub sequence below -- independent providers, no
+      // dependency between them. Within the Finnhub side, earnings and upgrades now
+      // run one after another (not simultaneously) -- both endpoints share a much
+      // slower backend resource at Finnhub (confirmed via their public status page:
+      // ~5000ms latency vs 30-250ms for quote/candle endpoints), and firing them at
+      // the same instant is the likely cause of the intermittent 403s seen during
+      // prefetch, not inter-ticker timing (raising the inter-ticker sleep didn't
+      // help, which pointed away from a rate-limit explanation).
       const _yahooBatch=Promise.all([
         _pfTimeout(fetchAfterHoursPrice(t),10000,t+' Yahoo quote').catch(()=>null),
         _pfTimeout(fetchQuoteSummary(t),10000,t+' quoteSummary').catch(()=>null),
@@ -64,11 +68,12 @@ async function prefetchAll(){
         _pfTimeout(yahooHistory(t,'1d','5m'),10000,t+' intraday').catch(e=>{console.warn('intraday failed:',t,e?.message);return null;})
       ]);
       let _earningsErr=null,_upgradesErr=null;
-      const _finnhubBatch=Promise.all([
-        _pfTimeout(fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),10000,t+' earnings').catch(e=>{_earningsErr=e?.message||'failed';return null;}),
-        _needUpgrades?_pfTimeout(fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`),8000,t+' upgrades').catch(e=>{_upgradesErr=e?.message||'failed';return null;}):Promise.resolve(null)
-      ]);
-      const [[_ahQ,_qs,_h2res,_optsRes,_idRes],[_earningsRes,upgrades2]]=await Promise.all([_yahooBatch,_finnhubBatch]);
+      const _finnhubSeq=(async()=>{
+        const _e=await _pfTimeout(fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),10000,t+' earnings').catch(e=>{_earningsErr=e?.message||'failed';return null;});
+        const _u=_needUpgrades?await _pfTimeout(fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`),8000,t+' upgrades').catch(e=>{_upgradesErr=e?.message||'failed';return null;}):null;
+        return[_e,_u];
+      })();
+      const [[_ahQ,_qs,_h2res,_optsRes,_idRes],[_earningsRes,upgrades2]]=await Promise.all([_yahooBatch,_finnhubSeq]);
       earnings=_earningsRes;
       // Finnhub health: earnings call must succeed; upgrades must succeed if it was
       // attempted (skipped calls due to <24h cache don't count against health)

@@ -1888,11 +1888,11 @@ async function refreshSingleTicker(){
         // Preserve 'skipped' status if options were not explicitly fetched this run
         const _prevOpts=_h.tickers[t]?.options;
         const _newOpts=optionsLoaded?true:(_prevOpts==='skipped'?'skipped':false);
-        _h.tickers[t]={snap:true,hist:true,options:_newOpts};
+        _h.tickers[t]={snap:true,hist:true,options:_newOpts,finnhub:true};
         // Recompute summary
         const _wl=S.get('watchlist')||[];
-        const _ok=_wl.filter(tk=>_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist).length;
-        _h.summary={total:_wl.length,ok:_ok,failed:_wl.filter(tk=>!(_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist))};
+        const _ok=_wl.filter(tk=>_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist&&_h.tickers[tk]?.finnhub).length;
+        _h.summary={total:_wl.length,ok:_ok,failed:_wl.filter(tk=>!(_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist&&_h.tickers[tk]?.finnhub))};
         _h.completedTs=nowPT();
         S.set('last_refresh_health',_h);
         if(typeof _updateRefreshHealthBadge==='function')_updateRefreshHealthBadge();

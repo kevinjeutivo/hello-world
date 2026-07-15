@@ -38,23 +38,37 @@ async function prefetchAll(){
   // Initialize health record
   const _pfStartMs=Date.now();
   const _health={ts:nowPT(),tickers:{},global:{}};
+  const _pfSleepMs=parseInt(S.get('prefetch_sleep_ms'))||500;
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];if(barEl)barEl.style.width=Math.round((i/watchlist.length)*100)+'%';if(labelEl)labelEl.textContent=`Fetching ${t} (${i+1}/${watchlist.length})...`;
     _health.tickers[t]={snap:false,hist:false,options:false};
+    // earnings/_opts/_h2ok declared here (shared scope) rather than inside the try
+    // below -- previously `earnings` was declared inside that try block and went
+    // out of scope by the time the "Pending earnings" bookkeeping block further
+    // down referenced it, silently throwing a ReferenceError that was swallowed
+    // by that block's own catch{}. Declaring it here fixes that.
+    let earnings=null,_opts=null,_h2ok=false;
     try{
-      // Yahoo /quote and quoteSummary in parallel -- replaces Finnhub quote+profile2+metric
-      const [_ahQ,_qs]=await Promise.all([
-        _pfTimeout(fetchAfterHoursPrice(t),10000,t+' Yahoo quote').catch(()=>null),
-        _pfTimeout(fetchQuoteSummary(t),10000,t+' quoteSummary').catch(()=>null)
-      ]);
-      // Finnhub earnings calendar (BMO/AMC timing -- keep on Finnhub)
-      const earnings=await _pfTimeout(fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),10000,t+' earnings').catch(()=>null);
-      // Upgrades (skip if cached <24h)
-      let upgrades2=null;
       const _upgradesAge=(Date.now()-(S.get('upgrades_'+t)?.ts?new Date(S.get('upgrades_'+t).ts).getTime():0))/3600000;
-      if(_upgradesAge>=24){
-        try{upgrades2=await _pfTimeout(fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`),8000,t+' upgrades');}catch{}
-      }
+      const _needUpgrades=_upgradesAge>=24;
+      // Yahoo batch (quote, quoteSummary, hist2y, main options chain, intraday) and
+      // Finnhub batch (earnings calendar, upgrades) fire concurrently -- independent
+      // providers, independent data, no dependency between them. The per-expiry
+      // options fetch further down still has to run after this, since it needs the
+      // expiration dates from this batch's main options result.
+      const _yahooBatch=Promise.all([
+        _pfTimeout(fetchAfterHoursPrice(t),10000,t+' Yahoo quote').catch(()=>null),
+        _pfTimeout(fetchQuoteSummary(t),10000,t+' quoteSummary').catch(()=>null),
+        _pfTimeout(yahooHistory(t,'2y','1d'),15000,t+' hist2y').catch(e=>{console.warn('hist2y failed:',t,e?.message);return null;}),
+        _pfTimeout(yahooOptionsViaProxy(t),15000,t+' options').catch(e=>{console.warn('options failed:',t,e?.message);return null;}),
+        _pfTimeout(yahooHistory(t,'1d','5m'),10000,t+' intraday').catch(e=>{console.warn('intraday failed:',t,e?.message);return null;})
+      ]);
+      const _finnhubBatch=Promise.all([
+        _pfTimeout(fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),10000,t+' earnings').catch(()=>null),
+        _needUpgrades?_pfTimeout(fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`),8000,t+' upgrades').catch(()=>null):Promise.resolve(null)
+      ]);
+      const [[_ahQ,_qs,_h2res,_optsRes,_idRes],[_earningsRes,upgrades2]]=await Promise.all([_yahooBatch,_finnhubBatch]);
+      earnings=_earningsRes;
       if(_ahQ&&_ahQ.price){
         const _pf=_ahQ.price,_pp=_ahQ.prevClose||_ahQ.price;
         const _futE=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
@@ -76,16 +90,6 @@ async function prefetchAll(){
         S.set('snap_'+t,_sn2);_health.tickers[t].snap=true;
         if(upgrades2&&upgrades2.length)S.set('upgrades_'+t,{data:upgrades2.slice(0,6),ts:nowPT()});
       }
-    }catch{}
-    // Parallel: 2Y history + options main fetch + intraday (all Yahoo, independent)
-    // Always fetch options fresh -- validation guards against writing bad data.
-    let _h2ok=false,_opts=null;
-    try{
-      const [_h2res,_optsRes,_idRes]=await Promise.all([
-        _pfTimeout(yahooHistory(t,'2y','1d'),15000,t+' hist2y').catch(e=>{console.warn('hist2y failed:',t,e?.message);return null;}),
-        _pfTimeout(yahooOptionsViaProxy(t),15000,t+' options').catch(e=>{console.warn('options failed:',t,e?.message);return null;}),
-        _pfTimeout(yahooHistory(t,'1d','5m'),10000,t+' intraday').catch(e=>{console.warn('intraday failed:',t,e?.message);return null;})
-      ]);
       // Process intraday sparkline data
       if(_idRes && _idRes.closes && _idRes.closes.length >= 2){
         const _idTs=_idRes.timestamps?_idRes.timestamps.map(d=>d instanceof Date?d.getTime():d):null;
@@ -118,7 +122,7 @@ async function prefetchAll(){
           console.warn(t+': rejecting options ('+_pv.reason+'), preserving cache');
         }
       }
-    }catch(e){console.warn('prefetch parallel hist/opts failed:',t,e?.message);}
+    }catch(e){console.warn('prefetch batch failed:',t,e?.message);}
     // Pending earnings: promote passed dates, save current future date
     try{
       promoteEarningsPending(t);
@@ -211,7 +215,7 @@ async function prefetchAll(){
         });
     }
     try{const news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}
-    if(i<watchlist.length-1)await sleep(500);
+    if(i<watchlist.length-1)await sleep(_pfSleepMs);
   }
   try{const[vh,v3h]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vh.timestamps.map(d=>d.toISOString()),closes:vh.closes,ts:nowPT()});S.set('vix3m_hist',{timestamps:v3h.timestamps.map(d=>d.toISOString()),closes:v3h.closes,ts:nowPT()});const vc=vh.closes.filter(c=>c!==null);updateVIXIndicator(vc[vc.length-1]);}catch{}
   if(barEl)barEl.style.width='100%';if(labelEl)labelEl.textContent='Prefetch complete!';

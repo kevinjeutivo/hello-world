@@ -74,10 +74,10 @@ async function prefetchAll(){
       // attempted (skipped calls due to <24h cache don't count against health)
       if(_earningsErr){
         console.warn('earnings failed:',t,_earningsErr);
-        _health.tickers[t].finnhubDetail='earnings: '+_earningsErr;
+        _health.tickers[t].finnhubDetail='earnings: '+_earningsErr.slice(0,90);
       }else if(_upgradesErr){
         console.warn('upgrades failed:',t,_upgradesErr);
-        _health.tickers[t].finnhubDetail='upgrades: '+_upgradesErr;
+        _health.tickers[t].finnhubDetail='upgrades: '+_upgradesErr.slice(0,90);
       }else{
         _health.tickers[t].finnhub=true;
       }

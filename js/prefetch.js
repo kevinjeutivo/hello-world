@@ -41,7 +41,7 @@ async function prefetchAll(){
   const _pfSleepMs=parseInt(S.get('prefetch_sleep_ms'))||500;
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];if(barEl)barEl.style.width=Math.round((i/watchlist.length)*100)+'%';if(labelEl)labelEl.textContent=`Fetching ${t} (${i+1}/${watchlist.length})...`;
-    _health.tickers[t]={snap:false,hist:false,options:false};
+    _health.tickers[t]={snap:false,hist:false,options:false,finnhub:false};
     // earnings/_opts/_h2ok declared here (shared scope) rather than inside the try
     // below -- previously `earnings` was declared inside that try block and went
     // out of scope by the time the "Pending earnings" bookkeeping block further
@@ -63,12 +63,24 @@ async function prefetchAll(){
         _pfTimeout(yahooOptionsViaProxy(t),15000,t+' options').catch(e=>{console.warn('options failed:',t,e?.message);return null;}),
         _pfTimeout(yahooHistory(t,'1d','5m'),10000,t+' intraday').catch(e=>{console.warn('intraday failed:',t,e?.message);return null;})
       ]);
+      let _earningsErr=null,_upgradesErr=null;
       const _finnhubBatch=Promise.all([
-        _pfTimeout(fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),10000,t+' earnings').catch(()=>null),
-        _needUpgrades?_pfTimeout(fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`),8000,t+' upgrades').catch(()=>null):Promise.resolve(null)
+        _pfTimeout(fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),10000,t+' earnings').catch(e=>{_earningsErr=e?.message||'failed';return null;}),
+        _needUpgrades?_pfTimeout(fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`),8000,t+' upgrades').catch(e=>{_upgradesErr=e?.message||'failed';return null;}):Promise.resolve(null)
       ]);
       const [[_ahQ,_qs,_h2res,_optsRes,_idRes],[_earningsRes,upgrades2]]=await Promise.all([_yahooBatch,_finnhubBatch]);
       earnings=_earningsRes;
+      // Finnhub health: earnings call must succeed; upgrades must succeed if it was
+      // attempted (skipped calls due to <24h cache don't count against health)
+      if(_earningsErr){
+        console.warn('earnings failed:',t,_earningsErr);
+        _health.tickers[t].finnhubDetail='earnings: '+_earningsErr;
+      }else if(_upgradesErr){
+        console.warn('upgrades failed:',t,_upgradesErr);
+        _health.tickers[t].finnhubDetail='upgrades: '+_upgradesErr;
+      }else{
+        _health.tickers[t].finnhub=true;
+      }
       if(_ahQ&&_ahQ.price){
         const _pf=_ahQ.price,_pp=_ahQ.prevClose||_ahQ.price;
         const _futE=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
@@ -256,8 +268,8 @@ async function prefetchAll(){
   _health.elapsedMs=_pfElapsedMs;
   _health.elapsedLabel=(_pfMins>0?_pfMins+'m ':'')+_pfSecs+'s';
   const _totalT=watchlist.length;
-  const _okT=Object.values(_health.tickers).filter(v=>v.snap&&v.hist).length;
-  const _failedT=watchlist.filter(t=>!(_health.tickers[t]?.snap&&_health.tickers[t]?.hist));
+  const _okT=Object.values(_health.tickers).filter(v=>v.snap&&v.hist&&v.finnhub).length;
+  const _failedT=watchlist.filter(t=>!(_health.tickers[t]?.snap&&_health.tickers[t]?.hist&&_health.tickers[t]?.finnhub));
   _health.summary={total:_totalT,ok:_okT,failed:_failedT};
   S.set('last_refresh_health',_health);
   _updateRefreshHealthBadge();

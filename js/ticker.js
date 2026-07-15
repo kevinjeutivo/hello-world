@@ -55,26 +55,28 @@ async function loadTicker(){
     // Only fetch /stock/earnings history if confirmed cache is sparse (<4 entries)
     const _confCacheCount=(S.get('earnings_confirmed_'+t)||[]).length;
     const _needEarningsHist=_confCacheCount<4;
-    // Finnhub retained only for earnings calendar (BMO/AMC timing most reliable there)
+    // Finnhub retained only for earnings calendar (BMO/AMC timing most reliable here)
     // and news/upgrades/recommendations. All price/fundamental fields now from Yahoo.
-    // The Finnhub batch and Yahoo batch fire concurrently rather than one after
-    // another -- each provider rate-limits independently, and this is a single
-    // ticker's one-time page load (~6 calls total), not the watchlist prefetch
-    // loop, which is the one place a deliberate inter-request sleep is needed to
-    // avoid bursting either API across many tickers in a row.
+    // The Finnhub sequence and Yahoo batch fire concurrently with each other, but
+    // earnings/earningsHist/upgrades now run one after another within the Finnhub
+    // side (not simultaneously) -- these endpoints share a much slower backend
+    // resource at Finnhub (confirmed via their public status page: ~5000ms latency
+    // vs 30-250ms for quote/candle endpoints), and firing them at the same instant
+    // is the likely cause of intermittent 403s, not overall request volume.
     let earnings,earningsHist,upgrades,ah,qs,h2;
-    const _finnhubBatch=Promise.all([
-      fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),
-      _needEarningsHist?fh(`/stock/earnings?symbol=${t}&limit=8`):Promise.resolve(null),
-      fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`).catch(()=>null)
-    ]);
+    const _finnhubSeq=(async()=>{
+      const _e=await fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`);
+      const _eh=_needEarningsHist?await fh(`/stock/earnings?symbol=${t}&limit=8`):null;
+      const _u=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`).catch(()=>null);
+      return[_e,_eh,_u];
+    })();
     const _yahooBatch=Promise.all([
       fetchAfterHoursPrice(t),
       fetchQuoteSummary(t),
       _tkTimeout(yahooHistory(t,'2y','1d'),15000,'hist2y').catch(()=>null)
     ]);
     try{
-      [[earnings,earningsHist,upgrades],[ah,qs,h2]]=await Promise.all([_finnhubBatch,_yahooBatch]);
+      [[earnings,earningsHist,upgrades],[ah,qs,h2]]=await Promise.all([_finnhubSeq,_yahooBatch]);
       // Build snap from Yahoo /quote (via fetchAfterHoursPrice which now returns full quote fields)
       if(!ah||!ah.price)throw new Error('Yahoo quote failed for '+t);
       const _price=ah.price;

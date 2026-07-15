@@ -280,6 +280,7 @@ function openSettings(){
   document.getElementById('finnhub-key-input').value=FINNHUB_KEY;
   document.getElementById('default-watchlist-input').value=watchlist.join(',');
   document.getElementById('vix-threshold-input').value=vixThreshold;
+  document.getElementById('prefetch-sleep-input').value=parseInt(S.get('prefetch_sleep_ms'))||500;
   document.getElementById('tz-pref-input').value=tzPref;
   document.getElementById('offline-mode-input').checked=offlineMode;
   document.getElementById('debug-options-fetch-input').checked=S.get('debug_options_fetch')==='true';
@@ -300,6 +301,8 @@ function saveSettings(){
   if(wl.length>0){watchlist=wl;S.set('watchlist',wl);}
   vixThreshold=parseInt(document.getElementById('vix-threshold-input').value)||20;
   S.set('vix_threshold',String(vixThreshold));
+  const _prefetchSleepMs=Math.min(5000,Math.max(100,parseInt(document.getElementById('prefetch-sleep-input').value)||500));
+  S.set('prefetch_sleep_ms',String(_prefetchSleepMs));
   tzPref=document.getElementById('tz-pref-input').value;
   S.set('tz_pref',tzPref);
   const cutoffET=parseInt(document.getElementById('options-cutoff-input')?.value)||18;
@@ -358,7 +361,7 @@ function clearMarketDataCache(){
     'options_cutoff_et','rp_earnings_toggle','rp_span','bb_span',
     'vol_badge_state','conviction_weights','last_ticker',
     'income_accounts_meta','income_active_account','income_migration_v1',
-    'debug_options_fetch',
+    'debug_options_fetch','prefetch_sleep_ms',
   ]);
   const toDelete=[];
   for(let i=0;i<localStorage.length;i++){
@@ -397,7 +400,7 @@ const EXPORT_KEYS_STATIC=[
   'vol_badge_state','last_ticker',
   'etf_research_tickers',
   'income_accounts_meta','income_active_account','income_migration_v1',
-  'debug_options_fetch',
+  'debug_options_fetch','prefetch_sleep_ms',
 ];
 
 function _buildExportData(){

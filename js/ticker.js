@@ -1728,12 +1728,13 @@ async function refreshSingleTicker(){
     const _rConfCount=(S.get('earnings_confirmed_'+t)||[]).length;
     const _rNeedEarningsHist=_rConfCount<4;
     // Finnhub: only earnings calendar + news/upgrades/recs. All price/fundamentals from Yahoo.
+    let _rUpgradesErr=null;
     const[earnings,earningsHist]=await Promise.all([
       fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),
       _rNeedEarningsHist?fh(`/stock/earnings?symbol=${t}&limit=8`):Promise.resolve(null)
     ]);
     let upgrades=null,priceTargetS=null;
-    try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch{}
+    try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch(e){_rUpgradesErr=e?.message||'failed';}
     // Build snap from Yahoo /quote
     setP(20,'Fetching '+t+' Yahoo quote...');
     const ah=await fetchAfterHoursPrice(t);
@@ -1888,7 +1889,8 @@ async function refreshSingleTicker(){
         // Preserve 'skipped' status if options were not explicitly fetched this run
         const _prevOpts=_h.tickers[t]?.options;
         const _newOpts=optionsLoaded?true:(_prevOpts==='skipped'?'skipped':false);
-        _h.tickers[t]={snap:true,hist:true,options:_newOpts,finnhub:true};
+        _h.tickers[t]={snap:true,hist:true,options:_newOpts,finnhub:!_rUpgradesErr,
+          ...(_rUpgradesErr?{finnhubDetail:'upgrades: '+_rUpgradesErr.slice(0,90)}:{})};
         // Recompute summary
         const _wl=S.get('watchlist')||[];
         const _ok=_wl.filter(tk=>_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist&&_h.tickers[tk]?.finnhub).length;

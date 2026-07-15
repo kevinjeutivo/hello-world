@@ -52,21 +52,30 @@ async function loadTicker(){
   document.getElementById('ticker-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading ${t}...</div></div>`;
   try{
     let snap,hist6mo,hist1y,news,recData,isLive=true;
+    // Only fetch /stock/earnings history if confirmed cache is sparse (<4 entries)
+    const _confCacheCount=(S.get('earnings_confirmed_'+t)||[]).length;
+    const _needEarningsHist=_confCacheCount<4;
+    // Finnhub retained only for earnings calendar (BMO/AMC timing most reliable there)
+    // and news/upgrades/recommendations. All price/fundamental fields now from Yahoo.
+    // The Finnhub batch and Yahoo batch fire concurrently rather than one after
+    // another -- each provider rate-limits independently, and this is a single
+    // ticker's one-time page load (~6 calls total), not the watchlist prefetch
+    // loop, which is the one place a deliberate inter-request sleep is needed to
+    // avoid bursting either API across many tickers in a row.
+    let earnings,earningsHist,upgrades,ah,qs,h2;
+    const _finnhubBatch=Promise.all([
+      fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),
+      _needEarningsHist?fh(`/stock/earnings?symbol=${t}&limit=8`):Promise.resolve(null),
+      fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`).catch(()=>null)
+    ]);
+    const _yahooBatch=Promise.all([
+      fetchAfterHoursPrice(t),
+      fetchQuoteSummary(t),
+      _tkTimeout(yahooHistory(t,'2y','1d'),15000,'hist2y').catch(()=>null)
+    ]);
     try{
-      // Only fetch /stock/earnings history if confirmed cache is sparse (<4 entries)
-      const _confCacheCount=(S.get('earnings_confirmed_'+t)||[]).length;
-      const _needEarningsHist=_confCacheCount<4;
-      // Finnhub retained only for earnings calendar (BMO/AMC timing most reliable there)
-      // and news/upgrades/recommendations. All price/fundamental fields now from Yahoo.
-      const[earnings,earningsHist]=await Promise.all([
-        fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),
-        _needEarningsHist?fh(`/stock/earnings?symbol=${t}&limit=8`):Promise.resolve(null)
-      ]);
-      let upgrades=null;
-      try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch{}
-
+      [[earnings,earningsHist,upgrades],[ah,qs,h2]]=await Promise.all([_finnhubBatch,_yahooBatch]);
       // Build snap from Yahoo /quote (via fetchAfterHoursPrice which now returns full quote fields)
-      const ah=await fetchAfterHoursPrice(t);
       if(!ah||!ah.price)throw new Error('Yahoo quote failed for '+t);
       const _price=ah.price;
       const _prev=ah.prevClose||_price;
@@ -98,8 +107,8 @@ async function loadTicker(){
       S.set('snap_'+t,snap);S.set('upgrades_'+t,{data:upgradeData||[],ts:nowPT()});
 
       // Enrich with Yahoo quoteSummary (beta, short interest, R40 inputs, price targets, trends)
+      // -- qs was already fetched concurrently above, alongside the quote and hist2y calls
       try{
-        const qs=await fetchQuoteSummary(t);
         if(qs){
           if(qs.beta!=null)snap.beta=qs.beta;
           if(qs.ptMean){snap.ptMean=qs.ptMean;snap.ptHigh=qs.ptHigh||null;snap.ptLow=qs.ptLow||null;snap.ptAnalysts=qs.ptAnalysts||null;}
@@ -121,9 +130,10 @@ async function loadTicker(){
       const cached=S.get('snap_'+t);if(cached){snap=cached;isLive=false;showOfflineBanner(cached.ts);}else throw new Error('No data available');
       recData=snap.recTrend&&snap.recTrend.length?snap.recTrend[0]:null;
     }
-    // Single 2Y fetch populates all three history cache keys
+    // Single 2Y fetch (already resolved above, concurrently with the quote/earnings calls)
+    // populates all three history cache keys
     try{
-      const h2=await _tkTimeout(yahooHistory(t,'2y','1d'),15000,'hist2y');
+      if(!h2)throw new Error('hist2y unavailable');
       const _ts2=h2.timestamps.map(d=>Math.floor(d.getTime()/1000));
       const _cl2=h2.closes.map(v=>v!=null?Math.round(v*100)/100:null);
       const _vl2=h2.volumes?h2.volumes.map(v=>v||0):null;

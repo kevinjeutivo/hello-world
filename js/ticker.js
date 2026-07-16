@@ -1844,6 +1844,7 @@ async function refreshSingleTicker(){
         // "Friday cache is still good on Monday pre-market" without re-fetching synthetic data
         const _savedOpts=S.get('options_'+t);
         if(_savedOpts){
+          _pruneExpiredOptionExpiries(t);
           const yr=opts?.optionChain?.result?.[0];
           const rawTs=yr?.expirationDates||[];
           const pairs=rawTs.map(ts=>({ts,date:new Date(ts*1000).toISOString().split('T')[0]}));

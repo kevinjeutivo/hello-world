@@ -1,4 +1,4 @@
-// PutSeller Pro -- earnings.js
+// Income Engine -- earnings.js
 // Earnings tab: load, render cards, filter.
 // Globals used: watchlist, earningsDaysFilter, earningsAllData, WORKER_URL, S
 // Dependencies: helpers.js, api.js, storage.js
@@ -20,25 +20,27 @@ async function loadEarningsTab(){
       const du=daysUntilDate(snap.earningsDate);if(du===null||du<0)continue;
       const ed=new Date(snap.earningsDate+'T12:00:00Z'); // noon UTC for safe arithmetic
       let epsEst=null,epsActualPrev=null,surprisePrev=null,beatStreak=0;
-      try{const est=await fh(`/stock/earnings?symbol=${t}&limit=8`);if(est&&est.length){
-        const upcoming=est.find(e=>!e.actual&&e.estimate);if(upcoming)epsEst=upcoming.estimate;
-        const prev=est.find(e=>e.actual!==null&&e.actual!==undefined);if(prev){epsActualPrev=prev.actual;if(prev.estimate)surprisePrev=((prev.actual-prev.estimate)/Math.abs(prev.estimate)*100);}
-        const actuals=est.filter(e=>e.actual!==null&&e.estimate!==null);for(const q of actuals){if(q.actual>q.estimate)beatStreak++;else break;}
+      try{
+        const eh=(snap.earningsHistoryYahoo||[]).filter(e=>e.date).sort((a,b)=>b.date.localeCompare(a.date));
+        const prev=eh.find(e=>e.epsActual!=null);
+        if(prev){epsActualPrev=prev.epsActual;surprisePrev=prev.surprisePercent;}
+        const actuals=eh.filter(e=>e.epsActual!=null&&e.epsEstimate!=null);
+        for(const q of actuals){if(q.epsActual>q.epsEstimate)beatStreak++;else break;}
         // Mine past earnings dates into confirmed cache
         try{
           const _eConf=S.get('earnings_confirmed_'+t)||[];
           const _eCut=new Date();_eCut.setDate(_eCut.getDate()-730);
           let _eChg=false;
-          est.filter(e=>e.date&&e.actual!=null&&new Date(e.date)<new Date()&&new Date(e.date)>=_eCut).forEach(e=>{
+          eh.filter(e=>e.date&&new Date(e.date)<new Date()&&new Date(e.date)>=_eCut).forEach(e=>{
             if(!_eConf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
-              _eConf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_eChg=true;
+              _eConf.push({date:e.date,hour:null,addedTs:nowPT()});_eChg=true;
             }
           });
           if(_eChg)S.set('earnings_confirmed_'+t,_eConf.filter(c=>new Date(c.date)>=_eCut));
         }catch{}
-      }}catch{}
-      // Fallback: use Yahoo earningsTrend if Finnhub EPS estimate null (free tier)
-      if(epsEst===null){try{const sn=S.get('snap_'+t);const et=sn?.earningsTrend;if(et&&et.length){const cur=et.find(p=>p.period==='0q')||et[0];if(cur?.epsMean!=null)epsEst=cur.epsMean;}}catch{}}
+      }catch{}
+      // Upcoming EPS estimate: Yahoo earningsTrend (forward-looking, already fetched via quoteSummary)
+      if(epsEst===null){try{const et=snap.earningsTrend;if(et&&et.length){const cur=et.find(p=>p.period==='0q')||et[0];if(cur?.epsMean!=null)epsEst=cur.epsMean;}}catch{}}
       let news=[];try{const cn=S.get('news_'+t);if(cn)news=cn.items;else{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}}catch{}
       const ivrVal=computeIVR(t,snap.week52High,snap.week52Low,snap.price);const ivr=ivrInfo(ivrVal);
       let impliedMove=null;try{const oc=S.get('options_'+t);const res=oc?.data?.optionChain?.result?.[0];if(res&&snap.price){const opts=res.options?.[0];const atmP=(opts?.puts||[]).filter(p=>Math.abs(p.strike-snap.price)/snap.price<0.03);const atmC=(opts?.calls||[]).filter(c=>Math.abs(c.strike-snap.price)/snap.price<0.03);if(atmP.length&&atmC.length){const straddle=((atmP[0].bid+atmP[0].ask)/2)+((atmC[0].bid+atmC[0].ask)/2);impliedMove=(straddle/snap.price*100).toFixed(1);}}}catch{}

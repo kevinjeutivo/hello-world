@@ -284,6 +284,7 @@ function openSettings(){
   document.getElementById('tz-pref-input').value=tzPref;
   document.getElementById('offline-mode-input').checked=offlineMode;
   document.getElementById('debug-options-fetch-input').checked=S.get('debug_options_fetch')==='true';
+  document.getElementById('fetch-upgrades-input').checked=S.get('fetch_upgrades_enabled')==='true';
   document.getElementById('font-size-input').value=fontSize;
   loadWeightSliders();
   _populateCutoffSelect();
@@ -310,6 +311,7 @@ function saveSettings(){
   offlineMode=document.getElementById('offline-mode-input').checked;
   S.set('offline_mode',String(offlineMode));
   S.set('debug_options_fetch',String(document.getElementById('debug-options-fetch-input').checked));
+  S.set('fetch_upgrades_enabled',String(document.getElementById('fetch-upgrades-input').checked));
   updateOfflineModeBar();
   fontSize=document.getElementById('font-size-input').value||'19';
   S.set('font_size',fontSize);
@@ -361,7 +363,7 @@ function clearMarketDataCache(){
     'options_cutoff_et','rp_earnings_toggle','rp_span','bb_span',
     'vol_badge_state','conviction_weights','last_ticker',
     'income_accounts_meta','income_active_account','income_migration_v1',
-    'debug_options_fetch','prefetch_sleep_ms',
+    'debug_options_fetch','prefetch_sleep_ms','fetch_upgrades_enabled',
   ]);
   const toDelete=[];
   for(let i=0;i<localStorage.length;i++){
@@ -400,7 +402,7 @@ const EXPORT_KEYS_STATIC=[
   'vol_badge_state','last_ticker',
   'etf_research_tickers',
   'income_accounts_meta','income_active_account','income_migration_v1',
-  'debug_options_fetch','prefetch_sleep_ms',
+  'debug_options_fetch','prefetch_sleep_ms','fetch_upgrades_enabled',
 ];
 
 function _buildExportData(){

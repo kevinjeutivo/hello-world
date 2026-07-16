@@ -49,8 +49,9 @@ async function prefetchAll(){
     // by that block's own catch{}. Declaring it here fixes that.
     let earnings=null,_opts=null,_h2ok=false;
     try{
+      const _fetchUpgrades=S.get('fetch_upgrades_enabled')==='true';
       const _upgradesAge=(Date.now()-(S.get('upgrades_'+t)?.ts?new Date(S.get('upgrades_'+t).ts).getTime():0))/3600000;
-      const _needUpgrades=_upgradesAge>=24;
+      const _needUpgrades=_fetchUpgrades&&_upgradesAge>=24;
       // Yahoo batch (quote, quoteSummary, hist2y, main options chain, intraday) fires
       // concurrently with the Finnhub sequence below -- independent providers, no
       // dependency between them. Within the Finnhub side, earnings and upgrades now
@@ -103,9 +104,9 @@ async function prefetchAll(){
           postMarketChangePct:_ahQ.postMarketChangePct||null,
           earningsDate:_futE[0]?.date||null,earningsHour:_futE[0]?.hour||null,
           ts:nowPT(),tsEpoch:Date.now(),isLive:true};
-        if(_qs){if(_qs.beta!=null)_sn2.beta=_qs.beta;if(_qs.ptMean){_sn2.ptMean=_qs.ptMean;_sn2.ptHigh=_qs.ptHigh||null;_sn2.ptLow=_qs.ptLow||null;_sn2.ptAnalysts=_qs.ptAnalysts||null;}if(_qs.pegRatio!=null)_sn2.pegRatio=_qs.pegRatio;if(_qs.evToEbitda!=null)_sn2.evToEbitda=_qs.evToEbitda;if(_qs.shortPctFloat!=null){_sn2.shortPctFloat=_qs.shortPctFloat;_sn2.shortRatioYahoo=_qs.shortRatioYahoo;}if(_qs.earningsTrend&&_qs.earningsTrend.length)_sn2.earningsTrend=_qs.earningsTrend;if(_qs.recTrend&&_qs.recTrend.length)_sn2.recTrend=_qs.recTrend;if(_qs.revenueGrowthYahoo!=null)_sn2.revenueGrowthYahoo=_qs.revenueGrowthYahoo;if(_qs.operatingMarginsYahoo!=null)_sn2.operatingMarginsYahoo=_qs.operatingMarginsYahoo;if(_qs.freeCashflowYahoo!=null&&_qs.totalRevenueYahoo!=null&&_qs.totalRevenueYahoo!==0)_sn2.fcfMarginYahoo=_qs.freeCashflowYahoo/_qs.totalRevenueYahoo;}
+        if(_qs){if(_qs.beta!=null)_sn2.beta=_qs.beta;if(_qs.ptMean){_sn2.ptMean=_qs.ptMean;_sn2.ptHigh=_qs.ptHigh||null;_sn2.ptLow=_qs.ptLow||null;_sn2.ptAnalysts=_qs.ptAnalysts||null;}if(_qs.pegRatio!=null)_sn2.pegRatio=_qs.pegRatio;if(_qs.evToEbitda!=null)_sn2.evToEbitda=_qs.evToEbitda;if(_qs.shortPctFloat!=null){_sn2.shortPctFloat=_qs.shortPctFloat;_sn2.shortRatioYahoo=_qs.shortRatioYahoo;}if(_qs.earningsTrend&&_qs.earningsTrend.length)_sn2.earningsTrend=_qs.earningsTrend;if(_qs.recTrend&&_qs.recTrend.length)_sn2.recTrend=_qs.recTrend;if(_qs.earningsHistoryYahoo&&_qs.earningsHistoryYahoo.length)_sn2.earningsHistoryYahoo=_qs.earningsHistoryYahoo;if(_qs.revenueGrowthYahoo!=null)_sn2.revenueGrowthYahoo=_qs.revenueGrowthYahoo;if(_qs.operatingMarginsYahoo!=null)_sn2.operatingMarginsYahoo=_qs.operatingMarginsYahoo;if(_qs.freeCashflowYahoo!=null&&_qs.totalRevenueYahoo!=null&&_qs.totalRevenueYahoo!==0)_sn2.fcfMarginYahoo=_qs.freeCashflowYahoo/_qs.totalRevenueYahoo;}
         S.set('snap_'+t,_sn2);_health.tickers[t].snap=true;
-        if(upgrades2&&upgrades2.length)S.set('upgrades_'+t,{data:upgrades2.slice(0,6),ts:nowPT()});
+        if(_fetchUpgrades&&upgrades2!==null)S.set('upgrades_'+t,{data:upgrades2.slice(0,6),ts:nowPT()});
       }
       // Process intraday sparkline data
       if(_idRes && _idRes.closes && _idRes.closes.length >= 2){

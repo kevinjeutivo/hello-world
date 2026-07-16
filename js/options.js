@@ -255,6 +255,7 @@ function saveOptionsPrefs(){
 
 async function loadOptionsForTicker(){
   const t=document.getElementById('options-ticker-select').value;if(!t){clearOptionsState();return;}
+  _pruneExpiredOptionExpiries(t);
   // Repair: clear any synthetic per-expiry cache written outside the live window
   // so stale synthetic data doesn't display as real data
   if(!_isOptionsLiveWindow()){
@@ -351,6 +352,7 @@ async function loadOptionsForTicker(){
     }
     const monthly=monthlyPairs.map(p=>p.date);
     currentExpirations=monthly;selectedExpirations=[...monthly];
+    _pruneExpiredOptionExpiries(t);
     // Per-expiry chains only when we actually fetched the main chain live.
     // Cache-served navigations skip this block entirely -- no network calls.
     if(_fetchedLive){

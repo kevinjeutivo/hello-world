@@ -722,6 +722,11 @@ a{color:inherit}
       <input type="checkbox" id="debug-options-fetch-input" style="width:20px;height:20px;accent-color:var(--accent3)">
     </div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Diagnostic only -- leave off normally. Useful for troubleshooting stale options data.</div>
+    <div class="input-group" style="display:flex;align-items:center;justify-content:space-between">
+      <label class="input-label" style="margin-bottom:0">Fetch Analyst Upgrades/Downgrades (Recent Analyst Actions card)</label>
+      <input type="checkbox" id="fetch-upgrades-input" style="width:20px;height:20px;accent-color:var(--accent3)">
+    </div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Off by default. This Finnhub endpoint has been unreliable (intermittent 403s) and the resulting card is easy to miss. Enable to attempt the fetch again.</div>
     <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
     <button class="btn btn-secondary" onclick="document.getElementById('disclaimer-modal').style.display='block'">View Disclaimer &amp; Terms</button>
     <button class="btn btn-secondary" onclick="closeSettings()" style="margin-top:6px">Cancel</button>

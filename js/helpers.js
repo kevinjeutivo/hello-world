@@ -105,6 +105,24 @@ function relTime(ts){
 function fmtDate(d){return d.toISOString().split('T')[0];}
 
 function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
+// Remove options_exp_<ticker>_<date> keys where <date> has already passed --
+// an expired option chain has zero future value. Previously these only got
+// cleaned up when a ticker was removed from the watchlist entirely, so for
+// any ticker that stays on the watchlist, old per-expiry keys accumulated
+// forever as monthly expirations rolled forward. Safe regardless of whatever
+// "current" expiration set is in play: a held position can't have a past
+// expDate without already having been auto-evicted elsewhere in the app, so
+// this doesn't need to reconcile against any specific selection to be correct.
+function _pruneExpiredOptionExpiries(ticker){
+  try{
+    const prefix='options_exp_'+ticker+'_';
+    const today=fmtDate(new Date());
+    Object.keys(localStorage).filter(k=>k.startsWith(prefix)).forEach(k=>{
+      const date=k.slice(prefix.length);
+      if(date&&date<today)S.del(k);
+    });
+  }catch{}
+}
 
 function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 

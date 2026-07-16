@@ -38,7 +38,7 @@ async function prefetchAll(){
   // Initialize health record
   const _pfStartMs=Date.now();
   const _health={ts:nowPT(),tickers:{},global:{}};
-  const _pfSleepMs=parseInt(S.get('prefetch_sleep_ms'))||500;
+  const _pfSleepMs=parseInt(S.get('prefetch_sleep_ms'))||100;
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];if(barEl)barEl.style.width=Math.round((i/watchlist.length)*100)+'%';if(labelEl)labelEl.textContent=`Fetching ${t} (${i+1}/${watchlist.length})...`;
     _health.tickers[t]={snap:false,hist:false,options:false,finnhub:false};

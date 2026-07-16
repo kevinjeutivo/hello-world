@@ -73,14 +73,15 @@ async function yahooOptionsViaProxy(symbol,expiration){
 }
 
 async function fetchQuoteSummary(symbol){
-  // Single call fetching 4 quoteSummary modules:
+  // Single call fetching 5 quoteSummary modules:
   // financialData: price targets, margins, growth
   // defaultKeyStatistics: PEG, EV/EBITDA, short interest, beta
   // earningsTrend: EPS/revenue estimates by period + revision direction
   // recommendationTrend: buy/hold/sell counts by month (Yahoo free, vs Finnhub premium)
+  // earningsHistory: past actual-vs-estimate EPS + surprise (replaces Finnhub /stock/earnings)
   if(offlineMode)return null;
   try{
-    const modules='financialData,defaultKeyStatistics,earningsTrend,recommendationTrend';
+    const modules='financialData,defaultKeyStatistics,earningsTrend,recommendationTrend,earningsHistory';
     const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=summary&modules=${encodeURIComponent(modules)}`);
     if(!r.ok)return null;
     const d=await r.json();
@@ -90,6 +91,7 @@ async function fetchQuoteSummary(symbol){
     const ks=res.defaultKeyStatistics||{};
     const et=res.earningsTrend?.trend||[];
     const rt=res.recommendationTrend?.trend||[];
+    const eh=res.earningsHistory?.history||[];
     return{
       // Price targets (financialData)
       ptMean:fd.targetMeanPrice?.raw||null,
@@ -125,7 +127,21 @@ async function fetchQuoteSummary(symbol){
       recTrend:rt.slice(0,3).map(m=>({
         period:m.period,
         strongBuy:m.strongBuy,buy:m.buy,hold:m.hold,sell:m.sell,strongSell:m.strongSell
-      }))
+      })),
+      // Earnings history (past ~4 quarters, actual vs estimate). Surprise% is derived
+      // ourselves from actual/estimate rather than trusting Yahoo's own surprisePercent
+      // field, to match the exact calculation the app already used with Finnhub data.
+      earningsHistoryYahoo:eh.map(h=>{
+        const epsActual=h.epsActual?.raw??null;
+        const epsEstimate=h.epsEstimate?.raw??null;
+        const date=h.quarter?.fmt||(h.quarter?.raw?fmtDate(new Date(h.quarter.raw*1000)):null);
+        return{
+          date,
+          epsActual,
+          epsEstimate,
+          surprisePercent:(epsActual!=null&&epsEstimate)?((epsActual-epsEstimate)/Math.abs(epsEstimate)*100):null
+        };
+      }).filter(h=>h.date)
     };
   }catch{return null;}
 }

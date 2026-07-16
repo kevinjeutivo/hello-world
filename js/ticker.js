@@ -52,23 +52,16 @@ async function loadTicker(){
   document.getElementById('ticker-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading ${t}...</div></div>`;
   try{
     let snap,hist6mo,hist1y,news,recData,isLive=true;
-    // Only fetch /stock/earnings history if confirmed cache is sparse (<4 entries)
-    const _confCacheCount=(S.get('earnings_confirmed_'+t)||[]).length;
-    const _needEarningsHist=_confCacheCount<4;
+    const _fetchUpgrades=S.get('fetch_upgrades_enabled')==='true';
     // Finnhub retained only for earnings calendar (BMO/AMC timing most reliable here)
-    // and news/upgrades/recommendations. All price/fundamental fields now from Yahoo.
-    // The Finnhub sequence and Yahoo batch fire concurrently with each other, but
-    // earnings/earningsHist/upgrades now run one after another within the Finnhub
-    // side (not simultaneously) -- these endpoints share a much slower backend
-    // resource at Finnhub (confirmed via their public status page: ~5000ms latency
-    // vs 30-250ms for quote/candle endpoints), and firing them at the same instant
-    // is the likely cause of intermittent 403s, not overall request volume.
-    let earnings,earningsHist,upgrades,ah,qs,h2;
+    // and news/recommendations. Historical earnings (actual vs estimate) now comes
+    // from Yahoo's earningsHistory module via quoteSummary, and upgrades/downgrades
+    // is only fetched when explicitly enabled in Settings (default off).
+    let earnings,upgrades,ah,qs,h2;
     const _finnhubSeq=(async()=>{
       const _e=await fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`);
-      const _eh=_needEarningsHist?await fh(`/stock/earnings?symbol=${t}&limit=8`):null;
-      const _u=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`).catch(()=>null);
-      return[_e,_eh,_u];
+      const _u=_fetchUpgrades?await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`).catch(()=>null):null;
+      return[_e,_u];
     })();
     const _yahooBatch=Promise.all([
       fetchAfterHoursPrice(t),
@@ -76,7 +69,7 @@ async function loadTicker(){
       _tkTimeout(yahooHistory(t,'2y','1d'),15000,'hist2y').catch(()=>null)
     ]);
     try{
-      [[earnings,earningsHist,upgrades],[ah,qs,h2]]=await Promise.all([_finnhubSeq,_yahooBatch]);
+      [[earnings,upgrades],[ah,qs,h2]]=await Promise.all([_finnhubSeq,_yahooBatch]);
       // Build snap from Yahoo /quote (via fetchAfterHoursPrice which now returns full quote fields)
       if(!ah||!ah.price)throw new Error('Yahoo quote failed for '+t);
       const _price=ah.price;
@@ -105,8 +98,14 @@ async function loadTicker(){
         earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),
         ts:nowPT(),tsEpoch:Date.now(),isLive:true
       };
-      const upgradeData=upgrades&&upgrades.length?upgrades.slice(0,6):[];
-      S.set('snap_'+t,snap);S.set('upgrades_'+t,{data:upgradeData||[],ts:nowPT()});
+      S.set('snap_'+t,snap);
+      // Only touch the upgrades cache when the toggle is on AND the fetch genuinely
+      // resolved (upgrades!==null) -- a disabled toggle or a failed fetch both leave
+      // whatever was previously cached untouched, rather than overwriting it with an
+      // empty array and a fresh timestamp (which previously masked real failures).
+      if(_fetchUpgrades&&upgrades!==null){
+        S.set('upgrades_'+t,{data:upgrades&&upgrades.length?upgrades.slice(0,6):[],ts:nowPT()});
+      }
 
       // Enrich with Yahoo quoteSummary (beta, short interest, R40 inputs, price targets, trends)
       // -- qs was already fetched concurrently above, alongside the quote and hist2y calls
@@ -120,6 +119,7 @@ async function loadTicker(){
           if(qs.totalAssets!=null)snap.totalAssets=qs.totalAssets;
           if(qs.earningsTrend&&qs.earningsTrend.length)snap.earningsTrend=qs.earningsTrend;
           if(qs.recTrend&&qs.recTrend.length)snap.recTrend=qs.recTrend;
+          if(qs.earningsHistoryYahoo&&qs.earningsHistoryYahoo.length)snap.earningsHistoryYahoo=qs.earningsHistoryYahoo;
           if(qs.revenueGrowthYahoo!=null)snap.revenueGrowthYahoo=qs.revenueGrowthYahoo;
           if(qs.operatingMarginsYahoo!=null)snap.operatingMarginsYahoo=qs.operatingMarginsYahoo;
           if(qs.freeCashflowYahoo!=null&&qs.totalRevenueYahoo!=null&&qs.totalRevenueYahoo!==0)
@@ -169,7 +169,7 @@ async function loadTicker(){
       const _suppCut=new Date();_suppCut.setDate(_suppCut.getDate()-_EARN_EVICT_DAYS);
       let _suppChg=false;
       [...(earnings?.earningsCalendar||[]).filter(e=>e.date&&e.date<fmtDate(new Date())),
-       ...(earningsHist||[]).filter(e=>e.date&&new Date(e.date)<new Date())].forEach(e=>{
+       ...(snap.earningsHistoryYahoo||[]).filter(e=>e.date&&new Date(e.date)<new Date())].forEach(e=>{
         if(!e.date||new Date(e.date)<_suppCut)return;
         if(!_confSupp.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
           _confSupp.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_suppChg=true;
@@ -1727,16 +1727,15 @@ async function refreshSingleTicker(){
   try{
     // Step 1: Core ticker data
     setP(10,'Fetching '+t+' quote & metrics...');
-    const _rConfCount=(S.get('earnings_confirmed_'+t)||[]).length;
-    const _rNeedEarningsHist=_rConfCount<4;
-    // Finnhub: only earnings calendar + news/upgrades/recs. All price/fundamentals from Yahoo.
+    const _fetchUpgrades=S.get('fetch_upgrades_enabled')==='true';
+    // Finnhub: only earnings calendar + news/recommendations. Historical earnings
+    // and upgrades handled as noted below.
     let _rUpgradesErr=null;
-    const[earnings,earningsHist]=await Promise.all([
-      fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),
-      _rNeedEarningsHist?fh(`/stock/earnings?symbol=${t}&limit=8`):Promise.resolve(null)
-    ]);
+    const earnings=await fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`);
     let upgrades=null,priceTargetS=null;
-    try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch(e){_rUpgradesErr=e?.message||'failed';}
+    if(_fetchUpgrades){
+      try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch(e){_rUpgradesErr=e?.message||'failed';}
+    }
     // Build snap from Yahoo /quote
     setP(20,'Fetching '+t+' Yahoo quote...');
     const ah=await fetchAfterHoursPrice(t);
@@ -1771,8 +1770,7 @@ async function refreshSingleTicker(){
       const _rConf=S.get('earnings_confirmed_'+t)||[];
       const _rCut=new Date();_rCut.setDate(_rCut.getDate()-_EARN_EVICT_DAYS);
       let _rChg=false;
-      [...(earnings?.earningsCalendar||[]).filter(e=>e.date&&e.date<fmtDate(new Date())),
-       ...(earningsHist||[]).filter(e=>e.date&&new Date(e.date)<new Date())].forEach(e=>{
+      [...(earnings?.earningsCalendar||[]).filter(e=>e.date&&e.date<fmtDate(new Date()))].forEach(e=>{
         if(new Date(e.date)<_rCut)return;
         if(!_rConf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
           _rConf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_rChg=true;
@@ -1791,6 +1789,7 @@ async function refreshSingleTicker(){
         if(qs.totalAssets!=null)snap.totalAssets=qs.totalAssets;
         if(qs.earningsTrend&&qs.earningsTrend.length)snap.earningsTrend=qs.earningsTrend;
         if(qs.recTrend&&qs.recTrend.length)snap.recTrend=qs.recTrend;
+        if(qs.earningsHistoryYahoo&&qs.earningsHistoryYahoo.length)snap.earningsHistoryYahoo=qs.earningsHistoryYahoo;
         if(qs.revenueGrowthYahoo!=null)snap.revenueGrowthYahoo=qs.revenueGrowthYahoo;
         if(qs.operatingMarginsYahoo!=null)snap.operatingMarginsYahoo=qs.operatingMarginsYahoo;
         if(qs.freeCashflowYahoo!=null&&qs.totalRevenueYahoo!=null&&qs.totalRevenueYahoo!==0)
@@ -1798,7 +1797,9 @@ async function refreshSingleTicker(){
       }}catch{}
       if(priceTargetS&&priceTargetS.targetMean){snap.ptMean=priceTargetS.targetMean||null;snap.ptHigh=priceTargetS.targetHigh||null;snap.ptLow=priceTargetS.targetLow||null;}
     S.set('snap_'+t,snap);
-    S.set('upgrades_'+t,{data:upgrades&&upgrades.length?upgrades.slice(0,6):[],ts:nowPT()});
+    if(_fetchUpgrades&&upgrades!==null){
+      S.set('upgrades_'+t,{data:upgrades&&upgrades.length?upgrades.slice(0,6):[],ts:nowPT()});
+    }
     // Step 3: Price history
     setP(35,'Fetching '+t+' price history...');
     // Single 2Y fetch populates all three history cache keys; intraday in parallel

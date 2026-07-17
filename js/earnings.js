@@ -21,23 +21,16 @@ async function loadEarningsTab(){
       const ed=new Date(snap.earningsDate+'T12:00:00Z'); // noon UTC for safe arithmetic
       let epsEst=null,epsActualPrev=null,surprisePrev=null,beatStreak=0;
       try{
+        // NOTE: eh.date is Yahoo's fiscal PERIOD-END date (e.g. quarter close),
+        // not the earnings ANNOUNCEMENT date -- do not mine it into
+        // earnings_confirmed_ (that cache specifically needs report dates,
+        // which come from the Finnhub calendar endpoint instead). Only the
+        // EPS actual/estimate/surprise values are used here.
         const eh=(snap.earningsHistoryYahoo||[]).filter(e=>e.date).sort((a,b)=>b.date.localeCompare(a.date));
         const prev=eh.find(e=>e.epsActual!=null);
         if(prev){epsActualPrev=prev.epsActual;surprisePrev=prev.surprisePercent;}
         const actuals=eh.filter(e=>e.epsActual!=null&&e.epsEstimate!=null);
         for(const q of actuals){if(q.epsActual>q.epsEstimate)beatStreak++;else break;}
-        // Mine past earnings dates into confirmed cache
-        try{
-          const _eConf=S.get('earnings_confirmed_'+t)||[];
-          const _eCut=new Date();_eCut.setDate(_eCut.getDate()-730);
-          let _eChg=false;
-          eh.filter(e=>e.date&&new Date(e.date)<new Date()&&new Date(e.date)>=_eCut).forEach(e=>{
-            if(!_eConf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
-              _eConf.push({date:e.date,hour:null,addedTs:nowPT()});_eChg=true;
-            }
-          });
-          if(_eChg)S.set('earnings_confirmed_'+t,_eConf.filter(c=>new Date(c.date)>=_eCut));
-        }catch{}
       }catch{}
       // Upcoming EPS estimate: Yahoo earningsTrend (forward-looking, already fetched via quoteSummary)
       if(epsEst===null){try{const et=snap.earningsTrend;if(et&&et.length){const cur=et.find(p=>p.period==='0q')||et[0];if(cur?.epsMean!=null)epsEst=cur.epsMean;}}catch{}}

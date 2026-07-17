@@ -268,18 +268,40 @@ function promoteEarningsPending(ticker){
   }catch{return false;}
 }
 
-// One-time cleanup: a v251-v255 bug fed Yahoo's fiscal PERIOD-END dates (not
-// announcement dates) into earnings_confirmed_ for any ticker refreshed during
-// that window. Entries don't carry a source tag, so contaminated and genuine
-// entries can't be distinguished after the fact -- safest fix is a full purge
-// per ticker and letting it rebuild from the Finnhub calendar (genuine report
-// dates) on the next refresh. Gated so it only ever runs once.
+// Parse an addedTs string (format: "MM/DD/YYYY, HH:MM PT/UTC/local") into a
+// Date for comparison. Returns null if unparseable.
+function _parseAddedTs(ts){
+  if(!ts)return null;
+  const m=String(ts).match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if(!m)return null;
+  return new Date(Date.UTC(+m[3],+m[1]-1,+m[2]));
+}
+
+// One-time-in-spirit (but flagless) cleanup: a bug live from v251 through v256
+// fed Yahoo's fiscal PERIOD-END dates into earnings_confirmed_ instead of
+// announcement dates. Rather than guessing from what a date's value looks like
+// (a real earnings date could, rarely, land near a quarter boundary -- that's
+// not a safe signal to delete on), this filters by *when* each entry was
+// written: only entries added during the actual window the buggy code was
+// live (2026-07-14 through 2026-07-18, generously covering the session this
+// shipped in) are removed. Everything older -- including months or years of
+// genuine confirmed dates -- is structurally untouched, since its addedTs
+// can never fall in that window. Safe to call on every init: it's anchored
+// to a fixed historical range, so it naturally stops matching anything once
+// enough real time has passed, with no flag or export bookkeeping needed.
+// Can be deleted outright in a few months once this window is long past.
 function purgeContaminatedConfirmedEarnings(){
-  if(S.get('migration_conf_earnings_purge_v1'))return;
   try{
-    Object.keys(localStorage).filter(k=>k.startsWith('earnings_confirmed_')).forEach(k=>S.del(k));
+    const winStart=new Date(Date.UTC(2026,6,14)),winEnd=new Date(Date.UTC(2026,6,18));
+    Object.keys(localStorage).filter(k=>k.startsWith('earnings_confirmed_')).forEach(k=>{
+      const arr=S.get(k)||[];
+      const clean=arr.filter(e=>{
+        const added=_parseAddedTs(e.addedTs);
+        return !(added&&added>=winStart&&added<=winEnd);
+      });
+      if(clean.length!==arr.length)S.set(k,clean);
+    });
   }catch{}
-  S.set('migration_conf_earnings_purge_v1','1');
 }
 
 function computeHVRSeries(ticker){

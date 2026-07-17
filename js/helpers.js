@@ -268,6 +268,20 @@ function promoteEarningsPending(ticker){
   }catch{return false;}
 }
 
+// One-time cleanup: a v251-v255 bug fed Yahoo's fiscal PERIOD-END dates (not
+// announcement dates) into earnings_confirmed_ for any ticker refreshed during
+// that window. Entries don't carry a source tag, so contaminated and genuine
+// entries can't be distinguished after the fact -- safest fix is a full purge
+// per ticker and letting it rebuild from the Finnhub calendar (genuine report
+// dates) on the next refresh. Gated so it only ever runs once.
+function purgeContaminatedConfirmedEarnings(){
+  if(S.get('migration_conf_earnings_purge_v1'))return;
+  try{
+    Object.keys(localStorage).filter(k=>k.startsWith('earnings_confirmed_')).forEach(k=>S.del(k));
+  }catch{}
+  S.set('migration_conf_earnings_purge_v1','1');
+}
+
 function computeHVRSeries(ticker){
   try{
     const h2=S.get('hist2y_'+ticker);

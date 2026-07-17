@@ -164,12 +164,14 @@ async function loadTicker(){
       const _futE=(earnings?.earningsCalendar||[])
         .filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
       if(_futE[0]?.date)saveEarningsPending(t,_futE[0].date,_futE[0].hour||null);
-      // Supplement confirmed from past calendar/hist entries (opportunistic)
+      // Supplement confirmed from past calendar entries (opportunistic).
+      // NOTE: earningsHistoryYahoo intentionally excluded -- its date field is
+      // Yahoo's fiscal PERIOD-END date, not the announcement date, and mining
+      // it here previously fed wrong "confirmed" dates into this cache.
       const _confSupp=S.get('earnings_confirmed_'+t)||[];
       const _suppCut=new Date();_suppCut.setDate(_suppCut.getDate()-_EARN_EVICT_DAYS);
       let _suppChg=false;
-      [...(earnings?.earningsCalendar||[]).filter(e=>e.date&&e.date<fmtDate(new Date())),
-       ...(snap.earningsHistoryYahoo||[]).filter(e=>e.date&&new Date(e.date)<new Date())].forEach(e=>{
+      [...(earnings?.earningsCalendar||[]).filter(e=>e.date&&e.date<fmtDate(new Date()))].forEach(e=>{
         if(!e.date||new Date(e.date)<_suppCut)return;
         if(!_confSupp.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
           _confSupp.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_suppChg=true;

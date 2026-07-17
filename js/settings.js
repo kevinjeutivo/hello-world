@@ -364,7 +364,6 @@ function clearMarketDataCache(){
     'vol_badge_state','conviction_weights','last_ticker',
     'income_accounts_meta','income_active_account','income_migration_v1',
     'debug_options_fetch','prefetch_sleep_ms','fetch_upgrades_enabled',
-    'migration_conf_earnings_purge_v1',
   ]);
   const toDelete=[];
   for(let i=0;i<localStorage.length;i++){

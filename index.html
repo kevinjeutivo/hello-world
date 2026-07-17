@@ -1370,6 +1370,10 @@ let cachedOIRows=null;
 function init(){
   // Run income account migration before anything else touches income data
   try{ runIncomeMigration(); }catch(e){ console.error('Income migration error:',e); }
+  // One-time cleanup: purge earnings_confirmed_ entries potentially contaminated
+  // by a v251-v255 bug that mined Yahoo fiscal period-end dates as if they were
+  // announcement dates. Safe to call every init -- no-ops once the flag is set.
+  try{ purgeContaminatedConfirmedEarnings(); }catch(e){ console.error('Confirmed-earnings purge error:',e); }
   // One-time cleanup: remove orphaned flat income position keys left over from
   // pre-migration state. Safe to call every init -- S.del is a no-op if key absent.
   // Only runs when migration is already complete (flag set) and accounts exist.

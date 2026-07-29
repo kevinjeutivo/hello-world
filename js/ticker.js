@@ -841,7 +841,7 @@ function openEarningsOverrideModal(ticker,idx){
       // Algorithm estimate
       '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px">'+
         'Algorithm estimate: <span style="color:var(--text2)">'+entry.date+'</span>'+
-        (entry.source==='gap-confirmed'?' <span style="color:var(--warn)">(gap-confirmed)</span>':entry.source==='auto-confirmed'?' <span style="color:var(--accent)">(auto-confirmed)</span>':' (estimated)')+
+        (entry.source==='gap-estimated'?' <span style="color:var(--warn)">(gap-estimated)</span>':entry.source==='auto-confirmed'?' <span style="color:var(--accent)">(auto-confirmed)</span>':' (time-estimated)')+
       '</div>'+
       // Confirmed cache entry (if available)
       (_confDateStr?
@@ -1071,7 +1071,7 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
     const preStr=e.preDayRet!=null?fmtPct(e.preDayRet):'';
     const postStr=e.postDayRet!=null?fmtPct(e.postDayRet):'';
     const srcLabel=e.isOverride?'':
-      e.source==='gap-confirmed'?'':
+      e.source==='gap-estimated'?'':
       e.source==='auto-confirmed'?'<span style="color:var(--accent);font-size:8px"> auto</span>':
       '<span style="color:var(--text3);font-size:8px"> ~est</span>';
     const hourLabel=e.hour?' '+e.hour.toUpperCase():'';
@@ -1138,9 +1138,9 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
           const eff=_effectiveEarningsDate(e);
           const hasOvr=!!e.override;
           const srcLabel=hasOvr?'<span style="color:var(--accent);font-size:8px">overridden</span>':
-            e.source==='gap-confirmed'?'<span style="color:var(--warn);font-size:8px">gap-confirmed</span>':
+            e.source==='gap-estimated'?'<span style="color:var(--warn);font-size:8px">gap-estimated</span>':
             e.source==='auto-confirmed'?'<span style="color:var(--accent);font-size:8px">auto-confirmed</span>':
-            '<span style="color:var(--text3);font-size:8px">estimated</span>';
+            '<span style="color:var(--text3);font-size:8px">time-estimated</span>';
           const hourLabel=eff.hour==='bmo'?' BMO':eff.hour==='amc'?' AMC':'';
           const estRef=hasOvr?'<span style="color:var(--text3);font-size:8px;text-decoration:line-through">'+e.date+'</span> ':'';
           return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)">'+
@@ -1252,17 +1252,21 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span,cmpSerie
       c.strokeStyle='rgba(255,255,255,0.15)';
       c.beginPath();c.moveTo(xs.left,y100);c.lineTo(xs.right,y100);c.stroke();
       c.setLineDash([]);
-      // Earnings vertical lines: solid amber = gap-confirmed, dashed = estimated
+      // Earnings vertical lines: solid teal = manual override, solid amber =
+      // auto-confirmed (real Finnhub date), dashed amber = gap-estimated
+      // (heuristic -- a nearby price gap, not a verified date), dashed gray
+      // = time-estimated (pure calendar-cadence guess, least certain)
       if(earningsDateMap.size>0){
         commonDates.forEach((d,i)=>{
           if(!earningsDateMap.has(d))return;
           const ev=earningsDateMap.get(d);
           const xPx=xs.getPixelForValue(i);
           const isOverride=!!ev.isOverride;
-          const confirmed=ev.source==='gap-confirmed'||ev.source==='auto-confirmed'||(ev.gapPct!=null&&ev.gapPct>=3);
-          c.strokeStyle=isOverride?'rgba(0,212,170,0.85)':confirmed?'rgba(255,165,2,0.75)':'rgba(255,165,2,0.35)';
-          c.lineWidth=isOverride?2:confirmed?1.5:1;
-          c.setLineDash(isOverride?[]:(confirmed?[]:[3,3]));
+          const isAutoConfirmed=ev.source==='auto-confirmed';
+          const isGapEstimated=ev.source==='gap-estimated';
+          c.strokeStyle=isOverride?'rgba(0,212,170,0.85)':(isAutoConfirmed||isGapEstimated)?'rgba(255,165,2,0.75)':'rgba(139,143,168,0.5)';
+          c.lineWidth=isOverride?2:isAutoConfirmed?1.5:1;
+          c.setLineDash(isOverride||isAutoConfirmed?[]:[4,3]);
           c.beginPath();c.moveTo(xPx,ys.top);c.lineTo(xPx,ys.bottom);c.stroke();
           c.setLineDash([]);
         });

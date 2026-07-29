@@ -133,6 +133,134 @@ function _isMarketActiveWindow(){
   }catch{return true;} // default to live-fetch behavior on error
 }
 
+// Builds earnings_hist_<ticker> -- the data that drives the ticker page's
+// earnings-event chart markers ("gap-confirmed"/"auto-confirmed"/"estimated").
+// Two independent parts:
+//
+// Part 1: backward-steps from the next known confirmed earnings date in
+// ~91-day increments to estimate each of the last 8 quarters, refining each
+// estimate via the largest nearby price gap, and upgrading to the confirmed
+// cache's real date wherever one matches. Requires both hist2y and a known
+// next-earnings anchor, since it needs somewhere to start counting back from.
+//
+// Part 2: backfills any earnings_confirmed_ entry from roughly the last 100
+// days that isn't already represented by Part 1's results, regardless of
+// whether Part 1 ran at all. This exists because Part 1's anchor requirement
+// meant a just-happened, already-confirmed earnings event couldn't appear
+// until Finnhub had posted the *next* quarter's date -- sometimes days or
+// weeks later -- even though the just-happened event's real date was already
+// sitting correctly in earnings_confirmed_ the whole time.
+//
+// Called identically from ticker.js (per-ticker view/refresh) and
+// prefetch.js (watchlist loop) -- previously these carried two independent,
+// near-duplicate copies of Part 1's logic, and prefetch.js's copy was
+// missing the confirmed-cache checks entirely, meaning frequent Prefetch All
+// runs could silently overwrite a correctly-resolved entry with a weaker one.
+function _buildEarningsHistory(ticker){
+  const t=ticker;
+  try{
+    const h2raw=S.get('hist2y_'+t);
+    const snap=S.get('snap_'+t);
+    const nextEarnings=snap?.earningsDate||null;
+    const today=fmtDate(new Date());
+    const confirmed=S.get('earnings_confirmed_'+t)||[];
+    let results=[];
+
+    // ── Part 1: backward-stepping + gap refinement ──────────────────────────
+    if(h2raw?.closes?.length>=60&&nextEarnings){
+      const closes=h2raw.closes;
+      const timestamps=h2raw.timestamps;
+      const closeDates=timestamps.map(ts=>new Date(ts*1000).toISOString().split('T')[0]);
+
+      // Build gap map: date -> {gapPct, direction}
+      const gapMap={};
+      for(let gi=1;gi<closes.length;gi++){
+        const prev=closes[gi-1],curr=closes[gi];
+        if(!prev||!curr)continue;
+        const gapPct=Math.abs((curr-prev)/prev*100);
+        if(gapPct>=2){
+          const d=closeDates[gi];
+          if(!gapMap[d]||gapPct>gapMap[d].gapPct)
+            gapMap[d]={gapPct,direction:curr>prev?'up':'down',idx:gi};
+        }
+      }
+
+      let anchor=new Date(nextEarnings+'T12:00:00Z');
+      for(let q=0;q<8;q++){
+        anchor=new Date(anchor.getTime()-91*86400000);
+        const est=anchor.toISOString().split('T')[0];
+        if(est>=today)continue; // skip if still in future
+
+        const estIdx=closeDates.reduce((best,d,i)=>
+          Math.abs(new Date(d)-new Date(est))<Math.abs(new Date(closeDates[best])-new Date(est))?i:best,0);
+
+        const winStart=Math.max(1,estIdx-10);
+        const winEnd=Math.min(closeDates.length-1,estIdx+10);
+        let bestGap=null;
+        for(let wi=winStart;wi<=winEnd;wi++){
+          const wd=closeDates[wi];
+          if(gapMap[wd]&&(!bestGap||gapMap[wd].gapPct>bestGap.gapPct)){
+            bestGap={date:wd,...gapMap[wd]};
+          }
+        }
+
+        // Priority 1: check confirmed cache for a real date within ±25 days of estimate
+        const _confCacheSlot=confirmed.find(c=>Math.abs(new Date(c.date)-new Date(est))<26*86400000);
+
+        if(_confCacheSlot){
+          results.push({date:_confCacheSlot.date,hour:_confCacheSlot.hour||null,gapPct:null,direction:null,source:'auto-confirmed'});
+        }else if(bestGap&&bestGap.gapPct>=3){
+          results.push({date:bestGap.date,hour:null,gapPct:bestGap.gapPct,direction:bestGap.direction,source:'gap-confirmed'});
+        }else{
+          const fallbackDate=closeDates[estIdx];
+          if(fallbackDate&&fallbackDate<today){
+            results.push({date:fallbackDate,hour:null,gapPct:null,direction:null,source:'estimated'});
+          }
+        }
+      }
+
+      // Apply confirmed cache corrections to backward-stepped estimates
+      // (priority 2 -- above gap estimate, below manual override)
+      results.forEach(entry=>{
+        if(entry.override)return; // manual override takes absolute precedence
+        const _cmatch=confirmed.find(c=>Math.abs(new Date(c.date)-new Date(entry.date))<26*86400000);
+        if(_cmatch){
+          entry.date=_cmatch.date;
+          entry.hour=_cmatch.hour||null;
+          entry.source='auto-confirmed';
+        }
+      });
+    }
+
+    // ── Part 2: direct backfill from confirmed cache (no anchor required) ───
+    const backfillCutoff=new Date();backfillCutoff.setDate(backfillCutoff.getDate()-100);
+    confirmed.forEach(c=>{
+      if(!c.date||!(c.date<today))return; // only already-passed dates
+      const cDate=new Date(c.date);
+      if(cDate<backfillCutoff)return;
+      const already=results.find(r=>Math.abs(new Date(r.date)-cDate)<26*86400000);
+      if(!already){
+        results.push({date:c.date,hour:c.hour||null,gapPct:null,direction:null,source:'auto-confirmed'});
+      }
+    });
+
+    const sorted=results
+      .filter((r,i,a)=>a.findIndex(x=>x.date===r.date)===i) // dedupe
+      .sort((a,b)=>a.date.localeCompare(b.date));
+
+    if(sorted.length){
+      // Preserve any existing manual overrides before overwriting
+      const _existing=S.get('earnings_hist_'+t);
+      const _existingData=_existing?.data||[];
+      sorted.forEach(entry=>{
+        const match=_existingData.find(old=>old.override&&Math.abs(new Date(old.override.date)-new Date(entry.date))<26*86400000);
+        if(match?.override)entry.override=match.override;
+      });
+      S.set('earnings_hist_'+t,{data:sorted,ts:nowPT()});
+    }
+  }catch{}
+}
+
 // Remove options_exp_<ticker>_<date> keys where <date> has already passed --
 // an expired option chain has zero future value. Previously these only got
 // cleaned up when a ticker was removed from the watchlist entirely, so for

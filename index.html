@@ -268,6 +268,11 @@ a{color:inherit}
       <button class="btn btn-secondary" id="hm-change" onclick="setHeatmap('change')" style="font-size:10px;padding:3px 8px;opacity:0.4">Daily %</button>
       <button class="btn btn-secondary" id="hm-ivr" onclick="setHeatmap('ivr')" style="font-size:10px;padding:3px 8px;opacity:0.4">IVR</button>
     </div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Positions Only:</span>
+      <button class="btn btn-secondary" id="wl-posfilter-off" onclick="setPositionsFilter(false)" style="font-size:10px;padding:3px 8px">Off</button>
+      <button class="btn btn-secondary" id="wl-posfilter-on" onclick="setPositionsFilter(true)" style="font-size:10px;padding:3px 8px;opacity:0.4">On</button>
+    </div>
     <button class="btn btn-secondary" id="prefetch-btn" onclick="prefetchAll()">Prefetch All Ticker Data</button>
     <div id="refresh-health-badge" onclick="openRefreshHealthModal()" style="display:none;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid;cursor:pointer;margin-top:4px;color:var(--text2)"></div>
     <div id="prefetch-progress" style="display:none">

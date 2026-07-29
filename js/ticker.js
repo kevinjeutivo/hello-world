@@ -524,6 +524,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
   if(isLive){_lastLiveRenderTicker=snap.ticker;_lastLiveRenderTime=Date.now();}
   const el=document.getElementById('ticker-content');
   const chgColor=snap.change>=0?'var(--green)':'var(--red)';const chgSign=snap.change>=0?'+':'';
+  const _tickerHasPositions=_getIncomePositionsForTicker(snap.ticker).length>0;
   let rsiStr='N/A',bbStr='',bbData=null;
   if(hist&&hist.closes&&hist.closes.length>20){
     const closes=hist.closes.filter(c=>c!==null);const rsi=computeRSI(closes);
@@ -614,6 +615,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
     ${tsChip(snap.ts,isLive)}
     <div style="font-family:var(--mono);font-size:28px;font-weight:500;margin-bottom:4px">$${snap.price?.toFixed(2)||'N/A'}</div>
     <div style="font-family:var(--mono);font-size:13px;color:${chgColor};margin-bottom:6px">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>
+    ${_tickerHasPositions?`<div onclick="_openPositionsModal('${snap.ticker}')" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:8px"><span style="font-size:13px">&#x1F4CB;</span>View Positions</div>`:''}
     ${(()=>{const _ms=getMarketState().state;const _isPre=_ms==='premarket';const _isOpen=_ms==='open';if(_isOpen||_isPre)return''; // suppress during open session and premarket
 if(!snap.postMarketPrice||snap.postMarketPrice===snap.price)return'';
 const _label=snap.marketState==='PRE'?'Pre-market':'After-hours';

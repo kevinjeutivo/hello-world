@@ -105,6 +105,34 @@ function relTime(ts){
 function fmtDate(d){return d.toISOString().split('T')[0];}
 
 function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
+// Returns true if we're within market hours through 1 hour after close
+// (9:30am ET open through 5:00pm ET, since market closes 4:00pm ET).
+// Used to decide cache-freshness TTLs: a short TTL during this window since
+// prices are actively moving, unlimited (always serve cache) outside it --
+// after-hours/weekend data doesn't change, and the 1hr buffer past close
+// gives Yahoo's official close print time to settle. Shared by ticker.js
+// (per-ticker snap freshness) and market.js (market tab price/yield/futures
+// freshness) -- news freshness is intentionally NOT gated by this, since news
+// can break at any hour regardless of whether the market itself is open.
+function _isMarketActiveWindow(){
+  try{
+    const now=new Date();
+    const etFmt=new Intl.DateTimeFormat('en-US',{
+      timeZone:'America/New_York',
+      weekday:'short',hour:'numeric',minute:'numeric',hour12:false
+    });
+    const parts=etFmt.formatToParts(now);
+    const etWeekday=parts.find(p=>p.type==='weekday').value; // 'Mon'..'Sun'
+    if(etWeekday==='Sat'||etWeekday==='Sun')return false; // weekends always outside active window
+    const etHour=parseInt(parts.find(p=>p.type==='hour').value);
+    const etMin=parseInt(parts.find(p=>p.type==='minute').value);
+    const etMins=etHour*60+etMin;
+    const openMins=9*60+30;  // 9:30am ET
+    const closeBufferMins=17*60; // 5:00pm ET (4:00pm close + 1hr buffer)
+    return etMins>=openMins&&etMins<closeBufferMins;
+  }catch{return true;} // default to live-fetch behavior on error
+}
+
 // Remove options_exp_<ticker>_<date> keys where <date> has already passed --
 // an expired option chain has zero future value. Previously these only got
 // cleaned up when a ticker was removed from the watchlist entirely, so for

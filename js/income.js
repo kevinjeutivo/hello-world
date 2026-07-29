@@ -1035,6 +1035,16 @@ function openIncomeOverview(){
     const putNotional = activePuts.reduce((s,p) => s + _posNotional(p), 0);
     const ccNotional  = activeCCs.reduce((s,p)  => s + _ccPosNotional(p), 0);
 
+    // Remaining cash available for new cash-secured puts: FDLXX + SPAXX
+    // (SPAXX amount is assumed to include any FDRXX balance folded in
+    // manually) minus currently-deployed put notional. T-bills excluded --
+    // not instantly available the way a money-market sweep fund is. CC
+    // notional excluded -- covered calls are backed by shares, not cash.
+    const _inp = S.get(_acctKeyFor(a.id, 'inputs')) || {};
+    const _cashAvail = (_inp.fdlxxAmt||0) + (_inp.spaxxAmt||0);
+    const _cashRemaining = _cashAvail - putNotional;
+    const _cashColor = _cashRemaining >= 0 ? 'var(--text2)' : 'var(--red)';
+
     // Urgency: find worst status across all active positions
     const allActive = [...activePuts, ...activeCCs];
     let urgency = 'none';
@@ -1080,6 +1090,7 @@ function openIncomeOverview(){
       `<div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.8">` +
         `<div>Puts: ${activePuts.length} position${activePuts.length!==1?'s':''} · ${_fmtDollar(putNotional)} notional${expiringPutFlag}${itmPutFlag}</div>` +
         `<div>CCs: ${activeCCs.length} position${activeCCs.length!==1?'s':''} · ${_fmtDollar(ccNotional)} notional${expiringCCFlag}${itmCCFlag}</div>` +
+        `<div style="color:${_cashColor}">Cash for new CSPs: ${_fmtDollar(_cashRemaining)} remaining</div>` +
       `</div>` +
     `</div>`;
   }).join('');

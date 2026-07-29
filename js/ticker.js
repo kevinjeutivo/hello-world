@@ -1709,6 +1709,15 @@ async function refreshSingleTicker(){
         S.set('intraday_'+t,{closes:_idRes.closes,timestamps:_idTs,ts:_rn});
       }
     }catch(e){console.warn('refreshSingle hist2y failed:',t,e?.message);}
+    // Historical earnings dates for the chart markers. Called directly here
+    // rather than relying on the loadTicker() call at the end of this function
+    // to reach it -- loadTicker() checks its own cache-freshness gate first,
+    // and since the snap above was just written, it looks fresh and
+    // loadTicker() takes the restore-from-cache shortcut, never reaching its
+    // own copy of this logic. Calling it directly here (matching how
+    // prefetch.js does it independently) guarantees it always runs on an
+    // individual ticker refresh, not just during Prefetch All.
+    _buildEarningsHistory(t);
     // Step 4: News
     setP(50,'Fetching '+t+' news...');
     try{const newsData=await fetchNews(t);S.set('news_'+t,{items:(newsData||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}

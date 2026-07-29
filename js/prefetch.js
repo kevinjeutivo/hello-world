@@ -161,46 +161,9 @@ async function prefetchAll(){
     }catch{}
     // Compute and persist IVR now that hist2y and options are cached
     try{const _iSnap=S.get('snap_'+t);if(_iSnap){const _iv=computeIVR(t,_iSnap.week52High,_iSnap.week52Low,_iSnap.price);if(_iv!=null){_iSnap.ivrVal=_iv;S.set('snap_'+t,_iSnap);}}}catch{}
-    // Historical earnings: extrapolate backwards from confirmed next date + gap refinement
-    try{
-      const _h2r=S.get('hist2y_'+t);const _sn=S.get('snap_'+t);
-      const _nextE=_sn?.earningsDate;
-      if(_h2r?.closes?.length>=60&&_nextE){
-        const _cl=_h2r.closes,_ts=_h2r.timestamps;
-        const _cd=_ts.map(ts=>new Date(ts*1000).toISOString().split('T')[0]);
-        const _today=fmtDate(new Date());
-        // Build gap map
-        const _gm={};
-        for(let _gi=1;_gi<_cl.length;_gi++){
-          const _p=_cl[_gi-1],_c=_cl[_gi];if(!_p||!_c)continue;
-          const _gp=Math.abs((_c-_p)/_p*100);
-          if(_gp>=2){const _d=_cd[_gi];if(!_gm[_d]||_gp>_gm[_d].gapPct)_gm[_d]={gapPct:_gp,direction:_c>_p?'up':'down'};}
-        }
-        // Step back 8 quarters from confirmed next earnings
-        const _res=[];let _anch=new Date(_nextE+'T12:00:00Z');
-        for(let _q=0;_q<8;_q++){
-          _anch=new Date(_anch.getTime()-91*86400000);
-          const _est=_anch.toISOString().split('T')[0];if(_est>=_today)continue;
-          const _ei=_cd.reduce((b,d,i)=>Math.abs(new Date(d)-new Date(_est))<Math.abs(new Date(_cd[b])-new Date(_est))?i:b,0);
-          const _ws=Math.max(1,_ei-10),_we=Math.min(_cd.length-1,_ei+10);
-          let _bg=null;
-          for(let _wi=_ws;_wi<=_we;_wi++){const _wd=_cd[_wi];if(_gm[_wd]&&(!_bg||_gm[_wd].gapPct>_bg.gapPct))_bg={date:_wd,..._gm[_wd]};}
-          if(_bg&&_bg.gapPct>=3){_res.push({date:_bg.date,hour:null,gapPct:_bg.gapPct,direction:_bg.direction,source:'gap-confirmed'});}
-          else{const _fd=_cd[_ei];if(_fd&&_fd<_today)_res.push({date:_fd,hour:null,gapPct:null,direction:null,source:'estimated'});}
-        }
-        const _sorted=_res.filter((r,i,a)=>a.findIndex(x=>x.date===r.date)===i).sort((a,b)=>a.date.localeCompare(b.date));
-        if(_sorted.length){
-          // Preserve manual overrides from prior cache
-          const _prev=S.get('earnings_hist_'+t);
-          const _prevData=_prev?.data||[];
-          _sorted.forEach(entry=>{
-            const match=_prevData.find(old=>old.override&&Math.abs(new Date(old.override.date)-new Date(entry.date))<26*86400000);
-            if(match?.override)entry.override=match.override;
-          });
-          S.set('earnings_hist_'+t,{data:_sorted,ts:nowPT()});
-        }
-      }
-    }catch{}
+    // Historical earnings dates for the chart markers -- see _buildEarningsHistory
+    // in helpers.js for the full algorithm (shared with ticker.js).
+    _buildEarningsHistory(t);
     // Per-expiry options fetch (parallel -- skip only if main options fetch failed)
     const _savedOpts=S.get('options_'+t);
     if(_savedOpts&&_opts){

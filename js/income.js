@@ -1247,6 +1247,142 @@ function _activePosNotionalTotal(){
 // Put: ITM when price < strike, intrinsic = max(strike - price, 0)
 // Call: ITM when price > strike, intrinsic = max(price - strike, 0)
 
+// ── Roll candidates (cache-only -- never fetches) ─────────────────────────────
+
+// Looks up a specific strike's bid at a specific cached expiry. Used for the
+// credit side of a roll candidate (selling a new leg). Mirrors the same
+// cache-format handling (new flat vs legacy) already used in _getPosPricing.
+function _getCachedContractBid(ticker, expDate, strike, isCall){
+  try{
+    const cache = S.get('options_exp_' + ticker + '_' + expDate);
+    if(!cache) return null;
+    let contracts;
+    if(isCall){
+      contracts = cache.calls ? cache.calls.map(c=>({strike:c.s,bid:c.b})) : (cache?.optionChain?.result?.[0]?.options?.[0]?.calls || []);
+    }else{
+      contracts = cache.puts ? cache.puts.map(c=>({strike:c.s,bid:c.b})) : (cache?.optionChain?.result?.[0]?.options?.[0]?.puts || []);
+    }
+    const match = contracts.find(c => Math.abs((c.strike||c.s||0) - strike) < 0.005);
+    if(!match) return null;
+    const bid = match.bid||match.b||0;
+    return bid > 0 ? bid : null;
+  }catch{ return null; }
+}
+
+// Builds the roll-candidate grid for a position: cached expiries strictly
+// after the position's own expiry (rolling only ever goes out in time, never
+// same-expiry), and candidate strikes in the safe direction (down for puts,
+// up for calls) from current price out to the farthest cached OTM strike.
+// Cache-only by design -- never issues a new fetch. Returns null if there's
+// nothing to show (no cached qualifying expiry, no current price, or cost to
+// close can't be determined), so the caller can skip rendering entirely.
+function _buildRollCandidates(pos, isCall){
+  const ticker = pos.ticker;
+  const snap = S.get('snap_' + ticker);
+  const currentPrice = snap?.price;
+  if(currentPrice == null) return null;
+
+  const pricing = _getPosPricing(pos, isCall);
+  const costToClose = pricing.timeValue != null ? pricing.timeValue + (pricing.intrinsic||0) : null;
+  // costToClose here is the full premium (ask-based) to buy back the current
+  // leg -- intrinsic + time value -- matching what _getPosPricing already
+  // derives ask-side; falls back to null (skip) if no cached quote exists.
+  if(costToClose == null) return null;
+
+  const capitalBasis = isCall
+    ? (pos.stockPriceAtWrite||0) * 100 * pos.contracts
+    : pos.strike * 100 * pos.contracts;
+  if(!capitalBasis) return null;
+
+  const prefix = 'options_exp_' + ticker + '_';
+  const candidateExpiries = Object.keys(localStorage)
+    .filter(k => k.startsWith(prefix))
+    .map(k => k.slice(prefix.length))
+    .filter(d => d > pos.expDate)
+    .sort()
+    .slice(0, 3); // at most 3 candidate expiries, matching the app's "3 nearest monthly" cache window
+
+  if(!candidateExpiries.length) return null;
+
+  // Union of candidate strikes across all candidate expiries, in the safe
+  // direction from current price, capped to the 8 nearest to current price
+  // to keep the table a reasonable size.
+  const strikeSet = new Set();
+  candidateExpiries.forEach(exp => {
+    const strikes = isCall ? _getCallStrikesForExpiration(ticker, exp) : _getStrikesForExpiration(ticker, exp);
+    strikes.forEach(s => {
+      if(isCall ? s >= currentPrice : s <= currentPrice) strikeSet.add(s);
+    });
+  });
+  if(!strikeSet.size) return null;
+
+  const strikes = [...strikeSet]
+    .sort((a,b) => Math.abs(a-currentPrice) - Math.abs(b-currentPrice))
+    .slice(0, 8)
+    .sort((a,b) => isCall ? a-b : b-a); // display order: closest to current price first
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const cells = {}; // cells[strike][expiry] = {netCredit, annualizedPct} or null
+  strikes.forEach(s => {
+    cells[s] = {};
+    candidateExpiries.forEach(exp => {
+      const bid = _getCachedContractBid(ticker, exp, s, isCall);
+      if(bid == null){ cells[s][exp] = null; return; }
+      const newCredit = bid * 100 * pos.contracts;
+      const netCredit = newCredit - costToClose;
+      const daysToExp = Math.max(1, Math.round((new Date(exp+'T12:00:00Z') - today) / 86400000));
+      const annualizedPct = (netCredit / capitalBasis) * (365/daysToExp) * 100;
+      cells[s][exp] = {netCredit, annualizedPct};
+    });
+  });
+
+  return {strikes, expiries: candidateExpiries, cells};
+}
+
+function _rollCandidatesSectionHtml(pos, isCall, kind){
+  const rc = _buildRollCandidates(pos, isCall);
+  if(!rc) return '';
+  const uid = kind + '-' + pos.id;
+  const targetAPY = _getTargetAPY();
+
+  const header = '<tr><td style="color:var(--text3);font-size:9px;padding:3px 4px 5px;border-bottom:1px solid var(--border)">STRIKE</td>' +
+    rc.expiries.map(exp => '<td style="color:var(--text3);font-size:9px;padding:3px 4px 5px;border-bottom:1px solid var(--border);text-align:right">' +
+      new Date(exp+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric'}) + '</td>').join('') + '</tr>';
+
+  const rows = rc.strikes.map(s => {
+    const strikeLabel = '$' + (s%1===0?s.toFixed(0):s.toFixed(2));
+    const cellsHtml = rc.expiries.map(exp => {
+      const c = rc.cells[s][exp];
+      if(!c) return '<td style="text-align:right;padding:5px 4px;border-bottom:1px solid var(--surface3)"><span style="color:var(--text3);font-size:10px">--</span></td>';
+      const meetsTarget = c.annualizedPct >= targetAPY;
+      const color = meetsTarget ? 'var(--green)' : 'var(--text2)';
+      return '<td style="text-align:right;padding:5px 4px;border-bottom:1px solid var(--surface3)">' +
+        '<div style="color:var(--text3);font-size:9px">net '+_fmtDollar(c.netCredit)+'</div>' +
+        '<div style="color:'+color+';font-size:11px;'+(meetsTarget?'font-weight:600':'')+'">'+c.annualizedPct.toFixed(1)+'%</div>' +
+      '</td>';
+    }).join('');
+    return '<tr><td style="color:var(--text2);font-size:11px;padding:5px 4px;border-bottom:1px solid var(--surface3)">'+strikeLabel+'</td>'+cellsHtml+'</tr>';
+  }).join('');
+
+  return '<div class="gs-header" onclick="toggleRollCandidates(\''+uid+'\')" style="margin-top:6px">' +
+      '<div style="font-family:var(--mono);font-size:10px;color:var(--accent3)">Roll candidates</div>' +
+      '<span class="gs-chevron" id="roll-chev-'+uid+'">&#9658;</span>' +
+    '</div>' +
+    '<div class="gs-body" id="roll-body-'+uid+'">' +
+      '<table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:2px">'+header+rows+'</table>' +
+      '<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:6px;line-height:1.5">Green = meets or beats target APY ('+_fmtPct(targetAPY)+') &middot; net = new credit minus cost to close &middot; strikes and expiries limited to what\'s already cached</div>' +
+    '</div>';
+}
+
+function toggleRollCandidates(uid){
+  const body=document.getElementById('roll-body-'+uid);
+  const chev=document.getElementById('roll-chev-'+uid);
+  if(!body)return;
+  const isOpen=body.classList.contains('open');
+  body.classList.toggle('open',!isOpen);
+  chev.classList.toggle('open',!isOpen);
+}
+
 function _getPosPricing(pos, isCall){
   const snap = S.get('snap_' + pos.ticker);
   const currentPrice = snap?.price ?? null;
@@ -1589,7 +1725,8 @@ function _renderPositionList(){
         '</div>'
       : '';
 
-    return '<div style="background:'+ss.bg+';border:1px solid '+ss.border+';border-radius:8px;padding:10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;'+(expired?'opacity:0.5':'')+'">' +
+    return '<div style="background:'+ss.bg+';border:1px solid '+ss.border+';border-radius:8px;padding:10px;margin-bottom:6px;'+(expired?'opacity:0.5':'')+'">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center">' +
       '<div>' +
         '<div style="font-family:var(--mono);font-size:13px;font-weight:700;color:'+(expired?'var(--text3)':'var(--accent)')+'">'+
           pos.ticker+' $'+(pos.strike%1===0?pos.strike.toFixed(0):pos.strike.toFixed(2))+
@@ -1606,6 +1743,8 @@ function _renderPositionList(){
       '</div>'+
       '<button style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:4px 8px" '+
         'onclick="_openRemovePosModal(\''+pos.id+'\')">&times;</button>'+
+      '</div>'+
+      (expired?'':_rollCandidatesSectionHtml(pos,false,'put'))+
     '</div>';
   }).join('');
 
@@ -2018,6 +2157,7 @@ function _renderCCPositionList(){
         '<button style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:4px 8px" '+
           'onclick="_openRemoveCCModal(\''+pos.id+'\')">&times;</button>'+
       '</div>'+
+      (expired?'':_rollCandidatesSectionHtml(pos,true,'cc'))+
     '</div>';
   }).join('');
 

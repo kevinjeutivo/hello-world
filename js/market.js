@@ -2,7 +2,7 @@
 function _mktTimeout(p,ms,label){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error('Timeout: '+label)),ms))]);}
 
 async function loadMarketTab(){
-  if(offlineMode){restoreMarketFromCache();return;}
+  if(offlineMode){await restoreMarketFromCache();return;}
   const el=document.getElementById('market-content');
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading market data...</div></div>';
   try{
@@ -109,7 +109,7 @@ async function loadMarketTab(){
     // 1Y T-bill chart data
     // tbill3m and tbill6m arrays contain ~52 weekly auctions each
 
-    let marketNews=[];try{const news=await _mktTimeout(fh('/news?category=general'),10000,'market news');marketNews=news.slice(0,10);S.set('market_news',{items:(marketNews||[]).slice(0,15).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime})),ts:nowPT()});}catch{const cn=S.get('market_news');if(cn)marketNews=cn.items||[];}
+    let marketNews=await _fetchMarketNews();
 
     const spLabels=sp500?.timestamps?.slice(-63).map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});})||[];
     const spData=sp500?.closes?.slice(-63)||[];
@@ -229,42 +229,74 @@ function _mktCacheAgeMins(tsStr){
   }catch{return Infinity;}
 }
 
-// How fresh market data must be (in minutes) before we skip a live fetch.
-// 30 minutes matches the staleness threshold used elsewhere in the app.
-const MARKET_CACHE_FRESH_MINS=30;
+// Fetches general market news and updates the cache. Used both by the full
+// loadMarketTab() cycle and by restoreMarketFromCache()'s independent news
+// freshness check. Returns the cached items on failure.
+async function _fetchMarketNews(){
+  try{
+    const news=await _mktTimeout(fh('/news?category=general'),10000,'market news');
+    const marketNews=(news||[]).slice(0,10);
+    S.set('market_news',{items:marketNews.slice(0,15).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime})),ts:nowPT()});
+    return marketNews;
+  }catch{
+    const cn=S.get('market_news');
+    return cn?.items||[];
+  }
+}
 
-function restoreMarketFromCache(){
+// How fresh general market news must be (in minutes) before we skip a live
+// fetch. Deliberately NOT tied to _isMarketActiveWindow() -- unlike prices,
+// yields, and futures (which are frozen while the market is closed), news
+// can break at any hour: after-hours earnings calls, weekend M&A, Fed
+// statements, geopolitical events. This TTL applies at all times, day or
+// night, weekday or weekend.
+const MARKET_NEWS_FRESH_MINS=20;
+
+async function restoreMarketFromCache(){
   // Check whether we have recent market data in localStorage.
-  // If the cache is fresh (< MARKET_CACHE_FRESH_MINS old) AND the panel
-  // already has content, there is nothing to do -- showTab() only calls us
-  // when the panel is empty, so a fresh-but-empty case still needs a render.
+  // Two independent freshness checks, not one combined gate:
+  //   - Price/yield/futures data uses the same active-window-aware TTL as
+  //     ticker.js's per-ticker snap freshness (_isMarketActiveWindow): 5
+  //     minutes during market hours, cache holds indefinitely outside them,
+  //     since that data genuinely doesn't change while the market is closed.
+  //   - News uses its own flat MARKET_NEWS_FRESH_MINS TTL that applies
+  //     regardless of market hours, since news can break at any time.
+  // This means a Prefetch All run at 11pm can skip the price/yield/futures
+  // fetches entirely while still refreshing news if it's gone stale.
   //
   // Decision matrix:
-  //   online  + fresh cache  → skip live fetch; loadMarketTab() uses cache fallbacks
-  //   online  + stale/no cache → full live fetch via loadMarketTab()
-  //   offline (any cache age) → loadMarketTab() handles offline path itself
-  //
-  // In all cases we delegate to loadMarketTab(), but we short-circuit the
-  // expensive network calls by temporarily forcing offlineMode-like behaviour
-  // via the existing cache-fallback paths already inside loadMarketTab().
-  // The cleanest approach is simply to NOT call loadMarketTab() when cache is
-  // fresh and instead render a lightweight "from cache" pass.
+  //   online  + both fresh        → skip live fetch entirely; render from cache
+  //   online  + data fresh, news stale → fetch just news, render the rest from cache
+  //   online  + data stale        → full live fetch via loadMarketTab() (which
+  //                                  already refreshes news as part of its cycle)
+  //   offline (any cache age)     → loadMarketTab() handles offline path itself
 
   const mktTs=S.get('market_ts');
-  const ageMins=_mktCacheAgeMins(mktTs?.ts||mktTs);
+  const dataAgeMins=_mktCacheAgeMins(mktTs?.ts||mktTs);
+  const dataTtlMins=_isMarketActiveWindow()?5:Infinity;
 
-  // If data is fresh and we're online, reconstruct the panel from localStorage
-  // without any network calls.  All the individual cache keys (mkt_sp500,
-  // mkt_nasdaq, mkt_2y, mkt_sp_live, mkt_nq_live, tbills_cache, fed_futures,
-  // market_news) are already present from the last full fetch.
-  if(ageMins<MARKET_CACHE_FRESH_MINS&&navigator.onLine){
+  if(dataAgeMins>=0&&dataAgeMins<dataTtlMins&&navigator.onLine){
+    const cnews=S.get('market_news');
+    const newsAgeMins=_mktCacheAgeMins(cnews?.ts);
+    if(!(newsAgeMins>=0&&newsAgeMins<MARKET_NEWS_FRESH_MINS)){
+      await _fetchMarketNews();
+    }
     _renderMarketFromCache();
     return;
   }
 
-  // Stale, missing, or offline → let loadMarketTab() decide (it handles the
-  // offline fallback internally via its own try/catch cache reads).
-  loadMarketTab();
+  // Price/yield/futures data is stale, missing, or offline.
+  if(offlineMode){
+    // Don't fall through to loadMarketTab() here -- it calls back into this
+    // function whenever offlineMode is true, which would recurse forever if
+    // the cache is also stale. Render whatever's cached regardless of age;
+    // that's what "offline" should mean, and is strictly better than a loop.
+    _renderMarketFromCache();
+    return;
+  }
+  // Online but stale/missing → let loadMarketTab() do a full live fetch
+  // (it also refreshes news as part of its normal cycle).
+  await loadMarketTab();
 }
 
 // Renders the market tab entirely from localStorage — zero network calls.
@@ -427,4 +459,3 @@ function _renderMarketFromCache(){
 
   setTimeout(refreshTsChipAges,200);
 }
-                    

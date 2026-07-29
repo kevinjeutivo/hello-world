@@ -359,7 +359,7 @@ function clearMarketDataCache(){
   // Keys to preserve -- manually entered data and settings
   const PRESERVE=new Set([
     'watchlist','tz_pref','font_size','vix_threshold','offline_mode',
-    'watchlist_sort','heatmap_mode','put_pos_sort','cc_pos_sort',
+    'watchlist_sort','heatmap_mode','watchlist_positions_filter','put_pos_sort','cc_pos_sort',
     'options_cutoff_et','rp_earnings_toggle','rp_span','bb_span',
     'vol_badge_state','conviction_weights','last_ticker',
     'income_accounts_meta','income_active_account','income_migration_v1',
@@ -397,7 +397,7 @@ function clearMarketDataCache(){
 
 const EXPORT_KEYS_STATIC=[
   'watchlist','tz_pref','font_size','vix_threshold',
-  'offline_mode','watchlist_sort','heatmap_mode','put_pos_sort','cc_pos_sort',
+  'offline_mode','watchlist_sort','heatmap_mode','watchlist_positions_filter','put_pos_sort','cc_pos_sort',
   'options_cutoff_et','rp_earnings_toggle','conviction_weights',
   'vol_badge_state','last_ticker',
   'etf_research_tickers',

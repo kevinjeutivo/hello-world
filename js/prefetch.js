@@ -300,7 +300,7 @@ async function fullRefreshEverything(){
   label.textContent='Step 5/6: Refreshing ETF data...';
   try{await loadETFTab();}catch{}bar.style.width='93%';setTopBar(93);
   label.textContent='Step 6/6: Refreshing market data...';
-  try{await loadMarketTab();}catch{}bar.style.width='100%';setTopBar(100);
+  try{await restoreMarketFromCache();}catch{}bar.style.width='100%';setTopBar(100);
   label.textContent='All done!';
   const frTs=nowPT();
   S.set('last_full_refresh_ts',frTs);

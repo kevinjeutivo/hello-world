@@ -1738,6 +1738,7 @@ function _renderPositionList(){
           pos.ticker+' $'+(pos.strike%1===0?pos.strike.toFixed(0):pos.strike.toFixed(2))+
           (ss.label?'<span style="font-size:9px;color:'+ss.labelColor+';margin-left:6px;font-weight:400">'+ss.label+'</span>':'')+
           (itmTag&&!expired?' <span style="font-size:9px;margin-left:4px">'+itmTag+'</span>':'')+
+          ' <span onclick="event.stopPropagation();navigateToTicker(\''+pos.ticker+'\')" style="font-size:10px;color:var(--accent3);cursor:pointer;margin-left:4px" title="Go to Ticker tab">&#8599;</span>'+
         '</div>'+
         '<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">'+
           pos.contracts+' contract'+(pos.contracts>1?'s':'')+' · '+pos.expDate+' · '+daysStr+priceStr+
@@ -2143,6 +2144,7 @@ function _renderCCPositionList(){
           '<div style="font-family:var(--mono);font-size:13px;font-weight:700;color:'+(expired?'var(--text3)':L2_TEXT)+'">'+
             pos.ticker+' $'+(pos.strike%1===0?pos.strike.toFixed(0):pos.strike.toFixed(2))+' call'+
             (ss.label?'<span style="font-size:9px;color:'+ss.labelColor+';margin-left:6px;font-weight:400">'+ss.label+'</span>':'')+
+            ' <span onclick="event.stopPropagation();navigateToTicker(\''+pos.ticker+'\')" style="font-size:10px;color:var(--accent3);cursor:pointer;margin-left:4px" title="Go to Ticker tab">&#8599;</span>'+
           '</div>'+
           '<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">'+
             pos.contracts+' contract'+(pos.contracts>1?'s':'')+' · '+pos.expDate+' · '+daysStr+

@@ -134,7 +134,7 @@ function _isMarketActiveWindow(){
 }
 
 // Builds earnings_hist_<ticker> -- the data that drives the ticker page's
-// earnings-event chart markers ("gap-confirmed"/"auto-confirmed"/"estimated").
+// earnings-event chart markers ("gap-estimated"/"auto-confirmed"/"time-estimated").
 // Two independent parts:
 //
 // Part 1: backward-steps from the next known confirmed earnings date in
@@ -210,11 +210,11 @@ function _buildEarningsHistory(ticker){
         if(_confCacheSlot){
           results.push({date:_confCacheSlot.date,hour:_confCacheSlot.hour||null,gapPct:null,direction:null,source:'auto-confirmed'});
         }else if(bestGap&&bestGap.gapPct>=3){
-          results.push({date:bestGap.date,hour:null,gapPct:bestGap.gapPct,direction:bestGap.direction,source:'gap-confirmed'});
+          results.push({date:bestGap.date,hour:null,gapPct:bestGap.gapPct,direction:bestGap.direction,source:'gap-estimated'});
         }else{
           const fallbackDate=closeDates[estIdx];
           if(fallbackDate&&fallbackDate<today){
-            results.push({date:fallbackDate,hour:null,gapPct:null,direction:null,source:'estimated'});
+            results.push({date:fallbackDate,hour:null,gapPct:null,direction:null,source:'time-estimated'});
           }
         }
       }

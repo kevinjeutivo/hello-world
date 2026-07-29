@@ -712,7 +712,7 @@ function renderWatchlist(){
     const ivrBadge=_ivrBadgeHtml(t);
     const note=S.get('watchlist_note_'+t)||'';
     const expanded=_expandedNotes.has(t);
-    return '<div class="watchlist-item" style="flex-direction:column;align-items:stretch;'+bgStyle+'" onclick="selectTickerFromWatchlist(\''+t+'\')">'+
+    return '<div class="watchlist-item" style="flex-direction:column;align-items:stretch;'+bgStyle+'" onclick="navigateToTicker(\''+t+'\')">'+
       '<div style="display:flex;align-items:center;justify-content:space-between;width:100%">'+
         '<div style="min-width:0;flex-shrink:1">'+
           '<div class="watchlist-ticker">'+t+ivrBadge+volBadge+'</div>'+
@@ -737,7 +737,7 @@ function renderWatchlist(){
   }).join('')+legendHtml;
 }
 
-function selectTickerFromWatchlist(t){
+function navigateToTicker(t){
   if(t!==currentTicker){currentBBSpan='6m';currentRPSpan='2y';}
   currentTicker=t;S.set('last_ticker',t);
   populateSelects();

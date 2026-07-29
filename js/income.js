@@ -1278,9 +1278,6 @@ function _getCachedContractBid(ticker, expDate, strike, isCall){
 // close can't be determined), so the caller can skip rendering entirely.
 function _buildRollCandidates(pos, isCall){
   const ticker = pos.ticker;
-  const snap = S.get('snap_' + ticker);
-  const currentPrice = snap?.price;
-  if(currentPrice == null) return null;
 
   const pricing = _getPosPricing(pos, isCall);
   const costToClose = pricing.timeValue != null ? pricing.timeValue + (pricing.intrinsic||0) : null;
@@ -1304,27 +1301,32 @@ function _buildRollCandidates(pos, isCall){
 
   if(!candidateExpiries.length) return null;
 
-  // Union of candidate strikes across all candidate expiries, in the safe
-  // direction from current price, capped to the 8 nearest to current price
-  // to keep the table a reasonable size.
+  // Candidate strikes: from the position's own strike (inclusive) outward in
+  // the safe direction -- down for puts, up for calls -- across all candidate
+  // expiries' cached strike ladders. Only rolling for a net credit is
+  // realistic, so the range extends outward only as far as at least one
+  // expiry still shows a non-negative net credit; the first strike where
+  // every expiry has gone negative is included as the visible boundary, then
+  // the list stops (credit is monotonically non-increasing as strikes move
+  // further from the position's own strike at a fixed expiry, so this
+  // cutoff is well-defined, not an arbitrary count-based cap).
   const strikeSet = new Set();
   candidateExpiries.forEach(exp => {
     const strikes = isCall ? _getCallStrikesForExpiration(ticker, exp) : _getStrikesForExpiration(ticker, exp);
     strikes.forEach(s => {
-      if(isCall ? s >= currentPrice : s <= currentPrice) strikeSet.add(s);
+      if(isCall ? s >= pos.strike : s <= pos.strike) strikeSet.add(s);
     });
   });
   if(!strikeSet.size) return null;
 
-  const strikes = [...strikeSet]
-    .sort((a,b) => Math.abs(a-currentPrice) - Math.abs(b-currentPrice))
-    .slice(0, 8)
-    .sort((a,b) => isCall ? a-b : b-a); // display order: closest to current price first
+  const orderedStrikes = [...strikeSet].sort((a,b) => isCall ? a-b : b-a); // closest to position's own strike first
 
   const today = new Date(); today.setHours(0,0,0,0);
   const cells = {}; // cells[strike][expiry] = {netCredit, annualizedPct} or null
-  strikes.forEach(s => {
+  const strikes = [];
+  for(const s of orderedStrikes){
     cells[s] = {};
+    let anyNonNegative = false;
     candidateExpiries.forEach(exp => {
       const bid = _getCachedContractBid(ticker, exp, s, isCall);
       if(bid == null){ cells[s][exp] = null; return; }
@@ -1333,8 +1335,12 @@ function _buildRollCandidates(pos, isCall){
       const daysToExp = Math.max(1, Math.round((new Date(exp+'T12:00:00Z') - today) / 86400000));
       const annualizedPct = (netCredit / capitalBasis) * (365/daysToExp) * 100;
       cells[s][exp] = {netCredit, annualizedPct};
+      if(netCredit >= 0) anyNonNegative = true;
     });
-  });
+    strikes.push(s);
+    if(!anyNonNegative) break; // this strike is a net debit everywhere cached -- show it as the boundary, then stop
+    if(strikes.length >= 12) break; // defensive cap in case data never turns negative within the cached ladder
+  }
 
   return {strikes, expiries: candidateExpiries, cells};
 }
@@ -1370,7 +1376,7 @@ function _rollCandidatesSectionHtml(pos, isCall, kind){
     '</div>' +
     '<div class="gs-body" id="roll-body-'+uid+'">' +
       '<table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:2px">'+header+rows+'</table>' +
-      '<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:6px;line-height:1.5">Green = meets or beats target APY ('+_fmtPct(targetAPY)+') &middot; net = new credit minus cost to close &middot; strikes and expiries limited to what\'s already cached</div>' +
+      '<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:6px;line-height:1.5">Green = meets or beats target APY ('+_fmtPct(targetAPY)+') &middot; net = new credit minus cost to close &middot; strikes range from your current strike out to the first strike showing a net debit &middot; expiries limited to what\'s already cached</div>' +
     '</div>';
 }
 

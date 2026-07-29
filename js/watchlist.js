@@ -352,6 +352,17 @@ function _confirmRemove(){
   watchlist=watchlist.filter(x=>x!==ticker);
   S.set('watchlist',watchlist);
   S.del('snap_'+ticker);
+  // Clean up all other per-ticker caches -- previously only snap_ was removed here,
+  // leaving options chains, price history, news, upgrades, and earnings caches for
+  // every removed ticker orphaned in localStorage forever (a real storage leak).
+  ['options_','hist2y_','intraday_','news_','upgrades_',
+   'earnings_hist_','earnings_confirmed_','earnings_pending_',
+   'rp_compare_','watchlist_note_'].forEach(prefix=>S.del(prefix+ticker));
+  // options_exp_<ticker>_<date> has a date suffix, so it needs a prefix scan
+  try{
+    const _expPrefix='options_exp_'+ticker+'_';
+    Object.keys(localStorage).filter(k=>k.startsWith(_expPrefix)).forEach(k=>S.del(k));
+  }catch{}
   const vbs=S.get('vol_badge_state')||{};
   delete vbs[ticker];
   S.set('vol_badge_state',vbs);
@@ -363,6 +374,31 @@ function _confirmRemove(){
 // ── Heatmap ───────────────────────────────────────────────────────────────────
 
 let _heatmapMode=S.get('heatmap_mode')||'off'; // 'off' | 'change' | 'ivr'
+let _positionsFilterOn=S.get('watchlist_positions_filter')==='true';
+
+function setPositionsFilter(on){
+  _positionsFilterOn=on;
+  S.set('watchlist_positions_filter',String(on));
+  const offBtn=document.getElementById('wl-posfilter-off'),onBtn=document.getElementById('wl-posfilter-on');
+  if(offBtn)offBtn.style.opacity=on?'0.4':'1';
+  if(onBtn)onBtn.style.opacity=on?'1':'0.4';
+  renderWatchlist();
+}
+
+// Set of tickers with at least one active put or CC position, across all
+// accounts. Computed once per render rather than calling
+// _getIncomePositionsForTicker per ticker, which would otherwise re-read
+// every account's full position arrays from scratch for each of up to ~50
+// tickers on every render.
+function _tickersWithPositions(){
+  const result=new Set();
+  const accounts=S.get('income_accounts_meta')||[];
+  accounts.forEach(a=>{
+    (S.get('income_'+a.id+'_put_positions')||[]).forEach(p=>{if(_posExpiryStatusWL(p)!=='remove')result.add(p.ticker);});
+    (S.get('income_'+a.id+'_cc_positions')||[]).forEach(p=>{if(_posExpiryStatusWL(p)!=='remove')result.add(p.ticker);});
+  });
+  return result;
+}
 
 function setHeatmap(mode){
   _heatmapMode=mode;
@@ -634,12 +670,23 @@ function renderWatchlist(){
     const btn=document.getElementById('hm-'+m);
     if(btn)btn.style.opacity=m===_heatmapMode?'1':'0.4';
   });
+  const posOffBtn=document.getElementById('wl-posfilter-off'),posOnBtn=document.getElementById('wl-posfilter-on');
+  if(posOffBtn)posOffBtn.style.opacity=_positionsFilterOn?'0.4':'1';
+  if(posOnBtn)posOnBtn.style.opacity=_positionsFilterOn?'1':'0.4';
   const el=document.getElementById('watchlist-items');
   if(!watchlist.length){
     el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CB;</div>Watchlist is empty</div>';
     return;
   }
-  const sorted=getSortedWatchlist();
+  let sorted=getSortedWatchlist();
+  if(_positionsFilterOn){
+    const withPositions=_tickersWithPositions();
+    sorted=sorted.filter(t=>withPositions.has(t));
+    if(!sorted.length){
+      el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CB;</div>No tickers with active positions</div>';
+      return;
+    }
+  }
   // IVR legend -- only shown when IVR heatmap is active
   const legendHtml=_heatmapMode==='ivr'?
     '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding:8px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">'

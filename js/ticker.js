@@ -6,29 +6,6 @@ function _tkTimeout(p,ms,label){return Promise.race([p,new Promise((_,rej)=>setT
 // Dependencies: helpers.js, api.js, storage.js
 
 async function loadTicker(){
-  // Returns true if we're within market hours through 1 hour after close
-  // (9:30am ET open through 5:00pm ET, since market closes 4:00pm ET).
-  // Used to decide the cache-freshness TTL: 5 minutes during this window,
-  // unlimited (always serve cache) outside it -- since after-hours data
-  // doesn't change and Yahoo's post-close print needs ~1hr to fully settle.
-  function _isMarketActiveWindow(){
-    try{
-      const now=new Date();
-      const etFmt=new Intl.DateTimeFormat('en-US',{
-        timeZone:'America/New_York',
-        weekday:'short',hour:'numeric',minute:'numeric',hour12:false
-      });
-      const parts=etFmt.formatToParts(now);
-      const etWeekday=parts.find(p=>p.type==='weekday').value; // 'Mon'..'Sun'
-      if(etWeekday==='Sat'||etWeekday==='Sun')return false; // weekends always outside active window
-      const etHour=parseInt(parts.find(p=>p.type==='hour').value);
-      const etMin=parseInt(parts.find(p=>p.type==='minute').value);
-      const etMins=etHour*60+etMin;
-      const openMins=9*60+30;  // 9:30am ET
-      const closeBufferMins=17*60; // 5:00pm ET (4:00pm close + 1hr buffer)
-      return etMins>=openMins&&etMins<closeBufferMins;
-    }catch{return true;} // default to live-fetch behavior on error
-  }
   const t=document.getElementById('ticker-select').value;if(!t)return;
   if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('options-ticker-select').value=t;clearOptionsState();currentBBSpan='6m';currentRPSpan='2y';}
   // Cache-freshness gate. Two policies depending on session:

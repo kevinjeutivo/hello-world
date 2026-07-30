@@ -79,13 +79,13 @@ function buildRecentEarningsData(){
 
       // Price reaction + excess vs S&P -- reusing the same per-event
       // computation that powers the ticker page's relative-performance card
-      let reactionPct=null,excessReaction=null;
+      let reactionPct=null,excessReaction=null,preAnnouncementPrice=null;
       try{
         const h2=S.get('hist2y_'+t);
         const earningsHistoryForChart=S.get('earnings_hist_'+t)?.data||[];
         const events=_computeEarningsReactionEvents(h2,hist2ySP,earningsHistoryForChart);
         const match=events&&events.find(ev=>Math.abs(new Date(ev.date)-new Date(mostRecent.date))<4*86400000);
-        if(match){reactionPct=match.reactionPct;excessReaction=match.excessReaction;}
+        if(match){reactionPct=match.reactionPct;excessReaction=match.excessReaction;preAnnouncementPrice=match.preAnnouncementPrice;}
       }catch{}
 
       // HVR at the time of the report -- reusing the same series already
@@ -106,13 +106,52 @@ function buildRecentEarningsData(){
 
       results.push({
         ticker:t,snap,earningsDate:mostRecent.date,earningsHour:mostRecent.hour,daysAgo,
-        epsActual,epsEstimate,surprisePct,beatStreak,reactionPct,excessReaction,hvrAtReport,hasPositions
+        epsActual,epsEstimate,surprisePct,beatStreak,reactionPct,excessReaction,hvrAtReport,hasPositions,preAnnouncementPrice
       });
     }catch{}
   });
 
   results.sort((a,b)=>a.daysAgo-b.daysAgo); // most recent first
   return results;
+}
+
+// Mini price sparkline showing daily closes from the earnings date through
+// today -- shape only, no price labels or axis. Visually styled to match
+// the Watchlist card's intraday sparkline (_sparklineHtml in watchlist.js),
+// but this is an entirely separate function/data source (hist2y_ daily
+// closes sliced by date, not intraday_ 5-minute bars) -- watchlist.js is
+// not touched by this at all. Each card's line naturally spans a different
+// number of days depending on how recently that ticker reported; the fixed
+// SVG width is intentional, not a bug.
+function _recentEarningsSparklineHtml(ticker,earningsDate,preAnnouncementPrice){
+  try{
+    const h2=S.get('hist2y_'+ticker);
+    if(!h2?.closes?.length)return'';
+    const startTs=Math.floor(new Date(earningsDate+'T00:00:00Z').getTime()/1000);
+    const pts2=[];
+    if(preAnnouncementPrice!=null)pts2.push(preAnnouncementPrice); // true pre-report anchor, so the initial reaction shows as part of the shape
+    h2.timestamps.forEach((ts,i)=>{
+      if(ts>=startTs&&h2.closes[i]!=null)pts2.push(h2.closes[i]);
+    });
+    if(pts2.length<2)return'';
+
+    const first=pts2[0],last=pts2[pts2.length-1];
+    const color=last>=first?'var(--green)':'var(--red)';
+
+    const W=60,H=20,PAD=1;
+    const mn=Math.min(...pts2),mx=Math.max(...pts2);
+    const range=mx-mn||1;
+    const toY=v=>H-PAD-((v-mn)/range)*(H-PAD*2);
+    const toX=i=>PAD+(i/(pts2.length-1))*(W-PAD*2);
+    const pts=pts2.map((v,i)=>toX(i).toFixed(1)+','+toY(v).toFixed(1)).join(' ');
+
+    const refLine=`<line x1="${PAD}" y1="${toY(first).toFixed(1)}" x2="${W-PAD}" y2="${toY(first).toFixed(1)}" stroke="var(--text3)" stroke-width="0.7" stroke-dasharray="2,2" opacity="0.6"/>`;
+
+    return '<svg width="60" height="20" viewBox="0 0 60 20" style="display:block;flex-shrink:0" xmlns="http://www.w3.org/2000/svg">'+
+      refLine+
+      '<polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'+
+    '</svg>';
+  }catch{return'';}
 }
 
 function renderRecentEarningsCards(){
@@ -130,15 +169,18 @@ function renderRecentEarningsCards(){
     const reactionStr=e.reactionPct!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">PRICE REACTION</span><span style="color:${e.reactionPct>=0?'var(--green)':'var(--red)'}">${e.reactionPct>=0?'+':''}${e.reactionPct.toFixed(1)}%</span></div>`:'';
     const excessStr=e.excessReaction!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">VS S&amp;P</span><span style="color:${e.excessReaction>=0?'var(--green)':'var(--red)'}">${e.excessReaction>=0?'+':''}${e.excessReaction.toFixed(1)}%</span></div>`:'';
     const hvrStr=e.hvrAtReport!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">HVR AT REPORT</span>${e.hvrAtReport.toFixed(0)}</div>`:'';
+    const preStr=e.preAnnouncementPrice!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">PRICE BEFORE</span>$${e.preAnnouncementPrice.toFixed(2)}</div>`:'';
+    const spark=_recentEarningsSparklineHtml(e.ticker,e.earningsDate,e.preAnnouncementPrice);
     return`<div class="${cardCls}" onclick="navigateToTicker('${e.ticker}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <div><span style="font-family:var(--sans);font-size:20px;font-weight:700;color:var(--accent)">${e.ticker}</span>${e.snap.price?`<span style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-left:8px">$${e.snap.price.toFixed(2)}</span>`:''}</div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-family:var(--sans);font-size:20px;font-weight:700;color:var(--accent)">${e.ticker}</span>${e.snap.price?`<span style="font-family:var(--mono);font-size:13px;color:var(--text2)">$${e.snap.price.toFixed(2)}</span>`:''}${spark}</div>
         <div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--text2)">${agoLabel}</div><div style="font-family:var(--mono);font-size:11px;color:var(--text2)">${e.earningsDate}${timing}</div></div>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">${beatBadge}${streakBadge}${posBadge}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;font-family:var(--mono);font-size:11px">
         <div><span style="color:var(--text3);font-size:9px;display:block">EPS ACTUAL</span>${e.epsActual!==null?`$${e.epsActual.toFixed(2)}`:'N/A'}</div>
         <div><span style="color:var(--text3);font-size:9px;display:block">EPS ESTIMATE</span>${e.epsEstimate!==null?`$${e.epsEstimate.toFixed(2)}`:'N/A'}</div>
+        ${preStr}
         ${hvrStr}
         ${reactionStr}
         ${excessStr}

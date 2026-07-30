@@ -1037,6 +1037,7 @@ function _computeEarningsReactionEvents(hist2y,hist2ySP,earningsHistory){
       reactionPct,spReactionPct,excessReaction,
       preDayRet,excessPre,
       postDayRet,excessPost,
+      preAnnouncementPrice:isAMC?p_0:p_m1, // last close before the announcement (AMC: report date's own close; BMO: prior day's close)
       beat:e.epsActual!=null&&e.epsEstimate!=null?e.epsActual>e.epsEstimate:null,
       isOverride:e.isOverride||false,
       source:e.source||null

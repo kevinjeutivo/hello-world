@@ -5,6 +5,149 @@
 
 function filterEarnings(days,chipEl){earningsDaysFilter=days;document.querySelectorAll('#earnings-filter-chips .exp-chip').forEach(c=>c.classList.remove('selected'));chipEl.classList.add('selected');renderEarningsCards();}
 
+// ── Upcoming / Recent view toggle ─────────────────────────────────────────────
+let earningsViewMode = S.get('earnings_view_mode')||'upcoming';
+const RECENT_EARNINGS_WINDOW_DAYS = 45;
+
+function setEarningsViewMode(mode){
+  earningsViewMode = mode;
+  S.set('earnings_view_mode', mode);
+  _syncEarningsViewModeUI();
+  if(mode==='recent') renderRecentEarningsCards();
+  else renderEarningsCards();
+}
+
+function _syncEarningsViewModeUI(){
+  const upBtn=document.getElementById('earnings-view-upcoming'),recBtn=document.getElementById('earnings-view-recent');
+  if(upBtn)upBtn.style.opacity = earningsViewMode==='upcoming'?'1':'0.4';
+  if(recBtn)recBtn.style.opacity = earningsViewMode==='recent'?'1':'0.4';
+  const chipsWrap=document.getElementById('earnings-upcoming-chips-wrap');
+  if(chipsWrap)chipsWrap.style.display = earningsViewMode==='upcoming'?'':'none';
+  const subtitle=document.getElementById('earnings-subtitle');
+  if(subtitle)subtitle.textContent = earningsViewMode==='upcoming'
+    ? 'Sorted by upcoming earnings date. Tap any card to analyze.'
+    : `Reports from the last ${RECENT_EARNINGS_WINDOW_DAYS} days, most recent first. Tap any card to analyze.`;
+}
+
+// Renders whichever view is currently active -- used by the tab-switch
+// handler so it doesn't always default to Upcoming regardless of the
+// persisted mode.
+function renderCurrentEarningsView(isLive=false){
+  _syncEarningsViewModeUI();
+  if(earningsViewMode==='recent')renderRecentEarningsCards();
+  else renderEarningsCards(isLive);
+}
+
+// Builds recent-earnings summary data entirely from data already cached by
+// the normal prefetch/refresh cycle -- no new fetches, fully synchronous.
+// Reuses: earnings_confirmed_ (dates), snap.earningsHistoryYahoo (EPS/surprise),
+// _computeEarningsReactionEvents (price reaction, shared with the ticker
+// page's relative-performance card), computeHVRSeries (HVR history, shared
+// with the ticker page's HVR chart), and _getIncomePositionsForTicker
+// (position flag, shared with the Watchlist/Ticker "View Positions" feature).
+function buildRecentEarningsData(){
+  const today=new Date();today.setHours(0,0,0,0);
+  const cutoff=new Date(today);cutoff.setDate(cutoff.getDate()-RECENT_EARNINGS_WINDOW_DAYS);
+  const useTR=typeof getRPTotalReturn==='function'&&getRPTotalReturn();
+  const spKey=useTR?'hist2y_sp500tr':'hist2y_sp500';
+  const sp2c=S.get(spKey)||(useTR?S.get('hist2y_sp500'):null);
+  const hist2ySP=sp2c?{timestamps:sp2c.timestamps,closes:sp2c.closes}:null;
+
+  const results=[];
+  watchlist.forEach(t=>{
+    try{
+      const confirmed=S.get('earnings_confirmed_'+t)||[];
+      const recentDates=confirmed.filter(c=>{
+        if(!c.date)return false;
+        const d=new Date(c.date+'T12:00:00Z');
+        return d>=cutoff&&d<today;
+      }).sort((a,b)=>b.date.localeCompare(a.date));
+      if(!recentDates.length)return;
+      const mostRecent=recentDates[0];
+
+      const snap=S.get('snap_'+t);
+      if(!snap)return;
+
+      // EPS actual/estimate/surprise, beat streak -- same computation as
+      // the Upcoming view, from Yahoo's earningsHistory
+      let epsActual=null,epsEstimate=null,surprisePct=null,beatStreak=0;
+      const eh=(snap.earningsHistoryYahoo||[]).filter(e=>e.date).sort((a,b)=>b.date.localeCompare(a.date));
+      const prevEh=eh.find(e=>e.epsActual!=null);
+      if(prevEh){epsActual=prevEh.epsActual;epsEstimate=prevEh.epsEstimate;surprisePct=prevEh.surprisePercent;}
+      const actuals=eh.filter(e=>e.epsActual!=null&&e.epsEstimate!=null);
+      for(const q of actuals){if(q.epsActual>q.epsEstimate)beatStreak++;else break;}
+
+      // Price reaction + excess vs S&P -- reusing the same per-event
+      // computation that powers the ticker page's relative-performance card
+      let reactionPct=null,excessReaction=null;
+      try{
+        const h2=S.get('hist2y_'+t);
+        const earningsHistoryForChart=S.get('earnings_hist_'+t)?.data||[];
+        const events=_computeEarningsReactionEvents(h2,hist2ySP,earningsHistoryForChart);
+        const match=events&&events.find(ev=>Math.abs(new Date(ev.date)-new Date(mostRecent.date))<4*86400000);
+        if(match){reactionPct=match.reactionPct;excessReaction=match.excessReaction;}
+      }catch{}
+
+      // HVR at the time of the report -- reusing the same series already
+      // computed for the ticker page's HVR chart, looked up at the matching date
+      let hvrAtReport=null;
+      try{
+        const series=computeHVRSeries(t);
+        if(series?.timestamps?.length){
+          const targetTs=Math.floor(new Date(mostRecent.date+'T12:00:00Z').getTime()/1000);
+          let bestIdx=-1,bestDiff=Infinity;
+          series.timestamps.forEach((ts,i)=>{const diff=Math.abs(ts-targetTs);if(diff<bestDiff){bestDiff=diff;bestIdx=i;}});
+          if(bestIdx>=0&&bestDiff<=5*86400)hvrAtReport=series.values[bestIdx];
+        }
+      }catch{}
+
+      const hasPositions=typeof _getIncomePositionsForTicker==='function'&&_getIncomePositionsForTicker(t).length>0;
+      const daysAgo=Math.round((today-new Date(mostRecent.date+'T12:00:00Z'))/86400000);
+
+      results.push({
+        ticker:t,snap,earningsDate:mostRecent.date,earningsHour:mostRecent.hour,daysAgo,
+        epsActual,epsEstimate,surprisePct,beatStreak,reactionPct,excessReaction,hvrAtReport,hasPositions
+      });
+    }catch{}
+  });
+
+  results.sort((a,b)=>a.daysAgo-b.daysAgo); // most recent first
+  return results;
+}
+
+function renderRecentEarningsCards(){
+  const el=document.getElementById('earnings-content');
+  const data=buildRecentEarningsData();
+  if(!data.length){el.innerHTML=`<div class="empty"><div class="empty-icon">&#x1F4C5;</div>No earnings reports in the last ${RECENT_EARNINGS_WINDOW_DAYS} days for your watchlist.</div>`;return;}
+  el.innerHTML=data.map(e=>{
+    const isFresh=e.daysAgo<=5;
+    const cardCls='earnings-card earnings-card-normal';
+    const timing=e.earningsHour==='bmo'?' (before open)':e.earningsHour==='amc'?' (after close)':'';
+    const agoLabel=(e.daysAgo===0?'Today':e.daysAgo===1?'Yesterday':e.daysAgo+' days ago')+(isFresh?' &#x1F195;':'');
+    const beatBadge=e.surprisePct!=null?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:${e.surprisePct>=0?'rgba(0,200,150,0.2)':'rgba(255,71,87,0.2)'};color:${e.surprisePct>=0?'var(--green)':'var(--red)'}">${e.surprisePct>=0?'Beat':'Missed'} ${Math.abs(e.surprisePct).toFixed(1)}%</span>`:'';
+    const streakBadge=e.beatStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(0,200,150,0.2);color:var(--green)">Beat ${e.beatStreak}Q</span>`:'';
+    const posBadge=e.hasPositions?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(124,106,247,0.2);color:#b39ddb">You hold this</span>`:'';
+    const reactionStr=e.reactionPct!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">PRICE REACTION</span><span style="color:${e.reactionPct>=0?'var(--green)':'var(--red)'}">${e.reactionPct>=0?'+':''}${e.reactionPct.toFixed(1)}%</span></div>`:'';
+    const excessStr=e.excessReaction!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">VS S&amp;P</span><span style="color:${e.excessReaction>=0?'var(--green)':'var(--red)'}">${e.excessReaction>=0?'+':''}${e.excessReaction.toFixed(1)}%</span></div>`:'';
+    const hvrStr=e.hvrAtReport!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">HVR AT REPORT</span>${e.hvrAtReport.toFixed(0)}</div>`:'';
+    return`<div class="${cardCls}" onclick="navigateToTicker('${e.ticker}')">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div><span style="font-family:var(--sans);font-size:20px;font-weight:700;color:var(--accent)">${e.ticker}</span>${e.snap.price?`<span style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-left:8px">$${e.snap.price.toFixed(2)}</span>`:''}</div>
+        <div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--text2)">${agoLabel}</div><div style="font-family:var(--mono);font-size:11px;color:var(--text2)">${e.earningsDate}${timing}</div></div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">${beatBadge}${streakBadge}${posBadge}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;font-family:var(--mono);font-size:11px">
+        <div><span style="color:var(--text3);font-size:9px;display:block">EPS ACTUAL</span>${e.epsActual!==null?`$${e.epsActual.toFixed(2)}`:'N/A'}</div>
+        <div><span style="color:var(--text3);font-size:9px;display:block">EPS ESTIMATE</span>${e.epsEstimate!==null?`$${e.epsEstimate.toFixed(2)}`:'N/A'}</div>
+        ${hvrStr}
+        ${reactionStr}
+        ${excessStr}
+      </div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:8px;text-align:right">Tap to analyze</div>
+    </div>`;
+  }).join('');
+}
+
 async function loadEarningsTab(){
   if(!navigator.onLine&&!offlineMode){toast('Offline -- earnings data unchanged',3000);renderEarningsCards();return;}
   if(offlineMode){renderEarningsCards();return;}
@@ -43,7 +186,8 @@ async function loadEarningsTab(){
     if(i<watchlist.length-1)await sleep(400);
   }
   earningsAllData.sort((a,b)=>a.daysUntil-b.daysUntil);
-  S.set('earnings_data',{data:earningsAllData,ts:nowPT()});renderEarningsCards(true);
+  S.set('earnings_data',{data:earningsAllData,ts:nowPT()});
+  renderCurrentEarningsView(true);
 }
 
 function renderEarningsCards(isLive=false){

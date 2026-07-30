@@ -360,7 +360,7 @@ function clearMarketDataCache(){
   const PRESERVE=new Set([
     'watchlist','tz_pref','font_size','vix_threshold','offline_mode',
     'watchlist_sort','heatmap_mode','watchlist_positions_filter','put_pos_sort','cc_pos_sort',
-    'options_cutoff_et','rp_earnings_toggle','rp_span','bb_span',
+    'options_cutoff_et','rp_earnings_toggle','rp_span','bb_span','earnings_view_mode',
     'vol_badge_state','conviction_weights','last_ticker',
     'income_accounts_meta','income_active_account','income_migration_v1',
     'debug_options_fetch','prefetch_sleep_ms','fetch_upgrades_enabled',
@@ -398,7 +398,7 @@ function clearMarketDataCache(){
 const EXPORT_KEYS_STATIC=[
   'watchlist','tz_pref','font_size','vix_threshold',
   'offline_mode','watchlist_sort','heatmap_mode','watchlist_positions_filter','put_pos_sort','cc_pos_sort',
-  'options_cutoff_et','rp_earnings_toggle','conviction_weights',
+  'options_cutoff_et','rp_earnings_toggle','conviction_weights','earnings_view_mode',
   'vol_badge_state','last_ticker',
   'etf_research_tickers',
   'income_accounts_meta','income_active_account','income_migration_v1',

@@ -333,8 +333,15 @@ a{color:inherit}
 <div id="tab-earnings" class="tab-panel">
   <div class="card">
     <div class="card-title"><span class="dot" style="background:var(--warn)"></span>Earnings Calendar</div>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Sorted by upcoming earnings date. Tap any card to analyze.</div>
-    <div class="exp-chips" id="earnings-filter-chips"><div class="exp-chip selected" onclick="filterEarnings(30,this)">Next 30d</div><div class="exp-chip" onclick="filterEarnings(60,this)">Next 60d</div><div class="exp-chip" onclick="filterEarnings(999,this)">All</div></div>
+    <div id="earnings-subtitle" style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Sorted by upcoming earnings date. Tap any card to analyze.</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">View:</span>
+      <button class="btn btn-secondary" id="earnings-view-upcoming" onclick="setEarningsViewMode('upcoming')" style="font-size:10px;padding:3px 8px">Upcoming</button>
+      <button class="btn btn-secondary" id="earnings-view-recent" onclick="setEarningsViewMode('recent')" style="font-size:10px;padding:3px 8px;opacity:0.4">Recent</button>
+    </div>
+    <div id="earnings-upcoming-chips-wrap">
+      <div class="exp-chips" id="earnings-filter-chips"><div class="exp-chip selected" onclick="filterEarnings(30,this)">Next 30d</div><div class="exp-chip" onclick="filterEarnings(60,this)">Next 60d</div><div class="exp-chip" onclick="filterEarnings(999,this)">All</div></div>
+    </div>
     <button class="btn btn-secondary" onclick="loadEarningsTab()">Refresh Earnings Data</button>
   </div>
   <div id="earnings-content"><div class="empty"><div class="empty-icon">&#x1F4C5;</div>Press Refresh or run Full Refresh to load</div></div>

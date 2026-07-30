@@ -960,7 +960,13 @@ function _clearEarningsOverride(){
   if(currentTicker===ticker)restoreTickerFromCache(ticker);
 }
 
-function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
+// Computes per-earnings-event price reaction data: reaction day return,
+// pre-day and follow-through-day returns, and each vs. the S&P equivalent
+// (excess return). Extracted from _computeEarningsPatternSummary so this
+// raw per-event data can be reused elsewhere (e.g. the Earnings tab's Recent
+// view) without duplicating the computation -- only _computeEarningsPatternSummary
+// itself (the ticker page's relative-performance card) turns this into HTML.
+function _computeEarningsReactionEvents(hist2y,hist2ySP,earningsHistory){
   if(!earningsHistory?.length||!hist2y?.closes?.length)return null;
 
   // Build date-keyed price maps for stock and S&P
@@ -1036,6 +1042,13 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
       source:e.source||null
     });
   });
+
+  return events.length?events:null;
+}
+
+function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
+  const events=_computeEarningsReactionEvents(hist2y,hist2ySP,earningsHistory);
+  if(!events)return null;
 
   if(!events.length)return null;
 

@@ -37,16 +37,23 @@ function nowInTZ(){
 
 function nowPT(){return nowInTZ();}
 
+// Returns today's date as 'YYYY-MM-DD' in the user's configured display
+// timezone (tzPref) -- for user-facing labels like "Today"/"Yesterday"/"3
+// days ago". Deliberately different from _todayET(): that one is for
+// correctness-critical comparisons tied to when market events actually
+// happen (market close, BMO/AMC timing), while this one reflects what the
+// user themselves would call "today" on their own clock. A label should
+// never read "Yesterday" for something that, on the user's own chosen
+// timezone, is still today.
+function _todayLocal(){
+  const tz=tzPref==='PT'?'America/Los_Angeles':tzPref==='UTC'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+}
+
 function daysUntilDate(dateStr){
   if(!dateStr)return null;
   try{
-    const tz=tzPref==='PT'?'America/Los_Angeles':tzPref==='UTC'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const fmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'});
-    const todayParts=fmt.formatToParts(new Date());
-    const ty=todayParts.find(p=>p.type==='year').value;
-    const tm=todayParts.find(p=>p.type==='month').value;
-    const td=todayParts.find(p=>p.type==='day').value;
-    const todayStr=ty+'-'+tm+'-'+td;
+    const todayStr=_todayLocal();
     if(dateStr===todayStr)return 0;
     const d1=new Date(todayStr+'T12:00:00Z');
     const d2=new Date(dateStr+'T12:00:00Z');

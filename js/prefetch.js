@@ -147,17 +147,10 @@ async function prefetchAll(){
       const _pfFutE=(earnings?.earningsCalendar||[])
         .filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
       if(_pfFutE[0]?.date)saveEarningsPending(t,_pfFutE[0].date,_pfFutE[0].hour||null);
-      // Supplement confirmed from past calendar entries
-      const _pfConf=S.get('earnings_confirmed_'+t)||[];
-      const _pfCut=new Date();_pfCut.setDate(_pfCut.getDate()-_EARN_EVICT_DAYS);
-      let _pfChg=false;
-      (earnings?.earningsCalendar||[]).filter(e=>e.date&&e.date<fmtDate(new Date())).forEach(e=>{
-        if(!e.date||new Date(e.date)<_pfCut)return;
-        if(!_pfConf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
-          _pfConf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_pfChg=true;
-        }
-      });
-      if(_pfChg)S.set('earnings_confirmed_'+t,_pfConf.filter(c=>new Date(c.date)>=_pfCut));
+      // Supplement confirmed from past calendar entries -- see
+      // _supplementConfirmedEarnings in helpers.js (shared with loadTicker
+      // and refreshSingleTicker)
+      _supplementConfirmedEarnings(t,earnings?.earningsCalendar);
     }catch{}
     // Compute and persist IVR now that hist2y and options are cached
     try{const _iSnap=S.get('snap_'+t);if(_iSnap){const _iv=computeIVR(t,_iSnap.week52High,_iSnap.week52Low,_iSnap.price);if(_iv!=null){_iSnap.ivrVal=_iv;S.set('snap_'+t,_iSnap);}}}catch{}

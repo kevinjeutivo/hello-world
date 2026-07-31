@@ -135,6 +135,7 @@ function _saveNote(){
   else S.del('watchlist_note_'+ticker);
   _closeNoteModal();
   renderWatchlist();
+  if(typeof _refreshTickerNoteSection==='function')_refreshTickerNoteSection(ticker);
   toast(text?'Note saved':'Note cleared');
 }
 
@@ -144,6 +145,7 @@ function _clearNote(){
   S.del('watchlist_note_'+ticker);
   _closeNoteModal();
   renderWatchlist();
+  if(typeof _refreshTickerNoteSection==='function')_refreshTickerNoteSection(ticker);
   toast('Note cleared');
 }
 

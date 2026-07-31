@@ -81,8 +81,8 @@ function _isPastMarketCloseET(){
 }
 
 function buildRecentEarningsData(){
-  const today=new Date();today.setHours(0,0,0,0);
-  const todayStr=fmtDate(new Date());
+  const today=_todayETStart();
+  const todayStr=_todayET();
   const cutoff=new Date(today);cutoff.setDate(cutoff.getDate()-RECENT_EARNINGS_WINDOW_DAYS);
   const useTR=typeof getRPTotalReturn==='function'&&getRPTotalReturn();
   const spKey=useTR?'hist2y_sp500tr':'hist2y_sp500';
@@ -246,7 +246,7 @@ async function loadEarningsTab(){
         // occurred, even same-day. Fall back to the confirmed/pending caches
         // for a same-day match so the ticker doesn't silently drop out of
         // Upcoming on the very day it reports.
-        const _todayStr=fmtDate(new Date());
+        const _todayStr=_todayET();
         const _confMatch=(S.get('earnings_confirmed_'+t)||[]).find(c=>c.date===_todayStr);
         const _pendMatch=(S.get('earnings_pending_'+t)||[]).find(p=>p.date===_todayStr);
         const _fallback=_confMatch||_pendMatch;

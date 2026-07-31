@@ -140,7 +140,14 @@ function buildRecentEarningsData(){
       }catch{}
 
       const hasPositions=typeof _getIncomePositionsForTicker==='function'&&_getIncomePositionsForTicker(t).length>0;
-      const daysAgo=Math.round((today-new Date(mostRecent.date+'T12:00:00Z'))/86400000);
+      // daysAgo is a user-facing label ("Today"/"Yesterday"/"3 days ago") --
+      // deliberately uses _todayLocal() (tzPref) here, not the ET-anchored
+      // `today` used above for the market-close gate. Those are correctness-
+      // critical and tied to when the market actually closes; this is purely
+      // about what day it is on the user's own clock. Pure calendar-day
+      // string difference, not instant-based arithmetic, so it isn't
+      // sensitive to time-of-day at all.
+      const daysAgo=Math.round((new Date(_todayLocal()+'T00:00:00Z')-new Date(mostRecent.date+'T00:00:00Z'))/86400000);
 
       results.push({
         ticker:t,snap,earningsDate:mostRecent.date,earningsHour:mostRecent.hour,daysAgo,

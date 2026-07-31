@@ -145,16 +145,9 @@ async function loadTicker(){
       // NOTE: earningsHistoryYahoo intentionally excluded -- its date field is
       // Yahoo's fiscal PERIOD-END date, not the announcement date, and mining
       // it here previously fed wrong "confirmed" dates into this cache.
-      const _confSupp=S.get('earnings_confirmed_'+t)||[];
-      const _suppCut=new Date();_suppCut.setDate(_suppCut.getDate()-_EARN_EVICT_DAYS);
-      let _suppChg=false;
-      [...(earnings?.earningsCalendar||[]).filter(e=>e.date&&e.date<fmtDate(new Date()))].forEach(e=>{
-        if(!e.date||new Date(e.date)<_suppCut)return;
-        if(!_confSupp.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
-          _confSupp.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_suppChg=true;
-        }
-      });
-      if(_suppChg)S.set('earnings_confirmed_'+t,_confSupp.filter(c=>new Date(c.date)>=_suppCut));
+      // See _supplementConfirmedEarnings in helpers.js (shared with
+      // refreshSingleTicker and prefetch.js).
+      _supplementConfirmedEarnings(t,earnings?.earningsCalendar);
     }catch{}
 
     // hist2y_ already populated by single 2Y fetch above
@@ -1674,17 +1667,9 @@ async function refreshSingleTicker(){
       const _rFutE=(earnings?.earningsCalendar||[])
         .filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
       if(_rFutE[0]?.date)saveEarningsPending(t,_rFutE[0].date,_rFutE[0].hour||null);
-      // Supplement from calendar past entries
-      const _rConf=S.get('earnings_confirmed_'+t)||[];
-      const _rCut=new Date();_rCut.setDate(_rCut.getDate()-_EARN_EVICT_DAYS);
-      let _rChg=false;
-      [...(earnings?.earningsCalendar||[]).filter(e=>e.date&&e.date<fmtDate(new Date()))].forEach(e=>{
-        if(new Date(e.date)<_rCut)return;
-        if(!_rConf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
-          _rConf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});_rChg=true;
-        }
-      });
-      if(_rChg)S.set('earnings_confirmed_'+t,_rConf.filter(c=>new Date(c.date)>=_rCut));
+      // Supplement from calendar past entries -- see _supplementConfirmedEarnings
+      // in helpers.js (shared with loadTicker and prefetch.js)
+      _supplementConfirmedEarnings(t,earnings?.earningsCalendar);
     }catch{}
     // Step 2: Yahoo quoteSummary (beta, short interest, R40 inputs, price targets, trends)
     setP(20,'Fetching '+t+' extended data...');

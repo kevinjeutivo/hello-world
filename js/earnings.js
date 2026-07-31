@@ -168,34 +168,77 @@ function buildRecentEarningsData(){
 // not touched by this at all. Each card's line naturally spans a different
 // number of days depending on how recently that ticker reported; the fixed
 // SVG width is intentional, not a bug.
-function _recentEarningsSparklineHtml(ticker,earningsDate,preAnnouncementPrice){
+// How many trading days before the earnings date both mini-sparklines show,
+// in addition to everything from the earnings date through today. Both
+// price and HVR use this same window so they can be visually compared
+// side by side -- same date range, same width, same marker position.
+const RECENT_SPARK_DAYS_BEFORE=15;
+
+// Shared window-slicing logic: finds the earnings date's index in a
+// date/value series, slices to RECENT_SPARK_DAYS_BEFORE trading days prior
+// through the end of the series (today), and reports which index in that
+// slice is the earnings date itself (for the vertical marker line). Returns
+// null if there's not enough data to plot.
+function _recentSparkWindow(dates,values,earningsDate){
+  let idx=dates.indexOf(earningsDate);
+  if(idx<0){
+    // fallback: nearest date if no exact match (e.g. non-trading-day date string)
+    idx=dates.reduce((best,d,i)=>Math.abs(new Date(d)-new Date(earningsDate))<Math.abs(new Date(dates[best])-new Date(earningsDate))?i:best,0);
+  }
+  const startIdx=Math.max(0,idx-RECENT_SPARK_DAYS_BEFORE);
+  const sliceVals=[];
+  let markerIdx=-1;
+  for(let i=startIdx;i<values.length;i++){
+    if(values[i]==null)continue;
+    if(i===idx)markerIdx=sliceVals.length;
+    sliceVals.push(values[i]);
+  }
+  if(sliceVals.length<2||markerIdx<0)return null;
+  return{values:sliceVals,markerIdx};
+}
+
+// Shared minimal SVG renderer for both sparklines: shape only, no axis or
+// value labels, with a vertical dashed marker at the earnings-date position.
+function _sparkSvg(vals,markerIdx,strokeColor){
+  const W=60,H=20,PAD=1;
+  const mn=Math.min(...vals),mx=Math.max(...vals);
+  const range=mx-mn||1;
+  const toY=v=>H-PAD-((v-mn)/range)*(H-PAD*2);
+  const toX=i=>PAD+(i/(vals.length-1))*(W-PAD*2);
+  const pts=vals.map((v,i)=>toX(i).toFixed(1)+','+toY(v).toFixed(1)).join(' ');
+  const markerX=toX(markerIdx).toFixed(1);
+  const marker=`<line x1="${markerX}" y1="${PAD}" x2="${markerX}" y2="${H-PAD}" stroke="var(--text3)" stroke-width="0.7" stroke-dasharray="2,2" opacity="0.6"/>`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;flex-shrink:0" xmlns="http://www.w3.org/2000/svg">`+
+    marker+
+    '<polyline points="'+pts+'" fill="none" stroke="'+strokeColor+'" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'+
+  '</svg>';
+}
+
+// Price shape: daily closes from hist2y_, colored green/red by whether the
+// last close is above or below the first in the window.
+function _recentEarningsSparklineHtml(ticker,earningsDate){
   try{
     const h2=S.get('hist2y_'+ticker);
     if(!h2?.closes?.length)return'';
-    const startTs=Math.floor(new Date(earningsDate+'T00:00:00Z').getTime()/1000);
-    const pts2=[];
-    if(preAnnouncementPrice!=null)pts2.push(preAnnouncementPrice); // true pre-report anchor, so the initial reaction shows as part of the shape
-    h2.timestamps.forEach((ts,i)=>{
-      if(ts>=startTs&&h2.closes[i]!=null)pts2.push(h2.closes[i]);
-    });
-    if(pts2.length<2)return'';
+    const dates=h2.timestamps.map(ts=>new Date(ts*1000).toISOString().split('T')[0]);
+    const win=_recentSparkWindow(dates,h2.closes,earningsDate);
+    if(!win)return'';
+    const color=win.values[win.values.length-1]>=win.values[0]?'var(--green)':'var(--red)';
+    return _sparkSvg(win.values,win.markerIdx,color);
+  }catch{return'';}
+}
 
-    const first=pts2[0],last=pts2[pts2.length-1];
-    const color=last>=first?'var(--green)':'var(--red)';
-
-    const W=60,H=20,PAD=1;
-    const mn=Math.min(...pts2),mx=Math.max(...pts2);
-    const range=mx-mn||1;
-    const toY=v=>H-PAD-((v-mn)/range)*(H-PAD*2);
-    const toX=i=>PAD+(i/(pts2.length-1))*(W-PAD*2);
-    const pts=pts2.map((v,i)=>toX(i).toFixed(1)+','+toY(v).toFixed(1)).join(' ');
-
-    const refLine=`<line x1="${PAD}" y1="${toY(first).toFixed(1)}" x2="${W-PAD}" y2="${toY(first).toFixed(1)}" stroke="var(--text3)" stroke-width="0.7" stroke-dasharray="2,2" opacity="0.6"/>`;
-
-    return '<svg width="60" height="20" viewBox="0 0 60 20" style="display:block;flex-shrink:0" xmlns="http://www.w3.org/2000/svg">'+
-      refLine+
-      '<polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'+
-    '</svg>';
+// HVR shape: reuses the same series already computed for the ticker page's
+// HVR chart. Single neutral color (not up/down colored) since HVR's zones
+// (calm to elevated) aren't a simple binary the way price direction is.
+function _recentEarningsHVRSparklineHtml(ticker,earningsDate){
+  try{
+    const series=computeHVRSeries(ticker);
+    if(!series?.values?.length||!series?.timestamps?.length)return'';
+    const dates=series.timestamps.map(ts=>new Date(ts*1000).toISOString().split('T')[0]);
+    const win=_recentSparkWindow(dates,series.values,earningsDate);
+    if(!win)return'';
+    return _sparkSvg(win.values,win.markerIdx,'var(--accent3)');
   }catch{return'';}
 }
 
@@ -216,12 +259,18 @@ function renderRecentEarningsCards(){
     const excessStr=e.excessReaction!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">VS S&amp;P</span><span style="color:${e.excessReaction>=0?'var(--green)':'var(--red)'}">${e.excessReaction>=0?'+':''}${e.excessReaction.toFixed(1)}%</span></div>`:'';
     const hvrStr=e.hvrAtReport!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">HVR AT REPORT</span>${e.hvrAtReport.toFixed(0)}</div>`:'';
     const preStr=e.preAnnouncementPrice!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">PRICE BEFORE</span>$${e.preAnnouncementPrice.toFixed(2)}</div>`:'';
-    const spark=_recentEarningsSparklineHtml(e.ticker,e.earningsDate,e.preAnnouncementPrice);
+    const spark=_recentEarningsSparklineHtml(e.ticker,e.earningsDate);
+    const hvrSpark=_recentEarningsHVRSparklineHtml(e.ticker,e.earningsDate);
+    const sparkRows=(spark||hvrSpark)?`<div style="margin-bottom:10px">`+
+      (spark?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px"><span style="font-family:var(--mono);font-size:9px;color:var(--text3);width:32px;flex-shrink:0">PRICE</span>${spark}</div>`:'')+
+      (hvrSpark?`<div style="display:flex;align-items:center;gap:8px"><span style="font-family:var(--mono);font-size:9px;color:var(--text3);width:32px;flex-shrink:0">HVR</span>${hvrSpark}</div>`:'')+
+    `</div>`:'';
     return`<div class="${cardCls}" onclick="navigateToTicker('${e.ticker}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <div style="display:flex;align-items:center;gap:8px"><span style="font-family:var(--sans);font-size:20px;font-weight:700;color:var(--accent)">${e.ticker}</span>${e.snap.price?`<span style="font-family:var(--mono);font-size:13px;color:var(--text2)">$${e.snap.price.toFixed(2)}</span>`:''}${spark}</div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-family:var(--sans);font-size:20px;font-weight:700;color:var(--accent)">${e.ticker}</span>${e.snap.price?`<span style="font-family:var(--mono);font-size:13px;color:var(--text2)">$${e.snap.price.toFixed(2)}</span>`:''}</div>
         <div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--text2)">${agoLabel}</div><div style="font-family:var(--mono);font-size:11px;color:var(--text2)">${e.earningsDate}${timing}</div></div>
       </div>
+      ${sparkRows}
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">${beatBadge}${streakBadge}${missBadge}${posBadge}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;font-family:var(--mono);font-size:11px">
         <div><span style="color:var(--text3);font-size:9px;display:block">EPS ACTUAL</span>${e.epsActual!==null?`$${e.epsActual.toFixed(2)}`:'N/A'}</div>

@@ -547,7 +547,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
   el.innerHTML=`<div class="card">
     <div class="card-title"><span class="dot"></span>${snap.ticker} -- ${snap.name}</div>
     ${tsChip(snap.ts,isLive)}
-    <div style="font-family:var(--mono);font-size:28px;font-weight:500;margin-bottom:4px">$${snap.price?.toFixed(2)||'N/A'}</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><span style="font-family:var(--mono);font-size:28px;font-weight:500">$${snap.price?.toFixed(2)||'N/A'}</span>${_sparklineHtml(snap.ticker)}</div>
     <div style="font-family:var(--mono);font-size:13px;color:${chgColor};margin-bottom:6px">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>
     ${(()=>{const _ms=getMarketState().state;const _isPre=_ms==='premarket';const _isOpen=_ms==='open';if(_isOpen||_isPre)return''; // suppress during open session and premarket
 if(!snap.postMarketPrice||snap.postMarketPrice===snap.price)return'';

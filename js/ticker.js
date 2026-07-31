@@ -71,8 +71,8 @@ async function loadTicker(){
         postMarketChange:ah.postMarketChange||null,
         postMarketChangePct:ah.postMarketChangePct||null,
         // Earnings from Finnhub calendar (BMO/AMC timing)
-        earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),
-        earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),
+        earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),
+        earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),
         ts:nowPT(),tsEpoch:Date.now(),isLive:true
       };
       S.set('snap_'+t,snap);
@@ -139,7 +139,7 @@ async function loadTicker(){
       promoteEarningsPending(t);
       // Save current future earnings date to pending cache
       const _futE=(earnings?.earningsCalendar||[])
-        .filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
+        .filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));
       if(_futE[0]?.date)saveEarningsPending(t,_futE[0].date,_futE[0].hour||null);
       // Supplement confirmed from past calendar entries (opportunistic).
       // NOTE: earningsHistoryYahoo intentionally excluded -- its date field is
@@ -1642,7 +1642,7 @@ async function refreshSingleTicker(){
     const ah=await fetchAfterHoursPrice(t);
     if(!ah||!ah.price)throw new Error('Yahoo quote failed for '+t);
     const _rPrice=ah.price,_rPrev=ah.prevClose||ah.price;
-    const futE=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
+    const futE=(earnings?.earningsCalendar||[]).filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));
     const snap={
       ticker:t,name:ah.name||t,
       price:_rPrice,prevClose:_rPrev,
@@ -1665,7 +1665,7 @@ async function refreshSingleTicker(){
     try{
       promoteEarningsPending(t);
       const _rFutE=(earnings?.earningsCalendar||[])
-        .filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
+        .filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));
       if(_rFutE[0]?.date)saveEarningsPending(t,_rFutE[0].date,_rFutE[0].hour||null);
       // Supplement from calendar past entries -- see _supplementConfirmedEarnings
       // in helpers.js (shared with loadTicker and prefetch.js)

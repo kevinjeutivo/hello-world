@@ -268,6 +268,42 @@ function _buildEarningsHistory(ticker){
   }catch{}
 }
 
+// Decides which after-hours (pre/post-market) fields a fresh snap should
+// use. Yahoo's own extended-hours quote data typically stops being
+// populated once the after-hours session itself ends (around 8pm ET) --
+// well before a US evening user might next refresh -- so a live fetch late
+// at night would otherwise silently erase a still-relevant after-hours
+// price the moment Yahoo stops reporting it. This carries the previous
+// snap's after-hours fields forward through the overnight closed period
+// (matching how the iPhone Stocks app keeps showing it), but correctly
+// clears them once a new trading session has genuinely started (PRE or
+// REGULAR), since an old after-hours price from yesterday would be
+// misleading once new trading has resumed. Shared by all three refresh
+// paths (loadTicker, refreshSingleTicker, prefetch.js).
+function _resolvePostMarketFields(freshQuote,prevSnap){
+  const freshState=freshQuote?.marketState||null;
+  if(freshQuote?.postMarketPrice!=null){
+    return{
+      marketState:freshState,
+      postMarketPrice:freshQuote.postMarketPrice,
+      postMarketChange:freshQuote.postMarketChange||null,
+      postMarketChangePct:freshQuote.postMarketChangePct||null
+    };
+  }
+  if(freshState==='PRE'||freshState==='REGULAR'){
+    return{marketState:freshState,postMarketPrice:null,postMarketChange:null,postMarketChangePct:null};
+  }
+  if(prevSnap?.postMarketPrice!=null){
+    return{
+      marketState:prevSnap.marketState||freshState,
+      postMarketPrice:prevSnap.postMarketPrice,
+      postMarketChange:prevSnap.postMarketChange||null,
+      postMarketChangePct:prevSnap.postMarketChangePct||null
+    };
+  }
+  return{marketState:freshState,postMarketPrice:null,postMarketChange:null,postMarketChangePct:null};
+}
+
 // Returns today's date as 'YYYY-MM-DD' in US Eastern time -- the timezone
 // actual market/earnings events are anchored to (market open/close, BMO/AMC
 // timing). Used throughout the earnings pipeline in place of

@@ -65,8 +65,24 @@ function renderCurrentEarningsView(isLive=false){
 // page's relative-performance card), computeHVRSeries (HVR history, shared
 // with the ticker page's HVR chart), and _getIncomePositionsForTicker
 // (position flag, shared with the Watchlist/Ticker "View Positions" feature).
+// True once current time is past 4:00pm ET (US market close). Used only to
+// gate same-day entries in Recent -- a single uniform floor regardless of
+// BMO/AMC timing, per the agreed simplification (not trying to distinguish
+// "has this specific ticker's report actually happened yet").
+function _isPastMarketCloseET(){
+  try{
+    const now=new Date();
+    const etFmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'numeric',hour12:false});
+    const parts=etFmt.formatToParts(now);
+    const etHour=parseInt(parts.find(p=>p.type==='hour').value);
+    const etMin=parseInt(parts.find(p=>p.type==='minute').value);
+    return(etHour*60+etMin)>=16*60; // 4:00pm ET
+  }catch{return true;} // fail open -- don't hide data on an error here
+}
+
 function buildRecentEarningsData(){
   const today=new Date();today.setHours(0,0,0,0);
+  const todayStr=fmtDate(new Date());
   const cutoff=new Date(today);cutoff.setDate(cutoff.getDate()-RECENT_EARNINGS_WINDOW_DAYS);
   const useTR=typeof getRPTotalReturn==='function'&&getRPTotalReturn();
   const spKey=useTR?'hist2y_sp500tr':'hist2y_sp500';
@@ -80,7 +96,9 @@ function buildRecentEarningsData(){
       const recentDates=confirmed.filter(c=>{
         if(!c.date)return false;
         const d=new Date(c.date+'T12:00:00Z');
-        return d>=cutoff&&d<today;
+        if(d<cutoff)return false;
+        if(c.date===todayStr)return _isPastMarketCloseET(); // same-day: only after close
+        return d<today;
       }).sort((a,b)=>b.date.localeCompare(a.date));
       if(!recentDates.length)return;
       const mostRecent=recentDates[0];
@@ -220,11 +238,25 @@ async function loadEarningsTab(){
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];
     try{
-      const snap=S.get('snap_'+t);if(!snap?.earningsDate)continue;
+      const snap=S.get('snap_'+t);
+      let _effEarningsDate=snap?.earningsDate,_effEarningsHour=snap?.earningsHour;
+      if(snap&&!_effEarningsDate){
+        // snap.earningsDate can come back empty if the live Finnhub calendar
+        // has already stopped listing today's date once the event has
+        // occurred, even same-day. Fall back to the confirmed/pending caches
+        // for a same-day match so the ticker doesn't silently drop out of
+        // Upcoming on the very day it reports.
+        const _todayStr=fmtDate(new Date());
+        const _confMatch=(S.get('earnings_confirmed_'+t)||[]).find(c=>c.date===_todayStr);
+        const _pendMatch=(S.get('earnings_pending_'+t)||[]).find(p=>p.date===_todayStr);
+        const _fallback=_confMatch||_pendMatch;
+        if(_fallback){_effEarningsDate=_fallback.date;_effEarningsHour=_fallback.hour||null;}
+      }
+      if(!snap||!_effEarningsDate)continue;
       // Use timezone-safe date comparison -- daysUntilDate compares calendar dates in local TZ
       // so a BMO ticker on earnings day doesn't vanish at night when UTC crosses midnight
-      const du=daysUntilDate(snap.earningsDate);if(du===null||du<0)continue;
-      const ed=new Date(snap.earningsDate+'T12:00:00Z'); // noon UTC for safe arithmetic
+      const du=daysUntilDate(_effEarningsDate);if(du===null||du<0)continue;
+      const ed=new Date(_effEarningsDate+'T12:00:00Z'); // noon UTC for safe arithmetic
       let epsEst=null,epsActualPrev=null,surprisePrev=null,beatStreak=0,missStreak=0;
       try{
         // NOTE: eh.date is Yahoo's fiscal PERIOD-END date (e.g. quarter close),
@@ -244,7 +276,7 @@ async function loadEarningsTab(){
       const ivrVal=computeIVR(t,snap.week52High,snap.week52Low,snap.price);const ivr=ivrInfo(ivrVal);
       let impliedMove=null;try{const oc=S.get('options_'+t);const res=oc?.data?.optionChain?.result?.[0];if(res&&snap.price){const opts=res.options?.[0];const atmP=(opts?.puts||[]).filter(p=>Math.abs(p.strike-snap.price)/snap.price<0.03);const atmC=(opts?.calls||[]).filter(c=>Math.abs(c.strike-snap.price)/snap.price<0.03);if(atmP.length&&atmC.length){const straddle=((atmP[0].bid+atmP[0].ask)/2)+((atmC[0].bid+atmC[0].ask)/2);impliedMove=(straddle/snap.price*100).toFixed(1);}}}catch{}
       const daysUntil=du; // already computed above via daysUntilDate
-      earningsAllData.push({ticker:t,snap,earningsDate:snap.earningsDate,earningsHour:snap.earningsHour,daysUntil,epsEst,epsActualPrev,surprisePrev,beatStreak,missStreak,ivrVal,ivrBadge:ivr.badge,impliedMove,news:news.slice(0,3)});
+      earningsAllData.push({ticker:t,snap,earningsDate:_effEarningsDate,earningsHour:_effEarningsHour,daysUntil,epsEst,epsActualPrev,surprisePrev,beatStreak,missStreak,ivrVal,ivrBadge:ivr.badge,impliedMove,news:news.slice(0,3)});
     }catch{}
     if(i<watchlist.length-1)await sleep(400);
   }

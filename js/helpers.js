@@ -261,6 +261,29 @@ function _buildEarningsHistory(ticker){
   }catch{}
 }
 
+// Mines Finnhub calendar entries that are today or in the past into
+// earnings_confirmed_<ticker>, deduping against existing entries (within a
+// 4-day window, to tolerate minor date-shift noise between sources) and
+// evicting anything beyond the _EARN_EVICT_DAYS retention window. Shared by
+// all three refresh paths (loadTicker, refreshSingleTicker, prefetch.js) --
+// previously three separate copies of this exact logic existed, which is
+// how a same-day date-comparison bug ended up fixed in two copies but
+// missed in the third during an earlier pass.
+function _supplementConfirmedEarnings(ticker,earningsCalendar){
+  try{
+    const conf=S.get('earnings_confirmed_'+ticker)||[];
+    const cutoff=new Date();cutoff.setDate(cutoff.getDate()-_EARN_EVICT_DAYS);
+    let changed=false;
+    (earningsCalendar||[]).filter(e=>e.date&&e.date<=fmtDate(new Date())).forEach(e=>{
+      if(new Date(e.date)<cutoff)return;
+      if(!conf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
+        conf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});changed=true;
+      }
+    });
+    if(changed)S.set('earnings_confirmed_'+ticker,conf.filter(c=>new Date(c.date)>=cutoff));
+  }catch{}
+}
+
 // Remove options_exp_<ticker>_<date> keys where <date> has already passed --
 // an expired option chain has zero future value. Previously these only got
 // cleaned up when a ticker was removed from the watchlist entirely, so for
@@ -398,7 +421,7 @@ function promoteEarningsPending(ticker){
     let changed=false;
     const stillPending=[];
     pending.forEach(p=>{
-      if(p.date<today){
+      if(p.date<=today){
         // Date has passed -- promote to confirmed
         if(new Date(p.date)>=cutoff){
           const alreadyHave=confirmed.some(c=>Math.abs(new Date(c.date)-new Date(p.date))<4*86400000);

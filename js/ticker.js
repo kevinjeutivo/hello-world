@@ -424,6 +424,36 @@ function _compute52W(ticker){
   }catch{return null;}
 }
 
+// Single shared note per ticker -- same storage key, same modal, same
+// 200-char limit as the Watchlist page's note feature (_openNoteModal etc.
+// in watchlist.js). Unlike the Watchlist card (which only shows a note once
+// one exists, collapsed by default, editing via a separate "..." menu),
+// this always shows an affordance -- "+ Add note" when empty, the full note
+// text (never truncated) when one exists -- and tapping either opens the
+// same edit modal directly.
+function _tickerNoteSectionHtml(ticker){
+  const note=S.get('watchlist_note_'+ticker)||'';
+  return `<div id="ticker-note-section" data-ticker="${ticker}" onclick="_openNoteModal('${ticker}')" style="cursor:pointer;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px;font-family:var(--mono);font-size:11px">`+
+    (note?
+      `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><span style="color:var(--text2);white-space:pre-wrap;word-break:break-word;flex:1">${note.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span><span style="flex-shrink:0;color:var(--accent3);font-size:10px">Edit</span></div>`
+    :
+      `<span style="color:var(--text3)">+ Add note</span>`
+    )+
+  `</div>`;
+}
+
+// Targeted refresh after saving/clearing a note from the modal -- swaps in
+// a freshly-rendered note section without a full ticker-page rebuild (which
+// would redraw charts and lose scroll position for no reason). Safe no-op
+// if the Ticker page isn't currently showing this ticker's note section
+// (e.g. the modal was opened from Watchlist, or you've since navigated
+// elsewhere).
+function _refreshTickerNoteSection(ticker){
+  const el=document.getElementById('ticker-note-section');
+  if(!el||el.dataset.ticker!==ticker)return;
+  el.outerHTML=_tickerNoteSectionHtml(ticker);
+}
+
 function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,hist2y,hist2ySP,earningsHistory){
   if(isLive){_lastLiveRenderTicker=snap.ticker;_lastLiveRenderTime=Date.now();}
   const el=document.getElementById('ticker-content');
@@ -519,11 +549,12 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
     ${tsChip(snap.ts,isLive)}
     <div style="font-family:var(--mono);font-size:28px;font-weight:500;margin-bottom:4px">$${snap.price?.toFixed(2)||'N/A'}</div>
     <div style="font-family:var(--mono);font-size:13px;color:${chgColor};margin-bottom:6px">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>
-    ${_tickerHasPositions?`<div onclick="_openPositionsModal('${snap.ticker}')" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:8px"><span style="font-size:13px">&#x1F4CB;</span>View Positions</div>`:''}
     ${(()=>{const _ms=getMarketState().state;const _isPre=_ms==='premarket';const _isOpen=_ms==='open';if(_isOpen||_isPre)return''; // suppress during open session and premarket
 if(!snap.postMarketPrice||snap.postMarketPrice===snap.price)return'';
 const _label=snap.marketState==='PRE'?'Pre-market':'After-hours';
 return`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarketPrice>snap.price?'var(--green)':'var(--red)'};margin-bottom:8px">${_label}: $${snap.postMarketPrice.toFixed(2)}${snap.postMarketChange?` <span style="font-size:11px">${snap.postMarketChange>=0?'+':''}${snap.postMarketChange.toFixed(2)} (${snap.postMarketChange>=0?'+':''}${snap.postMarketChangePct?.toFixed(2)||'0.00'}%)</span>`:''} <span style="font-size:10px;color:var(--text3)">(${snap.marketState||'extended'})</span></div>`;})()}
+    ${_tickerHasPositions?`<div onclick="_openPositionsModal('${snap.ticker}')" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:8px"><span style="font-size:13px">&#x1F4CB;</span>View Positions</div>`:''}
+    ${_tickerNoteSectionHtml(snap.ticker)}
     <div class="metrics-grid">
       ${(()=>{const _52w=_compute52W(snap.ticker);
         const hi=_52w?.high??snap.week52High;const hiDate=_52w?.highDate||null;

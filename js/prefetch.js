@@ -90,6 +90,8 @@ async function prefetchAll(){
       if(_ahQ&&_ahQ.price){
         const _pf=_ahQ.price,_pp=_ahQ.prevClose||_ahQ.price;
         const _futE=(earnings?.earningsCalendar||[]).filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));
+        const _pfPrevSnap=S.get('snap_'+t);
+        const _pfPmFields=_resolvePostMarketFields(_ahQ,_pfPrevSnap);
         const _sn2={ticker:t,name:_ahQ.name||t,price:_pf,prevClose:_pp,
           change:_pf-_pp,changePct:((_pf-_pp)/_pp*100),
           high:_ahQ.high||null,low:_ahQ.low||null,
@@ -97,11 +99,11 @@ async function prefetchAll(){
           peRatio:_ahQ.peRatio||null,peForward:_ahQ.forwardPE||null,
           epsTTM:_ahQ.trailingEps||null,
           dividendYield:_ahQ.dividendYield!=null?_ahQ.dividendYield*100:null,
-          marketState:_ahQ.marketState||null,
+          marketState:_pfPmFields.marketState,
           intradayVolume:_ahQ.intradayVolume||null,
-          postMarketPrice:_ahQ.postMarketPrice||null,
-          postMarketChange:_ahQ.postMarketChange||null,
-          postMarketChangePct:_ahQ.postMarketChangePct||null,
+          postMarketPrice:_pfPmFields.postMarketPrice,
+          postMarketChange:_pfPmFields.postMarketChange,
+          postMarketChangePct:_pfPmFields.postMarketChangePct,
           earningsDate:_futE[0]?.date||null,earningsHour:_futE[0]?.hour||null,
           ts:nowPT(),tsEpoch:Date.now(),isLive:true};
         if(_qs){if(_qs.beta!=null)_sn2.beta=_qs.beta;if(_qs.ptMean){_sn2.ptMean=_qs.ptMean;_sn2.ptHigh=_qs.ptHigh||null;_sn2.ptLow=_qs.ptLow||null;_sn2.ptAnalysts=_qs.ptAnalysts||null;}if(_qs.pegRatio!=null)_sn2.pegRatio=_qs.pegRatio;if(_qs.evToEbitda!=null)_sn2.evToEbitda=_qs.evToEbitda;if(_qs.shortPctFloat!=null){_sn2.shortPctFloat=_qs.shortPctFloat;_sn2.shortRatioYahoo=_qs.shortRatioYahoo;}if(_qs.totalAssets!=null)_sn2.totalAssets=_qs.totalAssets;if(_qs.earningsTrend&&_qs.earningsTrend.length)_sn2.earningsTrend=_qs.earningsTrend;if(_qs.recTrend&&_qs.recTrend.length)_sn2.recTrend=_qs.recTrend;if(_qs.earningsHistoryYahoo&&_qs.earningsHistoryYahoo.length)_sn2.earningsHistoryYahoo=_qs.earningsHistoryYahoo;if(_qs.revenueGrowthYahoo!=null)_sn2.revenueGrowthYahoo=_qs.revenueGrowthYahoo;if(_qs.operatingMarginsYahoo!=null)_sn2.operatingMarginsYahoo=_qs.operatingMarginsYahoo;if(_qs.freeCashflowYahoo!=null&&_qs.totalRevenueYahoo!=null&&_qs.totalRevenueYahoo!==0)_sn2.fcfMarginYahoo=_qs.freeCashflowYahoo/_qs.totalRevenueYahoo;}

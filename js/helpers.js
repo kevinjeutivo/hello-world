@@ -162,7 +162,7 @@ function _buildEarningsHistory(ticker){
     const h2raw=S.get('hist2y_'+t);
     const snap=S.get('snap_'+t);
     const nextEarnings=snap?.earningsDate||null;
-    const today=fmtDate(new Date());
+    const today=_todayET();
     const confirmed=S.get('earnings_confirmed_'+t)||[];
     let results=[];
 
@@ -261,6 +261,30 @@ function _buildEarningsHistory(ticker){
   }catch{}
 }
 
+// Returns today's date as 'YYYY-MM-DD' in US Eastern time -- the timezone
+// actual market/earnings events are anchored to (market open/close, BMO/AMC
+// timing). Used throughout the earnings pipeline in place of
+// fmtDate(new Date()) (which is always UTC) for same-day/past-date
+// comparisons, since UTC's calendar day rolls over hours before ET's,
+// silently breaking those comparisons during evening hours in any US
+// timezone west of UTC.
+function _todayET(){
+  return new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+}
+
+// Companion to _todayET() -- returns the same "today" as an actual Date
+// object (midnight ET, as a precise UTC instant), for comparisons that need
+// Date arithmetic rather than string equality. Correctly adapts to EST vs
+// EDT by reading the current UTC offset directly rather than hardcoding it.
+function _todayETStart(){
+  const dateStr=_todayET();
+  const offsetFmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',timeZoneName:'shortOffset'});
+  const offsetPart=offsetFmt.formatToParts(new Date()).find(p=>p.type==='timeZoneName')?.value||'GMT-5';
+  const offsetHours=parseInt(offsetPart.replace('GMT',''))||-5;
+  const offsetStr=(offsetHours<=0?'-':'+')+String(Math.abs(offsetHours)).padStart(2,'0')+':00';
+  return new Date(dateStr+'T00:00:00'+offsetStr);
+}
+
 // Mines Finnhub calendar entries that are today or in the past into
 // earnings_confirmed_<ticker>, deduping against existing entries (within a
 // 4-day window, to tolerate minor date-shift noise between sources) and
@@ -274,7 +298,7 @@ function _supplementConfirmedEarnings(ticker,earningsCalendar){
     const conf=S.get('earnings_confirmed_'+ticker)||[];
     const cutoff=new Date();cutoff.setDate(cutoff.getDate()-_EARN_EVICT_DAYS);
     let changed=false;
-    (earningsCalendar||[]).filter(e=>e.date&&e.date<=fmtDate(new Date())).forEach(e=>{
+    (earningsCalendar||[]).filter(e=>e.date&&e.date<=_todayET()).forEach(e=>{
       if(new Date(e.date)<cutoff)return;
       if(!conf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
         conf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});changed=true;
@@ -413,7 +437,7 @@ function saveEarningsPending(ticker, date, hour){
 // Call on every fetch. Returns true if any entries were promoted.
 function promoteEarningsPending(ticker){
   try{
-    const today=fmtDate(new Date());
+    const today=_todayET();
     const pending=S.get('earnings_pending_'+ticker)||[];
     if(!pending.length)return false;
     const cutoff=new Date();cutoff.setDate(cutoff.getDate()-_EARN_EVICT_DAYS);

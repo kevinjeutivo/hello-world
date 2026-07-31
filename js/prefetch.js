@@ -89,7 +89,7 @@ async function prefetchAll(){
       }
       if(_ahQ&&_ahQ.price){
         const _pf=_ahQ.price,_pp=_ahQ.prevClose||_ahQ.price;
-        const _futE=(earnings?.earningsCalendar||[]).filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
+        const _futE=(earnings?.earningsCalendar||[]).filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));
         const _sn2={ticker:t,name:_ahQ.name||t,price:_pf,prevClose:_pp,
           change:_pf-_pp,changePct:((_pf-_pp)/_pp*100),
           high:_ahQ.high||null,low:_ahQ.low||null,
@@ -145,7 +145,7 @@ async function prefetchAll(){
     try{
       promoteEarningsPending(t);
       const _pfFutE=(earnings?.earningsCalendar||[])
-        .filter(e=>e.date>=fmtDate(new Date())).sort((a,b)=>a.date.localeCompare(b.date));
+        .filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));
       if(_pfFutE[0]?.date)saveEarningsPending(t,_pfFutE[0].date,_pfFutE[0].hour||null);
       // Supplement confirmed from past calendar entries -- see
       // _supplementConfirmedEarnings in helpers.js (shared with loadTicker

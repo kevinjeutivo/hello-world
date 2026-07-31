@@ -51,6 +51,8 @@ async function loadTicker(){
       if(!ah||!ah.price)throw new Error('Yahoo quote failed for '+t);
       const _price=ah.price;
       const _prev=ah.prevClose||_price;
+      const _prevSnap=S.get('snap_'+t);
+      const _pmFields=_resolvePostMarketFields(ah,_prevSnap);
       snap={
         ticker:t,
         name:ah.name||t,
@@ -65,11 +67,11 @@ async function loadTicker(){
         peForward:ah.forwardPE||null,
         epsTTM:ah.trailingEps||null,
         dividendYield:ah.dividendYield!=null?ah.dividendYield*100:null, // convert decimal→%
-        marketState:ah.marketState||null,
+        marketState:_pmFields.marketState,
         intradayVolume:ah.intradayVolume||null,
-        postMarketPrice:ah.postMarketPrice||null,
-        postMarketChange:ah.postMarketChange||null,
-        postMarketChangePct:ah.postMarketChangePct||null,
+        postMarketPrice:_pmFields.postMarketPrice,
+        postMarketChange:_pmFields.postMarketChange,
+        postMarketChangePct:_pmFields.postMarketChangePct,
         // Earnings from Finnhub calendar (BMO/AMC timing)
         earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),
         earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),
@@ -1643,6 +1645,8 @@ async function refreshSingleTicker(){
     if(!ah||!ah.price)throw new Error('Yahoo quote failed for '+t);
     const _rPrice=ah.price,_rPrev=ah.prevClose||ah.price;
     const futE=(earnings?.earningsCalendar||[]).filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));
+    const _rPrevSnap=S.get('snap_'+t);
+    const _rPmFields=_resolvePostMarketFields(ah,_rPrevSnap);
     const snap={
       ticker:t,name:ah.name||t,
       price:_rPrice,prevClose:_rPrev,
@@ -1653,11 +1657,11 @@ async function refreshSingleTicker(){
       peForward:ah.forwardPE||null,
       epsTTM:ah.trailingEps||null,
       dividendYield:ah.dividendYield!=null?ah.dividendYield*100:null,
-      marketState:ah.marketState||null,
+      marketState:_rPmFields.marketState,
       intradayVolume:ah.intradayVolume||null,
-      postMarketPrice:ah.postMarketPrice||null,
-      postMarketChange:ah.postMarketChange||null,
-      postMarketChangePct:ah.postMarketChangePct||null,
+      postMarketPrice:_rPmFields.postMarketPrice,
+      postMarketChange:_rPmFields.postMarketChange,
+      postMarketChangePct:_rPmFields.postMarketChangePct,
       earningsDate:futE[0]?.date||null,earningsHour:futE[0]?.hour||null,
       ts:nowPT(),tsEpoch:Date.now(),isLive:true
     };

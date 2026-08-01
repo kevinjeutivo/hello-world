@@ -52,7 +52,7 @@ function restoreVIXFromCache(){
     try{const ms=getMarketState().state;
       if((ms==='open'||ms==='afterhours')&&ageMins<30){
         // Within 30 min of last full fetch: just update the intraday bar
-        _refreshVIXIntraday();
+        _refreshVIXIntraday(cv,cv3);
       }else{
         // Cache is old or market closed: do a full reload
         loadVIX();
@@ -64,9 +64,9 @@ function restoreVIXFromCache(){
 // Lightweight intraday VIX refresh -- only updates the last bar in the
 // existing daily cache, no full year re-fetch. Called by restoreVIXFromCache
 // during market hours when the cache is stale but < 30 minutes old.
-async function _refreshVIXIntraday(){
-  const cv=S.get('vix_hist');
-  const cv3=S.get('vix3m_hist');
+async function _refreshVIXIntraday(preloadedCv,preloadedCv3){
+  const cv=preloadedCv||S.get('vix_hist');
+  const cv3=preloadedCv3!==undefined?preloadedCv3:S.get('vix3m_hist');
   if(!cv)return; // no base cache to update
   try{
     // Use quote endpoint for reliable live index values -- 5-min bars
@@ -105,7 +105,7 @@ async function loadVIX(){
   const el=document.getElementById('vix-content');
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading VIX...</div></div>';
   try{
-    let vixH,vix3H,isLive=true;
+    let vixH,vix3H,isLive=true,_cachedVix; // _cachedVix set only if the catch block below runs; reused for the render call
     try{[vixH,vix3H]=await _vixTimeout(Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]),15000,'VIX hist');S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT(),tsEpoch:Date.now()});S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT(),tsEpoch:Date.now()});
       // Inject live VIX value via quote endpoint -- more reliable than
       // 5-minute bars which Yahoo sometimes returns as null for ^VIX index.
@@ -129,8 +129,8 @@ async function loadVIX(){
           S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT(),tsEpoch:Date.now()});
         }
       }catch{}}
-    catch{const cv=S.get('vix_hist'),cv3=S.get('vix3m_hist');if(cv){vixH={timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes};vix3H=cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null;isLive=false;showOfflineBanner(cv.ts,cv.tsEpoch);}else throw new Error('No VIX data available');}
-    renderVIXContent(vixH,vix3H,isLive,isLive?nowPT():(S.get('vix_hist')?.ts||''),isLive?Date.now():(S.get('vix_hist')?.tsEpoch));
+    catch{const cv=S.get('vix_hist'),cv3=S.get('vix3m_hist');if(cv){vixH={timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes};vix3H=cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null;isLive=false;_cachedVix=cv;showOfflineBanner(cv.ts,cv.tsEpoch);}else throw new Error('No VIX data available');}
+    renderVIXContent(vixH,vix3H,isLive,isLive?nowPT():(_cachedVix?.ts||''),isLive?Date.now():_cachedVix?.tsEpoch);
   }catch(err){document.getElementById('vix-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
 }
 

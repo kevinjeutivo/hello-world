@@ -72,7 +72,26 @@ function ordinal(n){
   return abs+'th';
 }
 
-function relAge(tsStr){
+// Computes a human-readable "X ago" label. Prefers `epoch` (a numeric
+// Date.now()-style timestamp) when provided -- plain subtraction, no
+// timezone ambiguity at all. Falls back to re-parsing the display string
+// when no epoch is available (for cache objects not yet migrated to carry
+// one), preserving existing behavior for those rather than breaking them.
+// The string-reparse fallback has a known limitation: it silently uses
+// whatever timezone the device currently considers "local" at the moment of
+// parsing, which can diverge from what was used when the string was
+// originally written (e.g. if the device's timezone changed since, such as
+// during travel). Passing epoch avoids that limitation entirely.
+function relAge(tsStr,epoch){
+  if(epoch!=null){
+    try{
+      const diff=(Date.now()-epoch)/1000;
+      if(diff<60)return'just now';
+      if(diff<3600)return Math.round(diff/60)+'m ago';
+      if(diff<86400)return Math.round(diff/3600)+'h ago';
+      return Math.round(diff/86400)+'d ago';
+    }catch{return'';}
+  }
   if(!tsStr)return'';
   try{
     const clean=tsStr.replace(/ PT$| UTC$| local$/,'').trim();
@@ -86,17 +105,18 @@ function relAge(tsStr){
   }catch{return'';}
 }
 
-function tsChip(ts,isLive){
+function tsChip(ts,isLive,epoch){
   const cls=isLive?'live':'stale';
-  const age=relAge(ts);
+  const age=relAge(ts,epoch);
   const ageStr=age?` (${age})`:'';
   const isoTs=new Date().toISOString();
-  return `<div class="ts-chip ${cls}" data-ts-iso="${isoTs}" data-ts-display="${ts||''}">${isLive?'live':'cached'} ${ts||'unknown'}${ageStr}</div>`;
+  const epochAttr=epoch!=null?` data-ts-epoch="${epoch}"`:'';
+  return `<div class="ts-chip ${cls}" data-ts-iso="${isoTs}" data-ts-display="${ts||''}"${epochAttr}>${isLive?'live':'cached'} ${ts||'unknown'}${ageStr}</div>`;
 }
 
-function fmtTS(ts){
+function fmtTS(ts,epoch){
   if(!ts)return'unknown';
-  const age=relAge(ts);
+  const age=relAge(ts,epoch);
   const ageStr=age?` (${age})`:'';
   return ts.replace(/ PT$| UTC$| local$/,'')+' '+ageLabel()+ageStr;
 }

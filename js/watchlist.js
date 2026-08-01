@@ -707,7 +707,7 @@ function renderWatchlist(){
     const chg=(c&&c.change!=null)?c.change:0,chgPct=(c&&c.changePct!=null)?c.changePct:0;
     const cc=chg>=0?'var(--green)':'var(--red)';
     const hasChg=c&&c.change!=null&&c.changePct!=null;
-    const age=c?relAge(c.ts):'';
+    const age=c?relAge(c.ts,c.tsEpoch):'';
     const hmBg=_heatmapBg(t);
     const bgStyle=hmBg?'background:'+hmBg+';':'';
     const volBadge=_volBadgeHtml(_checkVolumeBadge(t));

@@ -566,10 +566,12 @@ function renderOIChart(rows,currentPrice,t){
   const labels=strikes.map(s=>'$'+formatStrike(s));
   const nearestIdx=strikes.reduce((bi,s,i)=>Math.abs(s-currentPrice)<Math.abs(strikes[bi]-currentPrice)?i:bi,0);
   const hexDatasets=exps.map((exp,ei)=>{const hex=EXP_COLORS[ei%EXP_COLORS.length];const data=strikes.map(s=>{const row=rows.find(r=>r.strike===s&&r.expDate===exp);return row?row.oi:0;});return{label:exp,data,backgroundColor:strikes.map(s=>{const otm=currentMode==='puts'?s<=currentPrice:s>currentPrice;return otm?hex+'bb':hex+'44';}),borderRadius:2,stack:'oi'};});
-  const cached=S.get('options_'+t);
   const _oiTsEntry=(()=>{
     const _expEntries=selectedExpirations.map(e=>S.get('options_exp_'+t+'_'+e)).filter(Boolean);
-    if(!_expEntries.length)return{ts:cached?.ts||'',tsEpoch:cached?.tsEpoch};
+    if(!_expEntries.length){
+      const cached=S.get('options_'+t);
+      return{ts:cached?.ts||'',tsEpoch:cached?.tsEpoch};
+    }
     return _expEntries.reduce((oldest,e)=>{
       if(oldest.tsEpoch!=null&&e.tsEpoch!=null)return e.tsEpoch<oldest.tsEpoch?e:oldest;
       const _od=new Date((oldest.ts||'').replace(/ PT$| UTC$| local$/,'').trim());

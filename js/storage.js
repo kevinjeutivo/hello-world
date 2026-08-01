@@ -1,4 +1,4 @@
-// PutSeller Pro -- storage.js
+// Income Engine -- storage.js
 // localStorage wrapper with QuotaExceededError handling.
 
 const S={

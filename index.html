@@ -77,6 +77,14 @@
     </div>
   </div>
   <div class="card">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">View:</span>
+      <button class="btn btn-secondary" id="dash-view-puts" onclick="setDashboardViewMode('puts')" style="font-size:10px;padding:3px 8px">Puts</button>
+      <button class="btn btn-secondary" id="dash-view-cc" onclick="setDashboardViewMode('cc')" style="font-size:10px;padding:3px 8px;opacity:0.4">Covered Calls</button>
+      <button class="btn btn-secondary" id="dash-view-rsi" onclick="setDashboardViewMode('rsi')" style="font-size:10px;padding:3px 8px;opacity:0.4">RSI Backtest</button>
+    </div>
+  </div>
+  <div id="dash-conviction-controls" class="card">
     <div class="card-title"><span class="dot"></span>Conviction Dashboards</div>
     <div class="input-group"><label class="input-label">Target APY %</label><input class="input" type="number" id="target-apy" value="12" min="5" max="50"></div>
     <button class="btn btn-primary" id="run-dashboard-btn" onclick="runDashboards()">Run Both Conviction Dashboards</button>
@@ -85,15 +93,26 @@
       <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-align:center" id="dash-progress-label">Scoring...</div>
     </div>
   </div>
-  <div class="card">
+  <div id="dash-puts-card" class="card">
     <div class="card-title"><span class="dot" style="background:var(--red)"></span>Put-Selling Conviction</div>
     <div id="put-dash-ts"></div>
     <div id="put-dashboard-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Press Run to generate</div></div>
   </div>
-  <div class="card">
+  <div id="dash-cc-card" class="card" style="display:none">
     <div class="card-title"><span class="dot" style="background:var(--green)"></span>Covered Call Conviction</div>
     <div id="cc-dash-ts"></div>
     <div id="cc-dashboard-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Press Run to generate</div></div>
+  </div>
+  <div id="dash-rsi-card" class="card" style="display:none">
+    <div class="card-title"><span class="dot" style="background:var(--accent3)"></span>RSI Backtest</div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">How often has RSI oversold/overbought actually preceded a real price move, for stocks you watch? Cache-only -- uses whatever price history is already stored, no new fetches.</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Scope:</span>
+      <select class="input" id="rsi-backtest-ticker-sel" onchange="renderRSIBacktest()" style="font-family:var(--mono);font-size:11px;padding:4px 6px;flex:1">
+        <option value="">Aggregate (whole watchlist)</option>
+      </select>
+    </div>
+    <div id="rsi-backtest-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Loading...</div></div>
   </div>
 </div>
 
@@ -1251,6 +1270,7 @@ function init(){
   const cv=S.get('vix_hist');if(cv?.closes){const c=cv.closes.filter(x=>x!==null);if(c.length)updateVIXIndicator(c[c.length-1]);}else{_updateNavTop();}
   const ce=S.get('earnings_data');if(ce?.data){const today=new Date();earningsAllData=ce.data.map(e=>({...e,daysUntil:daysUntilDate(e.earningsDate)??Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);}
   updateOnlineIndicator();
+  _syncDashboardViewModeUI();
   window.addEventListener('online',updateOnlineIndicator);
   window.addEventListener('offline',updateOnlineIndicator);
   // Start market status banner ticker -- every second

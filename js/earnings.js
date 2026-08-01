@@ -151,7 +151,8 @@ function buildRecentEarningsData(){
 
       results.push({
         ticker:t,snap,earningsDate:mostRecent.date,earningsHour:mostRecent.hour,daysAgo,
-        epsActual,epsEstimate,surprisePct,beatStreak,missStreak,reactionPct,excessReaction,hvrAtReport,hasPositions,preAnnouncementPrice
+        epsActual,epsEstimate,surprisePct,beatStreak,missStreak,reactionPct,excessReaction,hvrAtReport,hasPositions,preAnnouncementPrice,
+        _hist2y:h2 // reused by the render step's sparklines, avoiding a re-fetch of the same blob
       });
     }catch{}
   });
@@ -216,9 +217,9 @@ function _sparkSvg(vals,markerIdx,strokeColor){
 
 // Price shape: daily closes from hist2y_, colored green/red by whether the
 // last close is above or below the first in the window.
-function _recentEarningsSparklineHtml(ticker,earningsDate){
+function _recentEarningsSparklineHtml(ticker,earningsDate,preloadedHist2y){
   try{
-    const h2=S.get('hist2y_'+ticker);
+    const h2=preloadedHist2y||S.get('hist2y_'+ticker);
     if(!h2?.closes?.length)return'';
     const dates=h2.timestamps.map(ts=>new Date(ts*1000).toISOString().split('T')[0]);
     const win=_recentSparkWindow(dates,h2.closes,earningsDate);
@@ -231,9 +232,9 @@ function _recentEarningsSparklineHtml(ticker,earningsDate){
 // HVR shape: reuses the same series already computed for the ticker page's
 // HVR chart. Single neutral color (not up/down colored) since HVR's zones
 // (calm to elevated) aren't a simple binary the way price direction is.
-function _recentEarningsHVRSparklineHtml(ticker,earningsDate){
+function _recentEarningsHVRSparklineHtml(ticker,earningsDate,preloadedHist2y){
   try{
-    const series=computeHVRSeries(ticker);
+    const series=computeHVRSeries(ticker,preloadedHist2y);
     if(!series?.values?.length||!series?.timestamps?.length)return'';
     const dates=series.timestamps.map(ts=>new Date(ts*1000).toISOString().split('T')[0]);
     const win=_recentSparkWindow(dates,series.values,earningsDate);
@@ -259,8 +260,8 @@ function renderRecentEarningsCards(){
     const excessStr=e.excessReaction!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">VS S&amp;P</span><span style="color:${e.excessReaction>=0?'var(--green)':'var(--red)'}">${e.excessReaction>=0?'+':''}${e.excessReaction.toFixed(1)}%</span></div>`:'';
     const hvrStr=e.hvrAtReport!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">HVR AT REPORT</span>${e.hvrAtReport.toFixed(0)}</div>`:'';
     const preStr=e.preAnnouncementPrice!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">PRICE BEFORE</span>$${e.preAnnouncementPrice.toFixed(2)}</div>`:'';
-    const spark=_recentEarningsSparklineHtml(e.ticker,e.earningsDate);
-    const hvrSpark=_recentEarningsHVRSparklineHtml(e.ticker,e.earningsDate);
+    const spark=_recentEarningsSparklineHtml(e.ticker,e.earningsDate,e._hist2y);
+    const hvrSpark=_recentEarningsHVRSparklineHtml(e.ticker,e.earningsDate,e._hist2y);
     const sparkRows=(spark||hvrSpark)?`<div style="margin-bottom:10px">`+
       (spark?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px"><span style="font-family:var(--mono);font-size:9px;color:var(--text3);width:32px;flex-shrink:0">PRICE</span>${spark}</div>`:'')+
       (hvrSpark?`<div style="display:flex;align-items:center;gap:8px"><span style="font-family:var(--mono);font-size:9px;color:var(--text3);width:32px;flex-shrink:0">HVR</span>${hvrSpark}</div>`:'')+
@@ -344,11 +345,12 @@ async function loadEarningsTab(){
 function renderEarningsCards(isLive=false){
   const el=document.getElementById('earnings-content');const today=new Date();
   let data=earningsAllData;
-  if(!data.length){const cached=S.get('earnings_data');if(cached?.data){data=cached.data.map(e=>({...e,daysUntil:daysUntilDate(e.earningsDate)??Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);earningsAllData=data;}}
+  const cached=S.get('earnings_data'); // read once, reused below instead of re-fetching the same object twice more
+  if(!data.length){if(cached?.data){data=cached.data.map(e=>({...e,daysUntil:daysUntilDate(e.earningsDate)??Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);earningsAllData=data;}}
   const filtered=data.filter(e=>e.daysUntil<=earningsDaysFilter);
   if(!filtered.length){el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4C5;</div>No upcoming earnings in this window. Press Refresh or run Full Refresh.</div>';return;}
-  const ts=S.get('earnings_data')?.ts||nowPT();
-  const tsEpoch=S.get('earnings_data')?.tsEpoch;
+  const ts=cached?.ts||nowPT();
+  const tsEpoch=cached?.tsEpoch;
   el.innerHTML=tsChip(ts,isLive,tsEpoch)+filtered.map(e=>{
     const cardCls=e.daysUntil<=7?'earnings-card earnings-card-urgent':e.daysUntil<=21?'earnings-card earnings-card-soon':'earnings-card earnings-card-normal';
     const timing=e.earningsHour==='bmo'?' (before open)':e.earningsHour==='amc'?' (after close)':'';

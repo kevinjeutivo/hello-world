@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap');
 :root{
-  --base-font:19px;
+  --base-font:18px;
   --bg:#0a0c0f;--surface:#111318;--surface2:#1a1d24;--surface3:#22262f;
   --border:#2a2e38;--accent:#00d4aa;--accent2:#ff6b35;--accent3:#7c6af7;
   --danger:#ff4757;--warn:#ffa502;--text:#e8eaf0;--text2:#8b8fa8;--text3:#555870;
@@ -12,11 +12,10 @@
   --acct-glow-alpha:50;
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-/* font-size is NOT set here -- applyFontSize() controls scaling via zoom on #app */
-html,body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overscroll-behavior:none}
-#app{display:flex;flex-direction:column;min-height:100vh;transform-origin:top left}
+html,body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:var(--base-font);min-height:100vh;overscroll-behavior:none}
+#app{display:flex;flex-direction:column;min-height:100vh}
 /* Market status banner */
-#market-status-banner{font-family:var(--mono);font-size:12px;font-weight:600;padding:6px 16px;text-align:center;transition:background 0.5s}
+#market-status-banner{font-family:var(--mono);font-size:12px;font-weight:600;padding:6px 16px;text-align:center;position:sticky;top:0;z-index:200;transition:background 0.5s}
 .mkt-open{background:rgba(0,200,150,0.9);color:#000}
 .mkt-prepost{background:rgba(255,165,2,0.9);color:#000}
 .mkt-closed{background:rgba(255,71,87,0.85);color:#fff}
@@ -28,9 +27,6 @@ html,body{background:var(--bg);color:var(--text);font-family:var(--sans);min-hei
 .header-left{display:flex;flex-direction:column;gap:2px}
 .header-title{font-family:var(--sans);font-size:18px;font-weight:800;letter-spacing:-1px;color:var(--accent)}
 .header-sub{font-family:var(--mono);font-size:10px;color:var(--text3);display:flex;align-items:center;gap:6px}
-.online-dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex-shrink:0}
-.online-dot-on{background:var(--green)}
-.online-dot-off{background:var(--red)}
 .settings-btn{background:var(--surface3);border:1px solid var(--border);color:var(--text2);border-radius:8px;padding:7px 11px;font-size:13px;cursor:pointer;font-family:var(--mono)}
 /* VIX status banner in header */
 #vix-status-banner{display:none;font-family:var(--mono);font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;margin-top:3px;width:fit-content}
@@ -38,7 +34,7 @@ html,body{background:var(--bg);color:var(--text);font-family:var(--sans);min-hei
 .vix-status-high{background:rgba(255,71,87,0.2);color:var(--red);border:1px solid rgba(255,71,87,0.4)}
 .vix-status-extreme{background:rgba(124,106,247,0.2);color:#b39ddb;border:1px solid rgba(124,106,247,0.4)}
 /* Nav tabs */
-.nav-tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.nav-tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;position:sticky;top:94px;z-index:99}
 .nav-tabs::-webkit-scrollbar{display:none}
 .nav-tab{flex:0 0 auto;padding:10px 13px;font-family:var(--mono);font-size:11px;color:var(--text3);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all 0.2s}
 .nav-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
@@ -113,13 +109,16 @@ select.input{cursor:pointer}
 .settings-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 18px}
 .settings-title{font-family:var(--sans);font-size:16px;font-weight:700;margin-bottom:16px}
 /* Offline confirm modal */
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:400;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:400;align-items:center;justify-content:center;padding:20px}
 .modal-overlay.open{display:flex}
-.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;max-width:340px;width:100%;margin:auto}
+.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;max-width:340px;width:100%}
 .modal-title{font-family:var(--sans);font-size:16px;font-weight:700;color:var(--danger);margin-bottom:12px}
+/* account modal non-destructive title color override */
+.modal-title-neutral{color:var(--accent)!important}
+.modal-title-warn{color:var(--warn)!important}
 .modal-body{font-family:var(--mono);font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:16px}
 .exp-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
-.exp-chip{font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer;transition:all 0.15px}
+.exp-chip{font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer;transition:all 0.15s}
 .exp-chip.selected{background:rgba(0,212,170,0.15);border-color:var(--accent);color:var(--accent)}
 .mode-toggle{display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:12px}
 .mode-btn{flex:1;padding:9px;font-family:var(--mono);font-size:11px;border:none;background:none;color:var(--text3);cursor:pointer;transition:all 0.2s}
@@ -156,15 +155,15 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .earnings-card-soon{background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.3);border-left:4px solid rgba(255,165,2,0.7)}
 .earnings-card-normal{background:rgba(0,212,170,0.05);border:1px solid var(--border);border-left:4px solid rgba(0,212,170,0.4)}
 a{color:inherit}
-/* ── Income account switcher ─────────────────────────────────────────────── */
-#income-acct-chips{display:flex;flex-direction:row;flex-wrap:nowrap;gap:6px;overflow-x:auto;flex:1;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px}
-#income-acct-chips::-webkit-scrollbar{display:none}
-.acct-chip{flex:0 0 auto;font-family:var(--mono);font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--text3);cursor:pointer;transition:all 0.2s;white-space:nowrap;user-select:none;-webkit-user-select:none}
-.acct-chip.active{color:#000;font-weight:500;border-color:transparent}
-.acct-chip-add{flex:0 0 auto;font-family:var(--mono);font-size:14px;padding:3px 10px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--text3);cursor:pointer;transition:all 0.2s;line-height:1}
-.acct-chip-add:active{opacity:0.7}
-#income-overview-btn{flex:0 0 auto;font-family:var(--mono);font-size:10px;padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer;white-space:nowrap;transition:all 0.2s}
-#income-overview-btn:active{opacity:0.7}
-/* account modal non-destructive title color override */
-.modal-title-neutral{color:var(--accent)!important}
-.modal-title-warn{color:var(--warn)!important}
+
+/* ── Collapsible sections (Guide, Top Holdings, Roll Candidates, etc.) ── */
+.gs-header{display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:4px 0;user-select:none;}
+.gs-header:active{opacity:0.7;}
+.gs-chevron{font-size:12px;color:var(--text3);transition:transform 0.2s;display:inline-block;}
+.gs-chevron.open{transform:rotate(90deg);}
+.gs-body{display:none;margin-top:8px;}
+.gs-body.open{display:block;}
+.guide-kv{display:flex;gap:8px;margin-bottom:6px;font-family:var(--mono);font-size:11px;line-height:1.5;}
+.guide-key{color:var(--accent);min-width:120px;flex-shrink:0;}
+.guide-val{color:var(--text2);}
+.guide-h3{font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 6px;}

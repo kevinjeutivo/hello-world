@@ -452,8 +452,8 @@ function _checkVolumeBadge(ticker){
   const etDate=new Date();
   const today=etDate.toLocaleDateString('en-US',{timeZone:'America/New_York'});
 
-  function _getAvgVol(){
-    const hist=S.get('hist2y_'+ticker);
+  function _getAvgVol(preloadedHist2y){
+    const hist=preloadedHist2y||S.get('hist2y_'+ticker);
     if(!hist?.volumes?.length)return null;
     const vols=hist.volumes.slice(-126).filter(v=>v>0);
     if(vols.length<VOL_AVG_DAYS+1)return null;
@@ -493,7 +493,7 @@ function _checkVolumeBadge(ticker){
     const sessionLen=sessionClose-570;
     if(elapsed<=0||sessionLen<=0)return null;
     const projectedVol=Math.round(intradayVol*(sessionLen/elapsed));
-    const avgVol=_getAvgVol();
+    const avgVol=_getAvgVol(hist2yC);
     if(!avgVol)return null;
     const mult=projectedVol/avgVol;
     return mult>=VOL_THRESHOLD_ORANGE?{multiplier:mult,date:today}:null;

@@ -289,9 +289,18 @@ function updateMarketBanner(){
 }
 
 function updateOnlineIndicator(){
-  const dot=document.getElementById('online-dot');
-  if(!dot)return;
-  dot.className=navigator.onLine?'online-dot online-dot-on':'online-dot online-dot-off';
+  const el=document.getElementById('online-dot');
+  if(!el)return;
+  const isOn=navigator.onLine;
+  el.title=isOn?'Online':'Offline -- showing cached data';
+  el.style.color=isOn?'var(--green)':'var(--red)';
+  // Full WiFi-signal icon when online; same shape dimmed with a diagonal
+  // slash through it when offline -- a real shape difference, not just a
+  // color swap, so it reads clearly at a glance (and doesn't rely on color
+  // perception alone).
+  el.innerHTML=isOn
+    ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block"><circle cx="12" cy="19" r="1.6" fill="currentColor"/><path d="M8.5 15a5 5 0 017 0" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M5 11.3a10 10 0 0114 0" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity="0.75"/><path d="M1.5 7.6a15 15 0 0121 0" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity="0.5"/></svg>'
+    : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block"><circle cx="12" cy="19" r="1.6" fill="currentColor" opacity="0.35"/><path d="M8.5 15a5 5 0 017 0" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity="0.35"/><path d="M5 11.3a10 10 0 0114 0" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity="0.25"/><path d="M1.5 7.6a15 15 0 0121 0" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity="0.18"/><line x1="2" y1="2" x2="22" y2="22" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
 }
 
 function showOfflineBanner(fetchTs,fetchTsEpoch){
@@ -368,11 +377,15 @@ function updateHeaderStatus(){
     if(snap?.ts){
       anyData=true;
       try{
-        const snapD=new Date(snap.ts.replace(/ PT$| UTC$| local$/,'').trim());
-        if(!isNaN(snapD.getTime())){
-          const ageMins=(now-snapD.getTime())/60000;
-          if(ageMins>30)allFresh=false;
+        let ageMins;
+        if(snap.tsEpoch!=null){
+          ageMins=(now-snap.tsEpoch)/60000;
+        }else{
+          const snapD=new Date(snap.ts.replace(/ PT$| UTC$| local$/,'').trim());
+          if(isNaN(snapD.getTime()))return;
+          ageMins=(now-snapD.getTime())/60000;
         }
+        if(ageMins>30)allFresh=false;
       }catch{}
     }
   });
@@ -383,6 +396,12 @@ function updateHeaderStatus(){
   const ltsEpoch=S.get('last_full_refresh_ts_epoch');
   const lbl=document.getElementById('last-full-refresh-label');
   if(lbl&&lts){const age=relAge(lts,ltsEpoch);lbl.textContent='Last full refresh: '+lts+(age?' ('+age+')':'');}
+}
+
+function _explainHeaderStatus(){
+  const dot=document.getElementById('header-status-dot');
+  const current=dot?.title||'Data freshness';
+  toast('Data freshness indicator -- checks whether your first 5 watchlist tickers were refreshed within the last 30 minutes. Green = fresh, amber = some data stale (refresh recommended), gray = nothing cached yet. Currently: '+current,6000);
 }
 
 function setTopBar(pct){

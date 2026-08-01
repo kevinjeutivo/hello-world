@@ -108,7 +108,7 @@ async function loadTicker(){
       }catch{}
       recData=snap.recTrend&&snap.recTrend.length?snap.recTrend[0]:null;
     }catch{
-      const cached=S.get('snap_'+t);if(cached){snap=cached;isLive=false;showOfflineBanner(cached.ts);}else throw new Error('No data available');
+      const cached=S.get('snap_'+t);if(cached){snap=cached;isLive=false;showOfflineBanner(cached.ts,cached.tsEpoch);}else throw new Error('No data available');
       recData=snap.recTrend&&snap.recTrend.length?snap.recTrend[0]:null;
     }
     // Single 2Y fetch (already resolved above, concurrently with the quote/earnings calls)
@@ -120,7 +120,7 @@ async function loadTicker(){
       const _vl2=h2.volumes?h2.volumes.map(v=>v||0):null;
       const _ac2=h2.adjcloses?h2.adjcloses.map(v=>v!=null?Math.round(v*100)/100:null):null;
       const _now=nowPT();
-      S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,adjcloses:_ac2,ts:_now});
+      S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,adjcloses:_ac2,ts:_now,tsEpoch:Date.now()});
       // Build live hist objects for rendering (sliced from 2Y data -- no separate keys stored)
       hist6mo={timestamps:h2.timestamps.slice(-126),closes:h2.closes.slice(-126),volumes:h2.volumes?h2.volumes.slice(-126):[]};
       hist1y={timestamps:h2.timestamps.slice(-252),closes:h2.closes.slice(-252),volumes:h2.volumes?h2.volumes.slice(-252):[]};
@@ -132,7 +132,7 @@ async function loadTicker(){
         const _cl=ch2.closes,_vl=ch2.volumes||[];
         hist6mo={timestamps:_ts.slice(-126),closes:_cl.slice(-126),volumes:_vl.slice(-126)};
         hist1y={timestamps:_ts.slice(-252),closes:_cl.slice(-252),volumes:_vl.slice(-252)};
-        if(!isLive)showOfflineBanner(ch2.ts);
+        if(!isLive)showOfflineBanner(ch2.ts,ch2.tsEpoch);
       }
     }
     // ── Save pending earnings date + promote passed dates to confirmed ────────
@@ -546,7 +546,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
   }
   el.innerHTML=`<div class="card">
     <div class="card-title"><span class="dot"></span>${snap.ticker} -- ${snap.name}</div>
-    ${tsChip(snap.ts,isLive)}
+    ${tsChip(snap.ts,isLive,snap.tsEpoch)}
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><span style="font-family:var(--mono);font-size:28px;font-weight:500">$${snap.price?.toFixed(2)||'N/A'}</span>${_sparklineHtml(snap.ticker)}</div>
     <div style="font-family:var(--mono);font-size:13px;color:${chgColor};margin-bottom:6px">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>
     ${(()=>{const _ms=getMarketState().state;const _isPre=_ms==='premarket';const _isOpen=_ms==='open';if(_isOpen||_isPre)return''; // suppress during open session and premarket
@@ -1741,7 +1741,7 @@ async function refreshSingleTicker(){
       const _rvl=_rh2.volumes?_rh2.volumes.map(v=>v||0):null;
       const _rac=_rh2.adjcloses?_rh2.adjcloses.map(v=>v!=null?Math.round(v*100)/100:null):null;
       const _rn=nowPT();
-      S.set('hist2y_'+t,{timestamps:_rts,closes:_rcl,volumes:_rvl,adjcloses:_rac,ts:_rn});
+      S.set('hist2y_'+t,{timestamps:_rts,closes:_rcl,volumes:_rvl,adjcloses:_rac,ts:_rn,tsEpoch:Date.now()});
       if(_idRes&&_idRes.closes&&_idRes.closes.length>=2){
         const _idTs=_idRes.timestamps?_idRes.timestamps.map(d=>d instanceof Date?d.getTime():d):null;
         S.set('intraday_'+t,{closes:_idRes.closes,timestamps:_idTs,ts:_rn});

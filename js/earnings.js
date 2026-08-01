@@ -108,10 +108,10 @@ function buildRecentEarningsData(){
 
       // EPS actual/estimate/surprise, beat/miss streak -- same computation as
       // the Upcoming view, from Yahoo's earningsHistory
-      let epsActual=null,epsEstimate=null,surprisePct=null;
+      let epsActual=null,epsEstimate=null,surprisePct=null,surpriseDollar=null;
       const eh=(snap.earningsHistoryYahoo||[]).filter(e=>e.date).sort((a,b)=>b.date.localeCompare(a.date));
       const prevEh=eh.find(e=>e.epsActual!=null);
-      if(prevEh){epsActual=prevEh.epsActual;epsEstimate=prevEh.epsEstimate;surprisePct=prevEh.surprisePercent;}
+      if(prevEh){epsActual=prevEh.epsActual;epsEstimate=prevEh.epsEstimate;surprisePct=prevEh.surprisePercent;surpriseDollar=prevEh.surpriseDollar;}
       const actuals=eh.filter(e=>e.epsActual!=null&&e.epsEstimate!=null);
       const{beatStreak,missStreak}=_computeBeatMissStreak(actuals);
 
@@ -151,7 +151,7 @@ function buildRecentEarningsData(){
 
       results.push({
         ticker:t,snap,earningsDate:mostRecent.date,earningsHour:mostRecent.hour,daysAgo,
-        epsActual,epsEstimate,surprisePct,beatStreak,missStreak,reactionPct,excessReaction,hvrAtReport,hasPositions,preAnnouncementPrice,
+        epsActual,epsEstimate,surprisePct,surpriseDollar,beatStreak,missStreak,reactionPct,excessReaction,hvrAtReport,hasPositions,preAnnouncementPrice,
         _hist2y:h2 // reused by the render step's sparklines, avoiding a re-fetch of the same blob
       });
     }catch{}
@@ -252,9 +252,11 @@ function renderRecentEarningsCards(){
     const cardCls='earnings-card earnings-card-normal';
     const timing=e.earningsHour==='bmo'?' (before open)':e.earningsHour==='amc'?' (after close)':'';
     const agoLabel=(e.daysAgo===0?'Today':e.daysAgo===1?'Yesterday':e.daysAgo+' days ago')+(isFresh?' &#x1F195;':'');
-    const beatBadge=e.surprisePct!=null?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:${e.surprisePct>=0?'rgba(0,200,150,0.2)':'rgba(255,71,87,0.2)'};color:${e.surprisePct>=0?'var(--green)':'var(--red)'}">${e.surprisePct>=0?'Beat':'Missed'} ${Math.abs(e.surprisePct).toFixed(1)}%</span>`:'';
-    const streakBadge=e.beatStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(0,200,150,0.2);color:var(--green)">Beat ${e.beatStreak}Q</span>`:'';
-    const missBadge=e.missStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,71,87,0.2);color:var(--red)">Missed ${e.missStreak}Q</span>`:'';
+    const beatBadge=e.surprisePct!=null?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:${e.surprisePct>=0?'rgba(0,200,150,0.2)':'rgba(255,71,87,0.2)'};color:${e.surprisePct>=0?'var(--green)':'var(--red)'}">${e.surprisePct>=0?'Beat':'Missed'} ${Math.abs(e.surprisePct).toFixed(1)}%</span>`
+      :e.surpriseDollar!=null?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:${e.surpriseDollar>=0?'rgba(0,200,150,0.2)':'rgba(255,71,87,0.2)'};color:${e.surpriseDollar>=0?'var(--green)':'var(--red)'}" title="Estimate too close to zero for a meaningful percentage">${e.surpriseDollar>=0?'Beat':'Missed'} by $${Math.abs(e.surpriseDollar).toFixed(2)}</span>`
+      :'';
+    const streakBadge=e.beatStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(0,200,150,0.2);color:var(--green)">Beat Streak: ${e.beatStreak}Qs</span>`:'';
+    const missBadge=e.missStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,71,87,0.2);color:var(--red)">Miss Streak: ${e.missStreak}Qs</span>`:'';
     const posBadge=e.hasPositions?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(124,106,247,0.2);color:#b39ddb">You hold this</span>`:'';
     const reactionStr=e.reactionPct!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">PRICE REACTION</span><span style="color:${e.reactionPct>=0?'var(--green)':'var(--red)'}">${e.reactionPct>=0?'+':''}${e.reactionPct.toFixed(1)}%</span></div>`:'';
     const excessStr=e.excessReaction!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">VS S&amp;P</span><span style="color:${e.excessReaction>=0?'var(--green)':'var(--red)'}">${e.excessReaction>=0?'+':''}${e.excessReaction.toFixed(1)}%</span></div>`:'';
@@ -314,16 +316,32 @@ async function loadEarningsTab(){
       // so a BMO ticker on earnings day doesn't vanish at night when UTC crosses midnight
       const du=daysUntilDate(_effEarningsDate);if(du===null||du<0)continue;
       const ed=new Date(_effEarningsDate+'T12:00:00Z'); // noon UTC for safe arithmetic
-      let epsEst=null,epsActualPrev=null,surprisePrev=null,beatStreak=0,missStreak=0;
+      let epsEst=null,epsActualPrev=null,surprisePrev=null,surpriseDollarPrev=null,beatStreak=0,missStreak=0;
       try{
         // NOTE: eh.date is Yahoo's fiscal PERIOD-END date (e.g. quarter close),
         // not the earnings ANNOUNCEMENT date -- do not mine it into
         // earnings_confirmed_ (that cache specifically needs report dates,
         // which come from the Finnhub calendar endpoint instead). Only the
         // EPS actual/estimate/surprise values are used here.
-        const eh=(snap.earningsHistoryYahoo||[]).filter(e=>e.date).sort((a,b)=>b.date.localeCompare(a.date));
+        //
+        // Exclude the entry corresponding to THIS card's own earnings event
+        // (whether already reported earlier today, or still upcoming) from
+        // "last quarter"/streak below. Otherwise, once Yahoo's data updates
+        // intraday after a same-day report, "surprise last Q" and the streak
+        // badge would silently start describing the very event this card is
+        // still counting down to -- ambiguous, since the card hasn't yet
+        // rolled into Recent. Can't match by exact date (period-end vs.
+        // announcement date differ by 3-6 weeks), so use a proximity window
+        // instead: anything within ~45 days before this card's announcement
+        // date is treated as the same event, not a genuine prior quarter.
+        const eh=(snap.earningsHistoryYahoo||[]).filter(e=>e.date)
+          .filter(e=>{
+            const daysBefore=(ed-new Date(e.date+'T12:00:00Z'))/86400000;
+            return !(daysBefore>=0&&daysBefore<45);
+          })
+          .sort((a,b)=>b.date.localeCompare(a.date));
         const prev=eh.find(e=>e.epsActual!=null);
-        if(prev){epsActualPrev=prev.epsActual;surprisePrev=prev.surprisePercent;}
+        if(prev){epsActualPrev=prev.epsActual;surprisePrev=prev.surprisePercent;surpriseDollarPrev=prev.surpriseDollar;}
         const actuals=eh.filter(e=>e.epsActual!=null&&e.epsEstimate!=null);
         ({beatStreak,missStreak}=_computeBeatMissStreak(actuals));
       }catch{}
@@ -333,7 +351,7 @@ async function loadEarningsTab(){
       const ivrVal=computeIVR(t,snap.week52High,snap.week52Low,snap.price);const ivr=ivrInfo(ivrVal);
       let impliedMove=null;try{const oc=S.get('options_'+t);const res=oc?.data?.optionChain?.result?.[0];if(res&&snap.price){const opts=res.options?.[0];const atmP=(opts?.puts||[]).filter(p=>Math.abs(p.strike-snap.price)/snap.price<0.03);const atmC=(opts?.calls||[]).filter(c=>Math.abs(c.strike-snap.price)/snap.price<0.03);if(atmP.length&&atmC.length){const straddle=((atmP[0].bid+atmP[0].ask)/2)+((atmC[0].bid+atmC[0].ask)/2);impliedMove=(straddle/snap.price*100).toFixed(1);}}}catch{}
       const daysUntil=du; // already computed above via daysUntilDate
-      earningsAllData.push({ticker:t,snap,earningsDate:_effEarningsDate,earningsHour:_effEarningsHour,daysUntil,epsEst,epsActualPrev,surprisePrev,beatStreak,missStreak,ivrVal,ivrBadge:ivr.badge,impliedMove,news:news.slice(0,3)});
+      earningsAllData.push({ticker:t,snap,earningsDate:_effEarningsDate,earningsHour:_effEarningsHour,daysUntil,epsEst,epsActualPrev,surprisePrev,surpriseDollarPrev,beatStreak,missStreak,ivrVal,ivrBadge:ivr.badge,impliedMove,news:news.slice(0,3)});
     }catch{}
     if(i<watchlist.length-1)await sleep(400);
   }
@@ -365,11 +383,13 @@ function renderEarningsCards(isLive=false){
         <div><span style="font-family:var(--sans);font-size:20px;font-weight:700;color:var(--accent)">${e.ticker}</span>${e.snap.price?`<span style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-left:8px">$${e.snap.price.toFixed(2)}</span>`:''}</div>
         <div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--warn)">${urgency}</div><div style="font-family:var(--mono);font-size:11px;color:var(--text2)">${e.earningsDate}${timing}</div></div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">${e.ivrBadge||''}${e.impliedMove?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(124,106,247,0.2);color:#b39ddb">Implied +/-${e.impliedMove}%</span>`:''}${e.beatStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(0,200,150,0.2);color:var(--green)">Beat ${e.beatStreak}Q</span>`:''}${e.missStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,71,87,0.2);color:var(--red)">Missed ${e.missStreak}Q</span>`:''}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">${e.ivrBadge||''}${e.impliedMove?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(124,106,247,0.2);color:#b39ddb">Implied +/-${e.impliedMove}%</span>`:''}${e.beatStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(0,200,150,0.2);color:var(--green)">Beat Streak: ${e.beatStreak}Qs</span>`:''}${e.missStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,71,87,0.2);color:var(--red)">Miss Streak: ${e.missStreak}Qs</span>`:''}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;font-family:var(--mono);font-size:11px">
         <div><span style="color:var(--text3);font-size:9px;display:block">EPS ESTIMATE</span>${e.epsEst!==null?`$${e.epsEst.toFixed(2)}`:'N/A'}</div>
         <div><span style="color:var(--text3);font-size:9px;display:block">PRIOR ACTUAL</span>${e.epsActualPrev!==null?`$${e.epsActualPrev.toFixed(2)}`:'N/A'}</div>
-        ${e.surprisePrev!==null?`<div style="grid-column:span 2"><span style="color:${e.surprisePrev>0?'var(--green)':'var(--red)'}">${e.surprisePrev>0?'+':''}${e.surprisePrev.toFixed(1)}% surprise last Q</span></div>`:''}
+        ${e.surprisePrev!==null?`<div style="grid-column:span 2"><span style="color:${e.surprisePrev>0?'var(--green)':'var(--red)'}">${e.surprisePrev>0?'+':''}${e.surprisePrev.toFixed(1)}% surprise last Q</span></div>`
+          :e.surpriseDollarPrev!=null?`<div style="grid-column:span 2"><span style="color:${e.surpriseDollarPrev>0?'var(--green)':'var(--red)'}" title="Estimate too close to zero for a meaningful percentage">${e.surpriseDollarPrev>0?'+':''}$${e.surpriseDollarPrev.toFixed(2)} surprise last Q</span></div>`
+          :''}
         ${e.snap.shortRatio?`<div><span style="color:var(--text3);font-size:9px;display:block">SHORT RATIO</span>${e.snap.shortRatio.toFixed(1)}d</div>`:''}
         ${e.snap.beta?`<div><span style="color:var(--text3);font-size:9px;display:block">BETA</span>${e.snap.beta.toFixed(2)}</div>`:''}
       </div>

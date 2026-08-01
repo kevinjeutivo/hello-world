@@ -424,17 +424,25 @@ function _computeRSIBacktestForTicker(ticker){
       return(to-from)/from*100;
     };
 
-    // Detect episodes: only the day RSI first crosses into a zone, not every
-    // day spent there
-    const oversoldIdx=[],overboughtIdx=[];
+    // Detect episodes: both entering a zone (first day RSI crosses in, not
+    // every day spent there) and leaving it (first day RSI crosses back out).
+    // Entering measures "what happens once a stock looks stretched"; leaving
+    // measures "what happens once that stretched condition has actually
+    // resolved" -- a genuinely different question, since RSI can stay
+    // oversold for a while during an ongoing decline (entering doesn't mean
+    // the move is over).
+    const oversoldEnterIdx=[],oversoldExitIdx=[];
+    const overboughtEnterIdx=[],overboughtExitIdx=[];
     let wasOversold=false,wasOverbought=false;
     for(let k=0;k<rsi.length;k++){
       const closeIdx=k+rsiPeriod;
       const v=rsi[k];
       const isOversold=v<RSI_OVERSOLD_THRESHOLD;
       const isOverbought=v>RSI_OVERBOUGHT_THRESHOLD;
-      if(isOversold&&!wasOversold)oversoldIdx.push(closeIdx);
-      if(isOverbought&&!wasOverbought)overboughtIdx.push(closeIdx);
+      if(isOversold&&!wasOversold)oversoldEnterIdx.push(closeIdx);
+      if(!isOversold&&wasOversold)oversoldExitIdx.push(closeIdx);
+      if(isOverbought&&!wasOverbought)overboughtEnterIdx.push(closeIdx);
+      if(!isOverbought&&wasOverbought)overboughtExitIdx.push(closeIdx);
       wasOversold=isOversold;
       wasOverbought=isOverbought;
     }
@@ -457,17 +465,22 @@ function _computeRSIBacktestForTicker(ticker){
       return rets.reduce((a,b)=>a+b,0)/rets.length;
     };
 
-    const oversold={occurrences:oversoldIdx.length,windows:{}};
-    const overbought={occurrences:overboughtIdx.length,windows:{}};
-    RSI_BACKTEST_WINDOWS.forEach(n=>{
-      const baseline=baselineFor(n);
-      const os=summarize(oversoldIdx,n);
-      const ob=summarize(overboughtIdx,n);
-      oversold.windows[n]=os?{...os,baseline}:null;
-      overbought.windows[n]=ob?{...ob,baseline}:null;
-    });
+    const buildDirection=(idxList)=>{
+      const d={occurrences:idxList.length,windows:{}};
+      RSI_BACKTEST_WINDOWS.forEach(n=>{
+        const s=summarize(idxList,n);
+        d.windows[n]=s?{...s,baseline:baselineFor(n)}:null;
+      });
+      return d;
+    };
 
-    return{ticker,totalDays:closes.length,oversold,overbought};
+    return{
+      ticker,totalDays:closes.length,
+      oversoldEnter:buildDirection(oversoldEnterIdx),
+      oversoldExit:buildDirection(oversoldExitIdx),
+      overboughtEnter:buildDirection(overboughtEnterIdx),
+      overboughtExit:buildDirection(overboughtExitIdx)
+    };
   }catch{return null;}
 }
 
@@ -476,12 +489,16 @@ function _computeRSIBacktestForTicker(ticker){
 // could offer alone. Same cache-only, zero-new-fetch design as the
 // per-ticker version.
 function _computeRSIBacktestAggregate(tickers){
+  const CATEGORIES=['oversoldEnter','oversoldExit','overboughtEnter','overboughtExit'];
   const pooled={};
-  RSI_BACKTEST_WINDOWS.forEach(n=>{
-    pooled[n]={oversoldReturns:[],overboughtReturns:[],baselineReturns:[]};
+  CATEGORIES.forEach(cat=>{
+    pooled[cat]={};
+    RSI_BACKTEST_WINDOWS.forEach(n=>{pooled[cat][n]=[];});
   });
+  const baselinePooled={};
+  RSI_BACKTEST_WINDOWS.forEach(n=>{baselinePooled[n]=[];});
   let tickersWithData=0;
-  let totalOversoldEpisodes=0,totalOverboughtEpisodes=0;
+  const totalEpisodes={oversoldEnter:0,oversoldExit:0,overboughtEnter:0,overboughtExit:0};
 
   tickers.forEach(t=>{
     try{
@@ -498,27 +515,29 @@ function _computeRSIBacktestAggregate(tickers){
         return(to-from)/from*100;
       };
 
-      const oversoldIdx=[],overboughtIdx=[];
+      const idxByCat={oversoldEnter:[],oversoldExit:[],overboughtEnter:[],overboughtExit:[]};
       let wasOversold=false,wasOverbought=false;
       for(let k=0;k<rsi.length;k++){
         const closeIdx=k+rsiPeriod;
         const v=rsi[k];
         const isOversold=v<RSI_OVERSOLD_THRESHOLD;
         const isOverbought=v>RSI_OVERBOUGHT_THRESHOLD;
-        if(isOversold&&!wasOversold)oversoldIdx.push(closeIdx);
-        if(isOverbought&&!wasOverbought)overboughtIdx.push(closeIdx);
+        if(isOversold&&!wasOversold)idxByCat.oversoldEnter.push(closeIdx);
+        if(!isOversold&&wasOversold)idxByCat.oversoldExit.push(closeIdx);
+        if(isOverbought&&!wasOverbought)idxByCat.overboughtEnter.push(closeIdx);
+        if(!isOverbought&&wasOverbought)idxByCat.overboughtExit.push(closeIdx);
         wasOversold=isOversold;
         wasOverbought=isOverbought;
       }
-      totalOversoldEpisodes+=oversoldIdx.length;
-      totalOverboughtEpisodes+=overboughtIdx.length;
+      CATEGORIES.forEach(cat=>{totalEpisodes[cat]+=idxByCat[cat].length;});
 
       RSI_BACKTEST_WINDOWS.forEach(n=>{
-        oversoldIdx.forEach(idx=>{const r=fwdReturn(idx,n);if(r!=null)pooled[n].oversoldReturns.push(r);});
-        overboughtIdx.forEach(idx=>{const r=fwdReturn(idx,n);if(r!=null)pooled[n].overboughtReturns.push(r);});
+        CATEGORIES.forEach(cat=>{
+          idxByCat[cat].forEach(idx=>{const r=fwdReturn(idx,n);if(r!=null)pooled[cat][n].push(r);});
+        });
         for(let i=0;i<closes.length-n;i++){
           const r=fwdReturn(i,n);
-          if(r!=null)pooled[n].baselineReturns.push(r);
+          if(r!=null)baselinePooled[n].push(r);
         }
       });
     }catch{}
@@ -531,18 +550,18 @@ function _computeRSIBacktestAggregate(tickers){
     return{count:arr.length,avgReturn,pctPositive};
   };
 
-  const oversold={windows:{}},overbought={windows:{}};
-  RSI_BACKTEST_WINDOWS.forEach(n=>{
-    const baseline=summarizePool(pooled[n].baselineReturns)?.avgReturn;
-    const os=summarizePool(pooled[n].oversoldReturns);
-    const ob=summarizePool(pooled[n].overboughtReturns);
-    oversold.windows[n]=os?{...os,baseline}:null;
-    overbought.windows[n]=ob?{...ob,baseline}:null;
+  const result={tickersWithData,tickersTotal:tickers.length};
+  CATEGORIES.forEach(cat=>{
+    const d={occurrences:totalEpisodes[cat],windows:{}};
+    RSI_BACKTEST_WINDOWS.forEach(n=>{
+      const s=summarizePool(pooled[cat][n]);
+      const baseline=summarizePool(baselinePooled[n])?.avgReturn;
+      d.windows[n]=s?{...s,baseline}:null;
+    });
+    result[cat]=d;
   });
-  oversold.occurrences=totalOversoldEpisodes;
-  overbought.occurrences=totalOverboughtEpisodes;
 
-  return{tickersWithData,tickersTotal:tickers.length,oversold,overbought};
+  return result;
 }
 
 function formatStrike(x){return x===Math.floor(x)?x.toString():x.toFixed(2);}

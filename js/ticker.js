@@ -331,7 +331,12 @@ function toggleBBSpan(span){
   if(bbData)renderBBChart(bbData,h);
   // Re-render volume chart for new span
   const _vt=currentTicker;
-  const _vh2=S.get('hist2y_'+_vt);
+  // _vt and t are normally the same ticker (both driven by the same
+  // selection), so reuse the blob we already read above instead of
+  // re-fetching and re-parsing the same hist2y_ JSON a second time.
+  // Falls back to a fresh read if they ever differ, so behavior is
+  // unchanged either way.
+  const _vh2=(_vt===t)?h2:S.get('hist2y_'+_vt);
   const _vh2y=_vh2?{timestamps:_vh2.timestamps,closes:_vh2.closes,volumes:_vh2.volumes||null}:null;
   let _vh6m=null,_vh1y=null;
   if(_vh2){
@@ -341,7 +346,7 @@ function toggleBBSpan(span){
   }
   const _vSnap=S.get('snap_'+_vt);const _avg20=_vSnap?.avgVol20||null;
   renderVolChart(_vh6m,_vh1y,_vh2y,span,_avg20);
-  renderHVRChart(_vt,span);
+  renderHVRChart(_vt,span,_vh2);
 }
 
 function buildR40Tile(snap){
@@ -397,9 +402,9 @@ function fmtVol(v){if(v==null)return'N/A';if(v>=1e9)return(v/1e9).toFixed(2)+'B'
 // Compute 52W high and low with dates from Yahoo hist2y_ cache.
 // Returns {high, highDate, low, lowDate} or null if insufficient data.
 // Uses unadjusted closes (not adjcloses) to match market convention.
-function _compute52W(ticker){
+function _compute52W(ticker,preloadedHist2y){
   try{
-    const h=S.get('hist2y_'+ticker);
+    const h=preloadedHist2y||S.get('hist2y_'+ticker);
     if(!h||!h.closes||!h.timestamps||h.closes.length<2)return null;
     // Slice to last 252 trading days (~1 year)
     const n=Math.min(252,h.closes.length);
@@ -499,7 +504,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
   const volRatioColor=volRatio==null?'var(--text3)':volRatio>=2?'var(--red)':volRatio>=1.5?'rgba(255,165,2,1)':volRatio>=1.2?'var(--warn)':'var(--text2)';
   const earningsTiming=snap.earningsHour==='bmo'?' (before open)':snap.earningsHour==='amc'?' (after close)':'';
   const earningsStr=snap.earningsDate?`<div class="earnings-warn" style="margin-top:10px">Earnings: ${snap.earningsDate}${earningsTiming}</div>`:'';
-  const _52wForIVR=_compute52W(snap.ticker);
+  const _52wForIVR=_compute52W(snap.ticker,hist2y);
   const _w52h=_52wForIVR?.high??snap.week52High??null;
   const _w52l=_52wForIVR?.low??snap.week52Low??null;
   const ivrVal=computeIVR(snap.ticker,_w52h,_w52l,snap.price);
@@ -556,7 +561,7 @@ return`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarke
     ${_tickerHasPositions?`<div onclick="_openPositionsModal('${snap.ticker}')" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:8px"><span style="font-size:13px">&#x1F4CB;</span>View Positions</div>`:''}
     ${_tickerNoteSectionHtml(snap.ticker)}
     <div class="metrics-grid">
-      ${(()=>{const _52w=_compute52W(snap.ticker);
+      ${(()=>{const _52w=_compute52W(snap.ticker,hist2y);
         const hi=_52w?.high??snap.week52High;const hiDate=_52w?.highDate||null;
         const lo=_52w?.low??snap.week52Low;const loDate=_52w?.lowDate||null;
         const hiPct=hi&&snap.price?((snap.price-hi)/hi*100).toFixed(1):null;
@@ -615,7 +620,7 @@ HVR (Historical Volatility Rank): where current 30-day realized volatility sits 
   ${snap.recTrend&&snap.recTrend.length?buildRecTrendCard(snap.recTrend):''}`;
   if(bbData)renderBBChart(bbData,hist);
   renderVolChart(hist,hist1y,hist2y,currentBBSpan||'6m',avgVol20);
-  renderHVRChart(snap.ticker,currentBBSpan||'6m');
+  renderHVRChart(snap.ticker,currentBBSpan||'6m',hist2y);
   if(hist1y)renderVPChart(hist1y,snap.price,_w52h,_w52l);
   if(hist2y&&hist2ySP)_initRelPerfChart(snap.ticker,hist2y,hist2ySP,earningsHistory,currentRPSpan||'2y');
 }
@@ -735,8 +740,9 @@ function _triggerRelPerfRedraw(){
   // Comparison ticker (optional third series)
   const cmpTicker=S.get('rp_compare_'+t)||'';
   let cmpData=null;
+  let cmpC=null;
   if(cmpTicker){
-    const cmpC=S.get('hist2y_'+cmpTicker);
+    cmpC=S.get('hist2y_'+cmpTicker);
     if(cmpC&&cmpC.closes&&cmpC.closes.length>=2){
       const cmpCloses=useTR&&cmpC.adjcloses?cmpC.adjcloses:cmpC.closes;
       cmpData={timestamps:cmpC.timestamps,closes:cmpCloses};
@@ -763,7 +769,7 @@ function _triggerRelPerfRedraw(){
       if(s.dataset.rpLabel==='ticker') s.textContent=t+trSuffix;
       if(s.dataset.rpLabel==='sp500') s.textContent='S&P 500'+trSuffix;
       if(s.dataset.rpLabel==='compare'&&cmpTicker){
-        const hasTRData=!!(S.get('hist2y_'+cmpTicker)?.adjcloses);
+        const hasTRData=!!cmpC?.adjcloses;
         s.textContent=cmpTicker+(useTR?(hasTRData?' (TR)':' (price only)'):'');
       }
     });
@@ -1432,12 +1438,12 @@ function renderVolChart(hist6m,hist1y,hist2y,span,avgVol20){
   });
 }
 
-function renderHVRChart(ticker,span){
+function renderHVRChart(ticker,span,preloadedHist2y){
   const ctx=document.getElementById('hvr-chart')?.getContext('2d');
   if(!ctx)return;
   if(window._hvrChart){window._hvrChart.destroy();window._hvrChart=null;}
 
-  const series=computeHVRSeries(ticker);
+  const series=computeHVRSeries(ticker,preloadedHist2y);
   if(!series||!series.values.length)return;
 
   // Slice to match span

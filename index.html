@@ -1407,8 +1407,8 @@ function init(){
   loadOptionsPrefs();
   updateOfflineModeBar();
   const cp=S.get('conviction_puts'),cc=S.get('conviction_cc');
-  if(cp){renderDashTable('put-dashboard-content',cp.results,cp.ts,false);document.getElementById('put-dash-ts').innerHTML=tsChip(cp.ts,false);}
-  if(cc){renderDashTable('cc-dashboard-content',cc.results,cc.ts,false);document.getElementById('cc-dash-ts').innerHTML=tsChip(cc.ts,false);}
+  if(cp){renderDashTable('put-dashboard-content',cp.results,cp.ts,false);document.getElementById('put-dash-ts').innerHTML=tsChip(cp.ts,false,cp.tsEpoch);}
+  if(cc){renderDashTable('cc-dashboard-content',cc.results,cc.ts,false);document.getElementById('cc-dash-ts').innerHTML=tsChip(cc.ts,false,cc.tsEpoch);}
   renderWatchlist();populateSelects();
   // Apply saved sort mode button state
   setWatchlistSort(watchlistSort);

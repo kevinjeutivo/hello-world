@@ -1,4 +1,4 @@
-// PutSeller Pro -- vix.js
+// Income Engine -- vix.js
 // VIX intraday price now uses 5-minute history bars instead of the unreliable quote endpoint.
 // VIX tab: load, render chart and content.
 // Globals used: vixThreshold, WORKER_URL, S

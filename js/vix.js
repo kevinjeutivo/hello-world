@@ -36,7 +36,8 @@ function restoreVIXFromCache(){
       {timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes},
       cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null,
       false,
-      cv.ts
+      cv.ts,
+      cv.tsEpoch
     );
     refreshTsChipAges();
   }
@@ -89,9 +90,9 @@ async function _refreshVIXIntraday(){
       updated=true;
     }
     if(updated){
-      S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});
-      if(vix3H&&cv3)S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT()});
-      renderVIXContent(vixH,vix3H,true,nowPT());
+      S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT(),tsEpoch:Date.now()});
+      if(vix3H&&cv3)S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT(),tsEpoch:Date.now()});
+      renderVIXContent(vixH,vix3H,true,nowPT(),Date.now());
     }
   }catch(e){console.warn('VIX intraday refresh failed:',e.message);}
 }
@@ -105,7 +106,7 @@ async function loadVIX(){
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading VIX...</div></div>';
   try{
     let vixH,vix3H,isLive=true;
-    try{[vixH,vix3H]=await _vixTimeout(Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]),15000,'VIX hist');S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT()});
+    try{[vixH,vix3H]=await _vixTimeout(Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]),15000,'VIX hist');S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT(),tsEpoch:Date.now()});S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT(),tsEpoch:Date.now()});
       // Inject live VIX value via quote endpoint -- more reliable than
       // 5-minute bars which Yahoo sometimes returns as null for ^VIX index.
       // Also fetch ^VIX3M live quote for accurate term structure.
@@ -120,20 +121,20 @@ async function loadVIX(){
         if(vLive){
           const last=vixH.closes.length-1;
           vixH.closes[last]=Math.round(vLive*100)/100;
-          S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT()});
+          S.set('vix_hist',{timestamps:vixH.timestamps.map(d=>d.toISOString()),closes:vixH.closes,ts:nowPT(),tsEpoch:Date.now()});
         }
         if(v3Live&&vix3H){
           const last3=vix3H.closes.length-1;
           vix3H.closes[last3]=Math.round(v3Live*100)/100;
-          S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT()});
+          S.set('vix3m_hist',{timestamps:vix3H.timestamps.map(d=>d.toISOString()),closes:vix3H.closes,ts:nowPT(),tsEpoch:Date.now()});
         }
       }catch{}}
-    catch{const cv=S.get('vix_hist'),cv3=S.get('vix3m_hist');if(cv){vixH={timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes};vix3H=cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null;isLive=false;showOfflineBanner(cv.ts);}else throw new Error('No VIX data available');}
-    renderVIXContent(vixH,vix3H,isLive,isLive?nowPT():(S.get('vix_hist')?.ts||''));
+    catch{const cv=S.get('vix_hist'),cv3=S.get('vix3m_hist');if(cv){vixH={timestamps:cv.timestamps.map(d=>new Date(d)),closes:cv.closes};vix3H=cv3?{timestamps:cv3.timestamps.map(d=>new Date(d)),closes:cv3.closes}:null;isLive=false;showOfflineBanner(cv.ts,cv.tsEpoch);}else throw new Error('No VIX data available');}
+    renderVIXContent(vixH,vix3H,isLive,isLive?nowPT():(S.get('vix_hist')?.ts||''),isLive?Date.now():(S.get('vix_hist')?.tsEpoch));
   }catch(err){document.getElementById('vix-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
 }
 
-function renderVIXContent(vixH,vix3H,isLive,ts){
+function renderVIXContent(vixH,vix3H,isLive,ts,tsEpoch){
   const el=document.getElementById('vix-content');
   const closes=vixH.closes.filter(c=>c!==null);const vixCurrent=closes[closes.length-1];
   const pct1y=closes.filter(c=>c<vixCurrent).length/closes.length*100;
@@ -151,9 +152,9 @@ function renderVIXContent(vixH,vix3H,isLive,ts){
   const vix6mo=closes.slice(-126);const sma20=vix6mo.map((_,i)=>i<19?null:avg(vix6mo.slice(i-19,i+1)));const std20=vix6mo.map((_,i)=>i<19?null:stdDev(vix6mo.slice(i-19,i+1)));const upper=sma20.map((s,i)=>s?s+2*std20[i]:null);const lower=sma20.map((s,i)=>s?s-2*std20[i]:null);const vix3m6mo=vix3mCloses.slice(-126);const ts6mo=vixH.timestamps.slice(-126);
   const bbUpper=upper[upper.length-1],bbLower=lower[lower.length-1],bbSMA=sma20[sma20.length-1];
   let bbComment='';if(bbUpper&&vixCurrent>=bbUpper*0.97)bbComment='VIX near upper Bollinger Band -- mean reversion likely. Good time to sell puts before premiums compress.';else if(bbLower&&vixCurrent<=bbLower*1.03)bbComment='VIX near lower Bollinger Band -- premiums compressed. Volatility expansion may be approaching.';else bbComment=`VIX within normal range (${bbLower?.toFixed(1)} - ${bbUpper?.toFixed(1)}, SMA ${bbSMA?.toFixed(1)}).`;
-  const ageStr=relAge(ts);
+  const ageStr=relAge(ts,tsEpoch);
   el.innerHTML=`<div class="${zoneClass} vix-banner"><div><div class="vix-banner-label">${zoneLabel}</div><div style="font-family:var(--mono);font-size:10px;opacity:0.7;margin-top:2px">${ordinal(pct1y)} percentile (1Y) -- alert threshold: ${vixThreshold}</div></div><div class="vix-banner-value">${vixCurrent.toFixed(2)}</div></div>
-    ${tsChip(ts,isLive)}
+    ${tsChip(ts,isLive,tsEpoch)}
     <div class="metrics-grid">
       <div class="metric-tile"><div class="metric-label">VIX</div><div class="metric-value">${vixCurrent.toFixed(2)}</div></div>
       <div class="metric-tile"><div class="metric-label">1Y Percentile</div><div class="metric-value">${ordinal(pct1y)}</div></div>

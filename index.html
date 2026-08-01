@@ -1415,6 +1415,8 @@ function init(){
   const cv=S.get('vix_hist');if(cv?.closes){const c=cv.closes.filter(x=>x!==null);if(c.length)updateVIXIndicator(c[c.length-1]);}else{_updateNavTop();}
   const ce=S.get('earnings_data');if(ce?.data){const today=new Date();earningsAllData=ce.data.map(e=>({...e,daysUntil:daysUntilDate(e.earningsDate)??Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);}
   updateOnlineIndicator();
+  window.addEventListener('online',updateOnlineIndicator);
+  window.addEventListener('offline',updateOnlineIndicator);
   // Start market status banner ticker -- every second
   try{updateMarketBanner();}catch(e){console.error('Banner error:',e);}
   setInterval(function(){try{updateMarketBanner();}catch(e){console.error('Banner interval error:',e);}},1000);

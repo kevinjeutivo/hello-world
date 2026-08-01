@@ -114,6 +114,24 @@
     </div>
     <div id="rsi-backtest-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Loading...</div></div>
   </div>
+  <div id="dash-rsi-ranking-card" class="card" style="display:none">
+    <div class="card-title"><span class="dot" style="background:var(--accent3)"></span>RSI Ranking</div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Which of your watchlist tickers show the strongest RSI signal, ranked by excess return over baseline. Requires at least 4 historical episodes to qualify.</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Window:</span>
+      <select class="input" id="rsi-ranking-window-sel" onchange="renderRSIRanking()" style="font-family:var(--mono);font-size:11px;padding:4px 6px">
+        <option value="5">5-day</option>
+        <option value="10" selected>10-day</option>
+        <option value="20">20-day</option>
+      </select>
+      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-left:8px">Phase:</span>
+      <select class="input" id="rsi-ranking-phase-sel" onchange="renderRSIRanking()" style="font-family:var(--mono);font-size:11px;padding:4px 6px">
+        <option value="Enter">Entering</option>
+        <option value="Exit" selected>Leaving</option>
+      </select>
+    </div>
+    <div id="rsi-ranking-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Loading...</div></div>
+  </div>
 </div>
 
 <!-- WATCHLIST TAB -->

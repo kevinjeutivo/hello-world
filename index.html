@@ -37,9 +37,6 @@ html,body{background:var(--bg);color:var(--text);font-family:var(--sans);font-si
 .header-left{display:flex;flex-direction:column;gap:2px}
 .header-title{font-family:var(--sans);font-size:18px;font-weight:800;letter-spacing:-1px;color:var(--accent)}
 .header-sub{font-family:var(--mono);font-size:10px;color:var(--text3);display:flex;align-items:center;gap:6px}
-.online-dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex-shrink:0}
-.online-dot-on{background:var(--green)}
-.online-dot-off{background:var(--red)}
 .settings-btn{background:var(--surface3);border:1px solid var(--border);color:var(--text2);border-radius:8px;padding:7px 11px;font-size:13px;cursor:pointer;font-family:var(--mono)}
 /* VIX status banner in header */
 #vix-status-banner{display:none;font-family:var(--mono);font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;margin-top:3px;width:fit-content}
@@ -176,9 +173,9 @@ a{color:inherit}
 <div id="top-progress-bar"><div class="top-bar-fill" id="top-bar-fill"></div></div>
 <div class="header">
   <div class="header-left">
-    <div class="header-title">Income Engine <span id="header-status-dot" title="Data freshness" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle"></span></div>
+    <div class="header-title">Income Engine <span id="header-status-dot" onclick="_explainHeaderStatus()" title="Data freshness -- tap for details" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle;cursor:pointer"></span></div>
     <div class="header-sub">
-      <span class="online-dot online-dot-on" id="online-dot"></span>
+      <span id="online-dot" style="display:inline-block;vertical-align:middle;line-height:0"></span>
       <span>Options Income Strategy <span id="app-build-label"></span></span>
     </div>
     <div id="vix-status-banner"></div>

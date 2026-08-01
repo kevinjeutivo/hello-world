@@ -1,5 +1,5 @@
 // ============================================
-// PutSeller Pro -- Cloudflare Worker Proxy v2
+// Income Engine -- Cloudflare Worker Proxy v2
 // Handles four request types:
 //   ?ticker=NVDA&type=options   -> Yahoo options chain
 //   ?ticker=NVDA&type=history   -> Yahoo price history

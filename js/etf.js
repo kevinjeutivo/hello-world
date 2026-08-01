@@ -122,9 +122,9 @@ async function loadETFTab(){
       try{
         const _etfQ=await fetchAfterHoursPrice(etf.ticker);
         if(!_etfQ||!_etfQ.price)throw new Error('no quote');
-        snap={ticker:etf.ticker,price:_etfQ.price,change:_etfQ.price-(_etfQ.prevClose||_etfQ.price),changePct:((_etfQ.price-(_etfQ.prevClose||_etfQ.price))/(_etfQ.prevClose||_etfQ.price)*100),week52High:_etfQ.week52High||null,week52Low:_etfQ.week52Low||null,dividendYield:_etfQ.dividendYield!=null?_etfQ.dividendYield*100:null,ts:nowPT()};
+        snap={ticker:etf.ticker,price:_etfQ.price,change:_etfQ.price-(_etfQ.prevClose||_etfQ.price),changePct:((_etfQ.price-(_etfQ.prevClose||_etfQ.price))/(_etfQ.prevClose||_etfQ.price)*100),week52High:_etfQ.week52High||null,week52Low:_etfQ.week52Low||null,dividendYield:_etfQ.dividendYield!=null?_etfQ.dividendYield*100:null,ts:nowPT(),tsEpoch:Date.now()};
         S.set(snapKey,snap);
-      }catch{const c=S.get(snapKey);if(c){snap=c;isLive=false;showOfflineBanner(c.ts);}else snap=null;}
+      }catch{const c=S.get(snapKey);if(c){snap=c;isLive=false;showOfflineBanner(c.ts,c.tsEpoch);}else snap=null;}
       try{hist6mo=await yahooHistory(etf.ticker,'1y','1d');S.set(histKey,{timestamps:hist6mo.timestamps.map(d=>d.toISOString()),closes:hist6mo.closes,ts:nowPT()});}
       catch{const ch=S.get(histKey);if(ch)hist6mo={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes};}
       try{
@@ -191,7 +191,7 @@ async function loadETFTab(){
           <div><div style="font-family:var(--sans);font-size:20px;font-weight:700;color:${etf.color}">${etf.ticker}</div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px">${etf.name}</div></div>
           <div style="text-align:right">${snap?`<div style="font-family:var(--mono);font-size:18px;font-weight:500">$${snap.price.toFixed(2)}</div><div style="font-family:var(--mono);font-size:11px;color:${chgColor}">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>`:'<div style="font-family:var(--mono);color:var(--text3)">No data</div>'}</div>
         </div>
-        ${tsChip(snap?.ts||'',isLive)}
+        ${tsChip(snap?.ts||'',isLive,snap?.tsEpoch)}
         <div class="metrics-grid" style="margin-bottom:10px">
           <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Trailing 12-Month Distribution Yield</div><div class="metric-value" style="color:${etf.color};font-size:20px">${trailingYield?trailingYield+'%':'N/A'}</div><div class="metric-sub">${trailingYield?`Sum of last ${Math.min(12,distributions.length)} distributions / current price. Compare to your T-bill yield for risk premium context.`:'Fetch live data to compute distribution yield.'}</div></div>
           <div class="metric-tile" id="etf-price-ret-${etf.ticker}">${priceRetPct!=null?`<div class="metric-label">Price Return (6M)</div><div class="metric-value" style="color:${priceRetPct>=0?'var(--green)':'var(--red)'}">${priceRetPct>=0?'+':''}${priceRetPct.toFixed(1)}%</div><div class="metric-sub">NAV change only</div>`:''}</div>
@@ -378,7 +378,7 @@ async function _sbFetch(ticker){
       week52High:quote.week52High||null,
       week52Low:quote.week52Low||null,
       dividendYield:quote.dividendYield!=null?quote.dividendYield*100:null,
-      ts:nowPT()};
+      ts:nowPT(),tsEpoch:Date.now()};
     if(quote.name&&quote.name!==ticker)fundName=quote.name;
   }catch{
     const c=S.get('etf_research_'+ticker);
@@ -525,7 +525,7 @@ function _sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,isLive,fun
         :'<div style="font-family:var(--mono);color:var(--text3)">No price data</div>'}
       </div>
     </div>
-    ${tsChip(snap?.ts||'',isLive)}
+    ${tsChip(snap?.ts||'',isLive,snap?.tsEpoch)}
     <div class="metrics-grid" style="margin-bottom:10px">
       <div class="metric-tile" style="grid-column:span 2">
         <div class="metric-label">Trailing 12-Month Distribution Yield</div>

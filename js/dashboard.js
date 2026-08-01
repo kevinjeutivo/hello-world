@@ -12,7 +12,6 @@ function setDashboardViewMode(mode){
   dashboardViewMode=mode;
   S.set('dashboard_view_mode',mode);
   _syncDashboardViewModeUI();
-  if(mode==='rsi')renderRSIBacktest();
 }
 
 function _syncDashboardViewModeUI(){
@@ -25,12 +24,14 @@ function _syncDashboardViewModeUI(){
   const putsCard=document.getElementById('dash-puts-card');
   const ccCard=document.getElementById('dash-cc-card');
   const rsiCard=document.getElementById('dash-rsi-card');
+  const rsiRankingCard=document.getElementById('dash-rsi-ranking-card');
   if(convictionControls)convictionControls.style.display=dashboardViewMode==='rsi'?'none':'';
   if(putsCard)putsCard.style.display=dashboardViewMode==='puts'?'':'none';
   if(ccCard)ccCard.style.display=dashboardViewMode==='cc'?'':'none';
   if(rsiCard)rsiCard.style.display=dashboardViewMode==='rsi'?'':'none';
+  if(rsiRankingCard)rsiRankingCard.style.display=dashboardViewMode==='rsi'?'':'none';
 
-  if(dashboardViewMode==='rsi')_populateRSIBacktestDropdown();
+  if(dashboardViewMode==='rsi'){_populateRSIBacktestDropdown();renderRSIBacktest();renderRSIRanking();}
 }
 
 // 9 component definitions split into two rows: 4 on top, 5 on bottom.
@@ -301,4 +302,53 @@ function renderRSIBacktest(){
       ${_rsiBacktestDirectionHtml('Overbought -- leaving','var(--red)',result.overboughtExit)}
     `;
   }
+}
+
+// ── RSI Ranking (which tickers show the strongest signal) ────────────────
+
+function _rsiRankingRowsHtml(rows,color){
+  if(!rows.length){
+    return `<div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:6px 0">No tickers currently qualify (need at least 4 historical episodes).</div>`;
+  }
+  return rows.map(r=>{
+    const excColor=r.excess>=0?'var(--green)':'var(--red)';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--surface3)">
+      <span style="color:var(--text);font-weight:600;cursor:pointer" onclick="navigateToTicker('${r.ticker}')">${r.ticker}</span>
+      <span style="color:var(--text3);font-size:10px">${r.occurrences} ep.</span>
+      <span style="text-align:right">
+        <span style="color:${r.avgReturn>=0?'var(--green)':'var(--red)'}">${r.avgReturn>=0?'+':''}${r.avgReturn.toFixed(2)}%</span>
+        <span style="color:${excColor};font-size:10px"> exc ${r.excess>=0?'+':''}${r.excess.toFixed(1)}%</span>
+      </span>
+    </div>`;
+  }).join('');
+}
+
+function renderRSIRanking(){
+  const content=document.getElementById('rsi-ranking-content');
+  if(!content)return;
+  if(!watchlist.length){
+    content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Watchlist is empty</div>';
+    return;
+  }
+  const windowSel=document.getElementById('rsi-ranking-window-sel');
+  const phaseSel=document.getElementById('rsi-ranking-phase-sel');
+  const window=parseInt(windowSel?.value||'10',10);
+  const phase=phaseSel?.value||'Exit'; // 'Enter' or 'Exit'
+  const phaseLabel=phase==='Enter'?'Entering':'Leaving';
+
+  const oversoldRanking=_computeRSIBacktestRanking(watchlist,'oversold'+phase,window,4);
+  // Overbought "downside" ranking: worst (most negative) excess first --
+  // most attractive for covered-call timing -- so reverse the base sort.
+  const overboughtRanking=_computeRSIBacktestRanking(watchlist,'overbought'+phase,window,4).slice().reverse();
+
+  content.innerHTML=`
+    <div style="margin-bottom:14px">
+      <div style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--green);margin-bottom:4px">Oversold ${phaseLabel} -- biggest upside</div>
+      ${_rsiRankingRowsHtml(oversoldRanking,'var(--green)')}
+    </div>
+    <div>
+      <div style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--red);margin-bottom:4px">Overbought ${phaseLabel} -- biggest downside</div>
+      ${_rsiRankingRowsHtml(overboughtRanking,'var(--red)')}
+    </div>
+  `;
 }

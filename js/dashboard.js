@@ -183,8 +183,8 @@ function runDashboards(){
     if(cc)renderDashTable('cc-dashboard-content',cc.results,cc.ts,false);
     return;
   }
-  const ts=nowPT();S.set('conviction_puts',{results:putResults,ts});S.set('conviction_cc',{results:ccResults,ts});
+  const ts=nowPT(),tsEpoch=Date.now();S.set('conviction_puts',{results:putResults,ts,tsEpoch});S.set('conviction_cc',{results:ccResults,ts,tsEpoch});
   renderDashTable('put-dashboard-content',putResults,ts,true);renderDashTable('cc-dashboard-content',ccResults,ts,true);
-  document.getElementById('put-dash-ts').innerHTML=tsChip(ts,true);document.getElementById('cc-dash-ts').innerHTML=tsChip(ts,true);
+  document.getElementById('put-dash-ts').innerHTML=tsChip(ts,true,tsEpoch);document.getElementById('cc-dash-ts').innerHTML=tsChip(ts,true,tsEpoch);
   toast('Both dashboards updated',3000);
 }

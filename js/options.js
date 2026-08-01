@@ -295,12 +295,12 @@ async function loadOptionsForTicker(){
     document.getElementById('options-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Fetching ${t} options...</div></div>`;
   }
   try{
-    let data,isLive=false,fetchTs=nowPT();
+    let data,isLive=false,fetchTs=nowPT(),fetchTsEpoch=Date.now();
     let _debugPath='';
     let _fetchedLive=false;
     if(_existingCache&&!_existingCache.synthetic){
       // Good cache exists -- use it directly, no network call
-      data=_existingCache.data;fetchTs=_existingCache.ts;
+      data=_existingCache.data;fetchTs=_existingCache.ts;fetchTsEpoch=_existingCache.tsEpoch;
       _debugPath='served from cache (ts: '+fetchTs+')';
       console.log(t+': options rendered from cache');
     }else{
@@ -314,7 +314,7 @@ async function loadOptionsForTicker(){
           // The window check was designed to block synthetic after-hours placeholder
           // data, but _validateOptionsData already catches that. If validation passes,
           // the data is real and should always overwrite stale cache.
-          S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs});
+          S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs,tsEpoch:fetchTsEpoch});
           _fetchedLive=true;
           _debugPath='live fetch valid -- wrote fresh cache (ts: '+fetchTs+')';
         }else if(!_inWindow&&_hasSameDay){
@@ -323,13 +323,13 @@ async function loadOptionsForTicker(){
           data=S.get('options_'+t).data;
           _debugPath='outside live window, fetch INVALID ('+_optVal.reason+') -- kept same-day cache';
         }else if(!S.get('options_'+t)){
-          S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs,synthetic:true});
+          S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs,tsEpoch:fetchTsEpoch,synthetic:true});
           _debugPath='live fetch INVALID ('+_optVal.reason+'), no prior cache -- wrote synthetic-flagged data anyway';
         }else{
           data=S.get('options_'+t).data;
           _debugPath='live fetch INVALID ('+_optVal.reason+') -- preserved existing good cache, discarded fresh fetch';
         }
-      }catch(e){const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;showOfflineBanner(cached.ts);_debugPath='fetch threw ('+(e?.message||'unknown error')+') -- fell back to cache';}else throw new Error('No options data available');}
+      }catch(e){const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;fetchTsEpoch=cached.tsEpoch;showOfflineBanner(cached.ts,cached.tsEpoch);_debugPath='fetch threw ('+(e?.message||'unknown error')+') -- fell back to cache';}else throw new Error('No options data available');}
     }
     if(S.get('debug_options_fetch')==='true')toast(t+' options: '+_debugPath,6000);
     currentOptionsData=data;
@@ -366,7 +366,7 @@ async function loadOptionsForTicker(){
           if(_expVal.valid){
             // Validation passed -- write regardless of live window.
             const _slimmed=slimExpData(ed);
-            if(_slimmed)S.set(_expKey,{..._slimmed,ts:nowPT()});
+            if(_slimmed)S.set(_expKey,{..._slimmed,ts:nowPT(),tsEpoch:Date.now()});
             if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp fetch valid -- wrote fresh',4000);
           }else if(!_expInWindow&&_expHasSameDay){
             // Outside window AND invalid -- preserve same-day cache.
@@ -374,7 +374,7 @@ async function loadOptionsForTicker(){
           }else{
             const _existing=S.get(_expKey);
             const ok=_existing&&!_existing.synthetic;
-            if(!ok){const _s=slimExpData(ed);if(_s)S.set(_expKey,{..._s,ts:nowPT(),synthetic:true});if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp INVALID ('+_expVal.reason+') no prior cache -- wrote synthetic',5000);}
+            if(!ok){const _s=slimExpData(ed);if(_s)S.set(_expKey,{..._s,ts:nowPT(),tsEpoch:Date.now(),synthetic:true});if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp INVALID ('+_expVal.reason+') no prior cache -- wrote synthetic',5000);}
             else{if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp INVALID ('+_expVal.reason+') -- kept stale cache',5000);console.warn(t+' '+pair.date+': rejecting fresh fetch ('+_expVal.reason+'), preserving cache from '+(_existing?.ts||'unknown ts'));}
           }
         }catch(e){if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp fetch ERROR: '+(e?.message||'unknown'),5000);console.warn(t+' '+pair.date+': exp fetch error',e?.message);}
@@ -384,7 +384,7 @@ async function loadOptionsForTicker(){
     chipsEl.innerHTML=monthly.map(e=>{
       const _ec=S.get('options_exp_'+t+'_'+e);
       const _ecTs=_ec?.ts;
-      const _ecAge=_ecTs?relAge(_ecTs):'';
+      const _ecAge=_ecTs?relAge(_ecTs,_ec?.tsEpoch):'';
       const _ecTitle=_ecTs?('Cached '+_ecTs+(_ecAge?' ('+_ecAge+')':'')):'No timestamp (legacy cache)';
       return`<div class="exp-chip selected" id="chip-${e}" onclick="toggleExp('${e}')" title="${_ecTitle}">${e}</div>`;
     }).join('');
@@ -394,11 +394,11 @@ async function loadOptionsForTicker(){
     const hasOI=yr?.options?.[0]?.puts?.some(p=>(p.openInterest||0)>0)||yr?.options?.[0]?.calls?.some(c=>(c.openInterest||0)>0);
     if(!hasOI){
       const lastGood=S.get('options_'+t);
-      document.getElementById('options-content').innerHTML=`<div class="oi-empty-box">Open Interest data is currently unavailable. This is normal when markets are closed -- OI data typically refreshes when the market opens the following business day.${lastGood?.ts?` Last known data: ${lastGood.ts} (${relAge(lastGood.ts)}).`:''} Load the options chain and the table will still show strikes and premiums; OI will appear as 0 until data refreshes.</div>`;
+      document.getElementById('options-content').innerHTML=`<div class="oi-empty-box">Open Interest data is currently unavailable. This is normal when markets are closed -- OI data typically refreshes when the market opens the following business day.${lastGood?.ts?` Last known data: ${lastGood.ts} (${relAge(lastGood.ts,lastGood.tsEpoch)}).`:''} Load the options chain and the table will still show strikes and premiums; OI will appear as 0 until data refreshes.</div>`;
     }else{
       document.getElementById('options-content').innerHTML='';
     }
-    if(!isLive){document.getElementById('options-content').innerHTML+=`<div style="font-family:var(--mono);font-size:10px;color:var(--warn);margin-bottom:8px">Cached options from ${fetchTs}${relAge(fetchTs)?' ('+relAge(fetchTs)+')':''}</div>`;}
+    if(!isLive){document.getElementById('options-content').innerHTML+=`<div style="font-family:var(--mono);font-size:10px;color:var(--warn);margin-bottom:8px">Cached options from ${fetchTs}${relAge(fetchTs,fetchTsEpoch)?' ('+relAge(fetchTs,fetchTsEpoch)+')':''}</div>`;}
     // Warn if options data is significantly newer than the ticker price snapshot
     const snapTs=S.get('snap_'+t)?.ts||'';
     if(isLive&&snapTs){
@@ -533,24 +533,26 @@ function buildOptionsTable(){
   // Timestamp reflects the oldest per-expiry cache among selected expirations,
   // since that's the actual data source for the table rows.
   // No live/cached binary -- just "data as of [time]" which is what matters.
-  const _dataAsOf=(()=>{
-    const _expTs=selectedExpirations.map(e=>{
-      const _ec=S.get('options_exp_'+t+'_'+e);
-      return _ec?.ts||null;
-    }).filter(Boolean);
-    if(!_expTs.length){
-      // Fall back to main chain timestamp if no per-expiry caches found
-      const _mc=S.get('options_'+t);return _mc?.ts||'';
+  const _dataAsOfEntry=(()=>{
+    const _expEntries=selectedExpirations.map(e=>S.get('options_exp_'+t+'_'+e)).filter(Boolean);
+    if(!_expEntries.length){
+      const _mc=S.get('options_'+t);
+      return{ts:_mc?.ts||'',tsEpoch:_mc?.tsEpoch};
     }
-    // Return the oldest timestamp -- most conservative representation of data freshness
-    return _expTs.reduce((oldest,ts)=>{
-      const _od=new Date(oldest.replace(/ PT$| UTC$| local$/,'').trim());
-      const _td=new Date(ts.replace(/ PT$| UTC$| local$/,'').trim());
-      return _td<_od?ts:oldest;
+    // Return the oldest entry -- prefer epoch-based comparison when both
+    // sides have one (avoids the same timezone-reparse ambiguity relAge()
+    // itself guards against); falls back to string comparison only for
+    // legacy entries written before tsEpoch existed.
+    return _expEntries.reduce((oldest,e)=>{
+      if(oldest.tsEpoch!=null&&e.tsEpoch!=null)return e.tsEpoch<oldest.tsEpoch?e:oldest;
+      const _od=new Date((oldest.ts||'').replace(/ PT$| UTC$| local$/,'').trim());
+      const _td=new Date((e.ts||'').replace(/ PT$| UTC$| local$/,'').trim());
+      return _td<_od?e:oldest;
     });
   })();
+  const _dataAsOf=_dataAsOfEntry?.ts||'';
   const _dataAsOfChip=_dataAsOf
-    ?`<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px">data as of ${_dataAsOf}${(()=>{const a=relAge(_dataAsOf);return a?' ('+a+')':''})()}</div>`
+    ?`<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px">data as of ${_dataAsOf}${(()=>{const a=relAge(_dataAsOf,_dataAsOfEntry?.tsEpoch);return a?' ('+a+')':''})()}</div>`
     :'';
   const tableHTML=`<div class="card"><div class="card-title"><span class="dot"></span>${currentMode==='puts'?'Put':'Call'} Options -- ${t} @ $${currentPrice.toFixed(2)}</div>${_dataAsOfChip}<div class="options-table-wrap"><table class="options-table"><thead><tr><th>Exp / Strike</th><th>% OTM</th><th>Bid/Ask</th><th>Premium</th><th>APY</th><th>OI</th><th>IV</th></tr></thead><tbody>${tableBodyHTML}</tbody></table></div></div>`;
   document.getElementById('options-content').innerHTML=tableHTML;renderOIChart(rows,currentPrice,t);
@@ -565,12 +567,18 @@ function renderOIChart(rows,currentPrice,t){
   const nearestIdx=strikes.reduce((bi,s,i)=>Math.abs(s-currentPrice)<Math.abs(strikes[bi]-currentPrice)?i:bi,0);
   const hexDatasets=exps.map((exp,ei)=>{const hex=EXP_COLORS[ei%EXP_COLORS.length];const data=strikes.map(s=>{const row=rows.find(r=>r.strike===s&&r.expDate===exp);return row?row.oi:0;});return{label:exp,data,backgroundColor:strikes.map(s=>{const otm=currentMode==='puts'?s<=currentPrice:s>currentPrice;return otm?hex+'bb':hex+'44';}),borderRadius:2,stack:'oi'};});
   const cached=S.get('options_'+t);
-  const _oiTs=(()=>{
-    const _expTs=selectedExpirations.map(e=>{const _ec=S.get('options_exp_'+t+'_'+e);return _ec?.ts||null;}).filter(Boolean);
-    if(!_expTs.length)return cached?.ts||'';
-    return _expTs.reduce((oldest,ts)=>{const _od=new Date(oldest.replace(/ PT$| UTC$| local$/,'').trim());const _td=new Date(ts.replace(/ PT$| UTC$| local$/,'').trim());return _td<_od?ts:oldest;});
+  const _oiTsEntry=(()=>{
+    const _expEntries=selectedExpirations.map(e=>S.get('options_exp_'+t+'_'+e)).filter(Boolean);
+    if(!_expEntries.length)return{ts:cached?.ts||'',tsEpoch:cached?.tsEpoch};
+    return _expEntries.reduce((oldest,e)=>{
+      if(oldest.tsEpoch!=null&&e.tsEpoch!=null)return e.tsEpoch<oldest.tsEpoch?e:oldest;
+      const _od=new Date((oldest.ts||'').replace(/ PT$| UTC$| local$/,'').trim());
+      const _td=new Date((e.ts||'').replace(/ PT$| UTC$| local$/,'').trim());
+      return _td<_od?e:oldest;
+    });
   })();
-  document.getElementById('oi-ts').innerHTML=_oiTs?`<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">data as of ${_oiTs}${(()=>{const a=relAge(_oiTs);return a?' ('+a+')':''})()}</div>`:'';
+  const _oiTs=_oiTsEntry?.ts||'';
+  document.getElementById('oi-ts').innerHTML=_oiTs?`<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">data as of ${_oiTs}${(()=>{const a=relAge(_oiTs,_oiTsEntry?.tsEpoch);return a?' ('+a+')':''})()}</div>`:'';
   const legendEl=document.getElementById('oi-legend');if(legendEl){legendEl.innerHTML=exps.map((exp,ei)=>`<div style="display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10px;color:var(--text2)"><div style="width:10px;height:10px;border-radius:2px;background:${EXP_COLORS[ei%EXP_COLORS.length]}"></div>${exp}</div>`).join('');}
   const ctx=document.getElementById('oi-chart').getContext('2d');
   if(window._oiChart){window._oiChart.destroy();window._oiChart=null;}

@@ -337,7 +337,7 @@ async function loadEarningsTab(){
     if(i<watchlist.length-1)await sleep(400);
   }
   earningsAllData.sort((a,b)=>a.daysUntil-b.daysUntil);
-  S.set('earnings_data',{data:earningsAllData,ts:nowPT()});
+  S.set('earnings_data',{data:earningsAllData,ts:nowPT(),tsEpoch:Date.now()});
   renderCurrentEarningsView(true);
 }
 
@@ -348,7 +348,8 @@ function renderEarningsCards(isLive=false){
   const filtered=data.filter(e=>e.daysUntil<=earningsDaysFilter);
   if(!filtered.length){el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4C5;</div>No upcoming earnings in this window. Press Refresh or run Full Refresh.</div>';return;}
   const ts=S.get('earnings_data')?.ts||nowPT();
-  el.innerHTML=tsChip(ts,isLive)+filtered.map(e=>{
+  const tsEpoch=S.get('earnings_data')?.tsEpoch;
+  el.innerHTML=tsChip(ts,isLive,tsEpoch)+filtered.map(e=>{
     const cardCls=e.daysUntil<=7?'earnings-card earnings-card-urgent':e.daysUntil<=21?'earnings-card earnings-card-soon':'earnings-card earnings-card-normal';
     const timing=e.earningsHour==='bmo'?' (before open)':e.earningsHour==='amc'?' (after close)':'';
     const urgency=e.daysUntil===0?'TODAY':e.daysUntil===1?'TOMORROW':'In '+e.daysUntil+' days';

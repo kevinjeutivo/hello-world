@@ -1,4 +1,4 @@
-// PutSeller Pro -- options.js
+// Income Engine -- options.js
 
 // Validate options data before caching -- rejects synthetic/after-hours placeholder data.
 // Yahoo returns geometric IV values (50%, 25%, 12.5%...) and zero OI when market is closed.

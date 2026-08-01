@@ -1,4 +1,4 @@
-// PutSeller Pro -- dashboard.js
+// Income Engine -- dashboard.js
 // Conviction dashboards: run scoring, render cards.
 // Globals used: watchlist, currentMode, S, WORKER_URL
 // Dependencies: helpers.js, scoring.js, storage.js

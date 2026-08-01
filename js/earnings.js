@@ -118,8 +118,8 @@ function buildRecentEarningsData(){
       // Price reaction + excess vs S&P -- reusing the same per-event
       // computation that powers the ticker page's relative-performance card
       let reactionPct=null,excessReaction=null,preAnnouncementPrice=null;
+      const h2=S.get('hist2y_'+t);
       try{
-        const h2=S.get('hist2y_'+t);
         const earningsHistoryForChart=S.get('earnings_hist_'+t)?.data||[];
         const events=_computeEarningsReactionEvents(h2,hist2ySP,earningsHistoryForChart);
         const match=events&&events.find(ev=>Math.abs(new Date(ev.date)-new Date(mostRecent.date))<4*86400000);
@@ -130,7 +130,7 @@ function buildRecentEarningsData(){
       // computed for the ticker page's HVR chart, looked up at the matching date
       let hvrAtReport=null;
       try{
-        const series=computeHVRSeries(t);
+        const series=computeHVRSeries(t,h2);
         if(series?.timestamps?.length){
           const targetTs=Math.floor(new Date(mostRecent.date+'T12:00:00Z').getTime()/1000);
           let bestIdx=-1,bestDiff=Infinity;

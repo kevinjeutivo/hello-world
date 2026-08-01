@@ -294,10 +294,10 @@ function updateOnlineIndicator(){
   dot.className=navigator.onLine?'online-dot online-dot-on':'online-dot online-dot-off';
 }
 
-function showOfflineBanner(fetchTs){
+function showOfflineBanner(fetchTs,fetchTsEpoch){
   if(navigator.onLine)return;
   const b=document.getElementById('offline-banner');
-  const age=relAge(fetchTs);
+  const age=relAge(fetchTs,fetchTsEpoch);
   b.textContent=`Offline -- showing cached data${fetchTs?` from ${fetchTs}${age?' ('+age+')':''}`:''}.`;
   b.classList.add('show');
   setTimeout(()=>b.classList.remove('show'),4500);
@@ -380,8 +380,9 @@ function updateHeaderStatus(){
   else if(allFresh){dot.style.background='#00d4aa';dot.title='Data is fresh';}
   else{dot.style.background='#ff9800';dot.title='Some data is stale -- refresh recommended';}
   const lts=S.get('last_full_refresh_ts');
+  const ltsEpoch=S.get('last_full_refresh_ts_epoch');
   const lbl=document.getElementById('last-full-refresh-label');
-  if(lbl&&lts){const age=relAge(lts);lbl.textContent='Last full refresh: '+lts+(age?' ('+age+')':'');}
+  if(lbl&&lts){const age=relAge(lts,ltsEpoch);lbl.textContent='Last full refresh: '+lts+(age?' ('+age+')':'');}
 }
 
 function setTopBar(pct){
@@ -419,8 +420,12 @@ function refreshTsChipAges(){
   document.querySelectorAll('.ts-chip').forEach(chip=>{
     const isoAttr=chip.getAttribute('data-ts-iso');
     const displayTs=chip.getAttribute('data-ts-display')||'';
+    const epochAttr=chip.getAttribute('data-ts-epoch');
+    const epoch=epochAttr!=null&&epochAttr!==''?Number(epochAttr):null;
     let ageMins=Infinity;
-    if(isoAttr){
+    if(epoch!=null&&!isNaN(epoch)){
+      ageMins=(Date.now()-epoch)/60000;
+    }else if(isoAttr){
       try{ageMins=(Date.now()-new Date(isoAttr).getTime())/60000;}catch{}
     }else{
       try{
@@ -436,7 +441,7 @@ function refreshTsChipAges(){
     const shouldBeStale=ageMins>STALE_MINS;
     if(shouldBeStale){chip.classList.remove('live');chip.classList.add('stale');}
     const tsStr=displayTs||'';
-    const age=relAge(tsStr);
+    const age=relAge(tsStr,epoch!=null&&!isNaN(epoch)?epoch:undefined);
     const prefix=chip.classList.contains('live')?'live':'cached';
     chip.textContent=`${prefix} ${tsStr||'unknown'}${age?' ('+age+')':''}`;
   });

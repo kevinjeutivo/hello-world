@@ -5,6 +5,34 @@
 
 function compBarColor(v){return v>=2?'#00d4aa':v===1?'#4fc3f7':v===0?'#555870':'#ff4757';}
 
+// ── Dashboard view toggle (Puts / Covered Calls / RSI Backtest) ──────────────
+let dashboardViewMode=S.get('dashboard_view_mode')||'puts';
+
+function setDashboardViewMode(mode){
+  dashboardViewMode=mode;
+  S.set('dashboard_view_mode',mode);
+  _syncDashboardViewModeUI();
+  if(mode==='rsi')renderRSIBacktest();
+}
+
+function _syncDashboardViewModeUI(){
+  const putsBtn=document.getElementById('dash-view-puts'),ccBtn=document.getElementById('dash-view-cc'),rsiBtn=document.getElementById('dash-view-rsi');
+  if(putsBtn)putsBtn.style.opacity=dashboardViewMode==='puts'?'1':'0.4';
+  if(ccBtn)ccBtn.style.opacity=dashboardViewMode==='cc'?'1':'0.4';
+  if(rsiBtn)rsiBtn.style.opacity=dashboardViewMode==='rsi'?'1':'0.4';
+
+  const convictionControls=document.getElementById('dash-conviction-controls');
+  const putsCard=document.getElementById('dash-puts-card');
+  const ccCard=document.getElementById('dash-cc-card');
+  const rsiCard=document.getElementById('dash-rsi-card');
+  if(convictionControls)convictionControls.style.display=dashboardViewMode==='rsi'?'none':'';
+  if(putsCard)putsCard.style.display=dashboardViewMode==='puts'?'':'none';
+  if(ccCard)ccCard.style.display=dashboardViewMode==='cc'?'':'none';
+  if(rsiCard)rsiCard.style.display=dashboardViewMode==='rsi'?'':'none';
+
+  if(dashboardViewMode==='rsi')_populateRSIBacktestDropdown();
+}
+
 // 9 component definitions split into two rows: 4 on top, 5 on bottom.
 // Labels sit below their respective bar, consistent with the existing convention.
 const COMP_DEFS=[
@@ -187,4 +215,86 @@ function runDashboards(){
   renderDashTable('put-dashboard-content',putResults,ts,true);renderDashTable('cc-dashboard-content',ccResults,ts,true);
   document.getElementById('put-dash-ts').innerHTML=tsChip(ts,true,tsEpoch);document.getElementById('cc-dash-ts').innerHTML=tsChip(ts,true,tsEpoch);
   toast('Both dashboards updated',3000);
+}
+
+// ── RSI Backtest view ─────────────────────────────────────────────────────
+
+function _populateRSIBacktestDropdown(){
+  const sel=document.getElementById('rsi-backtest-ticker-sel');
+  if(!sel)return;
+  // Only rebuild if the option count doesn't match the watchlist (+1 for
+  // "Aggregate"), so we don't wipe out the user's current selection on
+  // every toggle switch back to this view.
+  if(sel.options.length===watchlist.length+1)return;
+  const current=sel.value;
+  const sorted=[...watchlist].sort((a,b)=>a.localeCompare(b));
+  sel.innerHTML='<option value="">Aggregate (whole watchlist)</option>'+
+    sorted.map(t=>`<option value="${t}">${t}</option>`).join('');
+  if(sorted.includes(current))sel.value=current;
+}
+
+// Builds the HTML for one direction's (oversold/overbought) results block --
+// shared by both the aggregate and individual-ticker views, since they use
+// the exact same data shape.
+function _rsiBacktestDirectionHtml(label,color,data){
+  if(!data||!data.occurrences){
+    return `<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">${label}: no occurrences found in the available history.</div>`;
+  }
+  const rows=RSI_BACKTEST_WINDOWS.map(n=>{
+    const w=data.windows[n];
+    if(!w)return `<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--text3);padding:3px 0">${n}-day fwd: not enough data</div>`;
+    const beatBaseline=w.baseline!=null&&w.avgReturn>w.baseline;
+    const retColor=w.avgReturn>=0?'var(--green)':'var(--red)';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11px;padding:3px 0;border-bottom:1px solid var(--surface3)">
+      <span style="color:var(--text2)">${n}-day fwd</span>
+      <span style="text-align:right">
+        <span style="color:${retColor};${beatBaseline?'font-weight:600':''}">${w.avgReturn>=0?'+':''}${w.avgReturn.toFixed(2)}%</span>
+        <span style="color:var(--text3)"> (${w.pctPositive.toFixed(0)}% positive)</span>
+        ${w.baseline!=null?`<span style="color:var(--text3);display:block;font-size:10px">vs. baseline ${w.baseline>=0?'+':''}${w.baseline.toFixed(2)}%</span>`:''}
+      </span>
+    </div>`;
+  }).join('');
+  return `<div style="margin-bottom:14px">
+    <div style="font-family:var(--mono);font-size:11px;font-weight:600;color:${color};margin-bottom:4px">${label} -- ${data.occurrences} occurrence${data.occurrences!==1?'s':''}</div>
+    ${rows}
+  </div>`;
+}
+
+function renderRSIBacktest(){
+  const content=document.getElementById('rsi-backtest-content');
+  if(!content)return;
+  const sel=document.getElementById('rsi-backtest-ticker-sel');
+  const selectedTicker=sel?.value||'';
+
+  if(!watchlist.length){
+    content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Watchlist is empty</div>';
+    return;
+  }
+
+  if(!selectedTicker){
+    // Aggregate view
+    const agg=_computeRSIBacktestAggregate(watchlist);
+    if(!agg.tickersWithData){
+      content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>No cached price history yet -- run Prefetch All or Full Refresh first.</div>';
+      return;
+    }
+    content.innerHTML=`
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Pooled across ${agg.tickersWithData} of ${agg.tickersTotal} watchlist tickers with sufficient history.</div>
+      ${_rsiBacktestDirectionHtml('Oversold (RSI&lt;'+RSI_OVERSOLD_THRESHOLD+')','var(--green)',agg.oversold)}
+      ${_rsiBacktestDirectionHtml('Overbought (RSI&gt;'+RSI_OVERBOUGHT_THRESHOLD+')','var(--red)',agg.overbought)}
+    `;
+  }else{
+    // Individual ticker view
+    const result=_computeRSIBacktestForTicker(selectedTicker);
+    if(!result){
+      content.innerHTML=`<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Not enough cached history for ${selectedTicker} yet.</div>`;
+      return;
+    }
+    content.innerHTML=`
+      <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px">${selectedTicker}</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--warn);margin-bottom:10px">&#x26A0; Single-ticker sample -- based on ${result.oversold.occurrences+result.overbought.occurrences} total events across ${result.totalDays} trading days. Small sample, directional intuition only, not statistically robust.</div>
+      ${_rsiBacktestDirectionHtml('Oversold (RSI&lt;'+RSI_OVERSOLD_THRESHOLD+')','var(--green)',result.oversold)}
+      ${_rsiBacktestDirectionHtml('Overbought (RSI&gt;'+RSI_OVERBOUGHT_THRESHOLD+')','var(--red)',result.overbought)}
+    `;
+  }
 }

@@ -280,8 +280,10 @@ function renderRSIBacktest(){
     }
     content.innerHTML=`
       <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Pooled across ${agg.tickersWithData} of ${agg.tickersTotal} watchlist tickers with sufficient history.</div>
-      ${_rsiBacktestDirectionHtml('Oversold (RSI&lt;'+RSI_OVERSOLD_THRESHOLD+')','var(--green)',agg.oversold)}
-      ${_rsiBacktestDirectionHtml('Overbought (RSI&gt;'+RSI_OVERBOUGHT_THRESHOLD+')','var(--red)',agg.overbought)}
+      ${_rsiBacktestDirectionHtml('Oversold -- entering (RSI&lt;'+RSI_OVERSOLD_THRESHOLD+')','var(--green)',agg.oversoldEnter)}
+      ${_rsiBacktestDirectionHtml('Oversold -- leaving','var(--green)',agg.oversoldExit)}
+      ${_rsiBacktestDirectionHtml('Overbought -- entering (RSI&gt;'+RSI_OVERBOUGHT_THRESHOLD+')','var(--red)',agg.overboughtEnter)}
+      ${_rsiBacktestDirectionHtml('Overbought -- leaving','var(--red)',agg.overboughtExit)}
     `;
   }else{
     // Individual ticker view
@@ -290,11 +292,14 @@ function renderRSIBacktest(){
       content.innerHTML=`<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Not enough cached history for ${selectedTicker} yet.</div>`;
       return;
     }
+    const totalEvents=result.oversoldEnter.occurrences+result.oversoldExit.occurrences+result.overboughtEnter.occurrences+result.overboughtExit.occurrences;
     content.innerHTML=`
       <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px">${selectedTicker}</div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--warn);margin-bottom:10px">&#x26A0; Single-ticker sample -- based on ${result.oversold.occurrences+result.overbought.occurrences} total events across ${result.totalDays} trading days. Small sample, directional intuition only, not statistically robust.</div>
-      ${_rsiBacktestDirectionHtml('Oversold (RSI&lt;'+RSI_OVERSOLD_THRESHOLD+')','var(--green)',result.oversold)}
-      ${_rsiBacktestDirectionHtml('Overbought (RSI&gt;'+RSI_OVERBOUGHT_THRESHOLD+')','var(--red)',result.overbought)}
+      <div style="font-family:var(--mono);font-size:10px;color:var(--warn);margin-bottom:10px">&#x26A0; Single-ticker sample -- based on ${totalEvents} total events across ${result.totalDays} trading days. Small sample, directional intuition only, not statistically robust.</div>
+      ${_rsiBacktestDirectionHtml('Oversold -- entering (RSI&lt;'+RSI_OVERSOLD_THRESHOLD+')','var(--green)',result.oversoldEnter)}
+      ${_rsiBacktestDirectionHtml('Oversold -- leaving','var(--green)',result.oversoldExit)}
+      ${_rsiBacktestDirectionHtml('Overbought -- entering (RSI&gt;'+RSI_OVERBOUGHT_THRESHOLD+')','var(--red)',result.overboughtEnter)}
+      ${_rsiBacktestDirectionHtml('Overbought -- leaving','var(--red)',result.overboughtExit)}
     `;
   }
 }

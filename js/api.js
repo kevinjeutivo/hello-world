@@ -135,11 +135,21 @@ async function fetchQuoteSummary(symbol){
         const epsActual=h.epsActual?.raw??null;
         const epsEstimate=h.epsEstimate?.raw??null;
         const date=h.quarter?.fmt||(h.quarter?.raw?fmtDate(new Date(h.quarter.raw*1000)):null);
+        // Guard against a near-zero estimate: (actual-estimate)/|estimate| blows
+        // up into a meaningless percentage (e.g. +21,000%) when the estimate is
+        // a fraction of a cent from zero, even though the underlying dollar
+        // beat/miss is perfectly ordinary. Below this threshold, surprisePercent
+        // is withheld (null) and surpriseDollar -- always computable regardless
+        // of estimate size -- is used instead so the UI can still show something
+        // honest ("beat by $0.27") rather than either a distorted percentage or
+        // nothing at all.
+        const _denomTooSmall=epsEstimate!=null&&Math.abs(epsEstimate)<0.05;
         return{
           date,
           epsActual,
           epsEstimate,
-          surprisePercent:(epsActual!=null&&epsEstimate)?((epsActual-epsEstimate)/Math.abs(epsEstimate)*100):null
+          surprisePercent:(epsActual!=null&&epsEstimate&&!_denomTooSmall)?((epsActual-epsEstimate)/Math.abs(epsEstimate)*100):null,
+          surpriseDollar:(epsActual!=null&&epsEstimate!=null)?(epsActual-epsEstimate):null
         };
       }).filter(h=>h.date)
     };

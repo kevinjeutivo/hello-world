@@ -6,7 +6,7 @@ async function loadMarketTab(){
   const el=document.getElementById('market-content');
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading market data...</div></div>';
   try{
-    let sp500,nasdaq,treasury2y,isLive=true,mktTs=nowPT();
+    let sp500,nasdaq,treasury2y,isLive=true,mktTs=nowPT(),mktTsEpoch=Date.now();
     let spLivePrice=null,nqLivePrice=null,spPrevClose=null,nqPrevClose=null;
     // Fetch each independently so one failure doesn't block the others
     // Use cached 2Y GSPC data (sliced to 3M) instead of a separate fetch
@@ -15,13 +15,13 @@ async function loadMarketTab(){
       if(_gsp?.closes?.length>=60){
         const _g6=Math.max(0,_gsp.timestamps.length-63); // ~3 months of trading days
         sp500={timestamps:_gsp.timestamps.slice(_g6).map(d=>new Date(d*1000)),closes:_gsp.closes.slice(_g6)};
-        S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});
+        S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs,tsEpoch:mktTsEpoch});
       }else{
         sp500=await _mktTimeout(yahooHistory('^GSPC','3mo','1d'),12000,'GSPC 3mo');
-        S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs});
+        S.set('mkt_sp500',{timestamps:sp500.timestamps.map(d=>d.toISOString()),closes:sp500.closes,ts:mktTs,tsEpoch:mktTsEpoch});
       }}
-    catch{const cs=S.get('mkt_sp500');if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cs.closes};isLive=false;mktTs=cs.ts;showOfflineBanner(cs.ts);}}
-    try{nasdaq=await _mktTimeout(yahooHistory('^IXIC','3mo','1d'),12000,'IXIC 3mo');S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs});}
+    catch{const cs=S.get('mkt_sp500');if(cs){sp500={timestamps:cs.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cs.closes};isLive=false;mktTs=cs.ts;mktTsEpoch=cs.tsEpoch;showOfflineBanner(cs.ts,cs.tsEpoch);}}
+    try{nasdaq=await _mktTimeout(yahooHistory('^IXIC','3mo','1d'),12000,'IXIC 3mo');S.set('mkt_nasdaq',{timestamps:nasdaq.timestamps.map(d=>d.toISOString()),closes:nasdaq.closes,ts:mktTs,tsEpoch:mktTsEpoch});}
     catch{const cn=S.get('mkt_nasdaq');if(cn)nasdaq={timestamps:cn.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cn.closes};}
     // 2-year Treasury: try ^USGG2YR first, fall back to ^TNX (10Y) scaled, then live quote
     try{
@@ -29,7 +29,7 @@ async function loadMarketTab(){
       // Validate -- ^USGG2YR sometimes returns all-null closes
       const validCloses=treasury2y?.closes?.filter(c=>c!==null&&c>0)||[];
       if(!validCloses.length)throw new Error('No valid 2Y closes');
-      S.set('mkt_2y',{timestamps:treasury2y.timestamps.map(d=>d.toISOString()),closes:treasury2y.closes,ts:mktTs});
+      S.set('mkt_2y',{timestamps:treasury2y.timestamps.map(d=>d.toISOString()),closes:treasury2y.closes,ts:mktTs,tsEpoch:mktTsEpoch});
     }catch{
       // Try live quote for 2Y yield as fallback
       try{
@@ -56,26 +56,26 @@ async function loadMarketTab(){
       spPrevClose=spQ?.quoteResponse?.result?.[0]?.regularMarketPreviousClose||null;
       nqLivePrice=nqQ?.quoteResponse?.result?.[0]?.regularMarketPrice||null;
       nqPrevClose=nqQ?.quoteResponse?.result?.[0]?.regularMarketPreviousClose||null;
-      if(spLivePrice)S.set('mkt_sp_live',{price:spLivePrice,prevClose:spPrevClose,ts:mktTs});
-      if(nqLivePrice)S.set('mkt_nq_live',{price:nqLivePrice,prevClose:nqPrevClose,ts:mktTs});
+      if(spLivePrice)S.set('mkt_sp_live',{price:spLivePrice,prevClose:spPrevClose,ts:mktTs,tsEpoch:mktTsEpoch});
+      if(nqLivePrice)S.set('mkt_nq_live',{price:nqLivePrice,prevClose:nqPrevClose,ts:mktTs,tsEpoch:mktTsEpoch});
     }catch{}
     if(!spLivePrice){const c=S.get('mkt_sp_live');if(c){spLivePrice=c.price;spPrevClose=c.prevClose;}}
     if(!nqLivePrice){const c=S.get('mkt_nq_live');if(c){nqLivePrice=c.price;nqPrevClose=c.prevClose;}}
     // Fetch CME Fed Funds futures for rate probability display
     let fedFutures=null;
-    try{fedFutures=await _mktTimeout(fetchFedFundsFutures(),12000,'fed futures');if(fedFutures)S.set('fed_futures',{data:fedFutures,ts:mktTs});}
+    try{fedFutures=await _mktTimeout(fetchFedFundsFutures(),12000,'fed futures');if(fedFutures)S.set('fed_futures',{data:fedFutures,ts:mktTs,tsEpoch:mktTsEpoch});}
     catch{}
     if(!fedFutures){const cf=S.get('fed_futures');if(cf)fedFutures=cf.data;}
     // T-bill yields from US Treasury FiscalData API (via Worker, no key needed)
-    let tbill3m=[],tbill6m=[],fredTs=nowPT();
+    let tbill3m=[],tbill6m=[],fredTs=nowPT(),fredTsEpoch=Date.now();
     try{
       const tbills=await _mktTimeout(fetchTBills(),12000,'tbills');
       tbill3m=tbills.tbill3m;tbill6m=tbills.tbill6m;
-      fredTs=nowPT();
-      S.set('tbills_cache',{tbill3m,tbill6m,ts:fredTs});
+      fredTs=nowPT();fredTsEpoch=Date.now();
+      S.set('tbills_cache',{tbill3m,tbill6m,ts:fredTs,tsEpoch:fredTsEpoch});
     }catch{
       const cd=S.get('tbills_cache');
-      if(cd){tbill3m=cd.tbill3m||[];tbill6m=cd.tbill6m||[];fredTs=cd.ts||'';}
+      if(cd){tbill3m=cd.tbill3m||[];tbill6m=cd.tbill6m||[];fredTs=cd.ts||'';fredTsEpoch=cd.tsEpoch;}
     }
 
     const tb3Current=tbill3m.length?tbill3m[tbill3m.length-1].value:null;
@@ -115,7 +115,7 @@ async function loadMarketTab(){
     const spData=sp500?.closes?.slice(-63)||[];
 
     el.innerHTML=`
-      ${tsChip(mktTs,isLive)}
+      ${tsChip(mktTs,isLive,mktTsEpoch)}
       <!-- Income Engine Summary -->
       <div class="card" style="border-left:4px solid var(--accent3)">
         <div class="card-title"><span class="dot" style="background:var(--accent3)"></span>Income Engine Summary</div>
@@ -173,7 +173,7 @@ async function loadMarketTab(){
       })()}
       <div class="card">
         <div class="card-title"><span class="dot" style="background:#64b5f6"></span>T-Bill Yields (^IRX / ^FVX)</div>
-        ${tsChip(fredTs,isLive)}
+        ${tsChip(fredTs,isLive,fredTsEpoch)}
         <div class="metrics-grid">
           <div class="metric-tile"><div class="metric-label">3-Month T-Bill (^IRX)</div><div class="metric-value" style="color:#64b5f6">${tb3Current?tb3Current.toFixed(3)+'%':'N/A'}</div><div class="metric-sub">${tb3Yr?`1Y ago: ${tb3Yr.toFixed(3)}% (${(tb3Current-tb3Yr)>=0?'+':''}${(tb3Current-tb3Yr).toFixed(3)}%)`:''}</div></div>
           <div class="metric-tile"><div class="metric-label">5-Year Treasury (^FVX)</div><div class="metric-value" style="color:#64b5f6">${tb6Current?tb6Current.toFixed(3)+'%':'N/A'}</div><div class="metric-sub">${tb6Yr?`1Y ago: ${tb6Yr.toFixed(3)}% (${(tb6Current-tb6Yr)>=0?'+':''}${(tb6Current-tb6Yr).toFixed(3)}%)`:''}</div></div>
@@ -212,7 +212,7 @@ async function loadMarketTab(){
       }
     },100);
 
-    S.set('market_ts',{ts:nowPT()});
+    S.set('market_ts',{ts:nowPT(),tsEpoch:Date.now()});
   }catch(err){el.innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
 }
 
@@ -236,7 +236,7 @@ async function _fetchMarketNews(){
   try{
     const news=await _mktTimeout(fh('/news?category=general'),10000,'market news');
     const marketNews=(news||[]).slice(0,10);
-    S.set('market_news',{items:marketNews.slice(0,15).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime})),ts:nowPT()});
+    S.set('market_news',{items:marketNews.slice(0,15).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime})),ts:nowPT(),tsEpoch:Date.now()});
     return marketNews;
   }catch{
     const cn=S.get('market_news');
@@ -309,6 +309,7 @@ function _renderMarketFromCache(){
   // ── Read all cached data ─────────────────────────────────────────────────
   const mktTs=S.get('market_ts');
   const cachedTs=(mktTs?.ts||mktTs)||'';
+  const mktTsEpoch=mktTs?.tsEpoch;
 
   const cs=S.get('mkt_sp500');
   const sp500=cs?{timestamps:cs.timestamps.map(d=>new Date(typeof d==='number'?d*1000:d)),closes:cs.closes}:null;
@@ -331,6 +332,7 @@ function _renderMarketFromCache(){
   const tbill3m=cd?.tbill3m||[];
   const tbill6m=cd?.tbill6m||[];
   const fredTs=cd?.ts||cachedTs;
+  const fredTsEpoch=cd?.tsEpoch||mktTsEpoch;
 
   const spyi_snap=S.get('snap_etf_SPYI');
   const nbos_snap=S.get('snap_etf_NBOS');
@@ -372,7 +374,7 @@ function _renderMarketFromCache(){
 
   // ── Render (identical template to loadMarketTab, isLive=false) ───────────
   el.innerHTML=`
-    ${tsChip(cachedTs,false)}
+    ${tsChip(cachedTs,false,mktTsEpoch)}
     <div class="card" style="border-left:4px solid var(--accent3)">
       <div class="card-title"><span class="dot" style="background:var(--accent3)"></span>Income Engine Summary</div>
       <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Your three-layer income strategy -- risk premium above risk-free rate at each layer</div>
@@ -424,7 +426,7 @@ function _renderMarketFromCache(){
     })()}
     <div class="card">
       <div class="card-title"><span class="dot" style="background:#64b5f6"></span>T-Bill Yields (^IRX / ^FVX)</div>
-      ${tsChip(fredTs,false)}
+      ${tsChip(fredTs,false,fredTsEpoch)}
       <div class="metrics-grid">
         <div class="metric-tile"><div class="metric-label">3-Month T-Bill (^IRX)</div><div class="metric-value" style="color:#64b5f6">${tb3Current?tb3Current.toFixed(3)+'%':'N/A'}</div><div class="metric-sub">${tb3Yr?`1Y ago: ${tb3Yr.toFixed(3)}% (${(tb3Current-tb3Yr)>=0?'+':''}${(tb3Current-tb3Yr).toFixed(3)}%)`:''}</div></div>
         <div class="metric-tile"><div class="metric-label">5-Year Treasury (^FVX)</div><div class="metric-value" style="color:#64b5f6">${tb6Current?tb6Current.toFixed(3)+'%':'N/A'}</div><div class="metric-sub">${tb6Yr?`1Y ago: ${tb6Yr.toFixed(3)}% (${(tb6Current-tb6Yr)>=0?'+':''}${(tb6Current-tb6Yr).toFixed(3)}%)`:''}</div></div>

@@ -243,14 +243,13 @@ function _rsiBacktestDirectionHtml(label,color,data){
   const rows=RSI_BACKTEST_WINDOWS.map(n=>{
     const w=data.windows[n];
     if(!w)return `<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--text3);padding:3px 0">${n}-day fwd: not enough data</div>`;
-    const beatBaseline=w.baseline!=null&&w.avgReturn>w.baseline;
     const retColor=w.avgReturn>=0?'var(--green)':'var(--red)';
+    const excStr=w.excess!=null?` <span style="font-size:9px;font-weight:400;color:var(--text3)">exc ${w.excess>=0?'+':''}${w.excess.toFixed(1)}%</span>`:'';
     return `<div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11px;padding:3px 0;border-bottom:1px solid var(--surface3)">
       <span style="color:var(--text2)">${n}-day fwd</span>
       <span style="text-align:right">
-        <span style="color:${retColor};${beatBaseline?'font-weight:600':''}">${w.avgReturn>=0?'+':''}${w.avgReturn.toFixed(2)}%</span>
-        <span style="color:var(--text3)"> (${w.pctPositive.toFixed(0)}% positive)</span>
-        ${w.baseline!=null?`<span style="color:var(--text3);display:block;font-size:10px">vs. baseline ${w.baseline>=0?'+':''}${w.baseline.toFixed(2)}%</span>`:''}
+        <span style="color:${retColor};font-weight:600">${w.avgReturn>=0?'+':''}${w.avgReturn.toFixed(2)}%</span>${excStr}
+        <span style="color:var(--text3);display:block;font-size:10px">${w.pctPositive.toFixed(0)}% positive</span>
       </span>
     </div>`;
   }).join('');

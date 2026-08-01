@@ -469,7 +469,8 @@ function _computeRSIBacktestForTicker(ticker){
       const d={occurrences:idxList.length,windows:{}};
       RSI_BACKTEST_WINDOWS.forEach(n=>{
         const s=summarize(idxList,n);
-        d.windows[n]=s?{...s,baseline:baselineFor(n)}:null;
+        const baseline=baselineFor(n);
+        d.windows[n]=s?{...s,baseline,excess:baseline!=null?s.avgReturn-baseline:null}:null;
       });
       return d;
     };
@@ -556,7 +557,7 @@ function _computeRSIBacktestAggregate(tickers){
     RSI_BACKTEST_WINDOWS.forEach(n=>{
       const s=summarizePool(pooled[cat][n]);
       const baseline=summarizePool(baselinePooled[n])?.avgReturn;
-      d.windows[n]=s?{...s,baseline}:null;
+      d.windows[n]=s?{...s,baseline,excess:baseline!=null?s.avgReturn-baseline:null}:null;
     });
     result[cat]=d;
   });

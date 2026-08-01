@@ -570,9 +570,9 @@ function purgeContaminatedConfirmedEarnings(){
   }catch{}
 }
 
-function computeHVRSeries(ticker){
+function computeHVRSeries(ticker,preloadedHist2y){
   try{
-    const h2=S.get('hist2y_'+ticker);
+    const h2=preloadedHist2y||S.get('hist2y_'+ticker);
     if(!h2?.closes?.length||h2.closes.length<63)return null;
     const closes=h2.closes;
     const timestamps=h2.timestamps;

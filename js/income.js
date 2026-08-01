@@ -1578,22 +1578,36 @@ function _onPosExpChange(){
   const strikes = _getStrikesForExpiration(ticker, expDate);
   const snap = S.get('snap_'+ticker);
   const price = snap?.price || 0;
+  _buildStrikeDropdown('pos-strike-sel', strikes, price, false);
+}
 
+// Shared strike-dropdown builder for both the put and CC "add position"
+// forms. Handles clearing/disabling the dropdown, building each option's
+// ITM/OTM label, and re-enabling it. Parameterized only by isCall, which
+// flips which side of current price counts as OTM (down for puts, up for
+// calls). At-the-money is standardized to read "0.0% OTM" for both puts and
+// calls (previously puts used a slightly different boundary than calls,
+// labeling an exact-price strike "ITM" while calls labeled it "OTM").
+function _buildStrikeDropdown(strikeSelId,strikes,price,isCall){
+  const strikeSel=document.getElementById(strikeSelId);
+  if(!strikeSel)return;
+  strikeSel.innerHTML='<option value="">-- Select strike --</option>';
+  strikeSel.disabled=true;
   if(!strikes.length){
-    strikeSel.innerHTML = '<option value="">No strikes cached for this expiration</option>';
+    strikeSel.innerHTML=`<option value="">No ${isCall?'call ':''}strikes cached for this expiration</option>`;
     return;
   }
-  strikes.forEach(s => {
-    const opt = document.createElement('option');
-    opt.value = s;
-    const otmPct = price > 0 ? ((price - s) / price * 100) : null;
-    const moneyness = otmPct !== null
-      ? (otmPct > 0 ? otmPct.toFixed(1)+'% OTM' : Math.abs(otmPct).toFixed(1)+'% ITM')
+  strikes.forEach(s=>{
+    const opt=document.createElement('option');
+    opt.value=s;
+    const otmPct=price>0?(isCall?(s-price)/price*100:(price-s)/price*100):null;
+    const moneyness=otmPct!==null
+      ? (otmPct>=0?otmPct.toFixed(1)+'% OTM':Math.abs(otmPct).toFixed(1)+'% ITM')
       : '';
-    opt.textContent = '$' + s.toFixed(2) + (moneyness ? ' — ' + moneyness : '');
+    opt.textContent='$'+s.toFixed(2)+(moneyness?' — '+moneyness:'');
     strikeSel.appendChild(opt);
   });
-  strikeSel.disabled = false;
+  strikeSel.disabled=false;
 }
 
 function _confirmAddPosition(){
@@ -1976,22 +1990,7 @@ function _onCCExpChange(){
   const strikes = _getCallStrikesForExpiration(ticker, expDate);
   const snap = S.get('snap_'+ticker);
   const price = snap?.price || 0;
-
-  if(!strikes.length){
-    strikeSel.innerHTML = '<option value="">No call strikes cached for this expiration</option>';
-    return;
-  }
-  strikes.forEach(s => {
-    const opt = document.createElement('option');
-    opt.value = s;
-    const otmPct = price > 0 ? ((s - price) / price * 100) : null;
-    const moneyness = otmPct !== null
-      ? (otmPct >= 0 ? otmPct.toFixed(1)+'% OTM' : Math.abs(otmPct).toFixed(1)+'% ITM')
-      : '';
-    opt.textContent = '$' + s.toFixed(2) + (moneyness ? ' — ' + moneyness : '');
-    strikeSel.appendChild(opt);
-  });
-  strikeSel.disabled = false;
+  _buildStrikeDropdown('cc-strike-sel', strikes, price, true);
 }
 
 function _onCCStrikeChange(){

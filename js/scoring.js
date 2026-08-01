@@ -1,4 +1,4 @@
-// PutSeller Pro scoring.js
+// Income Engine scoring.js
 // Purpose: conviction scoring formulas only.
 // Version: scoring-v2 -- 9 component scores
 

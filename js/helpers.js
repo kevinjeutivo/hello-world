@@ -565,6 +565,28 @@ function _computeRSIBacktestAggregate(tickers){
   return result;
 }
 
+// Ranks tickers by excess return for a given category/window -- "which
+// stocks show the strongest signal," not just "does the signal work in
+// general." Filtered by a minimum occurrence floor so a ticker with 2 lucky
+// episodes can't misleadingly top the list; sorted descending by excess
+// return (callers wanting "biggest downside" for overbought reverse or
+// slice from the tail). Cache-only, no new fetches.
+function _computeRSIBacktestRanking(tickers,category,window,minOccurrences){
+  minOccurrences=minOccurrences||4;
+  const rows=[];
+  tickers.forEach(t=>{
+    const result=_computeRSIBacktestForTicker(t);
+    if(!result)return;
+    const d=result[category];
+    if(!d||d.occurrences<minOccurrences)return;
+    const w=d.windows[window];
+    if(!w||w.excess==null)return;
+    rows.push({ticker:t,occurrences:d.occurrences,avgReturn:w.avgReturn,pctPositive:w.pctPositive,excess:w.excess});
+  });
+  rows.sort((a,b)=>b.excess-a.excess);
+  return rows;
+}
+
 function formatStrike(x){return x===Math.floor(x)?x.toString():x.toFixed(2);}
 
 function fmtCap(v){if(!v)return'N/A';if(v>=1e12)return`$${(v/1e12).toFixed(2)}T`;if(v>=1e9)return`$${(v/1e9).toFixed(2)}B`;if(v>=1e6)return`$${(v/1e6).toFixed(2)}M`;return`$${v}`;}

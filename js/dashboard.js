@@ -375,7 +375,7 @@ function renderAssignmentRisk(){
     return`<div style="padding:8px 0;border-bottom:1px solid var(--surface3)">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <span style="font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer" onclick="navigateToTicker('${r.ticker}')">${r.ticker}</span>
-        <span style="font-family:var(--mono);font-size:9px;color:var(--text3)">${r.accountName}</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--text3);cursor:pointer;text-decoration:underline" onclick="navigateToAccount('${r.accountId}')">${r.accountName}</span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11px;margin-top:3px">
         <span style="color:var(--text2)">${kindLabel} $${formatStrike(r.strike)} vs $${r.currentPrice.toFixed(2)}</span>

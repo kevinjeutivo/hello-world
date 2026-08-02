@@ -436,6 +436,104 @@ function _compute52W(ticker,preloadedHist2y){
 // this always shows an affordance -- "+ Add note" when empty, the full note
 // text (never truncated) when one exists -- and tapping either opens the
 // same edit modal directly.
+// ── RSI transition card ───────────────────────────────────────────────────
+// Assesses one direction's backtest block (entry or exit) for narrative
+// purposes: which way it leans across the three windows, which window shows
+// the strongest signal, and how many episodes it's based on.
+function _rsiAssessBlock(block){
+  if(!block)return null;
+  const excesses=RSI_BACKTEST_WINDOWS.map(n=>block.windows[n]?.excess).filter(v=>v!=null);
+  if(!excesses.length)return null;
+  const posCount=excesses.filter(v=>v>0).length;
+  const lean=posCount===excesses.length?'positive':posCount===0?'negative':'mixed';
+  let strongestN=null,strongestExcess=null;
+  RSI_BACKTEST_WINDOWS.forEach(n=>{
+    const w=block.windows[n];
+    if(w&&w.excess!=null&&(strongestExcess==null||Math.abs(w.excess)>Math.abs(strongestExcess))){
+      strongestN=n;strongestExcess=w.excess;
+    }
+  });
+  return{lean,strongestN,strongestExcess,occurrences:block.occurrences};
+}
+
+function _rsiConfidenceLabel(occurrences){
+  if(occurrences<6)return'a thin sample';
+  if(occurrences<10)return'a modest sample';
+  return'a reasonably substantial sample for a single stock';
+}
+
+// Rule-based synthesis, not a deep language model -- mechanically combines
+// three real signals (sign consistency across windows, which window is
+// strongest, and sample size) into plain-language sentences. Confident
+// where the data supports it, hedged where the sample is thin, never
+// overstating what a handful of episodes can actually tell you.
+function _rsiNarrativeText(ticker,trans,result){
+  const zoneLabel=trans.zone; // 'oversold' | 'overbought'
+  const primaryKey=trans.zone+(trans.phase==='in'?'Enter':'Exit');
+  const secondaryKey=trans.zone+(trans.phase==='in'?'Exit':'Enter');
+  const primary=_rsiAssessBlock(result[primaryKey]);
+  const secondary=_rsiAssessBlock(result[secondaryKey]);
+
+  const sentences=[];
+
+  if(trans.phase==='in'){
+    sentences.push(`${ticker} has been ${zoneLabel} for ${trans.days} day${trans.days!==1?'s':''} (RSI ${trans.rsi.toFixed(1)}).`);
+  }else{
+    sentences.push(`${ticker} left ${zoneLabel} territory ${trans.days} day${trans.days!==1?'s':''} ago (RSI now ${trans.rsi.toFixed(1)}).`);
+  }
+
+  if(primary){
+    const dir=primary.lean==='positive'?'shown a tendency to gain':primary.lean==='negative'?'shown a tendency to lose ground':'shown no consistent direction';
+    const afterWhat=trans.phase==='in'?'after entering '+zoneLabel:'after leaving '+zoneLabel;
+    sentences.push(`Historically, ${afterWhat}, this stock has ${dir}, strongest in the ${primary.strongestN}-day window (exc ${primary.strongestExcess>=0?'+':''}${primary.strongestExcess.toFixed(1)}%).`);
+  }else{
+    sentences.push(`Not enough historical ${trans.phase==='in'?'entries':'exits'} to assess this specific pattern yet.`);
+  }
+
+  if(secondary){
+    const dir2=secondary.lean;
+    const framing=trans.phase==='in'
+      ?`Should the current condition resolve, this stock's history after past exits has leaned ${dir2}`
+      :`For context, this stock's history after entering ${zoneLabel} (before resolution) has leaned ${dir2}`;
+    sentences.push(`${framing} (${secondary.strongestN}-day exc ${secondary.strongestExcess>=0?'+':''}${secondary.strongestExcess.toFixed(1)}%).`);
+  }
+
+  const baseOccurrences=primary?.occurrences??0;
+  sentences.push(`Based on ${baseOccurrences} prior episode${baseOccurrences!==1?'s':''} -- ${_rsiConfidenceLabel(baseOccurrences)}; treat this as directional, not predictive.`);
+
+  return sentences.join(' ');
+}
+
+function _rsiTransitionCardHtml(ticker,preloadedHist2y){
+  const trans=_getRSIRecentTransition(ticker,preloadedHist2y);
+  if(!trans){
+    const h2=preloadedHist2y||S.get('hist2y_'+ticker);
+    const rsi=h2?.closes?.length>=80?computeRSI(h2.closes,14):null;
+    const lastRSI=rsi&&rsi.length?rsi[rsi.length-1]:null;
+    const rsiStr=lastRSI!=null?lastRSI.toFixed(0):'--';
+    return`<div class="card"><div style="font-family:var(--mono);font-size:11px;color:var(--text3)">RSI: ${rsiStr} (neutral) -- no recent oversold/overbought signal</div></div>`;
+  }
+
+  const result=_computeRSIBacktestForTicker(ticker);
+  if(!result){
+    return`<div class="card"><div style="font-family:var(--mono);font-size:11px;color:var(--text3)">RSI: ${trans.rsi.toFixed(0)} -- not enough cached history to backtest yet</div></div>`;
+  }
+
+  const zoneLabel=trans.zone==='oversold'?'Oversold':'Overbought';
+  const phaseLabel=trans.phase==='in'?zoneLabel:'Left '+zoneLabel;
+  const color=trans.zone==='oversold'?'var(--green)':'var(--red)';
+  const entryKey=trans.zone+'Enter',exitKey=trans.zone+'Exit';
+  const narrative=_rsiNarrativeText(ticker,trans,result);
+
+  return`<div class="card">
+    <div class="card-title"><span class="dot" style="background:${color}"></span>RSI Signal</div>
+    <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:${color};margin-bottom:10px">${phaseLabel} -- ${trans.days} day${trans.days!==1?'s':''} (RSI ${trans.rsi.toFixed(1)})</div>
+    ${_rsiBacktestDirectionHtml('After entering '+trans.zone,color,result[entryKey])}
+    ${_rsiBacktestDirectionHtml('After leaving '+trans.zone,color,result[exitKey])}
+    <div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.5;margin-top:4px;padding-top:10px;border-top:1px solid var(--surface3)">${narrative}</div>
+  </div>`;
+}
+
 function _tickerNoteSectionHtml(ticker){
   const note=S.get('watchlist_note_'+ticker)||'';
   return `<div id="ticker-note-section" data-ticker="${ticker}" onclick="_openNoteModal('${ticker}')" style="cursor:pointer;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px;font-family:var(--mono);font-size:11px">`+
@@ -612,6 +710,7 @@ RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red
 Volume: green bars = up days, yellow bars = 20-day average. Spikes on breakouts confirm momentum; low volume on moves suggests weak conviction.
 
 HVR (Historical Volatility Rank): where current 30-day realized volatility sits relative to its 1-year range. High HVR = elevated volatility, richer option premiums. Low HVR = compressed volatility, thinner premiums.</div></div>`:''}
+  ${_rsiTransitionCardHtml(snap.ticker,hist2y)}
   ${(hist2y&&hist2ySP)?renderRelPerfCard(snap.ticker,hist2y,hist2ySP,earningsHistory):''}  ${hist1y?`<div class="card"><div class="card-title"><span class="dot" style="background:teal"></span>Volume Profile -- Support / Resistance (1Y)</div><div class="chart-wrap" style="height:300px"><canvas id="vp-chart"></canvas></div><div id="vp-analysis"></div></div>`:''}
   <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Recent News (7 days)</div><div id="news-section">${renderNewsItems(news)}</div></div>
   ${upgradesData&&upgradesData.length?buildUpgradeTable(upgradesData):''}

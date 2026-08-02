@@ -578,6 +578,27 @@ function _ivrBadgeHtml(ticker){
     +'letter-spacing:0.3px">IVR '+ivr.toFixed(0)+' '+label+'</span>';
 }
 
+// Shows both the absolute and excess return so a stock can be filtered out
+// at a glance if the excess is weak or points the wrong direction -- a low
+// or opposite-signed excess means the current condition isn't actually
+// meaningful for this specific ticker, even if the absolute number looks
+// fine on its own.
+function _rsiTransitionBadgeHtml(ticker){
+  const trans=_getRSIRecentTransition(ticker);
+  if(!trans)return'';
+  const category=trans.zone+(trans.phase==='in'?'Enter':'Exit');
+  const result=_computeRSIBacktestForTicker(ticker);
+  const w=result?.[category]?.windows?.[10];
+  const zoneLabel=trans.zone==='oversold'?'Oversold':'Overbought';
+  const phaseLabel=trans.phase==='in'?zoneLabel:'Left '+zoneLabel;
+  const color=trans.zone==='oversold'?'var(--green)':'var(--red)';
+  const statStr=w?(' '+(w.avgReturn>=0?'+':'')+w.avgReturn.toFixed(1)+'%/10d (exc '+(w.excess>=0?'+':'')+w.excess.toFixed(1)+'%)'):'';
+  return'<div style="font-family:var(--mono);font-size:10px;margin-top:2px">'
+    +'<span style="color:'+color+';font-weight:600">['+phaseLabel+' &middot; '+trans.days+'d]</span>'
+    +'<span style="color:var(--text3)">'+statStr+'</span>'
+    +'</div>';
+}
+
 // ── Watchlist core ────────────────────────────────────────────────────────────
 
 function setWatchlistSort(mode){
@@ -712,6 +733,7 @@ function renderWatchlist(){
     const bgStyle=hmBg?'background:'+hmBg+';':'';
     const volBadge=_volBadgeHtml(_checkVolumeBadge(t));
     const ivrBadge=_ivrBadgeHtml(t);
+    const rsiTransBadge=_rsiTransitionBadgeHtml(t);
     const note=S.get('watchlist_note_'+t)||'';
     const expanded=_expandedNotes.has(t);
     return '<div class="watchlist-item" style="flex-direction:column;align-items:stretch;'+bgStyle+'" onclick="navigateToTicker(\''+t+'\')">'+
@@ -719,6 +741,7 @@ function renderWatchlist(){
         '<div style="min-width:0;flex-shrink:1">'+
           '<div class="watchlist-ticker">'+t+ivrBadge+volBadge+'</div>'+
           (c?'<div class="watchlist-ts">'+c.ts+(age?' ('+age+')':'')+'</div>':'')+
+          rsiTransBadge+
         '</div>'+
         '<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:0 8px">'+
           _sparklineHtml(t)+

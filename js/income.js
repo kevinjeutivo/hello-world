@@ -1110,6 +1110,14 @@ function _switchFromOverview(id){
   _switchAccount(id);
 }
 
+// Jumps to the Income tab and switches to the given account -- for linking
+// to a specific account from elsewhere in the app (e.g. the ITM Risk card
+// on the Dashboard), not just from within the Income tab's own modals.
+function navigateToAccount(id){
+  showTab('income');
+  _switchAccount(id);
+}
+
 // ── Tab entry points ──────────────────────────────────────────────────────────
 
 function _initAccountState(){
@@ -2260,4 +2268,3 @@ function _computeAssignmentRisk(){
   rows.sort((a,b)=>b.score-a.score);
   return rows;
 }
-    

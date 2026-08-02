@@ -37,7 +37,7 @@ function _syncDashboardViewModeUI(){
 // 9 component definitions split into two rows: 4 on top, 5 on bottom.
 // Labels sit below their respective bar, consistent with the existing convention.
 const COMP_DEFS=[
-  {key:'ivr',   label:'IVR'},
+  {key:'ivr',   label:'HVR'},
   {key:'rsi',   label:'RSI'},
   {key:'range', label:'Rng'},
   {key:'apy',   label:'APY'},

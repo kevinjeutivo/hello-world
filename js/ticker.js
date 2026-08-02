@@ -551,6 +551,17 @@ function _tickerNoteSectionHtml(ticker){
 // if the Ticker page isn't currently showing this ticker's note section
 // (e.g. the modal was opened from Watchlist, or you've since navigated
 // elsewhere).
+// Targeted refresh after toggling the star from the Watchlist (or from this
+// page itself) -- swaps in the star's current state without a full
+// ticker-page rebuild. Safe no-op if the Ticker page isn't currently
+// showing this ticker (e.g. the star was toggled from Watchlist for a
+// different ticker than the one currently open here).
+function _refreshTickerStarIcon(ticker){
+  const el=document.getElementById('ticker-star-icon');
+  if(!el||el.dataset.ticker!==ticker)return;
+  el.innerHTML=_starIconHtml(ticker,15);
+}
+
 function _refreshTickerNoteSection(ticker){
   const el=document.getElementById('ticker-note-section');
   if(!el||el.dataset.ticker!==ticker)return;
@@ -648,7 +659,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
     </div>`;
   }
   el.innerHTML=`<div class="card">
-    <div class="card-title"><span class="dot"></span>${snap.ticker} -- ${snap.name}</div>
+    <div class="card-title"><span class="dot"></span>${snap.ticker} -- ${snap.name} <span id="ticker-star-icon" data-ticker="${snap.ticker}">${_starIconHtml(snap.ticker,15)}</span></div>
     ${tsChip(snap.ts,isLive,snap.tsEpoch)}
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><span style="font-family:var(--mono);font-size:28px;font-weight:500">$${snap.price?.toFixed(2)||'N/A'}</span>${_sparklineHtml(snap.ticker)}</div>
     <div style="font-family:var(--mono);font-size:13px;color:${chgColor};margin-bottom:6px">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>

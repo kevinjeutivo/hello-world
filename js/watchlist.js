@@ -376,14 +376,15 @@ function _confirmRemove(){
 // ── Heatmap ───────────────────────────────────────────────────────────────────
 
 let _heatmapMode=S.get('heatmap_mode')||'off'; // 'off' | 'change' | 'ivr'
-let _positionsFilterOn=S.get('watchlist_positions_filter')==='true';
+let _watchlistFilterMode=S.get('watchlist_filter_mode')||'all'; // 'all' | 'positions' | 'starred'
 
-function setPositionsFilter(on){
-  _positionsFilterOn=on;
-  S.set('watchlist_positions_filter',String(on));
-  const offBtn=document.getElementById('wl-posfilter-off'),onBtn=document.getElementById('wl-posfilter-on');
-  if(offBtn)offBtn.style.opacity=on?'0.4':'1';
-  if(onBtn)onBtn.style.opacity=on?'1':'0.4';
+function setWatchlistFilterMode(mode){
+  _watchlistFilterMode=mode;
+  S.set('watchlist_filter_mode',mode);
+  ['all','positions','starred'].forEach(m=>{
+    const btn=document.getElementById('wl-filter-'+m);
+    if(btn)btn.style.opacity=m===mode?'1':'0.4';
+  });
   renderWatchlist();
 }
 
@@ -400,6 +401,35 @@ function _tickersWithPositions(){
     (S.get('income_'+a.id+'_cc_positions')||[]).forEach(p=>{if(_posExpiryStatusWL(p)!=='remove')result.add(p.ticker);});
   });
   return result;
+}
+
+// ── Starred tickers ────────────────────────────────────────────────────────
+// A single array (not one key per ticker, unlike notes) since the filter
+// needs to check membership across the whole list efficiently, the same way
+// _tickersWithPositions() already does for the positions filter.
+
+function _starredTickers(){
+  return new Set(S.get('watchlist_starred')||[]);
+}
+
+function isStarred(ticker){
+  return _starredTickers().has(ticker);
+}
+
+function toggleStar(ticker){
+  const starred=S.get('watchlist_starred')||[];
+  const idx=starred.indexOf(ticker);
+  if(idx>=0)starred.splice(idx,1);
+  else starred.push(ticker);
+  S.set('watchlist_starred',starred);
+  renderWatchlist();
+  _refreshTickerStarIcon(ticker);
+}
+
+function _starIconHtml(ticker,size){
+  size=size||14;
+  const starred=isStarred(ticker);
+  return`<span onclick="event.stopPropagation();toggleStar('${ticker}')" title="${starred?'Unstar':'Star'} ${ticker}" style="cursor:pointer;font-size:${size}px;line-height:1;color:${starred?'#ffc107':'var(--text3)'}">${starred?'&#9733;':'&#9734;'}</span>`;
 }
 
 function setHeatmap(mode){
@@ -693,20 +723,28 @@ function renderWatchlist(){
     const btn=document.getElementById('hm-'+m);
     if(btn)btn.style.opacity=m===_heatmapMode?'1':'0.4';
   });
-  const posOffBtn=document.getElementById('wl-posfilter-off'),posOnBtn=document.getElementById('wl-posfilter-on');
-  if(posOffBtn)posOffBtn.style.opacity=_positionsFilterOn?'0.4':'1';
-  if(posOnBtn)posOnBtn.style.opacity=_positionsFilterOn?'1':'0.4';
+  ['all','positions','starred'].forEach(m=>{
+    const btn=document.getElementById('wl-filter-'+m);
+    if(btn)btn.style.opacity=m===_watchlistFilterMode?'1':'0.4';
+  });
   const el=document.getElementById('watchlist-items');
   if(!watchlist.length){
     el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CB;</div>Watchlist is empty</div>';
     return;
   }
   let sorted=getSortedWatchlist();
-  if(_positionsFilterOn){
+  if(_watchlistFilterMode==='positions'){
     const withPositions=_tickersWithPositions();
     sorted=sorted.filter(t=>withPositions.has(t));
     if(!sorted.length){
       el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CB;</div>No tickers with active positions</div>';
+      return;
+    }
+  }else if(_watchlistFilterMode==='starred'){
+    const starred=_starredTickers();
+    sorted=sorted.filter(t=>starred.has(t));
+    if(!sorted.length){
+      el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CB;</div>No starred tickers yet -- tap the star on a ticker to add one</div>';
       return;
     }
   }
@@ -750,7 +788,10 @@ function renderWatchlist(){
           '<div class="watchlist-price">'+price+'</div>'+
           (hasChg?'<div class="watchlist-change" style="color:'+cc+'">'+(chg>=0?'+':'')+chg.toFixed(2)+' ('+(chgPct>=0?'+':'')+chgPct.toFixed(2)+'%)</div>':'')+
         '</div>'+
-        '<button class="watchlist-remove" title="Actions" onclick="event.stopPropagation();_openTickerMenu(\''+t+'\',this)">&#x22EF;</button>'+
+        '<div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex-shrink:0">'+
+          _starIconHtml(t)+
+          '<button class="watchlist-remove" title="Actions" style="margin-left:0" onclick="event.stopPropagation();_openTickerMenu(\''+t+'\',this)">&#x22EF;</button>'+
+        '</div>'+
       '</div>'+
       (note?
         '<div onclick="event.stopPropagation();_toggleNoteExpand(\''+t+'\')" style="width:100%;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-family:var(--mono);font-size:10px;color:var(--text2);cursor:pointer;display:flex;align-items:flex-start;gap:4px">'+

@@ -148,7 +148,7 @@
       <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Heat:</span>
       <button class="btn btn-secondary" id="hm-off" onclick="setHeatmap('off')" style="font-size:10px;padding:3px 8px">Off</button>
       <button class="btn btn-secondary" id="hm-change" onclick="setHeatmap('change')" style="font-size:10px;padding:3px 8px;opacity:0.4">Daily %</button>
-      <button class="btn btn-secondary" id="hm-ivr" onclick="setHeatmap('ivr')" style="font-size:10px;padding:3px 8px;opacity:0.4">IVR</button>
+      <button class="btn btn-secondary" id="hm-ivr" onclick="setHeatmap('ivr')" style="font-size:10px;padding:3px 8px;opacity:0.4">HVR</button>
     </div>
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
       <button class="btn btn-secondary" id="wl-filter-all" onclick="setWatchlistFilterMode('all')" style="font-size:10px;padding:3px 8px;white-space:nowrap">All</button>
@@ -622,7 +622,7 @@
     <div id="weight-sliders">
       <div style="margin-bottom:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">IVR (implied vol rank)</label>
+          <label class="input-label" style="margin:0;font-size:11px">HVR (historical vol rank)</label>
           <div style="display:flex;align-items:center;gap:8px">
             <span id="weight-share-ivr" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
             <span id="weight-val-ivr" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>

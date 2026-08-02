@@ -1,6 +1,6 @@
 // Income Engine -- watchlist.js
 // Watchlist tab: render, add, remove (with confirmation modal), sort, per-ticker notes.
-// Heatmap: daily % change or IVR coloring on chips.
+// Heatmap: daily % change or HVR coloring on chips.
 // Volume badge: 🔥 VOL when unusual volume detected in final 2h of session or lingers overnight.
 // Globals used: watchlist, watchlistSort, currentTicker, S
 // Dependencies: helpers.js, storage.js, ui.js
@@ -590,8 +590,8 @@ function _volBadgeHtml(badgeData){
     +'letter-spacing:0.3px">🔥 VOL'+multStr+'</span>';
 }
 
-// ── IVR badge ─────────────────────────────────────────────────────────────────
-// Always-on badge when IVR >= 50, independent of heatmap mode.
+// ── HVR badge ─────────────────────────────────────────────────────────────────
+// Always-on badge when HVR >= 50, independent of heatmap mode.
 // Color matches unified scale: 50-69 amber (elevated), >=70 orange (high).
 
 function _ivrBadgeHtml(ticker){
@@ -605,7 +605,7 @@ function _ivrBadgeHtml(ticker){
   return'<span style="display:inline-flex;align-items:center;gap:2px;background:'+bg+';'
     +'color:'+textColor+';font-family:var(--mono);font-size:9px;font-weight:700;'
     +'padding:2px 5px;border-radius:4px;margin-left:5px;vertical-align:middle;'
-    +'letter-spacing:0.3px">IVR '+ivr.toFixed(0)+' '+label+'</span>';
+    +'letter-spacing:0.3px">HVR '+ivr.toFixed(0)+' '+label+'</span>';
 }
 
 // Shows both the absolute and excess return so a stock can be filtered out
@@ -748,15 +748,15 @@ function renderWatchlist(){
       return;
     }
   }
-  // IVR legend -- only shown when IVR heatmap is active
+  // HVR legend -- only shown when HVR heatmap is active
   const legendHtml=_heatmapMode==='ivr'?
     '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding:8px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">'
-    +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);width:100%;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.5px">IVR Heatmap — each ticker vs its own 52W IV range</div>'
-    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(255,107,53,0.22)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR ≥ 70 — High (rich premium)</span></div>'
-    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(255,193,7,0.18)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR 50–69 — Elevated</span></div>'
-    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(100,181,246,0.12)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR 30–49 — Normal</span></div>'
-    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(85,88,112,0.08);border:1px solid var(--border)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">IVR &lt; 30 or no data — Low/thin</span></div>'
-    +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);width:100%;margin-top:2px">IVR badge (orange/amber) appears on chips when IVR ≥ 50, independent of heatmap mode. Run conviction dashboards to populate IVR data.</div>'
+    +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);width:100%;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.5px">HVR Heatmap — each ticker vs its own 52W realized-vol range</div>'
+    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(255,107,53,0.22)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">HVR ≥ 70 — High (rich premium)</span></div>'
+    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(255,193,7,0.18)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">HVR 50–69 — Elevated</span></div>'
+    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(100,181,246,0.12)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">HVR 30–49 — Normal</span></div>'
+    +'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(85,88,112,0.08);border:1px solid var(--border)"></span><span style="font-family:var(--mono);font-size:10px;color:var(--text2)">HVR &lt; 30 or no data — Low/thin</span></div>'
+    +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);width:100%;margin-top:2px">HVR badge (orange/amber) appears on chips when HVR ≥ 50, independent of heatmap mode. Run conviction dashboards to populate HVR data.</div>'
     +'</div>'
     :'';
 

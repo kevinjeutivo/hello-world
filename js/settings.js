@@ -33,7 +33,7 @@ function resetConvictionWeights(){
 // FACTOR_BASE_MAX defined in scoring.js
 
 const FACTOR_DESCRIPTIONS={
-  ivr:'Implied Volatility Rank -- measures how elevated current IV is vs the past year. High IVR means options are unusually expensive, so you collect more premium for the same risk. The most important factor for income generation.',
+  ivr:'Historical Volatility Rank -- measures how elevated the stock\'s own recent realized volatility is vs its past year (not implied volatility from options prices). High HVR means the stock has been moving more than usual for itself, which tends to mean richer premiums. The most important factor for income generation.',
   rsi:'Relative Strength Index -- momentum (0-100). For puts, oversold (below 35) is favorable since the stock has pulled back. For calls, overbought (above 70) is favorable. Neutral RSI is neither good nor bad.',
   range:'52-week range position. For puts, lower in the range (near annual lows) means more downside cushion above your strike. For calls, upper half of range is favorable.',
   apy:'Estimated annualized yield of the recommended strike. Higher APY relative to your target (12%) directly improves the income thesis. Set to 0x to remove APY from scoring entirely.',

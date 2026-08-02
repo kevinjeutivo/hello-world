@@ -195,7 +195,6 @@
       <div class="slider-wrap"><div class="slider-row"><span class="slider-label">% Below Price</span><span class="slider-val" id="pct-below-val">20%</span></div><input type="range" id="pct-below" min="1" max="50" value="20" oninput="updateSlider('pct-below')"></div>
       <div class="slider-wrap"><div class="slider-row"><span class="slider-label">% Above Price</span><span class="slider-val" id="pct-above-val">5%</span></div><input type="range" id="pct-above" min="1" max="50" value="5" oninput="updateSlider('pct-above')"></div>
       <div class="input-group"><label class="input-label">Highlight APY %</label><input class="input" type="number" id="highlight-apy" value="12" oninput="saveOptionsPrefs();(function(){const s=document.getElementById('options-ticker-select')?.value||'';if(currentOptionsData&&lastOptionsTickerLoaded&&s===lastOptionsTickerLoaded)buildOptionsTable();})();"></div>
-      <button class="btn btn-primary" onclick="buildOptionsTable()">Load / Refresh Options Chain</button>
     </div>
   </div>
   <div id="options-earnings-warn"></div>

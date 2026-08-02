@@ -861,13 +861,13 @@ function computeHVRSeries(ticker,preloadedHist2y){
 }
 
 function ivrInfo(val){
-  // Unified IVR scale used throughout the app:
+  // Unified HVR scale used throughout the app:
   // <30 Low | 30-49 Normal | 50-69 Elevated | >=70 High
-  if(val===null)return{badge:'',guidance:'IV rank not available -- fetch options data to compute.'};
-  if(val<30)return{badge:`<span class="ivr-badge ivr-low">Low Vol (${val.toFixed(0)})</span>`,guidance:`Vol Rank ${val.toFixed(0)}: Stock moving less than usual. Premiums relatively thin.`};
-  if(val<50)return{badge:`<span class="ivr-badge ivr-normal">Normal Vol (${val.toFixed(0)})</span>`,guidance:`Vol Rank ${val.toFixed(0)}: Realized volatility in normal range. Standard conditions for premium collection.`};
-  if(val<70)return{badge:`<span class="ivr-badge ivr-elevated">Elevated Vol (${val.toFixed(0)})</span>`,guidance:`Vol Rank ${val.toFixed(0)}: Stock moving more than usual. Above-average premium opportunity.`};
-  return{badge:`<span class="ivr-badge ivr-high">High Vol (${val.toFixed(0)})</span>`,guidance:`Vol Rank ${val.toFixed(0)}: Stock at high end of its volatility range. Exceptional premiums -- tread carefully on naked puts.`};
+  if(val===null)return{badge:'',guidance:'HVR not available -- fetch options data to compute.'};
+  if(val<30)return{badge:`<span class="ivr-badge ivr-low">Low HVR (${val.toFixed(0)})</span>`,guidance:`HVR ${val.toFixed(0)}: Stock moving less than usual. Premiums relatively thin.`};
+  if(val<50)return{badge:`<span class="ivr-badge ivr-normal">Normal HVR (${val.toFixed(0)})</span>`,guidance:`HVR ${val.toFixed(0)}: Realized volatility in normal range. Standard conditions for premium collection.`};
+  if(val<70)return{badge:`<span class="ivr-badge ivr-elevated">Elevated HVR (${val.toFixed(0)})</span>`,guidance:`HVR ${val.toFixed(0)}: Stock moving more than usual. Above-average premium opportunity.`};
+  return{badge:`<span class="ivr-badge ivr-high">High HVR (${val.toFixed(0)})</span>`,guidance:`HVR ${val.toFixed(0)}: Stock at high end of its volatility range. Exceptional premiums -- tread carefully on naked puts.`};
 }
 
 const POS_WORDS=['beat','beats','surge','surges','upgrade','upgrades','raises','record','strong','soar','gain','rally','top'];

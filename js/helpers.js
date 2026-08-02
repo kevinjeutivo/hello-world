@@ -409,6 +409,62 @@ function computeRSI(closes,period=14){const result=[];for(let i=0;i<closes.lengt
 // fetches -- reads only from already-cached hist2y_.
 const RSI_BACKTEST_WINDOWS=[5,10,20];
 const RSI_OVERSOLD_THRESHOLD=30,RSI_OVERBOUGHT_THRESHOLD=70;
+const RSI_RECENT_EXIT_DAYS=10; // how long a "recently left" badge stays visible after exiting a zone
+
+// Determines whether a ticker is CURRENTLY in oversold/overbought territory,
+// or recently LEFT one within the last RSI_RECENT_EXIT_DAYS trading days --
+// the shared basis for both the watchlist badge and the ticker page card.
+// Uses the exact same threshold-crossing rule the backtest itself uses, so
+// the badge and the stats displayed alongside it never disagree about what
+// counts as "in" a zone. Returns null if neither condition applies (stock
+// is neutral and didn't recently leave a zone).
+//
+// "Currently in" never expires -- it's a present state, not stale news, so
+// a stock that's been oversold for three weeks still shows it, with the
+// duration as context for you to judge. "Recently left" is capped at
+// RSI_RECENT_EXIT_DAYS, since an exit that happened weeks ago isn't timely
+// anymore.
+function _getRSIRecentTransition(ticker,preloadedHist2y){
+  try{
+    const h2=preloadedHist2y||S.get('hist2y_'+ticker);
+    if(!h2?.closes?.length||h2.closes.length<80)return null;
+    const closes=h2.closes;
+    const rsi=computeRSI(closes,14);
+    if(!rsi.length)return null;
+    const lastIdx=rsi.length-1;
+    const lastRSI=rsi[lastIdx];
+    const isOversold=lastRSI<RSI_OVERSOLD_THRESHOLD;
+    const isOverbought=lastRSI>RSI_OVERBOUGHT_THRESHOLD;
+
+    if(isOversold||isOverbought){
+      const zone=isOversold?'oversold':'overbought';
+      const inZone=isOversold?(v=>v<RSI_OVERSOLD_THRESHOLD):(v=>v>RSI_OVERBOUGHT_THRESHOLD);
+      let days=0;
+      for(let k=lastIdx;k>=0;k--){
+        if(inZone(rsi[k]))days++;
+        else break;
+      }
+      return{zone,phase:'in',days,rsi:lastRSI};
+    }
+
+    // Not currently in a zone -- scan the last RSI_RECENT_EXIT_DAYS
+    // transitions forward; the last (most recent) exit found in this
+    // window, if any, is what we want. No need for backward-walking logic
+    // here since we already know today is neutral.
+    let exitZone=null,daysSinceExit=null;
+    const startK=Math.max(1,lastIdx-RSI_RECENT_EXIT_DAYS+1);
+    for(let k=startK;k<=lastIdx;k++){
+      const prevOversold=rsi[k-1]<RSI_OVERSOLD_THRESHOLD;
+      const prevOverbought=rsi[k-1]>RSI_OVERBOUGHT_THRESHOLD;
+      const currOversold=rsi[k]<RSI_OVERSOLD_THRESHOLD;
+      const currOverbought=rsi[k]>RSI_OVERBOUGHT_THRESHOLD;
+      if(prevOversold&&!currOversold){exitZone='oversold';daysSinceExit=lastIdx-k;}
+      if(prevOverbought&&!currOverbought){exitZone='overbought';daysSinceExit=lastIdx-k;}
+    }
+    if(exitZone!=null)return{zone:exitZone,phase:'left',days:daysSinceExit,rsi:lastRSI};
+    return null;
+  }catch{return null;}
+}
 
 function _computeRSIBacktestForTicker(ticker){
   try{

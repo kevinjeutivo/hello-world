@@ -15,23 +15,27 @@ function setDashboardViewMode(mode){
 }
 
 function _syncDashboardViewModeUI(){
-  const putsBtn=document.getElementById('dash-view-puts'),ccBtn=document.getElementById('dash-view-cc'),rsiBtn=document.getElementById('dash-view-rsi');
+  const putsBtn=document.getElementById('dash-view-puts'),ccBtn=document.getElementById('dash-view-cc'),rsiBtn=document.getElementById('dash-view-rsi'),riskBtn=document.getElementById('dash-view-risk');
   if(putsBtn)putsBtn.style.opacity=dashboardViewMode==='puts'?'1':'0.4';
   if(ccBtn)ccBtn.style.opacity=dashboardViewMode==='cc'?'1':'0.4';
   if(rsiBtn)rsiBtn.style.opacity=dashboardViewMode==='rsi'?'1':'0.4';
+  if(riskBtn)riskBtn.style.opacity=dashboardViewMode==='risk'?'1':'0.4';
 
   const convictionControls=document.getElementById('dash-conviction-controls');
   const putsCard=document.getElementById('dash-puts-card');
   const ccCard=document.getElementById('dash-cc-card');
   const rsiCard=document.getElementById('dash-rsi-card');
   const rsiRankingCard=document.getElementById('dash-rsi-ranking-card');
-  if(convictionControls)convictionControls.style.display=dashboardViewMode==='rsi'?'none':'';
+  const riskCard=document.getElementById('dash-risk-card');
+  if(convictionControls)convictionControls.style.display=(dashboardViewMode==='rsi'||dashboardViewMode==='risk')?'none':'';
   if(putsCard)putsCard.style.display=dashboardViewMode==='puts'?'':'none';
   if(ccCard)ccCard.style.display=dashboardViewMode==='cc'?'':'none';
   if(rsiCard)rsiCard.style.display=dashboardViewMode==='rsi'?'':'none';
   if(rsiRankingCard)rsiRankingCard.style.display=dashboardViewMode==='rsi'?'':'none';
+  if(riskCard)riskCard.style.display=dashboardViewMode==='risk'?'':'none';
 
   if(dashboardViewMode==='rsi'){_populateRSIBacktestDropdown();renderRSIBacktest();renderRSIRanking();}
+  if(dashboardViewMode==='risk'){renderAssignmentRisk();}
 }
 
 // 9 component definitions split into two rows: 4 on top, 5 on bottom.
@@ -351,4 +355,37 @@ function renderRSIRanking(){
       ${_rsiRankingRowsHtml(overboughtRanking,'var(--red)')}
     </div>
   `;
+}
+
+// ── Assignment Risk view ──────────────────────────────────────────────────
+
+function renderAssignmentRisk(){
+  const content=document.getElementById('assignment-risk-content');
+  if(!content)return;
+  const rows=_computeAssignmentRisk();
+  if(!rows.length){
+    content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>No positions currently ITM</div>';
+    return;
+  }
+  content.innerHTML=rows.map(r=>{
+    const kindLabel=r.isCall?'Call':'Put';
+    const urgentColor=r.daysToExpiry<=7?'var(--red)':r.daysToExpiry<=21?'var(--warn)':'var(--text2)';
+    const tvStr=r.timeValue!=null?'$'+r.timeValue.toFixed(0):'--';
+    const earningsStr=r.earningsFlag?`<span style="color:var(--warn)">&#x26A0; Earnings ${r.earningsFlag}</span>`:'';
+    return`<div style="padding:8px 0;border-bottom:1px solid var(--surface3)">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer" onclick="navigateToTicker('${r.ticker}')">${r.ticker}</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--text3)">${r.accountName}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11px;margin-top:3px">
+        <span style="color:var(--text2)">${kindLabel} $${formatStrike(r.strike)} vs $${r.currentPrice.toFixed(2)}</span>
+        <span style="color:var(--accent);font-weight:600">${r.itmPct.toFixed(1)}% ITM</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px">
+        <span style="color:${urgentColor}">${r.daysToExpiry}d to expiry</span>
+        <span>Time value: ${tvStr}</span>
+      </div>
+      ${earningsStr?`<div style="font-family:var(--mono);font-size:10px;margin-top:2px">${earningsStr}</div>`:''}
+    </div>`;
+  }).join('');
 }

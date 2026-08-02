@@ -2191,3 +2191,73 @@ function _clearExpiredCCPositions(){
   recalcIncome();
   toast('Expired CC positions cleared');
 }
+
+// ── Assignment risk ranking ──────────────────────────────────────────────
+// Ranks every account's active put and call positions by how likely and how
+// soon they're headed toward assignment. Only ITM positions are included --
+// an OTM position has no near-term assignment risk to rank. Score is ITM%
+// scaled by an urgency factor based on days-to-expiry (less time remaining
+// means today's ITM status is more likely to hold through expiration).
+// Time value and an earnings-window flag are surfaced as their own columns
+// rather than folded into the score, so the reasoning stays visible.
+//
+// NOTE: does not yet model dividend-driven early exercise (the classic
+// trigger for early assignment on ITM calls, when remaining time value
+// drops below an upcoming dividend payment) -- parked for later, since
+// reliable next-ex-dividend-date/amount data isn't cached for most
+// individual watchlist tickers today.
+function _urgencyFactorForDays(days){
+  if(days<=7)return 1.5;
+  if(days<=21)return 1.0;
+  return 0.6;
+}
+
+function _computeAssignmentRisk(){
+  const accounts=S.get('income_accounts_meta')||[];
+  const rows=[];
+  const today=new Date();today.setHours(0,0,0,0);
+
+  const processPos=(pos,isCall,acct)=>{
+    try{
+      const status=_posExpiryStatus(pos);
+      if(status==='remove')return; // past the lingering window, not relevant anymore
+      const pricing=_getPosPricing(pos,isCall);
+      if(pricing.currentPrice==null||!pricing.itm)return; // only rank positions currently ITM
+
+      const itmPct=isCall
+        ?(pricing.currentPrice-pos.strike)/pricing.currentPrice*100
+        :(pos.strike-pricing.currentPrice)/pricing.currentPrice*100;
+
+      const exp=new Date(pos.expDate+'T12:00:00Z');
+      const daysToExpiry=Math.round((exp-today)/86400000);
+      const urgency=_urgencyFactorForDays(Math.max(daysToExpiry,0));
+      const score=itmPct*urgency;
+
+      // Earnings-within-expiry-window flag: search the whole pending array
+      // (sorted furthest-future first, not soonest-first) for any entry
+      // landing between today and this position's expiry.
+      let earningsFlag=null;
+      const pending=S.get('earnings_pending_'+pos.ticker)||[];
+      const upcoming=pending.find(p=>{
+        const edate=new Date(p.date+'T12:00:00Z');
+        return edate>=today&&edate<=exp;
+      });
+      if(upcoming)earningsFlag=upcoming.date;
+
+      rows.push({
+        ticker:pos.ticker,accountId:acct.id,accountName:acct.name||acct.id,
+        isCall,strike:pos.strike,currentPrice:pricing.currentPrice,
+        itmPct,daysToExpiry,timeValue:pricing.timeValue,earningsFlag,score
+      });
+    }catch{}
+  };
+
+  accounts.forEach(acct=>{
+    (S.get('income_'+acct.id+'_put_positions')||[]).forEach(p=>processPos(p,false,acct));
+    (S.get('income_'+acct.id+'_cc_positions')||[]).forEach(p=>processPos(p,true,acct));
+  });
+
+  rows.sort((a,b)=>b.score-a.score);
+  return rows;
+}
+    

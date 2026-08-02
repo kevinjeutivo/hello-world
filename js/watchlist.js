@@ -623,7 +623,7 @@ function _rsiTransitionBadgeHtml(ticker){
   const phaseLabel=trans.phase==='in'?zoneLabel:'Left '+zoneLabel;
   const color=trans.zone==='oversold'?'var(--green)':'var(--red)';
   const statStr=w?(' '+(w.avgReturn>=0?'+':'')+w.avgReturn.toFixed(1)+'%/10d (exc '+(w.excess>=0?'+':'')+w.excess.toFixed(1)+'%)'):'';
-  return'<div style="font-family:var(--mono);font-size:10px;margin-top:2px">'
+  return'<div style="font-family:var(--mono);font-size:10px">'
     +'<span style="color:'+color+';font-weight:600">['+phaseLabel+' &middot; '+trans.days+'d]</span>'
     +'<span style="color:var(--text3)">'+statStr+'</span>'
     +'</div>';
@@ -779,7 +779,6 @@ function renderWatchlist(){
         '<div style="min-width:0;flex-shrink:1">'+
           '<div class="watchlist-ticker">'+t+ivrBadge+volBadge+'</div>'+
           (c?'<div class="watchlist-ts">'+c.ts+(age?' ('+age+')':'')+'</div>':'')+
-          rsiTransBadge+
         '</div>'+
         '<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:0 8px">'+
           _sparklineHtml(t)+
@@ -793,6 +792,7 @@ function renderWatchlist(){
           '<button class="watchlist-remove" title="Actions" style="margin-left:0" onclick="event.stopPropagation();_openTickerMenu(\''+t+'\',this)">&#x22EF;</button>'+
         '</div>'+
       '</div>'+
+      (rsiTransBadge?'<div style="width:100%;margin-top:4px">'+rsiTransBadge+'</div>':'')+
       (note?
         '<div onclick="event.stopPropagation();_toggleNoteExpand(\''+t+'\')" style="width:100%;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-family:var(--mono);font-size:10px;color:var(--text2);cursor:pointer;display:flex;align-items:flex-start;gap:4px">'+
           '<span style="flex:1;'+(expanded?'white-space:normal;word-break:break-word':'white-space:nowrap;overflow:hidden;text-overflow:ellipsis')+'">'+note.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</span>'+

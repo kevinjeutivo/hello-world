@@ -275,14 +275,29 @@ function _buildEarningsHistory(ticker){
       .filter((r,i,a)=>a.findIndex(x=>x.date===r.date)===i) // dedupe
       .sort((a,b)=>a.date.localeCompare(b.date));
 
-    if(sorted.length){
-      // Preserve any existing manual overrides before overwriting
-      const _existing=S.get('earnings_hist_'+t);
-      const _existingData=_existing?.data||[];
+    const _existing=S.get('earnings_hist_'+t);
+    const _existingData=_existing?.data||[];
+    if(sorted.length||_existingData.some(e=>e.override)){
+      // Preserve any existing manual overrides before overwriting. Each old
+      // override can only match one fresh entry (fixes a real bug: two
+      // fresh estimates landing within 26 days of each other could
+      // previously both claim the same override). Any override that finds
+      // no matching fresh entry in THIS rebuild is reinserted as its own
+      // standalone entry rather than silently dropped -- this happened for
+      // real: if the earnings-calendar anchor fetch fails or returns empty
+      // (e.g. during an upstream API outage), Part 1 doesn't run at all and
+      // only Part 2's narrow ~100-day backfill populates the array, leaving
+      // nothing for an older override to attach to.
+      const _usedOldIdx=new Set();
       sorted.forEach(entry=>{
-        const match=_existingData.find(old=>old.override&&Math.abs(new Date(old.override.date)-new Date(entry.date))<26*86400000);
-        if(match?.override)entry.override=match.override;
+        const oldIdx=_existingData.findIndex((old,i)=>!_usedOldIdx.has(i)&&old.override&&Math.abs(new Date(old.override.date)-new Date(entry.date))<26*86400000);
+        if(oldIdx>=0){entry.override=_existingData[oldIdx].override;_usedOldIdx.add(oldIdx);}
       });
+      _existingData.forEach((old,i)=>{
+        if(!old.override||_usedOldIdx.has(i))return;
+        sorted.push({date:old.override.date,hour:old.override.hour,gapPct:null,direction:null,source:'manual-override',override:old.override});
+      });
+      sorted.sort((a,b)=>a.date.localeCompare(b.date));
       S.set('earnings_hist_'+t,{data:sorted,ts:nowPT()});
     }
   }catch{}

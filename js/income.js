@@ -380,7 +380,7 @@ function _calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targ
   const l3Income  =putsIncome+ccIncome;
 
   const l3Components=[
-    {label:'Written puts (naked)', notional:_effectivePutsNotional, income:putsIncome, targetAPY, fromPositions:_posNotionalTotal>0},
+    {label:'Written puts', notional:_effectivePutsNotional, income:putsIncome, targetAPY, fromPositions:_posNotionalTotal>0},
     {label:'CC stock held',        notional:_effectiveCCNotional, income:ccIncome, targetAPY, fromCCPositions:_ccNotionalTotal>0},
   ];
 
@@ -1171,7 +1171,7 @@ function recalcIncome(){
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PUT POSITIONS TRACKER
-// Manages individual naked put positions for Layer 3 notional calculation.
+// Manages individual written put positions for Layer 3 notional calculation.
 // Storage key: income_ACCTID_put_positions → array of position objects:
 //   {id, ticker, strike, expDate, contracts, addedTs}
 // ═══════════════════════════════════════════════════════════════════════════════

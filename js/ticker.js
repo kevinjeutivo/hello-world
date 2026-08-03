@@ -659,7 +659,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
     </div>`;
   }
   el.innerHTML=`<div class="card">
-    <div class="card-title"><span class="dot"></span>${snap.ticker} -- ${snap.name} <span id="ticker-star-icon" data-ticker="${snap.ticker}">${_starIconHtml(snap.ticker,15)}</span></div>
+    <div class="card-title"><span class="dot"></span>${snap.ticker} -- ${snap.name} <span id="ticker-star-icon" data-ticker="${snap.ticker}" style="flex-shrink:0">${_starIconHtml(snap.ticker,15)}</span></div>
     ${tsChip(snap.ts,isLive,snap.tsEpoch)}
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><span style="font-family:var(--mono);font-size:28px;font-weight:500">$${snap.price?.toFixed(2)||'N/A'}</span>${_sparklineHtml(snap.ticker)}</div>
     <div style="font-family:var(--mono);font-size:13px;color:${chgColor};margin-bottom:6px">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>
@@ -1964,3 +1964,4 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
+      

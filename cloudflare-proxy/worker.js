@@ -1,15 +1,23 @@
 // ============================================
 // Income Engine -- Cloudflare Worker Proxy v2
-// Handles four request types:
+// Handles five request types:
 //   ?ticker=NVDA&type=options   -> Yahoo options chain
 //   ?ticker=NVDA&type=history   -> Yahoo price history
 //   ?ticker=SPYI&type=dividends -> Yahoo dividend events
 //   ?series=DTB3&type=fred      -> FRED T-bill yield data
-// All handle Yahoo cookie+crumb auth server-side.
+//   ?type=finnhub&path=...      -> Finnhub proxy (server-side key, see below)
+// All Yahoo request types handle cookie+crumb auth server-side.
 // Free tier: 100,000 requests/day
+//
+// Secrets (set via Cloudflare dashboard -> Settings -> Variables and Secrets,
+// NOT as source literals -- this file lives in a public repo):
+//   PROXY_SECRET  (optional) -- if set, requests must send a matching
+//                  X-Proxy-Secret header or get rejected with 401. Blank/unset
+//                  = check is skipped entirely (today's behavior).
+//   FINNHUB_KEY   (optional) -- only required if using the type=finnhub
+//                  branch below. Unset = that branch returns a clean 503
+//                  rather than silently forwarding a bad token to Finnhub.
 // ============================================
-
-const PROXY_SECRET = '';
 
 export default {
   async fetch(request, env, ctx) {
@@ -29,6 +37,7 @@ export default {
       return new Response('Method not allowed', { status: 405 });
     }
 
+    const PROXY_SECRET = env.PROXY_SECRET || '';
     if (PROXY_SECRET) {
       const clientSecret = request.headers.get('X-Proxy-Secret');
       if (clientSecret !== PROXY_SECRET) {
@@ -38,6 +47,12 @@ export default {
 
     const url = new URL(request.url);
     const type = url.searchParams.get('type') || 'options';
+
+    // ── Finnhub proxy: separate code path, no Yahoo cookie/crumb needed ──
+    if (type === 'finnhub') {
+      return handleFinnhubProxy(url, env);
+    }
+
     const ticker = url.searchParams.get('ticker');
     const series = url.searchParams.get('series');
     const expiration = url.searchParams.get('expiration');
@@ -177,4 +192,49 @@ function corsJson(obj, status = 200) {
       'Access-Control-Allow-Origin': '*'
     }
   });
+}
+
+// Proxies Finnhub API calls using a server-side key (env.FINNHUB_KEY), so
+// clients never need their own Finnhub account/key. Expects the client to
+// pass the same path shape used by the app's direct-call fh() function in
+// api.js, e.g. path=/calendar/earnings?symbol=AAPL&from=2026-01-01&to=2026-02-01
+// (URL-encoded as a single query-string value; URLSearchParams decodes it
+// automatically on read).
+async function handleFinnhubProxy(url, env) {
+  const key = env.FINNHUB_KEY;
+  if (!key) {
+    // Deliberately a clean, distinct error rather than forwarding an empty/
+    // undefined token to Finnhub and returning whatever confusing failure
+    // that produces -- makes a not-yet-configured shared key obvious.
+    return corsJson({ error: 'Finnhub proxy not configured' }, 503);
+  }
+
+  const path = url.searchParams.get('path');
+  if (!path) return corsJson({ error: 'path parameter required' }, 400);
+
+  try {
+    const targetUrl = `https://finnhub.io/api/v1${path}&token=${key}`;
+    const dataResponse = await fetch(targetUrl);
+
+    if (!dataResponse.ok) {
+      return corsJson({
+        error: `Finnhub returned ${dataResponse.status}`,
+        status: dataResponse.status
+      }, dataResponse.status);
+    }
+
+    const data = await dataResponse.json();
+
+    return new Response(JSON.stringify(data), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Cache-Control': 'public, max-age=300' // matches summary/dividends TTL above
+      }
+    });
+
+  } catch (err) {
+    return corsJson({ error: 'Finnhub proxy fetch failed', message: err.message }, 500);
+  }
 }

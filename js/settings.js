@@ -278,6 +278,7 @@ function _populateCutoffSelect(){
 
 function openSettings(){
   document.getElementById('finnhub-key-input').value=FINNHUB_KEY;
+  document.getElementById('worker-fragment-settings-input').value=S.get('worker_fragment')||'';
   document.getElementById('default-watchlist-input').value=watchlist.join(',');
   document.getElementById('vix-threshold-input').value=vixThreshold;
   document.getElementById('prefetch-sleep-input').value=parseInt(S.get('prefetch_sleep_ms'))||100;
@@ -298,6 +299,8 @@ function closeSettingsIfOutside(e){if(e.target===document.getElementById('settin
 function saveSettings(){
   const key=document.getElementById('finnhub-key-input').value.trim();
   if(key){FINNHUB_KEY=key;S.set('finnhub_key',key);}
+  const wf=_normalizeWorkerFragment(document.getElementById('worker-fragment-settings-input').value);
+  if(wf){S.set('worker_fragment',wf);WORKER_URL=_buildWorkerUrl(wf);}
   const wl=document.getElementById('default-watchlist-input').value.split(',').map(t=>t.trim().toUpperCase()).filter(t=>t.length>0);
   if(wl.length>0){watchlist=wl;S.set('watchlist',wl);}
   vixThreshold=parseInt(document.getElementById('vix-threshold-input').value)||20;
@@ -351,8 +354,9 @@ function closeOfflineModal(){document.getElementById('offline-confirm-modal').cl
 
 function clearAllDataConfirmed(){
   closeOfflineModal();
-  localStorage.clear();FINNHUB_KEY='';watchlist=[...DEFAULT_WATCHLIST];currentTicker='';offlineMode=false;
+  localStorage.clear();FINNHUB_KEY='';WORKER_URL='';watchlist=[...DEFAULT_WATCHLIST];currentTicker='';offlineMode=false;
   toast('All data cleared');renderWatchlist();updateVIXIndicator(null);updateOfflineModeBar();
+  try{openWorkerSetupOverlay();}catch(e){console.error('Worker setup overlay error:',e);}
 }
 
 function clearMarketDataCache(){

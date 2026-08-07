@@ -431,14 +431,27 @@ function _gapFillDirectionHtml(label,color,data){
 // where seeing each occurrence (not just the summary) is useful given how
 // few events there typically are for one ticker.
 function _gapEventRowHtml(ticker,e,hist2y){
-  const dateStr=hist2y?.timestamps?.[e.index]?new Date(hist2y.timestamps[e.index]*1000).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'';
+  // hist2y.timestamps can arrive as either raw epoch-seconds numbers
+  // (dashboard's direct S.get() path) or already-converted Date objects
+  // (ticker page's rebuilt hist2y) -- accept both rather than assuming one,
+  // same defensive pattern already used elsewhere in ticker.js. Getting
+  // this wrong double-converts a Date into a garbage year that a
+  // month/day-only format then silently hides -- so the year is included
+  // below specifically to make that class of bug visible if it recurs.
+  const raw=hist2y?.timestamps?.[e.index];
+  const d=raw==null?null:(raw instanceof Date?raw:new Date(typeof raw==='number'&&raw<1e10?raw*1000:raw));
+  const dateStr=d?d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'';
   const color=e.direction==='up'?'var(--green)':'var(--red)';
   const statusStr=e.filled?`Filled in ${e.daysToFill}d`:`Open -- ${e.daysSince}d ago`;
   const statusColor=e.filled?'var(--text3)':'var(--warn)';
-  return `<div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--surface3)">
-    <span style="color:var(--text3)">${dateStr}</span>
-    <span style="color:${color};font-weight:600">${e.direction==='up'?'+':''}${e.gapPct.toFixed(1)}%</span>
-    <span style="color:${statusColor}">${statusStr}</span>
+  const rangeStr=`$${Math.min(e.prevClose,e.open).toFixed(2)} \u2013 $${Math.max(e.prevClose,e.open).toFixed(2)}`;
+  return `<div style="padding:4px 0;border-bottom:1px solid var(--surface3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11px">
+      <span style="color:var(--text3)">${dateStr}</span>
+      <span style="color:${color};font-weight:600">${e.direction==='up'?'+':''}${e.gapPct.toFixed(1)}%</span>
+      <span style="color:${statusColor}">${statusStr}</span>
+    </div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:1px">${rangeStr}</div>
   </div>`;
 }
 

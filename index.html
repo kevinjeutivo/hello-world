@@ -1311,6 +1311,17 @@ v1.7 -- 2026-04-29
 
 let FINNHUB_KEY=S.get('finnhub_key')||'';
 let watchlist=S.get('watchlist')||['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
+// Persist immediately if this is a fresh device/profile that's never
+// explicitly saved a watchlist -- otherwise S.get('watchlist') keeps
+// returning null indefinitely (until the user happens to add/remove a
+// ticker) even though the in-memory `watchlist` global above is correctly
+// populated from defaults and the app otherwise looks and works normally.
+// Found this the hard way: two separate places (refreshSingleTicker's
+// health-summary patch, a Settings diagnostics function) read storage
+// directly instead of the global and silently reported 0 tickers as a
+// result on an unseeded device. This closes off the root cause rather
+// than just the two known symptoms.
+if(!S.get('watchlist'))S.set('watchlist',watchlist);
 let currentMode='puts';
 let currentTicker=S.get('last_ticker')||'';
 let lastOptionsTickerLoaded='';

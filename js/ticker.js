@@ -557,10 +557,11 @@ function _gapFillCardHtml(ticker,preloadedHist2y){
   let statusHtml='';
   if(status){
     const color=status.direction==='up'?'var(--green)':'var(--red)';
+    const rangeStr=`$${Math.min(status.prevClose,status.open).toFixed(2)} \u2013 $${Math.max(status.prevClose,status.open).toFixed(2)}`;
     const label=status.status==='unfilled'
       ?`Open gap ${status.direction==='up'?'up':'down'} ${status.gapPct.toFixed(1)}% -- ${status.daysSince}d ago, not yet filled`
       :`Gap ${status.direction==='up'?'up':'down'} ${status.gapPct.toFixed(1)}% filled ${status.daysSince-status.daysToFill}d ago (took ${status.daysToFill}d)`;
-    statusHtml=`<div style="font-family:var(--mono);font-size:12px;font-weight:600;color:${color};margin-bottom:10px">${label}</div>`;
+    statusHtml=`<div style="font-family:var(--mono);font-size:12px;font-weight:600;color:${color}">${label}</div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">${rangeStr}</div>`;
   }else{
     statusHtml=`<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">No recent gap activity (nothing unfilled or filled within the last ${GAP_RECENT_DAYS} trading days).</div>`;
   }

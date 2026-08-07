@@ -629,6 +629,20 @@ function _rsiTransitionBadgeHtml(ticker){
     +'</div>';
 }
 
+// Mirrors _rsiTransitionBadgeHtml's shape: current/recent status, one line,
+// same "in own full-width row" placement convention.
+function _gapBadgeHtml(ticker){
+  const status=_getRecentGapStatus(ticker);
+  if(!status)return'';
+  const color=status.direction==='up'?'var(--green)':'var(--red)';
+  const label=status.status==='unfilled'
+    ?`Open gap ${status.direction} ${status.gapPct.toFixed(1)}% &middot; ${status.daysSince}d`
+    :`Filled gap ${status.direction} ${status.gapPct.toFixed(1)}% &middot; ${status.daysSince-status.daysToFill}d ago`;
+  return'<div style="font-family:var(--mono);font-size:10px">'
+    +'<span style="color:'+color+';font-weight:600">['+label+']</span>'
+    +'</div>';
+}
+
 // ── Watchlist core ────────────────────────────────────────────────────────────
 
 function setWatchlistSort(mode){
@@ -772,6 +786,7 @@ function renderWatchlist(){
     const volBadge=_volBadgeHtml(_checkVolumeBadge(t));
     const ivrBadge=_ivrBadgeHtml(t);
     const rsiTransBadge=_rsiTransitionBadgeHtml(t);
+    const gapBadge=_gapBadgeHtml(t);
     const note=S.get('watchlist_note_'+t)||'';
     const expanded=_expandedNotes.has(t);
     return '<div class="watchlist-item" style="flex-direction:column;align-items:stretch;'+bgStyle+'" onclick="navigateToTicker(\''+t+'\')">'+
@@ -793,6 +808,7 @@ function renderWatchlist(){
         '</div>'+
       '</div>'+
       (rsiTransBadge?'<div style="width:100%;margin-top:4px">'+rsiTransBadge+'</div>':'')+
+      (gapBadge?'<div style="width:100%;margin-top:4px">'+gapBadge+'</div>':'')+
       (note?
         '<div onclick="event.stopPropagation();_toggleNoteExpand(\''+t+'\')" style="width:100%;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-family:var(--mono);font-size:10px;color:var(--text2);cursor:pointer;display:flex;align-items:flex-start;gap:4px">'+
           '<span style="flex:1;'+(expanded?'white-space:normal;word-break:break-word':'white-space:nowrap;overflow:hidden;text-overflow:ellipsis')+'">'+note.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</span>'+

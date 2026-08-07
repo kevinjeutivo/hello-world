@@ -770,6 +770,32 @@ function _getRecentGapStatus(ticker,preloadedHist2y){
   return null;
 }
 
+// Filters the Gap Fill event LIST (not the summary stats above it, which
+// always need both filled and unfilled gaps to compute a meaningful fill
+// rate) to open-only vs. all. Shared between the Ticker page card and
+// Dashboard's individual-ticker view -- one standing preference, not two
+// independent ones. Defaults to 'open': for a wheel strategy, an unfilled
+// gap is the actionable signal (a level price may still return to),
+// whereas a filled one has already resolved.
+function getGapListFilterMode(){return S.get('gap_list_filter')||'open';}
+function setGapListFilterMode(mode){
+  S.set('gap_list_filter',mode);
+  // Both tab panels stay in the DOM at once (hidden via CSS, not removed),
+  // so refresh keys off which tab is actually active rather than querying
+  // by id -- two simultaneously-present same-id elements would otherwise
+  // resolve ambiguously to whichever is first in document order.
+  if(typeof _activeTabName!=='undefined'&&_activeTabName==='ticker'){
+    const t=document.getElementById('ticker-select')?.value||currentTicker;
+    const listEl=document.getElementById('gap-fill-list-ticker');
+    if(t&&listEl){
+      const hist2y=S.get('hist2y_'+t);
+      const cardEl=listEl.closest('.card');
+      if(cardEl&&typeof _gapFillCardHtml==='function')cardEl.outerHTML=_gapFillCardHtml(t,hist2y);
+    }
+  }
+  if(typeof _activeTabName!=='undefined'&&_activeTabName==='dashboard'&&typeof renderGapFillDashboard==='function')renderGapFillDashboard();
+}
+
 function formatStrike(x){return x===Math.floor(x)?x.toString():x.toFixed(2);}
 
 function fmtCap(v){if(!v)return'N/A';if(v>=1e12)return`$${(v/1e12).toFixed(2)}T`;if(v>=1e9)return`$${(v/1e9).toFixed(2)}B`;if(v>=1e6)return`$${(v/1e6).toFixed(2)}M`;return`$${v}`;}

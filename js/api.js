@@ -5,12 +5,25 @@
 
 async function fh(path){
   if(offlineMode)throw new Error('offline mode');
-  if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');throw new Error('No API key');}
-  const r=await fetch(`https://finnhub.io/api/v1${path}&token=${FINNHUB_KEY}`);
+  if(FINNHUB_KEY){
+    const r=await fetch(`https://finnhub.io/api/v1${path}&token=${FINNHUB_KEY}`);
+    if(!r.ok){
+      let _body='';
+      try{_body=(await r.text()).slice(0,200);}catch{}
+      throw new Error(`Finnhub ${r.status}${_body?': '+_body:''}`);
+    }
+    return r.json();
+  }
+  // No personal key set -- route through the worker's shared-key proxy
+  // instead (env.FINNHUB_KEY on the worker side). This is the actual path
+  // family/friends use, since their onboarding is just the server address,
+  // nothing Finnhub-specific.
+  if(!WORKER_URL){toast('Server address not set -- check Settings');throw new Error('No worker configured');}
+  const r=await fetch(`${WORKER_URL}/?type=finnhub&path=${encodeURIComponent(path)}`);
   if(!r.ok){
     let _body='';
     try{_body=(await r.text()).slice(0,200);}catch{}
-    throw new Error(`Finnhub ${r.status}${_body?': '+_body:''}`);
+    throw new Error(`Finnhub proxy ${r.status}${_body?': '+_body:''}`);
   }
   return r.json();
 }

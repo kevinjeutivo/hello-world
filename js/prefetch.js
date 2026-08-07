@@ -122,8 +122,11 @@ async function prefetchAll(){
         const _cl2=_h2res.closes.map(v=>v!=null?Math.round(v*100)/100:null);
         const _vl2=_h2res.volumes?_h2res.volumes.map(v=>v||0):null;
         const _ac2=_h2res.adjcloses?_h2res.adjcloses.map(v=>v!=null?Math.round(v*100)/100:null):null;
+        const _op2=_h2res.opens?_h2res.opens.map(v=>v!=null?Math.round(v*100)/100:null):null;
+        const _hi2=_h2res.highs?_h2res.highs.map(v=>v!=null?Math.round(v*100)/100:null):null;
+        const _lo2=_h2res.lows?_h2res.lows.map(v=>v!=null?Math.round(v*100)/100:null):null;
         const _now=nowPT();
-        S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,adjcloses:_ac2,ts:_now,tsEpoch:Date.now()});
+        S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,adjcloses:_ac2,opens:_op2,highs:_hi2,lows:_lo2,ts:_now,tsEpoch:Date.now()});
         _health.tickers[t].hist=true;_h2ok=true;
       }
       // Process options

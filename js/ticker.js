@@ -567,7 +567,7 @@ function _gapFillCardHtml(ticker,preloadedHist2y){
 
   const status=_getRecentGapStatus(ticker,preloadedHist2y);
   const hist2y=preloadedHist2y||S.get('hist2y_'+ticker);
-  const eventsDesc=[...result.events].reverse().slice(0,8); // most recent first, capped for card length
+  const eventsDesc=[...result.events].reverse(); // most recent first, all events -- list is scrollable, no cap needed
 
   let statusHtml='';
   if(status){
@@ -586,8 +586,8 @@ function _gapFillCardHtml(ticker,preloadedHist2y){
     ${statusHtml}
     ${_gapFillDirectionHtml('Gap Up','var(--green)',result.up)}
     ${_gapFillDirectionHtml('Gap Down','var(--red)',result.down)}
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 4px">Recent gaps</div>
-    ${eventsDesc.map(e=>_gapEventRowHtml(ticker,e,hist2y)).join('')}
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 4px">All gaps (${result.totalGaps})</div>
+    <div style="max-height:180px;overflow-y:auto;">${eventsDesc.map(e=>_gapEventRowHtml(ticker,e,hist2y)).join('')}</div>
   </div>`;
 }
 

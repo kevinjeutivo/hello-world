@@ -567,7 +567,11 @@ function _gapFillCardHtml(ticker,preloadedHist2y){
 
   const status=_getRecentGapStatus(ticker,preloadedHist2y);
   const hist2y=preloadedHist2y||S.get('hist2y_'+ticker);
-  const eventsDesc=[...result.events].reverse(); // most recent first, all events -- list is scrollable, no cap needed
+  const filterMode=getGapListFilterMode();
+  const allEventsDesc=[...result.events].reverse(); // most recent first
+  const eventsDesc=filterMode==='open'?allEventsDesc.filter(e=>!e.filled):allEventsDesc;
+  const listLabel=filterMode==='open'?`Open gaps (${eventsDesc.length})`:`All gaps (${result.totalGaps})`;
+  const filterBtn=(mode,lbl)=>`<button class="btn btn-secondary" style="font-size:9px;padding:2px 6px;opacity:${filterMode===mode?'1':'0.4'}" onclick="setGapListFilterMode('${mode}')">${lbl}</button>`;
 
   let statusHtml='';
   if(status){
@@ -586,8 +590,11 @@ function _gapFillCardHtml(ticker,preloadedHist2y){
     ${statusHtml}
     ${_gapFillDirectionHtml('Gap Up','var(--green)',result.up)}
     ${_gapFillDirectionHtml('Gap Down','var(--red)',result.down)}
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 4px">All gaps (${result.totalGaps})</div>
-    <div style="max-height:180px;overflow-y:auto;">${eventsDesc.map(e=>_gapEventRowHtml(ticker,e,hist2y)).join('')}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:10px 0 4px">
+      <span style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">${listLabel}</span>
+      <div style="display:flex;gap:4px">${filterBtn('all','All')}${filterBtn('open','Open Only')}</div>
+    </div>
+    <div id="gap-fill-list-ticker" style="max-height:180px;overflow-y:auto;">${eventsDesc.length?eventsDesc.map(e=>_gapEventRowHtml(ticker,e,hist2y)).join(''):'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No open gaps right now.</div>'}</div>
   </div>`;
 }
 

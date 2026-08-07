@@ -374,6 +374,13 @@
     <div class="guide-kv"><span class="guide-key">DTE</span><span class="guide-val">Days to expiration. 30–60 DTE is the sweet spot — theta decay accelerates in the final 30 days and you capture most of the decay curve without excessive gamma risk.</span></div>
     <div class="guide-kv"><span class="guide-key">APY formula</span><span class="guide-val">(premium / notional) × (365 / DTE) × 100. Notional = strike × 100 shares for puts, current price × 100 for calls.</span></div>
     <div class="guide-kv"><span class="guide-key">Bid vs mid</span><span class="guide-val">The app uses bid price for conservative APY estimates. In practice you can often fill at mid or better, especially on liquid tickers.</span></div>
+    <div class="guide-h3">Wash Sale Avoidance (Taxable Account)</div>
+    <div class="guide-kv"><span class="guide-key">Year-end closure</span><span class="guide-val">Every chain of rolling options on an underlying — including parallel/concurrent chains — must fully resolve before Dec 31 of the same tax year, with nothing left open. This makes the aggregate tax result equivalent to per-transaction recognition, since deferred losses on intermediate legs all resolve within the same year.</span></div>
+    <div class="guide-kv"><span class="guide-key">Roll for a net credit</span><span class="guide-val">Every roll collects more premium on the new short put than it costs to close the prior leg. A cash-flow discipline that lowers effective cost basis over the chain — not itself a wash sale shield, since an intermediate closing leg can still be at a loss even on a net-credit roll.</span></div>
+    <div class="guide-kv"><span class="guide-key">Covered calls stay OTM</span><span class="guide-val">Never in the money from inception. Keeps the position outside qualified-covered-call and straddle (IRC &sect;1092) complications, preserving clean holding-period treatment on the assigned shares.</span></div>
+    <div class="guide-kv"><span class="guide-key">30-day clean exit after a loss</span><span class="guide-val">After a chain's final close (worthless expiration, or share sale following CC assignment), don't re-enter a substantially identical position on the same underlying within 30 days if that final close recognized a loss — doing so pulls the loss back into wash sale treatment and can push recognition into the next tax year.</span></div>
+    <div class="guide-kv"><span class="guide-key">How wash sale actually works</span><span class="guide-val">Applies trade-by-trade on a 61-day window centered on each losing close, not to chains or calendar years as a whole. It defers the loss into the replacement position's basis — it does not eliminate it.</span></div>
+    <div class="guide-kv"><span class="guide-key">Cost basis on assignment</span><span class="guide-val">Strike minus total net premiums collected across the entire chain. Accumulated roll credits lower effective basis, which organically reduces the odds of an unrealized loss on the share leg — the scenario most likely to create wash sale exposure there.</span></div>
   </div>
 </div>
 
@@ -426,6 +433,36 @@
     <div class="guide-kv"><span class="guide-key">Strong (&gt;12)</span><span class="guide-val">Multiple factors aligned. Favorable premium environment with reasonable downside protection. Worth detailed analysis.</span></div>
     <div class="guide-kv"><span class="guide-key">Moderate (6–12)</span><span class="guide-val">Some factors positive, some neutral. Check which factors are dragging — often fixable by waiting for better timing.</span></div>
     <div class="guide-kv"><span class="guide-key">Weak (&lt;6)</span><span class="guide-val">Several negative factors. Thin premiums or unfavorable conditions. Wait for a better environment.</span></div>
+  </div>
+</div>
+
+<!-- ── SECTION: Dashboard Analytics ────────────────────────────────── -->
+<div class="card" style="margin-bottom:8px">
+  <div class="gs-header" onclick="toggleGuide('dashanalytics')">
+    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--accent3)"></span>Dashboard Analytics</div>
+    <span class="gs-chevron" id="gc-dashanalytics">&#9658;</span>
+  </div>
+  <div class="gs-body" id="gb-dashanalytics">
+    <div class="commentary" style="margin-bottom:10px">Three additional Dashboard views beyond the Puts/Covered Calls conviction scores. All three are cache-only -- they analyze whatever price/position history is already stored, no new fetches.</div>
+    <div class="guide-h3">RSI Backtest</div>
+    <div class="guide-kv"><span class="guide-key">What it answers</span><span class="guide-val">Has RSI oversold/overbought actually preceded a real price move, for the specific stocks you watch -- backtested against your own cached 2-year history, not a textbook assumption.</span></div>
+    <div class="guide-kv"><span class="guide-key">Entering vs. leaving</span><span class="guide-val">Tracked separately, and they answer different questions. RSI can stay under 30 for weeks during an ongoing decline -- entering oversold doesn't mean the move is over. Leaving measures what happens once the stretched condition actually resolves.</span></div>
+    <div class="guide-kv"><span class="guide-key">Thresholds &amp; windows</span><span class="guide-val">14-period RSI, oversold &lt;30, overbought &gt;70. Forward returns measured 5, 10, and 20 trading days after each entry/exit transition (a transition, not every day spent in the zone -- avoids inflating the sample with non-independent observations).</span></div>
+    <div class="guide-kv"><span class="guide-key">Excess return</span><span class="guide-val">The window's average return minus that ticker's own same-window baseline (any random day). Isolates whether the RSI signal adds anything beyond the stock's normal drift -- a positive raw return with near-zero excess isn't actually a meaningful signal.</span></div>
+    <div class="guide-kv"><span class="guide-key">Aggregate vs. individual</span><span class="guide-val">Aggregate pools raw episodes across your whole watchlist for a much larger sample. Single-ticker view is real but typically small-sample -- shown with an explicit warning rather than presented as statistically robust.</span></div>
+    <div class="guide-kv"><span class="guide-key">Ranking</span><span class="guide-val">Which watchlist tickers show the strongest signal for a given window/phase, sorted by excess return. Requires at least 4 historical episodes to qualify -- filters out tickers where 1-2 lucky episodes would misleadingly top the list.</span></div>
+    <div class="guide-kv"><span class="guide-key">Badge</span><span class="guide-val">Appears on Watchlist cards and the Ticker page when a stock is currently in a zone, or left one within the last 10 trading days. Shows both absolute and excess return for that window.</span></div>
+    <div class="guide-h3">ITM Risk</div>
+    <div class="guide-kv"><span class="guide-key">What it shows</span><span class="guide-val">Every active put and covered call position currently in the money, pooled across all your accounts, ranked by how likely and how soon assignment looks.</span></div>
+    <div class="guide-kv"><span class="guide-key">Score</span><span class="guide-val">ITM% &times; urgency factor. Urgency: 1.5&times; at &le;7 days to expiry, 1.0&times; at 8&ndash;21 days, 0.6&times; beyond that -- a position close to expiry outranks a deeper-ITM position with more time left.</span></div>
+    <div class="guide-kv"><span class="guide-key">Time value &amp; earnings</span><span class="guide-val">Shown as separate columns, not folded into the score, so you see the full picture rather than a single number. An earnings date landing before expiry is flagged directly.</span></div>
+    <div class="guide-kv"><span class="guide-key">Navigation</span><span class="guide-val">Tap a ticker to jump to its Ticker page, or the account name to jump straight to that account in the Income tab.</span></div>
+    <div class="guide-h3">Gap Fill</div>
+    <div class="guide-kv"><span class="guide-key">Definition</span><span class="guide-val">Today's Open differs from yesterday's Close by at least 2%. Not an intraday gap -- the classic overnight gap-up/gap-down definition.</span></div>
+    <div class="guide-kv"><span class="guide-key">Fill detection</span><span class="guide-val">Checked via a later day's High/Low actually trading back through the prior close -- not Close alone, since a gap can fill intraday on a day whose own close never reflects it.</span></div>
+    <div class="guide-kv"><span class="guide-key">Inventory, not backtest</span><span class="guide-val">Unlike RSI Backtest's fixed windows, this is a full inventory -- every qualifying gap found in your cached history (up to 2 years), with its fill status and how long it took, to the extent your cache has data for.</span></div>
+    <div class="guide-kv"><span class="guide-key">Badge</span><span class="guide-val">An unfilled gap within the last 10 trading days, or one that filled within the last 10 days -- whichever is more recent takes priority if both would apply. Shows direction, size, and the actual price range the gap spans.</span></div>
+    <div class="guide-kv"><span class="guide-key">Sample size</span><span class="guide-val">Per-ticker gap counts over 2 years are typically small -- a handful to a few dozen. The aggregate view across your whole watchlist is the more statistically meaningful lens for any single ticker's history to lean on.</span></div>
   </div>
 </div>
 
@@ -509,6 +546,27 @@
   </div>
 </div>
 
+<!-- ── SECTION: Watchlist ──────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:8px">
+  <div class="gs-header" onclick="toggleGuide('watchlist')">
+    <div class="card-title" style="margin:0"><span class="dot" style="background:#4fc3f7"></span>Watchlist</div>
+    <span class="gs-chevron" id="gc-watchlist">&#9658;</span>
+  </div>
+  <div class="gs-body" id="gb-watchlist">
+    <div class="guide-h3">Filter</div>
+    <div class="guide-kv"><span class="guide-key">All</span><span class="guide-val">Every ticker on your watchlist.</span></div>
+    <div class="guide-kv"><span class="guide-key">Positions</span><span class="guide-val">Only tickers with an active put or covered call position in any account.</span></div>
+    <div class="guide-kv"><span class="guide-key">Starred</span><span class="guide-val">Only tickers you've starred. Tap the star icon on any card to add or remove it.</span></div>
+    <div class="guide-h3">Sort</div>
+    <div class="guide-kv"><span class="guide-key">Manual</span><span class="guide-val">The order you added tickers in.</span></div>
+    <div class="guide-kv"><span class="guide-key">A&rarr;Z</span><span class="guide-val">Alphabetical by ticker.</span></div>
+    <div class="guide-kv"><span class="guide-key">Opportunity</span><span class="guide-val">Ranked by the higher of that ticker's put or covered call conviction score. Run the conviction dashboards on the Dashboard tab first -- without scores computed, this sort has nothing to rank by.</span></div>
+    <div class="guide-h3">Cards</div>
+    <div class="guide-kv"><span class="guide-key">Badges</span><span class="guide-val">HVR, unusual volume, RSI transition, and Gap Fill can each appear on a card when relevant -- see their respective Guide sections for what triggers each one.</span></div>
+    <div class="guide-kv"><span class="guide-key">Notes</span><span class="guide-val">Tap a card's note area to add free text. Long notes truncate to one line -- tap the note itself to expand or collapse it.</span></div>
+  </div>
+</div>
+
 <!-- ── SECTION: Data & App Mechanics ───────────────────────────────── -->
 <div class="card" style="margin-bottom:8px">
   <div class="gs-header" onclick="toggleGuide('data')">
@@ -583,7 +641,7 @@
   <div class="gs-body" id="gb-about">
     <div class="guide-kv"><span class="guide-key">Version</span><span class="guide-val">Build number shown in header — increments with every deploy and matches the service worker cache version.</span></div>
     <div class="guide-kv"><span class="guide-key">Platform</span><span class="guide-val">Progressive Web App (PWA). Install from Safari on iPhone for full-screen experience and offline capability.</span></div>
-    <div class="guide-kv"><span class="guide-key">Data privacy</span><span class="guide-val">All data stored locally on your device. No account required. No data sent to any server other than Finnhub (for market data) and your own Cloudflare Worker (Yahoo Finance proxy).</span></div>
+    <div class="guide-kv"><span class="guide-key">Data privacy</span><span class="guide-val">All data stored locally on your device. No account required. Market data comes from Finnhub and Yahoo Finance (the latter via your Cloudflare Worker proxy). If no personal Finnhub key is set in Settings, Finnhub calls route through the Worker instead using a shared key. First launch asks for a Server Address to connect to that Worker.</span></div>
     <div class="guide-kv"><span class="guide-key">Disclaimer</span><span class="guide-val">For personal research and education only. Not financial advice. Options trading involves substantial risk of loss. Always verify data with your broker before placing trades.</span></div>
   </div>
 </div>

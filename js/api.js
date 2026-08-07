@@ -24,7 +24,8 @@ async function yahooHistory(symbol,range='6mo',interval='1d'){
   const d=await r.json();if(d.error)throw new Error(d.error);
   const result=d.chart?.result?.[0];if(!result)throw new Error('No history data');
   const adjcloses=result.indicators.adjclose?.[0]?.adjclose||null;
-  return{timestamps:result.timestamp.map(t=>new Date(t*1000)),closes:result.indicators.quote[0].close,volumes:result.indicators.quote[0].volume||[],adjcloses};
+  const q=result.indicators.quote[0];
+  return{timestamps:result.timestamp.map(t=>new Date(t*1000)),closes:q.close,volumes:q.volume||[],adjcloses,opens:q.open||null,highs:q.high||null,lows:q.low||null};
 }
 
 function slimOptionsData(json){

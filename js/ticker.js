@@ -1874,7 +1874,7 @@ async function refreshSingleTicker(){
   if(!t){toast('Select a ticker first');return;}
   if(!navigator.onLine&&!offlineMode){toast('Offline -- cached data unchanged',3000);return;}
   if(offlineMode){toast('Offline mode -- disable in Settings to fetch',3000);return;}
-  if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');return;}
+  if(!FINNHUB_KEY&&!WORKER_URL){toast('Add a Finnhub key or set your Server Address in Settings');return;}
   const btn=document.getElementById('single-refresh-btn');
   const bar=document.getElementById('single-refresh-bar');
   const label=document.getElementById('single-refresh-label');

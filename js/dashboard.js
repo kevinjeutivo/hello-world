@@ -15,11 +15,12 @@ function setDashboardViewMode(mode){
 }
 
 function _syncDashboardViewModeUI(){
-  const putsBtn=document.getElementById('dash-view-puts'),ccBtn=document.getElementById('dash-view-cc'),rsiBtn=document.getElementById('dash-view-rsi'),riskBtn=document.getElementById('dash-view-risk');
+  const putsBtn=document.getElementById('dash-view-puts'),ccBtn=document.getElementById('dash-view-cc'),rsiBtn=document.getElementById('dash-view-rsi'),riskBtn=document.getElementById('dash-view-risk'),gapBtn=document.getElementById('dash-view-gap');
   if(putsBtn)putsBtn.style.opacity=dashboardViewMode==='puts'?'1':'0.4';
   if(ccBtn)ccBtn.style.opacity=dashboardViewMode==='cc'?'1':'0.4';
   if(rsiBtn)rsiBtn.style.opacity=dashboardViewMode==='rsi'?'1':'0.4';
   if(riskBtn)riskBtn.style.opacity=dashboardViewMode==='risk'?'1':'0.4';
+  if(gapBtn)gapBtn.style.opacity=dashboardViewMode==='gap'?'1':'0.4';
 
   const convictionControls=document.getElementById('dash-conviction-controls');
   const putsCard=document.getElementById('dash-puts-card');
@@ -27,15 +28,18 @@ function _syncDashboardViewModeUI(){
   const rsiCard=document.getElementById('dash-rsi-card');
   const rsiRankingCard=document.getElementById('dash-rsi-ranking-card');
   const riskCard=document.getElementById('dash-risk-card');
-  if(convictionControls)convictionControls.style.display=(dashboardViewMode==='rsi'||dashboardViewMode==='risk')?'none':'';
+  const gapCard=document.getElementById('dash-gap-card');
+  if(convictionControls)convictionControls.style.display=(dashboardViewMode==='rsi'||dashboardViewMode==='risk'||dashboardViewMode==='gap')?'none':'';
   if(putsCard)putsCard.style.display=dashboardViewMode==='puts'?'':'none';
   if(ccCard)ccCard.style.display=dashboardViewMode==='cc'?'':'none';
   if(rsiCard)rsiCard.style.display=dashboardViewMode==='rsi'?'':'none';
   if(rsiRankingCard)rsiRankingCard.style.display=dashboardViewMode==='rsi'?'':'none';
   if(riskCard)riskCard.style.display=dashboardViewMode==='risk'?'':'none';
+  if(gapCard)gapCard.style.display=dashboardViewMode==='gap'?'':'none';
 
   if(dashboardViewMode==='rsi'){_populateRSIBacktestDropdown();renderRSIBacktest();renderRSIRanking();}
   if(dashboardViewMode==='risk'){renderAssignmentRisk();}
+  if(dashboardViewMode==='gap'){_populateGapFillDropdown();renderGapFillDashboard();}
 }
 
 // 9 component definitions split into two rows: 4 on top, 5 on bottom.
@@ -388,4 +392,97 @@ function renderAssignmentRisk(){
       ${earningsStr?`<div style="font-family:var(--mono);font-size:10px;margin-top:2px">${earningsStr}</div>`:''}
     </div>`;
   }).join('');
+}
+
+// ── Gap Fill view ──────────────────────────────────────────────────────────
+
+function _populateGapFillDropdown(){
+  const sel=document.getElementById('gap-fill-ticker-sel');
+  if(!sel)return;
+  if(sel.options.length===watchlist.length+1)return;
+  const current=sel.value;
+  const sorted=[...watchlist].sort((a,b)=>a.localeCompare(b));
+  sel.innerHTML='<option value="">Aggregate (whole watchlist)</option>'+
+    sorted.map(t=>`<option value="${t}">${t}</option>`).join('');
+  if(sorted.includes(current))sel.value=current;
+}
+
+// Shared block for one direction's (up/down) fill-rate summary -- same data
+// shape used by both the aggregate and individual-ticker views.
+function _gapFillDirectionHtml(label,color,data){
+  if(!data||!data.count){
+    return `<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">${label}: no qualifying gaps found in the available history.</div>`;
+  }
+  const fillStr=data.fillRate!=null?data.fillRate.toFixed(0)+'%':'--';
+  const avgDaysStr=data.avgDaysToFill!=null?data.avgDaysToFill.toFixed(1)+' days avg':'--';
+  return `<div style="margin-bottom:14px">
+    <div style="font-family:var(--mono);font-size:11px;font-weight:600;color:${color};margin-bottom:4px">${label} -- ${data.count} gap${data.count!==1?'s':''}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11px;padding:3px 0;border-bottom:1px solid var(--surface3)">
+      <span style="color:var(--text2)">Filled</span>
+      <span style="text-align:right">
+        <span style="color:var(--text);font-weight:600">${data.filledCount} / ${data.count} (${fillStr})</span>
+        <span style="color:var(--text3);display:block;font-size:10px">${avgDaysStr}, when filled</span>
+      </span>
+    </div>
+  </div>`;
+}
+
+// One row per individual gap event -- used only in the single-ticker view,
+// where seeing each occurrence (not just the summary) is useful given how
+// few events there typically are for one ticker.
+function _gapEventRowHtml(ticker,e,hist2y){
+  const dateStr=hist2y?.timestamps?.[e.index]?new Date(hist2y.timestamps[e.index]*1000).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'';
+  const color=e.direction==='up'?'var(--green)':'var(--red)';
+  const statusStr=e.filled?`Filled in ${e.daysToFill}d`:`Open -- ${e.daysSince}d ago`;
+  const statusColor=e.filled?'var(--text3)':'var(--warn)';
+  return `<div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11px;padding:4px 0;border-bottom:1px solid var(--surface3)">
+    <span style="color:var(--text3)">${dateStr}</span>
+    <span style="color:${color};font-weight:600">${e.direction==='up'?'+':''}${e.gapPct.toFixed(1)}%</span>
+    <span style="color:${statusColor}">${statusStr}</span>
+  </div>`;
+}
+
+function renderGapFillDashboard(){
+  const content=document.getElementById('gap-fill-content');
+  if(!content)return;
+  const sel=document.getElementById('gap-fill-ticker-sel');
+  const selectedTicker=sel?.value||'';
+
+  if(!watchlist.length){
+    content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Watchlist is empty</div>';
+    return;
+  }
+
+  if(!selectedTicker){
+    const agg=_computeGapAggregate(watchlist);
+    if(!agg.tickersWithData){
+      content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>No cached price history with Open/High/Low yet -- run Prefetch All or Full Refresh first.</div>';
+      return;
+    }
+    content.innerHTML=`
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Pooled across ${agg.tickersWithData} of ${agg.tickersTotal} watchlist tickers with sufficient history.</div>
+      ${_gapFillDirectionHtml('Gap Up','var(--green)',agg.up)}
+      ${_gapFillDirectionHtml('Gap Down','var(--red)',agg.down)}
+    `;
+  }else{
+    const result=_computeGapSummaryForTicker(selectedTicker);
+    if(!result){
+      content.innerHTML=`<div class="empty"><div class="empty-icon">&#x1F4CA;</div>No cached price history with Open/High/Low for ${selectedTicker} yet.</div>`;
+      return;
+    }
+    if(!result.totalGaps){
+      content.innerHTML=`<div class="empty"><div class="empty-icon">&#x1F4CA;</div>No gaps &ge;${GAP_SIZE_THRESHOLD_PCT}% found for ${selectedTicker} in the available history.</div>`;
+      return;
+    }
+    const hist2y=S.get('hist2y_'+selectedTicker);
+    const eventsDesc=[...result.events].reverse(); // most recent first
+    content.innerHTML=`
+      <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px">${selectedTicker}</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--warn);margin-bottom:10px">&#x26A0; Single-ticker sample -- ${result.totalGaps} total gaps found. Small sample, directional intuition only, not statistically robust.</div>
+      ${_gapFillDirectionHtml('Gap Up','var(--green)',result.up)}
+      ${_gapFillDirectionHtml('Gap Down','var(--red)',result.down)}
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 4px">All events (most recent first)</div>
+      ${eventsDesc.map(e=>_gapEventRowHtml(selectedTicker,e,hist2y)).join('')}
+    `;
+  }
 }

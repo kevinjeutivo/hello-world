@@ -301,6 +301,20 @@ function buildUpgradeTable(upgrades){
     +'<tbody>'+rows+'</tbody></table></div></div>';
 }
 
+// State for the Gap Fill box overlay on the BB chart -- persisted, same
+// on-by-default pattern as the Relative Performance chart's earnings toggle.
+function getGapOverlayToggle(){return S.get('bb_gap_overlay')!=='off';}
+function toggleGapOverlay(){
+  const newVal=!getGapOverlayToggle();
+  S.set('bb_gap_overlay',newVal?'on':'off');
+  const btn=document.getElementById('bb-gap-toggle-btn');
+  if(btn)btn.style.opacity=newVal?'1':'0.4';
+  // Reuse the existing span-redraw path rather than duplicating the BB-data
+  // recompute logic -- toggleBBSpan already re-fetches hist2y and calls
+  // renderBBChart, which is all a toggle-only change needs to trigger.
+  toggleBBSpan(currentBBSpan||'6m');
+}
+
 function toggleBBSpan(span){
   currentBBSpan=span; // persist selected span globally
   const btn6=document.getElementById('bb-btn-6m');
@@ -756,7 +770,7 @@ return`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarke
     </div>
     ${earningsStr}
   </div>
-  ${hist?`<div class="card"><div class="card-title"><span class="dot"></span>Bollinger Bands + RSI + Volume + HVR</div><div style="display:flex;gap:6px;margin-bottom:4px"><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" id="bb-btn-6m" onclick="toggleBBSpan(\'6m\')">6M</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-1y" onclick="toggleBBSpan(\'1y\')">1Y</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-2y" onclick="toggleBBSpan(\'2y\')">2Y</button></div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div class="chart-wrap" style="height:70px;margin-top:4px"><canvas id="vol-chart"></canvas></div><div class="chart-wrap" style="height:60px;margin-top:4px"><canvas id="hvr-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility.
+  ${hist?`<div class="card"><div class="card-title"><span class="dot"></span>Bollinger Bands + RSI + Volume + HVR</div><div style="display:flex;gap:6px;margin-bottom:4px;flex-wrap:wrap"><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" id="bb-btn-6m" onclick="toggleBBSpan(\'6m\')">6M</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-1y" onclick="toggleBBSpan(\'1y\')">1Y</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-2y" onclick="toggleBBSpan(\'2y\')">2Y</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${getGapOverlayToggle()?'1':'0.4'}" id="bb-gap-toggle-btn" onclick="toggleGapOverlay()">Gaps</button></div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div class="chart-wrap" style="height:70px;margin-top:4px"><canvas id="vol-chart"></canvas></div><div class="chart-wrap" style="height:60px;margin-top:4px"><canvas id="hvr-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility.
 
 RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red shading) = overbought, favorable for covered calls.
 
@@ -782,7 +796,49 @@ function renderBBChart(bbData,hist){
   const labels=bbData.timestamps.map(d=>{if(!(d instanceof Date))d=new Date(typeof d==='number'&&d<1e10?d*1000:d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});});
   const rsiVals=computeRSI(hist.closes.filter(c=>c!==null));
   const bbCtx=document.getElementById('bb-chart')?.getContext('2d');
-  if(bbCtx){if(window._bbChart)window._bbChart.destroy();window._bbChart=new Chart(bbCtx,{type:'line',data:{labels,datasets:[{data:bbData.closes,borderColor:'#e8eaf0',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},{data:bbData.sma20,borderColor:'#7c6af7',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false},{data:bbData.upper,borderColor:'#ff4757',borderWidth:1,pointRadius:0,borderDash:[2,3],fill:false},{data:bbData.lower,borderColor:'#00c896',borderWidth:1,pointRadius:0,borderDash:[2,3],fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});}
+  if(bbCtx){
+    if(window._bbChart)window._bbChart.destroy();
+    // Gap Fill box overlay -- same afterDraw mechanism as the Relative
+    // Performance chart's earningsPlugin, applied to real price levels
+    // instead of normalized-to-100 values. Reads the full 2Y hist2y_
+    // directly (regardless of the chart's currently selected 6M/1Y/2Y
+    // span) so gap detection is always based on complete history; only
+    // gaps whose date falls within the currently visible window get drawn.
+    const gapPlugin={
+      id:'bbGapOverlay',
+      afterDraw(chart){
+        if(!getGapOverlayToggle())return;
+        const t=document.getElementById('ticker-select')?.value||currentTicker;
+        if(!t)return;
+        const h2=S.get('hist2y_'+t);
+        if(!h2?.timestamps||!h2.opens||!h2.highs||!h2.lows)return;
+        const events=_computeGapEvents(t,h2);
+        if(!events||!events.length)return;
+        const toDateStr=d=>{if(d instanceof Date)return d.toISOString().split('T')[0];return new Date(typeof d==='number'&&d<1e10?d*1000:d).toISOString().split('T')[0];};
+        const visibleDates=bbData.timestamps.map(toDateStr);
+        const dateToIdx={};visibleDates.forEach((d,i)=>{dateToIdx[d]=i;});
+        const c=chart.ctx,xs=chart.scales.x,ys=chart.scales.y;
+        c.save();
+        c.setLineDash([3,3]);c.lineWidth=1;
+        events.forEach(e=>{
+          const gapDateStr=toDateStr(h2.timestamps[e.index]);
+          const startIdx=dateToIdx[gapDateStr];
+          if(startIdx==null)return; // gap falls outside the currently visible span
+          const fillDateStr=e.filled?toDateStr(h2.timestamps[e.index+e.daysToFill]):null;
+          const endIdx=fillDateStr?dateToIdx[fillDateStr]:null;
+          const xStart=xs.getPixelForValue(startIdx);
+          const xEnd=endIdx!=null?xs.getPixelForValue(endIdx):xs.right;
+          const yTop=ys.getPixelForValue(Math.max(e.prevClose,e.open));
+          const yBot=ys.getPixelForValue(Math.min(e.prevClose,e.open));
+          c.strokeStyle=e.direction==='up'?'rgba(0,212,170,0.9)':'rgba(255,71,87,0.9)';
+          c.strokeRect(xStart,yTop,Math.max(xEnd-xStart,2),Math.max(yBot-yTop,2));
+        });
+        c.setLineDash([]);
+        c.restore();
+      }
+    };
+    window._bbChart=new Chart(bbCtx,{type:'line',data:{labels,datasets:[{data:bbData.closes,borderColor:'#e8eaf0',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},{data:bbData.sma20,borderColor:'#7c6af7',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false},{data:bbData.upper,borderColor:'#ff4757',borderWidth:1,pointRadius:0,borderDash:[2,3],fill:false},{data:bbData.lower,borderColor:'#00c896',borderWidth:1,pointRadius:0,borderDash:[2,3],fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}},plugins:[gapPlugin]});
+  }
   const rsiCtx=document.getElementById('rsi-chart')?.getContext('2d');
   if(rsiCtx&&rsiVals.length>0){
     const rsiLabels=labels.slice(labels.length-rsiVals.length);
@@ -2010,4 +2066,3 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
-    

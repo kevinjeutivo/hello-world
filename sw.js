@@ -5,8 +5,8 @@
 // Version bump this string to force a refresh
 // of the cache when you deploy a new version.
 // ============================================
-const CACHE_NAME = 'putseller-v319';
-const APP_BUILD = 319; // increment with every deploy, matches CACHE_NAME version
+const CACHE_NAME = 'putseller-v320';
+const APP_BUILD = 320; // increment with every deploy, matches CACHE_NAME version
 
 // Files to cache on install — the app shell
 const APP_SHELL = [
@@ -64,7 +64,16 @@ self.addEventListener('fetch', event => {
 
   // Never intercept API calls -- let them go to network directly
   const apiHosts = ['finnhub.io', 'query1.finance.yahoo.com', 'query2.finance.yahoo.com', 'cdn.cboe.com'];
-  if (apiHosts.some(h => url.hostname.includes(h))) {
+  // Cloudflare Worker proxy -- matched by pattern (*.workers.dev) rather
+  // than a fixed hostname, since the worker address is now a user-entered
+  // fragment (see WORKER_URL in index.html), not something this file can
+  // hardcode. Missing this was a real bug: without it, the worker's own
+  // responses fell through to the cache-first app-shell strategy below,
+  // meaning a stale successful response could get served from cache
+  // instead of ever reaching the network on a repeat request to the same
+  // URL -- e.g. making a broken/rotated PROXY_SECRET appear to still work.
+  const isWorkerHost = url.hostname.endsWith('.workers.dev');
+  if (apiHosts.some(h => url.hostname.includes(h)) || isWorkerHost) {
     return; // pass through to network
   }
 

@@ -1499,7 +1499,7 @@ function init(){
   updateHeaderStatus();
   setInterval(()=>{try{updateHeaderStatus();}catch(e){console.warn('Header:',e.message);}},60000);
   applyFontSize(fontSize);
-  if(!FINNHUB_KEY)setTimeout(()=>toast('Add your Finnhub API key in Settings to get started',4000),500);
+  if(!FINNHUB_KEY&&!WORKER_URL)setTimeout(()=>toast('Add a Finnhub key, or set your Server Address, in Settings to get started',4000),500);
 }
 
 // Populate build label from SW cache name -- no hardcoded version in HTML needed

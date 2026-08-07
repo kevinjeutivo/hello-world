@@ -119,8 +119,11 @@ async function loadTicker(){
       const _cl2=h2.closes.map(v=>v!=null?Math.round(v*100)/100:null);
       const _vl2=h2.volumes?h2.volumes.map(v=>v||0):null;
       const _ac2=h2.adjcloses?h2.adjcloses.map(v=>v!=null?Math.round(v*100)/100:null):null;
+      const _op2=h2.opens?h2.opens.map(v=>v!=null?Math.round(v*100)/100:null):null;
+      const _hi2=h2.highs?h2.highs.map(v=>v!=null?Math.round(v*100)/100:null):null;
+      const _lo2=h2.lows?h2.lows.map(v=>v!=null?Math.round(v*100)/100:null):null;
       const _now=nowPT();
-      S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,adjcloses:_ac2,ts:_now,tsEpoch:Date.now()});
+      S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,adjcloses:_ac2,opens:_op2,highs:_hi2,lows:_lo2,ts:_now,tsEpoch:Date.now()});
       // Build live hist objects for rendering (sliced from 2Y data -- no separate keys stored)
       hist6mo={timestamps:h2.timestamps.slice(-126),closes:h2.closes.slice(-126),volumes:h2.volumes?h2.volumes.slice(-126):[]};
       hist1y={timestamps:h2.timestamps.slice(-252),closes:h2.closes.slice(-252),volumes:h2.volumes?h2.volumes.slice(-252):[]};
@@ -534,6 +537,44 @@ function _rsiTransitionCardHtml(ticker,preloadedHist2y){
   </div>`;
 }
 
+// Ticker-page Gap Fill card -- shows the most recent qualifying gap (if
+// any) plus a short history of prior gaps for this ticker. Mirrors
+// _rsiTransitionCardHtml's shape: current/recent status first, supporting
+// detail below.
+function _gapFillCardHtml(ticker,preloadedHist2y){
+  const result=_computeGapSummaryForTicker(ticker,preloadedHist2y);
+  if(!result){
+    return`<div class="card"><div style="font-family:var(--mono);font-size:11px;color:var(--text3)">Gap Fill: no cached price history with Open/High/Low yet -- run a refresh to populate.</div></div>`;
+  }
+  if(!result.totalGaps){
+    return`<div class="card"><div style="font-family:var(--mono);font-size:11px;color:var(--text3)">Gap Fill: no gaps &ge;${GAP_SIZE_THRESHOLD_PCT}% found in the available history.</div></div>`;
+  }
+
+  const status=_getRecentGapStatus(ticker,preloadedHist2y);
+  const hist2y=preloadedHist2y||S.get('hist2y_'+ticker);
+  const eventsDesc=[...result.events].reverse().slice(0,8); // most recent first, capped for card length
+
+  let statusHtml='';
+  if(status){
+    const color=status.direction==='up'?'var(--green)':'var(--red)';
+    const label=status.status==='unfilled'
+      ?`Open gap ${status.direction==='up'?'up':'down'} ${status.gapPct.toFixed(1)}% -- ${status.daysSince}d ago, not yet filled`
+      :`Gap ${status.direction==='up'?'up':'down'} ${status.gapPct.toFixed(1)}% filled ${status.daysSince-status.daysToFill}d ago (took ${status.daysToFill}d)`;
+    statusHtml=`<div style="font-family:var(--mono);font-size:12px;font-weight:600;color:${color};margin-bottom:10px">${label}</div>`;
+  }else{
+    statusHtml=`<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">No recent gap activity (nothing unfilled or filled within the last ${GAP_RECENT_DAYS} trading days).</div>`;
+  }
+
+  return`<div class="card">
+    <div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Gap Fill</div>
+    ${statusHtml}
+    ${_gapFillDirectionHtml('Gap Up','var(--green)',result.up)}
+    ${_gapFillDirectionHtml('Gap Down','var(--red)',result.down)}
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 4px">Recent gaps</div>
+    ${eventsDesc.map(e=>_gapEventRowHtml(ticker,e,hist2y)).join('')}
+  </div>`;
+}
+
 function _tickerNoteSectionHtml(ticker){
   const note=S.get('watchlist_note_'+ticker)||'';
   return `<div id="ticker-note-section" data-ticker="${ticker}" onclick="_openNoteModal('${ticker}')" style="cursor:pointer;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px;font-family:var(--mono);font-size:11px">`+
@@ -722,6 +763,7 @@ Volume: green bars = up days, yellow bars = 20-day average. Spikes on breakouts 
 
 HVR (Historical Volatility Rank): where current 30-day realized volatility sits relative to its 1-year range. High HVR = elevated volatility, richer option premiums. Low HVR = compressed volatility, thinner premiums.</div></div>`:''}
   ${_rsiTransitionCardHtml(snap.ticker,hist2y)}
+  ${_gapFillCardHtml(snap.ticker,hist2y)}
   ${(hist2y&&hist2ySP)?renderRelPerfCard(snap.ticker,hist2y,hist2ySP,earningsHistory):''}  ${hist1y?`<div class="card"><div class="card-title"><span class="dot" style="background:teal"></span>Volume Profile -- Support / Resistance (1Y)</div><div class="chart-wrap" style="height:300px"><canvas id="vp-chart"></canvas></div><div id="vp-analysis"></div></div>`:''}
   <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Recent News (7 days)</div><div id="news-section">${renderNewsItems(news)}</div></div>
   ${upgradesData&&upgradesData.length?buildUpgradeTable(upgradesData):''}
@@ -1856,8 +1898,11 @@ async function refreshSingleTicker(){
       const _rcl=_rh2.closes.map(v=>v!=null?Math.round(v*100)/100:null);
       const _rvl=_rh2.volumes?_rh2.volumes.map(v=>v||0):null;
       const _rac=_rh2.adjcloses?_rh2.adjcloses.map(v=>v!=null?Math.round(v*100)/100:null):null;
+      const _rop=_rh2.opens?_rh2.opens.map(v=>v!=null?Math.round(v*100)/100:null):null;
+      const _rhi=_rh2.highs?_rh2.highs.map(v=>v!=null?Math.round(v*100)/100:null):null;
+      const _rlo=_rh2.lows?_rh2.lows.map(v=>v!=null?Math.round(v*100)/100:null):null;
       const _rn=nowPT();
-      S.set('hist2y_'+t,{timestamps:_rts,closes:_rcl,volumes:_rvl,adjcloses:_rac,ts:_rn,tsEpoch:Date.now()});
+      S.set('hist2y_'+t,{timestamps:_rts,closes:_rcl,volumes:_rvl,adjcloses:_rac,opens:_rop,highs:_rhi,lows:_rlo,ts:_rn,tsEpoch:Date.now()});
       if(_idRes&&_idRes.closes&&_idRes.closes.length>=2){
         const _idTs=_idRes.timestamps?_idRes.timestamps.map(d=>d instanceof Date?d.getTime():d):null;
         S.set('intraday_'+t,{closes:_idRes.closes,timestamps:_idTs,ts:_rn});
@@ -1964,4 +2009,3 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
-      

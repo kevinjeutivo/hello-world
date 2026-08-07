@@ -2058,10 +2058,14 @@ async function refreshSingleTicker(){
         const _newOpts=optionsLoaded?true:(_prevOpts==='skipped'?'skipped':false);
         _h.tickers[t]={snap:true,hist:true,options:_newOpts,finnhub:!_rUpgradesErr,
           ...(_rUpgradesErr?{finnhubDetail:'upgrades: '+_rUpgradesErr.slice(0,90)}:{})};
-        // Recompute summary
-        const _wl=S.get('watchlist')||[];
-        const _ok=_wl.filter(tk=>_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist&&_h.tickers[tk]?.finnhub).length;
-        _h.summary={total:_wl.length,ok:_ok,failed:_wl.filter(tk=>!(_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist&&_h.tickers[tk]?.finnhub))};
+        // Recompute summary -- uses the in-memory `watchlist` global, not
+        // S.get('watchlist') directly: on a device that's never explicitly
+        // added/removed a ticker yet, storage may have no 'watchlist' key
+        // at all even though the in-memory global is correctly populated
+        // (from defaults) and the app is otherwise working normally --
+        // reading storage directly here would silently report 0 total.
+        const _ok=watchlist.filter(tk=>_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist&&_h.tickers[tk]?.finnhub).length;
+        _h.summary={total:watchlist.length,ok:_ok,failed:watchlist.filter(tk=>!(_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist&&_h.tickers[tk]?.finnhub))};
         _h.completedTs=nowPT();
         S.set('last_refresh_health',_h);
         if(typeof _updateRefreshHealthBadge==='function')_updateRefreshHealthBadge();

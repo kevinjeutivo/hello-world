@@ -658,6 +658,118 @@ function _computeRSIBacktestRanking(tickers,category,window,minOccurrences){
   return rows;
 }
 
+// ─── Gap Fill tracking ──────────────────────────────────────────────────
+// A "gap" here is the classic definition: today's Open differs from
+// yesterday's Close by at least GAP_SIZE_THRESHOLD_PCT. Not an intraday
+// gap. "Filled" means a later day's High/Low actually traded back through
+// the prior close level -- checked via High/Low, not Close, since a gap
+// can fill intraday on a day whose own close never gets there (Close-only
+// would understate/delay apparent fills). This is a full-dataset
+// inventory, not a fixed-window backtest like RSI -- every qualifying gap
+// found in cached history, with its fill status, to the extent the cache
+// has data for.
+//
+// Cache-only, no new fetches -- opens/highs/lows are already part of the
+// same Yahoo response hist2y_ was already fetching (previously discarded,
+// not previously absent). Requires a hist2y_ entry written after this
+// feature shipped; older entries won't have opens/highs/lows until their
+// next natural refresh -- gracefully returns null rather than erroring on
+// those, same tolerance pattern used for the tsEpoch migration.
+const GAP_SIZE_THRESHOLD_PCT=2;
+const GAP_RECENT_DAYS=10;        // how long an unfilled gap stays flagged as "recent"
+const GAP_FILLED_RECENT_DAYS=10; // how long a filled gap stays flagged as "recently filled"
+
+function _computeGapEvents(ticker,preloadedHist2y){
+  try{
+    const h2=preloadedHist2y||S.get('hist2y_'+ticker);
+    if(!h2?.closes?.length||!h2.opens||!h2.highs||!h2.lows)return null;
+    const{closes,opens,highs,lows}=h2;
+    const n=closes.length;
+    const events=[];
+    for(let i=1;i<n;i++){
+      const prevClose=closes[i-1],open=opens[i];
+      if(prevClose==null||open==null||prevClose<=0)continue;
+      const gapPct=(open-prevClose)/prevClose*100;
+      if(Math.abs(gapPct)<GAP_SIZE_THRESHOLD_PCT)continue;
+      const direction=gapPct>0?'up':'down';
+      // Fill check starts at the gap day itself (index i), not i+1 -- a
+      // weak gap can fade and fill intraday on the very day it opens.
+      let filledIdx=null;
+      for(let k=i;k<n;k++){
+        if(direction==='up'){
+          if(lows[k]!=null&&lows[k]<=prevClose){filledIdx=k;break;}
+        }else{
+          if(highs[k]!=null&&highs[k]>=prevClose){filledIdx=k;break;}
+        }
+      }
+      events.push({
+        index:i,direction,gapPct,prevClose,open,
+        filled:filledIdx!=null,
+        daysToFill:filledIdx!=null?filledIdx-i:null,
+        daysSince:n-1-i // trading days between the gap and the most recent cached day
+      });
+    }
+    return events;
+  }catch{return null;}
+}
+
+// Per-ticker fill-rate/avg-days summary. Small per-ticker sample size over
+// 2 years of history, same caveat as the RSI Backtest -- the aggregate
+// view across the watchlist is the more statistically meaningful lens.
+function _computeGapSummaryForTicker(ticker,preloadedHist2y){
+  const events=_computeGapEvents(ticker,preloadedHist2y);
+  if(!events)return null;
+  const summarizeDir=(dir)=>{
+    const list=events.filter(e=>e.direction===dir);
+    const filled=list.filter(e=>e.filled);
+    return{
+      count:list.length,
+      filledCount:filled.length,
+      fillRate:list.length?filled.length/list.length*100:null,
+      avgDaysToFill:filled.length?filled.reduce((a,e)=>a+e.daysToFill,0)/filled.length:null
+    };
+  };
+  return{ticker,totalGaps:events.length,up:summarizeDir('up'),down:summarizeDir('down'),events};
+}
+
+// Pools raw gap events across every ticker in a given list -- mirrors
+// _computeRSIBacktestAggregate's approach for a much larger combined
+// sample than any single ticker offers alone.
+function _computeGapAggregate(tickers){
+  let allUp=[],allDown=[];
+  let tickersWithData=0;
+  tickers.forEach(t=>{
+    const events=_computeGapEvents(t);
+    if(!events)return;
+    tickersWithData++;
+    events.forEach(e=>{(e.direction==='up'?allUp:allDown).push(e);});
+  });
+  const summarize=(list)=>{
+    const filled=list.filter(e=>e.filled);
+    return{
+      count:list.length,
+      filledCount:filled.length,
+      fillRate:list.length?filled.length/list.length*100:null,
+      avgDaysToFill:filled.length?filled.reduce((a,e)=>a+e.daysToFill,0)/filled.length:null
+    };
+  };
+  return{up:summarize(allUp),down:summarize(allDown),tickersWithData,tickersTotal:tickers.length};
+}
+
+// Badge-relevant status: a recent unfilled gap (still open, worth
+// watching), or a gap that filled recently (pattern just resolved). Same
+// "current state takes priority over recently-resolved state" framing as
+// _getRSIRecentTransition. Returns null if neither applies.
+function _getRecentGapStatus(ticker,preloadedHist2y){
+  const events=_computeGapEvents(ticker,preloadedHist2y);
+  if(!events||!events.length)return null;
+  const recentUnfilled=[...events].reverse().find(e=>!e.filled&&e.daysSince<=GAP_RECENT_DAYS);
+  if(recentUnfilled)return{status:'unfilled',...recentUnfilled};
+  const recentlyFilled=[...events].reverse().find(e=>e.filled&&(e.daysSince-e.daysToFill)<=GAP_FILLED_RECENT_DAYS);
+  if(recentlyFilled)return{status:'filled',...recentlyFilled};
+  return null;
+}
+
 function formatStrike(x){return x===Math.floor(x)?x.toString():x.toFixed(2);}
 
 function fmtCap(v){if(!v)return'N/A';if(v>=1e12)return`$${(v/1e12).toFixed(2)}T`;if(v>=1e9)return`$${(v/1e9).toFixed(2)}B`;if(v>=1e6)return`$${(v/1e6).toFixed(2)}M`;return`$${v}`;}

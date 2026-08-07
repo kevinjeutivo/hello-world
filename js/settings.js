@@ -101,8 +101,9 @@ async function checkFlightModeReady(){
   };
   const ok=v=>v!==null&&v<24;
 
-  // 1. Watchlist snaps
-  const wl=S.get('watchlist')||[];
+  // 1. Watchlist snaps -- in-memory global, not S.get('watchlist') directly
+  // (see the same fix and reasoning in ticker.js's refreshSingleTicker).
+  const wl=watchlist;
   let snapMissing=0,snapStale=0;
   wl.forEach(t=>{
     const sn=S.get('snap_'+t);

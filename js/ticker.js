@@ -301,9 +301,10 @@ function buildUpgradeTable(upgrades){
     +'<tbody>'+rows+'</tbody></table></div></div>';
 }
 
-// State for the Gap Fill box overlay on the BB chart -- persisted, same
-// on-by-default pattern as the Relative Performance chart's earnings toggle.
-function getGapOverlayToggle(){return S.get('bb_gap_overlay')!=='off';}
+// State for the Gap Fill box overlay on the BB chart -- persisted, off by
+// default (unlike the Relative Performance chart's earnings toggle, which
+// is on by default). Requires an explicit opt-in via the Gaps button.
+function getGapOverlayToggle(){return S.get('bb_gap_overlay')==='on';}
 function toggleGapOverlay(){
   const newVal=!getGapOverlayToggle();
   S.set('bb_gap_overlay',newVal?'on':'off');
@@ -802,8 +803,10 @@ function renderBBChart(bbData,hist){
     // Performance chart's earningsPlugin, applied to real price levels
     // instead of normalized-to-100 values. Reads the full 2Y hist2y_
     // directly (regardless of the chart's currently selected 6M/1Y/2Y
-    // span) so gap detection is always based on complete history; only
-    // gaps whose date falls within the currently visible window get drawn.
+    // span) so gap detection is always based on complete history. Only
+    // OPEN (unfilled) gaps are drawn, and only if their date falls within
+    // the currently visible window -- filled gaps are intentionally
+    // omitted to keep the chart focused on what's still actionable.
     const gapPlugin={
       id:'bbGapOverlay',
       afterDraw(chart){
@@ -820,14 +823,12 @@ function renderBBChart(bbData,hist){
         const c=chart.ctx,xs=chart.scales.x,ys=chart.scales.y;
         c.save();
         c.setLineDash([3,3]);c.lineWidth=1;
-        events.forEach(e=>{
+        events.filter(e=>!e.filled).forEach(e=>{
           const gapDateStr=toDateStr(h2.timestamps[e.index]);
           const startIdx=dateToIdx[gapDateStr];
           if(startIdx==null)return; // gap falls outside the currently visible span
-          const fillDateStr=e.filled?toDateStr(h2.timestamps[e.index+e.daysToFill]):null;
-          const endIdx=fillDateStr?dateToIdx[fillDateStr]:null;
           const xStart=xs.getPixelForValue(startIdx);
-          const xEnd=endIdx!=null?xs.getPixelForValue(endIdx):xs.right;
+          const xEnd=xs.right;
           const yTop=ys.getPixelForValue(Math.max(e.prevClose,e.open));
           const yBot=ys.getPixelForValue(Math.min(e.prevClose,e.open));
           c.strokeStyle=e.direction==='up'?'rgba(0,212,170,0.9)':'rgba(255,71,87,0.9)';

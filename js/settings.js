@@ -818,7 +818,7 @@ async function retryFailedTickers(){
   if(!failed.length){toast('Nothing to retry');return;}
   if(!navigator.onLine&&!offlineMode){toast('Offline -- cannot retry',3000);return;}
   if(offlineMode){toast('Offline mode -- disable in Settings to retry',3000);return;}
-  if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');return;}
+  if(!FINNHUB_KEY&&!WORKER_URL){toast('Add a Finnhub key or set your Server Address in Settings');return;}
 
   const btn=document.getElementById('retry-failed-btn');
   if(btn){btn.disabled=true;btn.textContent='Retrying...';}

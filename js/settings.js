@@ -784,9 +784,9 @@ function openRefreshHealthModal(){
       v.options===true?'':v.options==='skipped'?'options skipped (fresh)':'options failed',
       v.finnhub?'':(v.finnhubDetail?v.finnhubDetail:'finnhub failed'),
     ].filter(Boolean).join(', ');
-    return `<div style="font-family:var(--mono);font-size:10px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+    return `<div onclick="_goToTickerFromHealthModal('${t}')" style="font-family:var(--mono);font-size:10px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer">
       <div style="display:flex;justify-content:space-between">
-        <span style="color:var(--text2)">${t}</span>
+        <span style="color:var(--text2)">${t} <span style="color:var(--text3);font-size:9px">&#x203A;</span></span>
         <span style="color:${color}">${status}${ok?' OK':''}</span>
       </div>
       ${ok?'':`<div style="color:${color};margin-top:2px;word-break:break-word">${detail}</div>`}
@@ -799,10 +799,51 @@ function openRefreshHealthModal(){
       Completed: ${h.completedTs||h.ts||'unknown'}${elapsed?' &nbsp;·&nbsp; <span style="color:var(--text2)">'+elapsed+'</span>':''}<br>
       Result: <span style="color:${allOk?'var(--green)':'var(--warn)'}">${ok}/${total} tickers fully refreshed</span>
     </div>
+    ${allOk?'':`<button class="btn btn-secondary" id="retry-failed-btn" style="width:100%;margin-bottom:10px" onclick="retryFailedTickers()">&#x21BB; Retry ${failed.length} Failed</button>`}
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">Tap any row to jump to that ticker</div>
     <div style="margin-bottom:12px">${tickerRows}</div>
     <button class="btn btn-secondary" style="width:100%" onclick="document.getElementById('refresh-health-modal').classList.remove('open')">Close</button>
   </div>`;
   el.classList.add('open');
+}
+
+function _goToTickerFromHealthModal(t){
+  document.getElementById('refresh-health-modal').classList.remove('open');
+  navigateToTicker(t);
+}
+
+async function retryFailedTickers(){
+  const h=S.get('last_refresh_health');
+  const failed=h?.summary?.failed||[];
+  if(!failed.length){toast('Nothing to retry');return;}
+  if(!navigator.onLine&&!offlineMode){toast('Offline -- cannot retry',3000);return;}
+  if(offlineMode){toast('Offline mode -- disable in Settings to retry',3000);return;}
+  if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');return;}
+
+  const btn=document.getElementById('retry-failed-btn');
+  if(btn){btn.disabled=true;btn.textContent='Retrying...';}
+
+  // refreshSingleTicker() sets currentTicker and re-renders the Ticker tab as
+  // a side effect of doing its job -- save/restore around the batch so a
+  // retry run from here doesn't silently leave the Ticker tab pointed at
+  // whichever ticker happened to be retried last.
+  const _savedTicker=currentTicker;
+  const _savedSelectVal=document.getElementById('ticker-select')?.value;
+
+  const sel=document.getElementById('ticker-select');
+  const sleepMs=parseInt(S.get('prefetch_sleep_ms'))||100;
+  for(let i=0;i<failed.length;i++){
+    sel.value=failed[i];
+    try{await refreshSingleTicker();}catch{}
+    if(document.getElementById('refresh-health-modal')?.classList.contains('open'))openRefreshHealthModal();
+    if(i<failed.length-1)await sleep(sleepMs);
+  }
+
+  if(_savedTicker&&sel){sel.value=_savedSelectVal||_savedTicker;currentTicker=_savedTicker;await loadTicker();}
+
+  const _btn2=document.getElementById('retry-failed-btn');
+  if(_btn2){_btn2.disabled=false;_btn2.textContent='\u21BB Retry Failed';}
+  toast('Retry complete');
 }
 
 function forceAppRefresh(){

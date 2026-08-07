@@ -442,7 +442,7 @@ function _gapEventRowHtml(ticker,e,hist2y){
   const d=raw==null?null:(raw instanceof Date?raw:new Date(typeof raw==='number'&&raw<1e10?raw*1000:raw));
   const dateStr=d?d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'';
   const color=e.direction==='up'?'var(--green)':'var(--red)';
-  const statusStr=e.filled?`Filled in ${e.daysToFill}d`:`Open -- ${e.daysSince}d ago`;
+  const statusStr=e.filled?(e.daysToFill===0?'Filled same day':`Filled in ${e.daysToFill}d`):`Open -- ${e.daysSince}d ago`;
   const statusColor=e.filled?'var(--text3)':'var(--warn)';
   const rangeStr=`$${Math.min(e.prevClose,e.open).toFixed(2)} \u2013 $${Math.max(e.prevClose,e.open).toFixed(2)}`;
   return `<div style="padding:4px 0;border-bottom:1px solid var(--surface3)">
@@ -488,14 +488,21 @@ function renderGapFillDashboard(){
       return;
     }
     const hist2y=S.get('hist2y_'+selectedTicker);
-    const eventsDesc=[...result.events].reverse(); // most recent first
+    const allEventsDesc=[...result.events].reverse(); // most recent first
+    const filterMode=getGapListFilterMode();
+    const eventsDesc=filterMode==='open'?allEventsDesc.filter(e=>!e.filled):allEventsDesc;
+    const listLabel=filterMode==='open'?`Open gaps (${eventsDesc.length})`:`All gaps (${result.totalGaps})`;
+    const filterBtn=(mode,lbl)=>`<button class="btn btn-secondary" style="font-size:9px;padding:2px 6px;opacity:${filterMode===mode?'1':'0.4'}" onclick="setGapListFilterMode('${mode}')">${lbl}</button>`;
     content.innerHTML=`
       <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px">${selectedTicker}</div>
       <div style="font-family:var(--mono);font-size:10px;color:var(--warn);margin-bottom:10px">&#x26A0; Single-ticker sample -- ${result.totalGaps} total gaps found. Small sample, directional intuition only, not statistically robust.</div>
       ${_gapFillDirectionHtml('Gap Up','var(--green)',result.up)}
       ${_gapFillDirectionHtml('Gap Down','var(--red)',result.down)}
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 4px">All events (most recent first)</div>
-      <div style="max-height:180px;overflow-y:auto;">${eventsDesc.map(e=>_gapEventRowHtml(selectedTicker,e,hist2y)).join('')}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:10px 0 4px">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">${listLabel}</span>
+        <div style="display:flex;gap:4px">${filterBtn('all','All')}${filterBtn('open','Open Only')}</div>
+      </div>
+      <div id="gap-fill-list-dash" style="max-height:180px;overflow-y:auto;">${eventsDesc.length?eventsDesc.map(e=>_gapEventRowHtml(selectedTicker,e,hist2y)).join(''):'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No open gaps right now.</div>'}</div>
     `;
   }
 }

@@ -1330,6 +1330,39 @@ _updateRefreshHealthBadge(); // default 6pm ET // manual | alpha | opportunity
 const DEFAULT_WATCHLIST=['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
 const EXP_COLORS=['#00d4aa','#ff6b35','#7c6af7','#ffa502'];
 
+// ─── Proxy secret: silent header on every worker request ───
+// Not meant to be hidden -- it's a plain constant in public source, same as
+// everything else in this file. It deters opportunistic bots/scrapers that
+// find the worker URL and probe it without ever reading this JS, not a
+// human with the URL. Set the SAME value as the worker's PROXY_SECRET
+// Cloudflare secret for this to actually take effect (the worker skips the
+// check entirely if its own secret is unset, same opt-in-when-ready
+// behavior as FINNHUB_KEY).
+const PROXY_SECRET='54170936711fd62a56ac6ad61b07e766c57f92c45c42d4ca259b8dd9e1b5236c';
+
+// Rather than editing the ~21 individual fetch() call sites across
+// api.js/etf.js/income.js/market.js/prefetch.js/settings.js/vix.js (varied
+// shapes -- Promise.all arrays, .then() chains, timeout wrappers -- real
+// risk of a missed or malformed edit doing that by hand), a single scoped
+// fetch wrapper attaches the header automatically to any request whose URL
+// currently starts with WORKER_URL. Every other fetch in the app (direct
+// Finnhub calls, FRED, the worker-fragment verification fetch, anything
+// else) passes through completely unmodified -- this only ever touches
+// requests already targeting the worker.
+(function(){
+  const _nativeFetch=window.fetch.bind(window);
+  window.fetch=function(input,init){
+    try{
+      const url=typeof input==='string'?input:(input&&input.url);
+      if(url&&WORKER_URL&&url.indexOf(WORKER_URL)===0){
+        init=init||{};
+        init.headers=Object.assign({},init.headers,{'X-Proxy-Secret':PROXY_SECRET});
+      }
+    }catch(e){/* fall through to native fetch unmodified on any error */}
+    return _nativeFetch(input,init);
+  };
+})();
+
 // ─── Worker hostname fragment (replaces old hardcoded WORKER_URL) ───
 // WORKER_URL is intentionally `let`, not `const` -- every existing fetch call
 // site across the app (api.js, etf.js, income.js, market.js, prefetch.js,

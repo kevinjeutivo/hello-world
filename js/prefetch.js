@@ -12,7 +12,7 @@ function _pfTimeout(promise, ms, label){
 // Dependencies: helpers.js, api.js, ticker.js, options.js, storage.js
 
 async function prefetchAll(){
-  if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');return;}
+  if(!FINNHUB_KEY&&!WORKER_URL){toast('Add a Finnhub key or set your Server Address in Settings');return;}
   if(!navigator.onLine&&!offlineMode){toast('Offline -- cached data unchanged',3000);return;}
   if(offlineMode){toast('Offline mode enabled -- disable in Settings to fetch',3000);return;}
   // Warn if fetching options outside market hours -- IV and OI may be synthetic
@@ -245,7 +245,7 @@ async function prefetchAll(){
 }
 
 async function fullRefreshEverything(){
-  if(!FINNHUB_KEY){toast('Add Finnhub key in Settings');return;}
+  if(!FINNHUB_KEY&&!WORKER_URL){toast('Add a Finnhub key or set your Server Address in Settings');return;}
   const btn=document.getElementById('full-refresh-btn');btn.disabled=true;
   document.getElementById('full-refresh-progress').style.display='block';
   const bar=document.getElementById('full-refresh-bar'),label=document.getElementById('full-refresh-label');

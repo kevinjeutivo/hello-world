@@ -495,7 +495,7 @@ function renderGapFillDashboard(){
       ${_gapFillDirectionHtml('Gap Up','var(--green)',result.up)}
       ${_gapFillDirectionHtml('Gap Down','var(--red)',result.down)}
       <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 4px">All events (most recent first)</div>
-      ${eventsDesc.map(e=>_gapEventRowHtml(selectedTicker,e,hist2y)).join('')}
+      <div style="max-height:180px;overflow-y:auto;">${eventsDesc.map(e=>_gapEventRowHtml(selectedTicker,e,hist2y)).join('')}</div>
     `;
   }
 }

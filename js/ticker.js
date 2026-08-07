@@ -179,7 +179,7 @@ async function loadTicker(){
     const _h2=S.get('hist2y_'+t);
     const _useTR=getRPTotalReturn();
     const _tkCl=_useTR&&_h2?.adjcloses?_h2.adjcloses:_h2?.closes;
-    const _hist2y=_h2?{timestamps:_h2.timestamps.map(d=>new Date(d*1000)),closes:_tkCl}:null;
+    const _hist2y=_h2?{timestamps:_h2.timestamps.map(d=>new Date(d*1000)),closes:_tkCl,opens:_h2.opens||null,highs:_h2.highs||null,lows:_h2.lows||null}:null;
     const _spKey=_useTR?'hist2y_sp500tr':'hist2y_sp500';
     const _sp2=S.get(_spKey)||((_useTR)?S.get('hist2y_sp500'):null);
     const _hist2ySP=_sp2?{timestamps:_sp2.timestamps.map(d=>new Date(d*1000)),closes:_sp2.closes}:null;
@@ -205,7 +205,7 @@ function restoreTickerFromCache(t){
   }
   const _rUseTR=getRPTotalReturn();
   const _rTkCl=_rUseTR&&ch2?.adjcloses?ch2.adjcloses:ch2?.closes;
-  const hist2y=ch2?{timestamps:ch2.timestamps.map(d=>new Date(d*1000)),closes:_rTkCl,volumes:ch2.volumes||null}:null;
+  const hist2y=ch2?{timestamps:ch2.timestamps.map(d=>new Date(d*1000)),closes:_rTkCl,volumes:ch2.volumes||null,opens:ch2.opens||null,highs:ch2.highs||null,lows:ch2.lows||null}:null;
   const _rSpKey=_rUseTR?'hist2y_sp500tr':'hist2y_sp500';
   const sp2c=S.get(_rSpKey)||((_rUseTR)?S.get('hist2y_sp500'):null);
   const hist2ySP=sp2c?{timestamps:sp2c.timestamps.map(d=>new Date(d*1000)),closes:sp2c.closes}:null;
@@ -2009,3 +2009,4 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
+    

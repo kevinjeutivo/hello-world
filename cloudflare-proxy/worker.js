@@ -34,14 +34,24 @@ export default {
     }
 
     if (request.method !== 'GET') {
-      return new Response('Method not allowed', { status: 405 });
+      return new Response('Method not allowed', {
+        status: 405,
+        headers: { 'Access-Control-Allow-Origin': '*' }
+      });
     }
 
     const PROXY_SECRET = env.PROXY_SECRET || '';
     if (PROXY_SECRET) {
       const clientSecret = request.headers.get('X-Proxy-Secret');
       if (clientSecret !== PROXY_SECRET) {
-        return new Response('Unauthorized', { status: 401 });
+        // CORS headers required here even on rejection -- a cross-origin
+        // response missing them gets blocked by the browser before the
+        // calling page ever sees the 401, which makes fetch() throw
+        // instead of resolving with a readable error status.
+        return new Response('Unauthorized', {
+          status: 401,
+          headers: { 'Access-Control-Allow-Origin': '*' }
+        });
       }
     }
 

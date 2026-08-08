@@ -1430,7 +1430,11 @@ async function submitWorkerFragment(){
     // Any HTTP response -- even an error status -- proves the hostname is
     // real and answering. We're validating reachability here, not the
     // response content.
-    await fetch(`${candidateUrl}/?ticker=SPY&type=quote`,{signal:_workerSetupAbortCtrl.signal});
+    // Header attached explicitly here, not via the global fetch wrapper --
+    // WORKER_URL isn't set to candidateUrl until after this call succeeds,
+    // so the wrapper's WORKER_URL-match guard can't fire for this specific
+    // request yet.
+    await fetch(`${candidateUrl}/?ticker=SPY&type=quote`,{signal:_workerSetupAbortCtrl.signal,headers:{'X-Proxy-Secret':PROXY_SECRET}});
     clearTimeout(timeoutId);
     S.set('worker_fragment',fragment);
     WORKER_URL=candidateUrl;

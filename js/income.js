@@ -338,7 +338,7 @@ function _getTargetAPY(){
 
 // ── Calculation engine ────────────────────────────────────────────────────────
 
-function _calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targetAPY){
+function _calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targetAPY,overridePutsNotional,overrideCCNotional){
   const tbillTEY=tbillYield!=null?tbillYield/(1-CA_STATE_TAX_RATE):null;
   const fdlxxTEY=fdlxxYield!=null?fdlxxYield/(1-CA_STATE_TAX_RATE):null;
 
@@ -370,10 +370,13 @@ function _calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targ
     {label:'NBOS', amt:nbosAmt, shares:inp.nbosShares, price:nbosData.price, yld:nbosData.yld, income:nbosIncome},
   ];
 
-  // Positions trackers override manual notional fields when positions exist
-  const _posNotionalTotal=_activePosNotionalTotal();
+  // Positions trackers override manual notional fields when positions exist.
+  // overridePutsNotional/overrideCCNotional let a caller supply a specific
+  // account's totals directly (used by the all-accounts aggregate below) --
+  // when omitted, falls back to the active account exactly as before.
+  const _posNotionalTotal=overridePutsNotional!=null?overridePutsNotional:_activePosNotionalTotal();
   const _effectivePutsNotional=_posNotionalTotal>0?_posNotionalTotal:inp.putsNotional;
-  const _ccNotionalTotal=_activeCCNotionalTotal();
+  const _ccNotionalTotal=overrideCCNotional!=null?overrideCCNotional:_activeCCNotionalTotal();
   const _effectiveCCNotional=_ccNotionalTotal>0?_ccNotionalTotal:inp.ccStockAmt;
   const putsIncome=(_effectivePutsNotional*targetAPY)/100;
   const ccIncome  =(_effectiveCCNotional  *targetAPY)/100;
@@ -1012,6 +1015,89 @@ function _confirmDeleteAccount(){
 
 // ── Aggregate All-Accounts Overview pop-up ────────────────────────────────────
 
+// ── All-accounts aggregate ──────────────────────────────────────────────────
+// Computes one account's blended-yield result by sourcing every input
+// directly from storage for that specific account id, rather than the
+// DOM/active-account context _calcIncome's normal (single-account) caller
+// relies on. Cache-only, same as the overview modal below -- never
+// triggers a live fetch just by being computed.
+function _calcIncomeForAccount(accountId){
+  const inp = S.get(_acctKeyFor(accountId,'inputs')) || {};
+  const mmf = S.get(_acctKeyFor(accountId,'mmf_yield')) || {};
+  const tbillYield = _getTBillYield();       // global, same for every account
+  const spyiData   = _getETFYield('SPYI');   // global
+  const nbosData   = _getETFYield('NBOS');   // global
+  const targetAPY  = inp.targetAPY || 12;
+
+  const fdlxxFetched=mmf.fdlxx;
+  const spaxxFetched=mmf.spaxx;
+  const fdlxxYield=(fdlxxFetched==null)
+    ?(inp.fdlxxYieldManual??null)
+    :(inp.fdlxxUseManual&&inp.fdlxxYieldManual!=null?inp.fdlxxYieldManual:fdlxxFetched);
+  const spaxxYield=(spaxxFetched==null)
+    ?(inp.spaxxYieldManual??null)
+    :(inp.spaxxUseManual&&inp.spaxxYieldManual!=null?inp.spaxxYieldManual:spaxxFetched);
+
+  // Same direct-storage position lookup pattern already used by
+  // openIncomeOverview -- avoids the active-account-only
+  // _activePosNotionalTotal()/_activeCCNotionalTotal() helpers.
+  const puts=(S.get(_acctKeyFor(accountId,'put_positions'))||[]).filter(p=>{const s=_posExpiryStatus(p);return s==='active'||s==='expiring-soon'||s==='expiring-imminent';});
+  const ccs =(S.get(_acctKeyFor(accountId,'cc_positions')) ||[]).filter(p=>{const s=_posExpiryStatus(p);return s==='active'||s==='expiring-soon'||s==='expiring-imminent';});
+  const putsNotionalTotal = puts.reduce((s,p)=>s+_posNotional(p),0);
+  const ccNotionalTotal   = ccs.reduce((s,p)=>s+_ccPosNotional(p),0);
+
+  return _calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targetAPY,putsNotionalTotal,ccNotionalTotal);
+}
+
+// Sums every account's result into one blended figure -- capital and income
+// add directly across accounts; the blended yield is recomputed from those
+// sums (not averaged), same total-income/total-capital definition the
+// per-account card already uses.
+function _calcIncomeAllAccounts(){
+  const accounts=_getAccounts();
+  let l1Capital=0,l1Income=0,l2Capital=0,l2Income=0,l3Income=0,totalCapital=0,totalIncome=0;
+  accounts.forEach(a=>{
+    const r=_calcIncomeForAccount(a.id);
+    l1Capital+=r.l1.capital; l1Income+=r.l1.income;
+    l2Capital+=r.l2.capital; l2Income+=r.l2.income;
+    l3Income+=r.l3.income;
+    totalCapital+=r.blended.capital;
+    totalIncome+=r.blended.annualIncome;
+  });
+  const blendedYield=totalCapital>0?totalIncome/totalCapital*100:0;
+  const l3Lift=totalCapital>0?l3Income/totalCapital*100:0;
+  return{
+    accountCount:accounts.length,
+    l1:{capital:l1Capital,income:l1Income},
+    l2:{capital:l2Capital,income:l2Income},
+    l3:{income:l3Income,lift:l3Lift},
+    blended:{yield:blendedYield,capital:totalCapital,annualIncome:totalIncome,monthlyIncome:totalIncome/12},
+  };
+}
+
+// Compact version of the per-account hero card (same visual language, same
+// field definitions) for the top of the All Accounts overview.
+function _renderAllAccountsHero(result){
+  const{l3,blended,accountCount}=result;
+  const noCapital=blended.capital<=0;
+  return '<div style="background:linear-gradient(135deg,rgba(33,150,243,0.08),rgba(255,107,53,0.08),rgba(0,212,170,0.12));border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:14px;text-align:center">'
+    +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px">Blended Yield &mdash; All '+accountCount+' Account'+(accountCount!==1?'s':'')+'</div>'
+    +(noCapital
+      ?'<div style="font-family:var(--mono);font-size:13px;color:var(--text3)">No capital entered across any account yet</div>'
+      :'<div style="font-family:var(--mono);font-size:40px;font-weight:700;color:var(--text);line-height:1">'+_fmtPct(blended.yield)+'</div>'
+      +'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-top:4px">annualized blended yield on '+_fmtDollar(blended.capital)+' total capital</div>'
+      +'<div style="display:flex;justify-content:center;gap:24px;margin-top:12px">'
+        +'<div><div style="font-family:var(--mono);font-size:10px;color:var(--text3)">Annual income</div>'
+        +'<div style="font-family:var(--mono);font-size:18px;font-weight:600;color:var(--text)">'+_fmtDollar(blended.annualIncome)+'</div></div>'
+        +'<div style="width:1px;background:var(--border)"></div>'
+        +'<div><div style="font-family:var(--mono);font-size:10px;color:var(--text3)">Monthly income</div>'
+        +'<div style="font-family:var(--mono);font-size:18px;font-weight:600;color:var(--accent)">'+_fmtDollar(blended.monthlyIncome)+'</div></div>'
+      +'</div>'
+      +(l3.income>0?'<div style="font-family:var(--mono);font-size:10px;color:'+L3_TEXT+';margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">Options overlay adds +'+_fmtPct(l3.lift)+' lift on total capital ('+_fmtDollar(l3.income)+'/yr in premium income)</div>':'')
+    )
+    +'</div>';
+}
+
 function openIncomeOverview(){
   const accounts = _getAccounts();
   let el = document.getElementById('income-overview-modal');
@@ -1098,6 +1184,7 @@ function openIncomeOverview(){
   el.innerHTML =
     '<div class="modal-box" style="max-width:380px;max-height:80vh;overflow-y:auto">' +
       '<div class="modal-title modal-title-neutral" style="margin-bottom:14px">All Accounts Overview</div>' +
+      _renderAllAccountsHero(_calcIncomeAllAccounts()) +
       '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Tap an account to switch to it</div>' +
       rows +
       '<button class="btn btn-secondary btn-sm" style="margin-top:4px;width:100%" onclick="document.getElementById(\'income-overview-modal\').classList.remove(\'open\')">Close</button>' +

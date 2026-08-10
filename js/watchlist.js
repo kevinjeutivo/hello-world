@@ -79,10 +79,10 @@ function _openNoteModal(ticker){
   el.innerHTML=
     '<div class="modal-box" style="max-height:80vh;overflow-y:auto">'+
       '<div class="modal-title modal-title-neutral">Note for '+ticker+'</div>'+
-      '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">Appears below the ticker row. Max 200 characters.</div>'+
-      '<textarea id="wnm-text" maxlength="200" rows="3" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:12px;padding:8px;resize:none;outline:none">'+existing.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</textarea>'+
+      '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">Appears below the ticker row. Max 500 characters.</div>'+
+      '<textarea id="wnm-text" maxlength="500" rows="8" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:12px;padding:8px;resize:none;outline:none">'+existing.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</textarea>'+
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">'+
-        '<span id="wnm-counter" style="font-family:var(--mono);font-size:9px;color:var(--text3)">'+existing.length+'/200</span>'+
+        '<span id="wnm-counter" style="font-family:var(--mono);font-size:9px;color:var(--text3)">'+existing.length+'/500</span>'+
         '<div id="wnm-btns" style="display:flex;gap:8px">'+
           '<button class="btn btn-secondary btn-sm" onclick="_closeNoteModal()">Cancel</button>'+
           (existing?'<button class="btn btn-danger btn-sm" onclick="_confirmClearNote()">Clear</button>':'')+
@@ -95,7 +95,7 @@ function _openNoteModal(ticker){
   if(ta){
     ta.addEventListener('input',()=>{
       const c=document.getElementById('wnm-counter');
-      if(c)c.textContent=ta.value.length+'/200';
+      if(c)c.textContent=ta.value.length+'/500';
     });
     setTimeout(()=>ta.focus(),100);
   }

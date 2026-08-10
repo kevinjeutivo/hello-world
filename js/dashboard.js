@@ -15,12 +15,13 @@ function setDashboardViewMode(mode){
 }
 
 function _syncDashboardViewModeUI(){
-  const putsBtn=document.getElementById('dash-view-puts'),ccBtn=document.getElementById('dash-view-cc'),rsiBtn=document.getElementById('dash-view-rsi'),riskBtn=document.getElementById('dash-view-risk'),gapBtn=document.getElementById('dash-view-gap');
+  const putsBtn=document.getElementById('dash-view-puts'),ccBtn=document.getElementById('dash-view-cc'),rsiBtn=document.getElementById('dash-view-rsi'),riskBtn=document.getElementById('dash-view-risk'),gapBtn=document.getElementById('dash-view-gap'),notesBtn=document.getElementById('dash-view-notes');
   if(putsBtn)putsBtn.style.opacity=dashboardViewMode==='puts'?'1':'0.4';
   if(ccBtn)ccBtn.style.opacity=dashboardViewMode==='cc'?'1':'0.4';
   if(rsiBtn)rsiBtn.style.opacity=dashboardViewMode==='rsi'?'1':'0.4';
   if(riskBtn)riskBtn.style.opacity=dashboardViewMode==='risk'?'1':'0.4';
   if(gapBtn)gapBtn.style.opacity=dashboardViewMode==='gap'?'1':'0.4';
+  if(notesBtn)notesBtn.style.opacity=dashboardViewMode==='notes'?'1':'0.4';
 
   const convictionControls=document.getElementById('dash-conviction-controls');
   const putsCard=document.getElementById('dash-puts-card');
@@ -29,17 +30,20 @@ function _syncDashboardViewModeUI(){
   const rsiRankingCard=document.getElementById('dash-rsi-ranking-card');
   const riskCard=document.getElementById('dash-risk-card');
   const gapCard=document.getElementById('dash-gap-card');
-  if(convictionControls)convictionControls.style.display=(dashboardViewMode==='rsi'||dashboardViewMode==='risk'||dashboardViewMode==='gap')?'none':'';
+  const notesCard=document.getElementById('dash-notes-card');
+  if(convictionControls)convictionControls.style.display=(dashboardViewMode==='rsi'||dashboardViewMode==='risk'||dashboardViewMode==='gap'||dashboardViewMode==='notes')?'none':'';
   if(putsCard)putsCard.style.display=dashboardViewMode==='puts'?'':'none';
   if(ccCard)ccCard.style.display=dashboardViewMode==='cc'?'':'none';
   if(rsiCard)rsiCard.style.display=dashboardViewMode==='rsi'?'':'none';
   if(rsiRankingCard)rsiRankingCard.style.display=dashboardViewMode==='rsi'?'':'none';
   if(riskCard)riskCard.style.display=dashboardViewMode==='risk'?'':'none';
   if(gapCard)gapCard.style.display=dashboardViewMode==='gap'?'':'none';
+  if(notesCard)notesCard.style.display=dashboardViewMode==='notes'?'':'none';
 
   if(dashboardViewMode==='rsi'){_populateRSIBacktestDropdown();renderRSIBacktest();renderRSIRanking();}
   if(dashboardViewMode==='risk'){renderAssignmentRisk();}
   if(dashboardViewMode==='gap'){_populateGapFillDropdown();renderGapFillDashboard();}
+  if(dashboardViewMode==='notes'){renderDashboardNotes();}
 }
 
 // 9 component definitions split into two rows: 4 on top, 5 on bottom.
@@ -505,4 +509,32 @@ function renderGapFillDashboard(){
       <div id="gap-fill-list-dash" style="max-height:180px;overflow-y:auto;">${eventsDesc.length?eventsDesc.map(e=>_gapEventRowHtml(selectedTicker,e,hist2y)).join(''):'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No open gaps right now.</div>'}</div>
     `;
   }
+}
+
+// ── Notes view ────────────────────────────────────────────────────────────
+// Freeform, not tied to any ticker -- no length limit by design (unlike the
+// per-ticker watchlist notes, which are intentionally short). Auto-saves on
+// input with a short debounce, rather than requiring an explicit Save
+// action, since this is meant to feel like a persistent scratchpad.
+
+let _dashNotesSaveTimer=null;
+
+function renderDashboardNotes(){
+  const ta=document.getElementById('dash-notes-text');
+  if(!ta)return;
+  ta.value=S.get('dashboard_notes')||'';
+  const status=document.getElementById('dash-notes-status');
+  if(status)status.innerHTML='&nbsp;';
+}
+
+function _saveDashboardNotes(){
+  const ta=document.getElementById('dash-notes-text');
+  const status=document.getElementById('dash-notes-status');
+  if(!ta)return;
+  if(status)status.textContent='Saving...';
+  clearTimeout(_dashNotesSaveTimer);
+  _dashNotesSaveTimer=setTimeout(()=>{
+    S.set('dashboard_notes',ta.value);
+    if(status)status.textContent='Saved '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+  },500);
 }

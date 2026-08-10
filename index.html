@@ -84,6 +84,7 @@
       <button class="btn btn-secondary" id="dash-view-rsi" onclick="setDashboardViewMode('rsi')" style="font-size:10px;padding:3px 8px;opacity:0.4">RSI Backtest</button>
       <button class="btn btn-secondary" id="dash-view-risk" onclick="setDashboardViewMode('risk')" style="font-size:10px;padding:3px 8px;opacity:0.4">ITM Risk</button>
       <button class="btn btn-secondary" id="dash-view-gap" onclick="setDashboardViewMode('gap')" style="font-size:10px;padding:3px 8px;opacity:0.4">Gap Fill</button>
+      <button class="btn btn-secondary" id="dash-view-notes" onclick="setDashboardViewMode('notes')" style="font-size:10px;padding:3px 8px;opacity:0.4">Notes</button>
     </div>
   </div>
   <div id="dash-conviction-controls" class="card">
@@ -150,6 +151,12 @@
     </div>
     <div id="gap-fill-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Loading...</div></div>
   </div>
+  <div id="dash-notes-card" class="card" style="display:none">
+    <div class="card-title"><span class="dot" style="background:#4fc3f7"></span>Notes</div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Freeform notes, not tied to any single ticker. Saved automatically as you type.</div>
+    <textarea id="dash-notes-text" oninput="_saveDashboardNotes()" style="width:100%;box-sizing:border-box;min-height:420px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:12px;padding:10px;resize:vertical;outline:none"></textarea>
+    <div id="dash-notes-status" style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:4px;text-align:right">&nbsp;</div>
+  </div>
 </div>
 
 <!-- WATCHLIST TAB -->
@@ -173,7 +180,7 @@
       <button class="btn btn-secondary" id="wl-filter-positions" onclick="setWatchlistFilterMode('positions')" style="font-size:10px;padding:3px 8px;opacity:0.4;white-space:nowrap">Positions</button>
       <button class="btn btn-secondary" id="wl-filter-starred" onclick="setWatchlistFilterMode('starred')" style="font-size:10px;padding:3px 8px;opacity:0.4;white-space:nowrap">Starred</button>
     </div>
-    <button class="btn btn-secondary" id="prefetch-btn" onclick="prefetchAll()">Prefetch All Ticker Data</button>
+    <button class="btn btn-success" id="prefetch-btn" onclick="prefetchAll()">Prefetch All Ticker Data</button>
     <div id="refresh-health-badge" onclick="openRefreshHealthModal()" style="display:none;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid;cursor:pointer;margin-top:4px;color:var(--text2)"></div>
     <div id="prefetch-progress" style="display:none">
       <div class="progress-bar-wrap"><div class="progress-bar" id="prefetch-progress-bar" style="width:0%"></div></div>

@@ -854,3 +854,4 @@ function forceAppRefresh(){
   if('caches'in window){caches.keys().then(keys=>{Promise.all(keys.map(k=>caches.delete(k))).then(()=>{toast('Cache cleared -- reloading...',2500);setTimeout(()=>window.location.reload(),2500);});});}
   else{window.location.reload();}
 }
+

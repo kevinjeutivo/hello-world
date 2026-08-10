@@ -690,6 +690,18 @@ function previewImport(){
     }
   }catch{}
 
+  // Dashboard notes -- substantial user-authored content, same treatment
+  // as Watchlist Notes below, unlike the minor settings/toggles that are
+  // intentionally left out of this preview and covered only by the total
+  // key count footer.
+  try{
+    if(typeof keys.dashboard_notes==='string'&&keys.dashboard_notes.trim()){
+      const note=keys.dashboard_notes;
+      lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">NOTES ('+note.length+' char'+(note.length!==1?'s':'')+')</span>');
+      lines.push('<div style="color:var(--text2);padding-left:10px">'+note.slice(0,100).replace(/</g,'&lt;').replace(/>/g,'&gt;')+(note.length>100?'…':'')+'</div></div>');
+    }
+  }catch{}
+
   // Watchlist notes
   try{
     const noteKeys=Object.keys(keys).filter(k=>k.startsWith('watchlist_note_'));
@@ -854,4 +866,3 @@ function forceAppRefresh(){
   if('caches'in window){caches.keys().then(keys=>{Promise.all(keys.map(k=>caches.delete(k))).then(()=>{toast('Cache cleared -- reloading...',2500);setTimeout(()=>window.location.reload(),2500);});});}
   else{window.location.reload();}
 }
-

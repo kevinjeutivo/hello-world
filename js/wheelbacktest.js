@@ -16,6 +16,12 @@
 // Globals used: S, _bsPutPrice, _bsCallPrice, _bsPutDelta, _bsCallDelta,
 // _solveStrikeForDelta, _realizedVolAsOf, _getTBillYield
 
+// The 30-delta target used throughout matches this app's existing wheel
+// mechanics conventions (Conviction Scoring, ITM Risk) rather than
+// introducing a separate delta setting to configure.
+const WHEELBT_TARGET_DELTA=0.30;
+const WHEELBT_DEFAULT_TARGET_APY=12; // matches _calcIncome's own fallback default
+
 // Simulates ONE option cycle (either a put or a call) starting at a given
 // index in the price history. No lookahead beyond entryIdx for pricing;
 // the outcome is only revealed by looking at the actual historical price
@@ -153,13 +159,17 @@ function _computeWheelBacktest(ticker,dte,targetDeltaAbs){
   const avgAssignmentRate=windows.reduce((s,w)=>s+w.assignmentRatePct,0)/windows.length;
   const avgAnnReturn=annReturns.reduce((s,v)=>s+v,0)/annReturns.length;
   const avgBuyHold=windows.reduce((s,w)=>s+w.buyHoldAnnualizedPct,0)/windows.length;
+  const pctBeatTarget=(annReturns.filter(v=>v>=WHEELBT_DEFAULT_TARGET_APY).length/annReturns.length)*100;
+
+  const mostRecentWindow=windows[windows.length-1];
 
   return{
     ticker,dte,targetDeltaAbs,sampleSize:windows.length,
-    median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,
+    median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
-    recentCycles:windows[windows.length-1].trades.slice(-8),
-    recentCyclesHist2y:h2,
+    recentCycles:mostRecentWindow.trades.slice(-8),
+    recentRunStartIdx:mostRecentWindow.startIdx,
+    recentRunTotalCycles:mostRecentWindow.trades.length,
   };
 }
 
@@ -176,7 +186,7 @@ function _computeWheelBacktestAggregate(tickers,dte,targetDeltaAbs){
   let allAssignmentRates=[];
   let allBuyHold=[];
   let tickersWithData=0;
-  let lastTickerCycles=null,lastTicker=null;
+  let lastTickerCycles=null,lastTicker=null,lastTickerStartIdx=null,lastTickerTotalCycles=null;
 
   tickers.forEach(t=>{
     const h2=S.get('hist2y_'+t);
@@ -190,7 +200,7 @@ function _computeWheelBacktestAggregate(tickers,dte,targetDeltaAbs){
         allAssignmentRates.push(win.assignmentRatePct);
         allBuyHold.push(win.buyHoldAnnualizedPct);
         gotAny=true;
-        lastTickerCycles=win.trades.slice(-8);lastTicker=t;
+        lastTickerCycles=win.trades.slice(-8);lastTicker=t;lastTickerStartIdx=win.startIdx;lastTickerTotalCycles=win.trades.length;
       }
     }
     if(gotAny)tickersWithData++;
@@ -204,12 +214,14 @@ function _computeWheelBacktestAggregate(tickers,dte,targetDeltaAbs){
   const avgAnnReturn=allReturns.reduce((s,v)=>s+v,0)/allReturns.length;
   const avgAssignmentRate=allAssignmentRates.reduce((s,v)=>s+v,0)/allAssignmentRates.length;
   const avgBuyHold=allBuyHold.reduce((s,v)=>s+v,0)/allBuyHold.length;
+  const pctBeatTarget=(allReturns.filter(v=>v>=WHEELBT_DEFAULT_TARGET_APY).length/allReturns.length)*100;
 
   return{
     dte,targetDeltaAbs,sampleSize:allReturns.length,tickersWithData,tickersTotal:tickers.length,
-    median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,
+    median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
     recentCycles:lastTickerCycles,recentCyclesTicker:lastTicker,
+    recentRunStartIdx:lastTickerStartIdx,recentRunTotalCycles:lastTickerTotalCycles,
   };
 }
 
@@ -220,8 +232,6 @@ function _computeWheelBacktestAggregate(tickers,dte,targetDeltaAbs){
 // The 30-delta target used throughout matches this app's existing wheel
 // mechanics conventions (Conviction Scoring, ITM Risk) rather than
 // introducing a separate delta setting to configure.
-const WHEELBT_TARGET_DELTA=0.30;
-const WHEELBT_DEFAULT_TARGET_APY=12; // matches _calcIncome's own fallback default
 
 function _populateWheelBacktestDropdown(){
   const sel=document.getElementById('wheelbt-ticker-sel');
@@ -244,40 +254,67 @@ function setWheelBacktestDTE(dte){
   renderWheelBacktest();
 }
 
-// Horizontal worst/median/best range, with a marker at the user's own
-// target APY so the comparison this whole feature exists for -- "does my
-// 12% target sit inside what actually happened historically" -- is visual
-// rather than something requiring separately reading two numbers.
-function _wheelBacktestDistributionSvg(worst,median,best,target){
-  const lo=Math.min(worst,target)-2,hi=Math.max(best,target)+2; // pad the range so the target marker never sits at the very edge
+// Purely geometric range bar -- worst-to-best span, median tick, target
+// marker. Deliberately carries NO text of its own: SVG <text> is sized in
+// fixed SVG units that don't respect the device's font-size/zoom setting
+// at all, which is exactly what made the previous version illegible. All
+// the actual numbers live in regular HTML around this bar instead, where
+// normal font scaling applies.
+function _wheelBacktestRangeBarSvg(worst,median,best,target){
+  const lo=Math.min(worst,target)-2,hi=Math.max(best,target)+2;
   const toX=(v)=>10+((v-lo)/(hi-lo))*352;
   const worstX=toX(worst),medX=toX(median),bestX=toX(best),targetX=toX(target);
-  const barLo=Math.min(worstX,medX),barHi=Math.max(medX,bestX);
-  return`<svg viewBox="0 0 372 56" width="100%" height="56" style="margin-bottom:2px">
-    <line x1="10" y1="30" x2="362" y2="30" stroke="var(--surface3)" stroke-width="1"/>
-    <line x1="${worstX}" y1="20" x2="${worstX}" y2="40" stroke="var(--red)" stroke-width="1.5"/>
-    <rect x="${Math.min(worstX,barLo)}" y="24" width="${Math.max(bestX,barHi)-Math.min(worstX,barLo)}" height="12" fill="var(--surface3)"/>
-    <rect x="${barLo}" y="24" width="${barHi-barLo}" height="12" fill="var(--accent)" fill-opacity="0.5"/>
-    <line x1="${medX}" y1="16" x2="${medX}" y2="44" stroke="var(--accent)" stroke-width="2"/>
-    <line x1="${bestX}" y1="20" x2="${bestX}" y2="40" stroke="var(--green)" stroke-width="1.5"/>
-    <line x1="${targetX}" y1="8" x2="${targetX}" y2="48" stroke="var(--warn)" stroke-width="1.5" stroke-dasharray="3,2"/>
-    <text x="${worstX}" y="52" fill="var(--red)" font-size="8" text-anchor="middle">${worst.toFixed(1)}%</text>
-    <text x="${medX}" y="12" fill="var(--accent)" font-size="8" text-anchor="middle">${median.toFixed(1)}% med</text>
-    <text x="${bestX}" y="52" fill="var(--green)" font-size="8" text-anchor="middle">${best.toFixed(1)}%</text>
-    <text x="${targetX}" y="6" fill="var(--warn)" font-size="8" text-anchor="middle">target ${target}%</text>
+  return`<svg viewBox="0 0 372 30" width="100%" height="30" style="margin-bottom:4px">
+    <line x1="10" y1="15" x2="362" y2="15" stroke="var(--surface3)" stroke-width="1"/>
+    <rect x="${worstX}" y="9" width="${Math.max(bestX-worstX,2)}" height="12" rx="3" fill="var(--accent)" fill-opacity="0.35"/>
+    <line x1="${worstX}" y1="4" x2="${worstX}" y2="26" stroke="var(--red)" stroke-width="2"/>
+    <line x1="${medX}" y1="2" x2="${medX}" y2="28" stroke="var(--accent)" stroke-width="2.5"/>
+    <line x1="${bestX}" y1="4" x2="${bestX}" y2="26" stroke="var(--green)" stroke-width="2"/>
+    <line x1="${targetX}" y1="0" x2="${targetX}" y2="30" stroke="var(--warn)" stroke-width="2" stroke-dasharray="3,2"/>
   </svg>`;
 }
 
+// The actual readable numbers -- large, normal HTML text, same convention
+// as the blended-yield hero card's income row.
+function _wheelBacktestStatBlocksHtml(worst,median,best){
+  const block=(label,val,color,size)=>`<div style="text-align:center;flex:1">
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">${label}</div>
+    <div style="font-family:var(--mono);font-size:${size}px;font-weight:700;color:${color}">${val>=0?'+':''}${val.toFixed(1)}%</div>
+  </div>`;
+  return`<div style="display:flex;align-items:flex-end;margin-bottom:6px">
+    ${block('Worst',worst,'var(--red)',18)}
+    ${block('Median',median,'var(--accent)',24)}
+    ${block('Best',best,'var(--green)',18)}
+  </div>`;
+}
+
+// Plain-language takeaway using the actual percentile rank within the full
+// pooled distribution, not just a visual comparison against three summary
+// points -- directly answers "does my target hold up historically."
+function _wheelBacktestTargetSentence(target,pctBeatTarget){
+  if(pctBeatTarget<=0)return`Your ${target}% target was not reached by any simulated window in this sample.`;
+  if(pctBeatTarget>=90)return`Your ${target}% target was easily cleared &mdash; ${pctBeatTarget.toFixed(0)}% of simulated windows beat it.`;
+  if(pctBeatTarget>=50)return`Your ${target}% target looks realistic here &mdash; ${pctBeatTarget.toFixed(0)}% of simulated windows beat it.`;
+  return`Your ${target}% target is on the ambitious side for this history &mdash; only ${pctBeatTarget.toFixed(0)}% of simulated windows beat it.`;
+}
+
+// Shows BOTH the opening and closing date of each cycle, explicitly
+// labeled -- the previous version showed only the entry date with no
+// label at all, sitting right next to an outcome that actually resolves
+// at the end of the cycle, which was genuinely ambiguous.
 function _wheelBacktestCycleRowHtml(t,hist2y){
-  const toDateStr=d=>{if(d==null)return'';if(d instanceof Date)return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});return new Date(typeof d==='number'&&d<1e10?d*1000:d).toLocaleDateString('en-US',{month:'short',day:'numeric'});};
-  const dateStr=hist2y?toDateStr(hist2y.timestamps?.[t.entryIdx]):'';
+  const toDateStr=d=>{if(d==null)return'?';if(d instanceof Date)return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});return new Date(typeof d==='number'&&d<1e10?d*1000:d).toLocaleDateString('en-US',{month:'short',day:'numeric'});};
+  const entryDateStr=hist2y?toDateStr(hist2y.timestamps?.[t.entryIdx]):'?';
+  const exitDateStr=hist2y?toDateStr(hist2y.timestamps?.[t.exitIdx]):'?';
   const label=t.optionType==='put'?'CSP':'CC';
   const outcome=t.assigned?(t.optionType==='put'?'Assigned':'Called away'):'Expired worthless';
   const outcomeColor=t.assigned?'var(--warn)':'var(--green)';
-  return`<div style="display:flex;justify-content:space-between;font-size:10px;padding:4px 0;border-bottom:1px solid var(--surface3)">
-    <span style="color:var(--text3)">${dateStr}</span>
-    <span style="color:var(--text2)">${label} $${t.strike.toFixed(2)}</span>
-    <span style="color:${outcomeColor}">${outcome}</span>
+  return`<div style="padding:5px 0;border-bottom:1px solid var(--surface3)">
+    <div style="display:flex;justify-content:space-between;font-size:11px">
+      <span style="color:var(--text2)">${label} $${t.strike.toFixed(2)}</span>
+      <span style="color:${outcomeColor}">${outcome}</span>
+    </div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:1px">Opened ${entryDateStr} &rarr; ${exitDateStr}</div>
   </div>`;
 }
 
@@ -316,9 +353,11 @@ function renderWheelBacktest(){
     const vsColor=result.vsBuyHold>=0?'var(--green)':'var(--red)';
 
     content.innerHTML=`
-      <div style="font-family:var(--mono);font-size:10px;color:${isAggregate?'var(--text3)':'var(--warn)'};margin-bottom:10px">${isAggregate?'':'&#x26A0; '}${scopeLabel} &middot; ${result.sampleSize} simulated windows</div>
-      ${_wheelBacktestDistributionSvg(result.worst,result.median,result.best,target)}
-      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:12px">worst &middot; median &middot; best window (annualized, ~1yr each, ${dte}d cycles) vs. your ${target}% target</div>
+      <div style="font-family:var(--mono);font-size:10px;color:${isAggregate?'var(--text3)':'var(--warn)'};margin-bottom:12px">${isAggregate?'':'&#x26A0; '}${scopeLabel} &middot; ${result.sampleSize} simulated windows</div>
+      ${_wheelBacktestStatBlocksHtml(result.worst,result.median,result.best)}
+      ${_wheelBacktestRangeBarSvg(result.worst,result.median,result.best,target)}
+      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">worst &middot; median &middot; best of ${result.sampleSize} rolling 1-year windows (${dte}d cycles) &mdash; dashed line marks your target</div>
+      <div style="font-size:11px;color:var(--warn);margin-bottom:14px">${_wheelBacktestTargetSentence(target,result.pctBeatTarget)}</div>
       <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
         <span style="color:var(--text2)">Assignment rate</span><span style="color:var(--text)">${result.avgAssignmentRate.toFixed(0)}%</span>
       </div>
@@ -328,7 +367,8 @@ function renderWheelBacktest(){
       <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3);margin-bottom:12px">
         <span style="color:var(--text2)">Premium source</span><span style="color:var(--warn)">Realized vol (approx.)</span>
       </div>
-      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Recent Simulated Cycles${result.recentCyclesTicker?' ('+result.recentCyclesTicker+')':''}</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">One Example Run${result.recentCyclesTicker?' ('+result.recentCyclesTicker+')':''}</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">The stats above pool all ${result.sampleSize} simulated windows together. This is just ONE of them -- the most recent that ran a full year -- shown cycle-by-cycle so you can see what actually happened along that specific path${result.recentRunTotalCycles>8?' (last 8 of '+result.recentRunTotalCycles+' cycles)':''}.</div>
       <div style="max-height:160px;overflow-y:auto">${(result.recentCycles||[]).map(t=>_wheelBacktestCycleRowHtml(t,S.get('hist2y_'+(isAggregate?result.recentCyclesTicker:selectedTicker)))).join('')||'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No cycles to show.</div>'}</div>
     `;
   },10);

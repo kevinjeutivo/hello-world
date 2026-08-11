@@ -160,14 +160,15 @@
   </div>
   <div id="dash-wheelbt-card" class="card" style="display:none">
     <div class="card-title"><span class="dot" style="background:#7c6af7"></span>Wheel Backtest</div>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Simulates the wheel (CSP &rarr; assignment &rarr; CC &rarr; called away &rarr; repeat) against real historical prices, using real monthly (3rd-Friday) expiration dates and Black-Scholes premiums with realized volatility standing in for implied vol. An approximation, not real historical options data -- see "Premium source" below.</div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Simulates the wheel (CSP &rarr; assignment &rarr; CC &rarr; called away &rarr; repeat) against real historical prices, using real monthly (3rd-Friday) expirations. Strike each cycle is the one closest to your target APY while still clearing it -- not a fixed delta. If your preferred expiration can't clear the floor, tries the other expirations (1-3mo, whichever works), then waits for a later day if none do. Black-Scholes premiums, realized volatility standing in for implied vol -- see "Premium source" below.</div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">This is not real historical options data -- an approximation using each stock's own price history.</div>
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
       <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Scope:</span>
       <select class="input" id="wheelbt-ticker-sel" onchange="renderWheelBacktest()" style="font-family:var(--mono);font-size:11px;padding:4px 6px;flex:1">
         <option value="">Aggregate (whole watchlist)</option>
       </select>
     </div>
-    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">Monthly Expiration Target</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">Preferred Expiration (starting point -- see above)</div>
     <div style="display:flex;gap:5px;margin-bottom:12px">
       <button class="btn btn-secondary" id="wheelbt-months-1" onclick="setWheelBacktestMonths(1)" style="flex:1;font-size:10px;padding:4px 0;opacity:0.4">1 Month</button>
       <button class="btn btn-secondary" id="wheelbt-months-2" onclick="setWheelBacktestMonths(2)" style="flex:1;font-size:10px;padding:4px 0;opacity:1">2 Months</button>

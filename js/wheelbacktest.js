@@ -22,28 +22,101 @@
 const WHEELBT_TARGET_DELTA=0.30;
 const WHEELBT_DEFAULT_TARGET_APY=12; // matches _calcIncome's own fallback default
 
+// ── Real monthly-expiration calendar mechanics ──────────────────────────
+// Earlier version used a fixed trading-day offset (e.g. "45 days later")
+// with no relationship to when options actually expire -- traditional
+// monthlies expire the 3rd Friday of the month, a specific, discrete date,
+// not an arbitrary point on a continuous day count. That mattered: dates
+// shown in the simulation didn't correspond to real expirations someone
+// trading monthlies would ever have actually held.
+
+// 3rd Friday of a given (year, month) -- month is 0-indexed (Jan=0).
+function _thirdFriday(year,month){
+  const first=new Date(year,month,1);
+  const firstFridayDate=1+((5-first.getDay()+7)%7); // 5 = Friday
+  return new Date(year,month,firstFridayDate+14);
+}
+
+// Given an entry date and N (months out), finds the target monthly
+// expiration date -- the 3rd Friday of (entry month + N). Bumps forward an
+// extra month if the naive target would be uncomfortably close to entry
+// (<15 days lead time) -- avoids a degenerate near-zero-duration cycle
+// when entry happens to fall very late in a month, right after that
+// month's own expiration already passed.
+function _monthlyExpirationDate(entryDate,monthsOut){
+  let year=entryDate.getFullYear();
+  let month=entryDate.getMonth()+monthsOut;
+  year+=Math.floor(month/12);
+  month=((month%12)+12)%12;
+  let expiry=_thirdFriday(year,month);
+  const MIN_LEAD_DAYS=15;
+  while((expiry-entryDate)/86400000<MIN_LEAD_DAYS){
+    month+=1;
+    if(month>11){month=0;year+=1;}
+    expiry=_thirdFriday(year,month);
+  }
+  return expiry;
+}
+
+// Maps a target calendar date to the nearest actual trading day AT OR
+// BEFORE it in the price history (real expirations settle on the actual
+// trading day, and can't resolve on a weekend/holiday the market never
+// traded). Binary search since timestamps are always ascending. Returns
+// the LAST available index if the target is beyond all cached history
+// (signals "ran out of data before expiration" to the caller, rather than
+// null -- null is reserved for "target predates all available history",
+// which shouldn't occur given entryIdx is always within the array, but is
+// handled defensively rather than assumed impossible).
+function _tradingDayIndexAtOrBefore(timestamps,targetDate){
+  let lo=0,hi=timestamps.length-1,result=null;
+  while(lo<=hi){
+    const mid=(lo+hi)>>1;
+    const midDate=timestamps[mid] instanceof Date?timestamps[mid]:new Date(typeof timestamps[mid]==='number'&&timestamps[mid]<1e10?timestamps[mid]*1000:timestamps[mid]);
+    if(midDate<=targetDate){result=mid;lo=mid+1;}else{hi=mid-1;}
+  }
+  return result;
+}
+
 // Simulates ONE option cycle (either a put or a call) starting at a given
-// index in the price history. No lookahead beyond entryIdx for pricing;
-// the outcome is only revealed by looking at the actual historical price
-// at the (simulated) expiration index.
-function _simulateOneCycle(hist2y,entryIdx,dte,targetDeltaAbs,optionType,r){
-  const closes=hist2y.closes;
+// index in the price history, expiring on the REAL 3rd-Friday monthly
+// expiration `monthsOut` months from the entry date (not an arbitrary
+// fixed day-count) -- see _monthlyExpirationDate above. No lookahead
+// beyond entryIdx for pricing; the outcome is only revealed by looking at
+// the actual historical price at the (real) expiration index.
+function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetDeltaAbs,optionType,r){
+  const closes=hist2y.closes,timestamps=hist2y.timestamps;
   const n=closes.length;
   const S0=closes[entryIdx];
   if(S0==null||S0<=0)return null;
+  const entryDateRaw=timestamps?.[entryIdx];
+  if(entryDateRaw==null)return null;
+  const entryDate=entryDateRaw instanceof Date?entryDateRaw:new Date(typeof entryDateRaw==='number'&&entryDateRaw<1e10?entryDateRaw*1000:entryDateRaw);
   const sigma=_realizedVolAsOf(closes,entryIdx,21);
   if(sigma==null||sigma<=0)return null;
-  const T=dte/365;
+
+  const expiryDate=_monthlyExpirationDate(entryDate,monthsOut);
+  const exitIdx=_tradingDayIndexAtOrBefore(timestamps,expiryDate);
+  if(exitIdx==null||exitIdx<=entryIdx)return null; // shouldn't occur given the lead-time guard, but defensive
+  const exitDateRaw=timestamps[exitIdx];
+  const exitDate=exitDateRaw instanceof Date?exitDateRaw:new Date(typeof exitDateRaw==='number'&&exitDateRaw<1e10?exitDateRaw*1000:exitDateRaw);
+  // "Data exhausted" = the resolved trading day fell meaningfully short of
+  // the real target expiration date (>=5 days), meaning history ran out
+  // before this cycle could actually finish -- as opposed to the normal
+  // case of landing 0-3 days early because the exact expiry date wasn't a
+  // trading day (weekend/holiday), which is expected and not a shortfall.
+  const dataExhausted=(expiryDate-exitDate)/86400000>=5;
+
+  // T uses the ACTUAL elapsed calendar time to real expiration, not an
+  // assumed monthsOut*30/365 -- monthly spacing isn't perfectly uniform
+  // (28-35 days depending on where in the month entry happens to fall),
+  // and pricing should reflect the real duration being simulated.
+  const T=(exitDate-entryDate)/(365*86400000);
+  if(T<=0)return null;
   const K=_solveStrikeForDelta(S0,T,r,sigma,targetDeltaAbs,optionType);
   if(K==null||!isFinite(K))return null;
   const premium=optionType==='put'?_bsPutPrice(S0,K,T,r,sigma):_bsCallPrice(S0,K,T,r,sigma);
   if(!isFinite(premium)||premium<0)return null;
 
-  // Convert calendar DTE to an approximate trading-day offset within the
-  // (trading-day-indexed) price history.
-  const tradingDaysOut=Math.max(1,Math.round(dte*252/365));
-  const exitIdx=Math.min(entryIdx+tradingDaysOut,n-1);
-  const dataExhausted=exitIdx<entryIdx+tradingDaysOut; // ran out of history before a full expiry
   const priceAtExit=closes[exitIdx];
   if(priceAtExit==null)return null;
   const assigned=optionType==='put'?(priceAtExit<K):(priceAtExit>K);
@@ -55,7 +128,7 @@ function _simulateOneCycle(hist2y,entryIdx,dte,targetDeltaAbs,optionType,r){
 // sells puts until assigned, then sells calls against the resulting shares
 // until called away, then reverts to puts -- repeating until either the
 // window's ~1 year is used up or the available price history runs out.
-function _simulateWheelWindow(hist2y,startIdx,dte,targetDeltaAbs,r){
+function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetDeltaAbs,r){
   const closes=hist2y.closes;
   const startPrice=closes[startIdx];
   if(startPrice==null||startPrice<=0)return null;
@@ -69,7 +142,7 @@ function _simulateWheelWindow(hist2y,startIdx,dte,targetDeltaAbs,r){
   const tradingDaysInYear=252;
 
   while(true){
-    const cyc=_simulateOneCycle(hist2y,curIdx,dte,targetDeltaAbs,mode,r);
+    const cyc=_simulateOneCycle(hist2y,curIdx,monthsOut,targetDeltaAbs,mode,r);
     if(!cyc)break; // insufficient data (e.g. vol undefined this early in history) -- stop here
     trades.push(cyc);
     cumPremium+=cyc.premium;
@@ -94,8 +167,11 @@ function _simulateWheelWindow(hist2y,startIdx,dte,targetDeltaAbs,r){
 
   if(!trades.length)return null;
   const endIdx=trades[trades.length-1].exitIdx;
-  const elapsedTradingDays=endIdx-startIdx;
-  const elapsedCalendarDaysApprox=elapsedTradingDays*365/tradingDaysInYear;
+  const startDateRaw=hist2y.timestamps?.[startIdx],endDateRaw=hist2y.timestamps?.[endIdx];
+  if(startDateRaw==null||endDateRaw==null)return null;
+  const startDate=startDateRaw instanceof Date?startDateRaw:new Date(typeof startDateRaw==='number'&&startDateRaw<1e10?startDateRaw*1000:startDateRaw);
+  const endDate=endDateRaw instanceof Date?endDateRaw:new Date(typeof endDateRaw==='number'&&endDateRaw<1e10?endDateRaw*1000:endDateRaw);
+  const elapsedCalendarDaysApprox=(endDate-startDate)/86400000;
   const endPrice=closes[endIdx];
   if(endPrice==null||elapsedCalendarDaysApprox<=0)return null;
 
@@ -145,18 +221,18 @@ function _simulateWheelWindow(hist2y,startIdx,dte,targetDeltaAbs,r){
 // headline stats -- a window truncated by running out of history early
 // would understate/skew the annualized figure and isn't a fair comparison
 // to the full-length ones.
-function _computeWheelBacktest(ticker,dte,targetDeltaAbs){
+function _computeWheelBacktest(ticker,monthsOut,targetDeltaAbs){
   const h2=S.get('hist2y_'+ticker);
-  if(!h2?.closes?.length||!h2.opens||!h2.highs||!h2.lows)return null;
+  if(!h2?.closes?.length||!h2.timestamps||!h2.opens||!h2.highs||!h2.lows)return null;
   const n=h2.closes.length;
   const rRaw=_getTBillYield();
   const r=(rRaw!=null?rRaw:4.0)/100; // fallback if T-bill cache unavailable; rate has a small effect on BS price relative to sigma
   const stepDays=10;
-  const MIN_COMPLETE_DAYS=300; // ~a full year, allowing some slack for the DTE-vs-365 remainder
+  const MIN_COMPLETE_DAYS=300; // ~a full year, allowing some slack for real monthly spacing not being perfectly uniform
 
   const windows=[];
   for(let startIdx=21;startIdx<=n-2;startIdx+=stepDays){
-    const win=_simulateWheelWindow(h2,startIdx,dte,targetDeltaAbs,r);
+    const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetDeltaAbs,r);
     if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS)windows.push(win);
   }
   if(!windows.length)return null;
@@ -173,7 +249,7 @@ function _computeWheelBacktest(ticker,dte,targetDeltaAbs){
   const mostRecentWindow=windows[windows.length-1];
 
   return{
-    ticker,dte,targetDeltaAbs,sampleSize:windows.length,
+    ticker,monthsOut,targetDeltaAbs,sampleSize:windows.length,
     median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
     recentCycles:mostRecentWindow.trades.slice(-8),
@@ -187,7 +263,7 @@ function _computeWheelBacktest(ticker,dte,targetDeltaAbs){
 // distribution -- mirrors Gap Fill's aggregate approach (pool raw events,
 // not an average of each ticker's own summary stat) for a much larger,
 // more statistically meaningful sample than any single ticker offers.
-function _computeWheelBacktestAggregate(tickers,dte,targetDeltaAbs){
+function _computeWheelBacktestAggregate(tickers,monthsOut,targetDeltaAbs){
   const rRaw=_getTBillYield();
   const r=(rRaw!=null?rRaw:4.0)/100;
   const stepDays=10;
@@ -206,11 +282,11 @@ function _computeWheelBacktestAggregate(tickers,dte,targetDeltaAbs){
 
   tickers.forEach(t=>{
     const h2=S.get('hist2y_'+t);
-    if(!h2?.closes?.length||!h2.opens||!h2.highs||!h2.lows)return;
+    if(!h2?.closes?.length||!h2.timestamps||!h2.opens||!h2.highs||!h2.lows)return;
     const n=h2.closes.length;
     let gotAny=false;
     for(let startIdx=21;startIdx<=n-2;startIdx+=stepDays){
-      const win=_simulateWheelWindow(h2,startIdx,dte,targetDeltaAbs,r);
+      const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetDeltaAbs,r);
       if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS){
         allReturns.push(win.annualizedReturnPct);
         allAssignmentRates.push(win.assignmentRatePct);
@@ -237,7 +313,7 @@ function _computeWheelBacktestAggregate(tickers,dte,targetDeltaAbs){
   const pctBeatTarget=(allReturns.filter(v=>v>=WHEELBT_DEFAULT_TARGET_APY).length/allReturns.length)*100;
 
   return{
-    dte,targetDeltaAbs,sampleSize:allReturns.length,tickersWithData,tickersTotal:tickers.length,
+    monthsOut,targetDeltaAbs,sampleSize:allReturns.length,tickersWithData,tickersTotal:tickers.length,
     median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
     recentCycles:bestRunCycles,recentCyclesTicker:bestRunTicker,
@@ -264,12 +340,12 @@ function _populateWheelBacktestDropdown(){
   if(sorted.includes(current))sel.value=current;
 }
 
-function getWheelBacktestDTE(){return parseInt(S.get('wheelbt_dte'))||45;}
-function setWheelBacktestDTE(dte){
-  S.set('wheelbt_dte',dte);
-  [30,45,60,90].forEach(d=>{
-    const btn=document.getElementById('wheelbt-dte-'+d);
-    if(btn)btn.style.opacity=(d===dte)?'1':'0.4';
+function getWheelBacktestMonths(){return parseInt(S.get('wheelbt_months'))||2;}
+function setWheelBacktestMonths(months){
+  S.set('wheelbt_months',months);
+  [1,2,3].forEach(m=>{
+    const btn=document.getElementById('wheelbt-months-'+m);
+    if(btn)btn.style.opacity=(m===months)?'1':'0.4';
   });
   renderWheelBacktest();
 }
@@ -343,7 +419,7 @@ function renderWheelBacktest(){
   if(!content)return;
   const sel=document.getElementById('wheelbt-ticker-sel');
   const selectedTicker=sel?.value||'';
-  const dte=getWheelBacktestDTE();
+  const monthsOut=getWheelBacktestMonths();
   const target=WHEELBT_DEFAULT_TARGET_APY;
 
   if(!watchlist.length){
@@ -359,9 +435,9 @@ function renderWheelBacktest(){
   setTimeout(()=>{
     let result,isAggregate=!selectedTicker;
     if(isAggregate){
-      result=_computeWheelBacktestAggregate(watchlist,dte,WHEELBT_TARGET_DELTA);
+      result=_computeWheelBacktestAggregate(watchlist,monthsOut,WHEELBT_TARGET_DELTA);
     }else{
-      result=_computeWheelBacktest(selectedTicker,dte,WHEELBT_TARGET_DELTA);
+      result=_computeWheelBacktest(selectedTicker,monthsOut,WHEELBT_TARGET_DELTA);
     }
 
     if(!result){
@@ -385,7 +461,7 @@ function renderWheelBacktest(){
       ${_wheelBacktestStatBlocksHtml(result.worst,result.median,result.best)}
       ${extremeCaveat}
       ${_wheelBacktestRangeBarSvg(result.worst,result.median,result.best,target)}
-      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">worst &middot; median &middot; best of ${result.sampleSize} rolling 1-year windows (${dte}d cycles) &mdash; dashed line marks your target</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">worst &middot; median &middot; best of ${result.sampleSize} rolling 1-year windows (real ${monthsOut}-month monthly expirations) &mdash; dashed line marks your target</div>
       <div style="font-size:11px;color:var(--warn);margin-bottom:14px">${_wheelBacktestTargetSentence(target,result.pctBeatTarget)}</div>
       <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
         <span style="color:var(--text2)">Assignment rate</span><span style="color:var(--text)">${result.avgAssignmentRate.toFixed(0)}%</span>

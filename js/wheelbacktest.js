@@ -472,7 +472,7 @@ function _wheelBacktestCycleRowHtml(t,hist2y){
       <span style="color:var(--text2)">${label} $${t.strike.toFixed(2)}</span>
       <span style="color:${outcomeColor}">${outcome}</span>
     </div>
-    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:1px">Opened ${entryDateStr} &rarr; ${exitDateStr}</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:1px">Opened ${entryDateStr} ($${t.spotAtEntry.toFixed(2)}) &rarr; ${exitDateStr} ($${t.priceAtExit.toFixed(2)})</div>
   </div>`;
 }
 

@@ -1103,6 +1103,41 @@ function _bsPutDelta(S,K,T,r,sigma){
 // than Newton-Raphson, and precision to a fraction of a cent in strike
 // terms is already far beyond what this approximation's other simplifying
 // assumptions (realized vol as an IV proxy, no skew) would justify anyway.
+// Finds the MOST-OTM strike that still clears a minimum annualized yield
+// floor -- a different targeting philosophy than delta-based selection.
+// Yield is a monotonically DECREASING function of how far OTM the strike
+// sits (moving away from the money always lowers premium, so always
+// lowers yield too), which means ATM (K=S) is the maximum yield
+// achievable while staying OTM-eligible -- if ATM itself can't clear the
+// floor, nothing further OTM can either (returns null, signaling
+// infeasibility at this DTE/vol combination). Otherwise bisects between
+// ATM and a deep-OTM bound to find the boundary strike where yield
+// exactly equals the floor -- the most conservative strike still
+// consistent with hitting the target.
+function _annualizedYieldPct(premium,S,T){
+  return(premium/S)*(365/(T*365))*100;
+}
+
+function _solveStrikeForYieldFloor(S,T,r,sigma,targetFloorPct,optionType){
+  const bsPriceFn=optionType==='put'?_bsPutPrice:_bsCallPrice;
+  const atmPremium=bsPriceFn(S,S,T,r,sigma);
+  const atmYield=_annualizedYieldPct(atmPremium,S,T);
+  if(atmYield<targetFloorPct)return null; // not reachable at this DTE, even at the money
+
+  let lo,hi;
+  if(optionType==='put'){lo=S*0.3;hi=S;}else{lo=S;hi=S*2.0;}
+  for(let i=0;i<60;i++){
+    const mid=(lo+hi)/2;
+    const yieldPct=_annualizedYieldPct(bsPriceFn(S,mid,T,r,sigma),S,T);
+    if(optionType==='put'){
+      if(yieldPct>=targetFloorPct)hi=mid;else lo=mid; // converge toward the smallest feasible (most OTM) K
+    }else{
+      if(yieldPct>=targetFloorPct)lo=mid;else hi=mid; // converge toward the largest feasible (most OTM) K
+    }
+  }
+  return optionType==='put'?hi:lo;
+}
+
 function _solveStrikeForDelta(S,T,r,sigma,targetDeltaAbs,optionType){
   if(S<=0||T<=0||sigma<=0||targetDeltaAbs<=0||targetDeltaAbs>=1)return null;
   const deltaFn=optionType==='put'

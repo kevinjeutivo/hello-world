@@ -67,11 +67,28 @@ function _monthlyExpirationDate(entryDate,monthsOut){
 // null -- null is reserved for "target predates all available history",
 // which shouldn't occur given entryIdx is always within the array, but is
 // handled defensively rather than assumed impossible).
+// Single, consistent date parser for hist2y timestamp entries -- these can
+// be Date objects (some callers pre-convert) or raw Unix epoch SECONDS
+// (how hist2y_ is actually persisted to storage, per ticker.js/prefetch.js
+// -- JSON has no Date type, so anything written via S.set is always a
+// plain number by the time it's read back). Every date-handling function
+// in this file MUST go through this one helper -- a previous version had
+// this same epoch-seconds-vs-milliseconds check duplicated inconsistently
+// across functions, and one of them (the monthly-start enumerator) was
+// missing it entirely, silently misinterpreting real dates as landing in
+// January 1970 and breaking the whole aggregate view.
+function _parseHist2yDate(raw){
+  if(raw==null)return null;
+  if(raw instanceof Date)return raw;
+  if(typeof raw==='number')return new Date(raw<1e10?raw*1000:raw);
+  return new Date(raw); // ISO string or other parseable format
+}
+
 function _tradingDayIndexAtOrBefore(timestamps,targetDate){
   let lo=0,hi=timestamps.length-1,result=null;
   while(lo<=hi){
     const mid=(lo+hi)>>1;
-    const midDate=timestamps[mid] instanceof Date?timestamps[mid]:new Date(typeof timestamps[mid]==='number'&&timestamps[mid]<1e10?timestamps[mid]*1000:timestamps[mid]);
+    const midDate=_parseHist2yDate(timestamps[mid]);
     if(midDate<=targetDate){result=mid;lo=mid+1;}else{hi=mid-1;}
   }
   return result;
@@ -84,7 +101,7 @@ function _tradingDayIndexAtOrAfter(timestamps,targetDate){
   let lo=0,hi=timestamps.length-1,result=null;
   while(lo<=hi){
     const mid=(lo+hi)>>1;
-    const midDate=timestamps[mid] instanceof Date?timestamps[mid]:new Date(typeof timestamps[mid]==='number'&&timestamps[mid]<1e10?timestamps[mid]*1000:timestamps[mid]);
+    const midDate=_parseHist2yDate(timestamps[mid]);
     if(midDate>=targetDate){result=mid;hi=mid-1;}else{lo=mid+1;}
   }
   return result;
@@ -105,8 +122,8 @@ function _tradingDayIndexAtOrAfter(timestamps,targetDate){
 function _enumerateMonthlyStartIndices(hist2y){
   const timestamps=hist2y.timestamps;
   if(!timestamps||!timestamps.length)return[];
-  const first=timestamps[0] instanceof Date?timestamps[0]:new Date(timestamps[0]);
-  const last=timestamps[timestamps.length-1] instanceof Date?timestamps[timestamps.length-1]:new Date(timestamps[timestamps.length-1]);
+  const first=_parseHist2yDate(timestamps[0]);
+  const last=_parseHist2yDate(timestamps[timestamps.length-1]);
   const starts=[];
   let year=first.getFullYear(),month=first.getMonth();
   while(true){
@@ -137,7 +154,7 @@ function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetDeltaAbs,optionType,r
   if(S0==null||S0<=0)return null;
   const entryDateRaw=timestamps?.[entryIdx];
   if(entryDateRaw==null)return null;
-  const entryDate=entryDateRaw instanceof Date?entryDateRaw:new Date(typeof entryDateRaw==='number'&&entryDateRaw<1e10?entryDateRaw*1000:entryDateRaw);
+  const entryDate=_parseHist2yDate(entryDateRaw);
   const sigma=_realizedVolAsOf(closes,entryIdx,21);
   if(sigma==null||sigma<=0)return null;
 
@@ -145,7 +162,7 @@ function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetDeltaAbs,optionType,r
   const exitIdx=_tradingDayIndexAtOrBefore(timestamps,expiryDate);
   if(exitIdx==null||exitIdx<=entryIdx)return null; // shouldn't occur given the lead-time guard, but defensive
   const exitDateRaw=timestamps[exitIdx];
-  const exitDate=exitDateRaw instanceof Date?exitDateRaw:new Date(typeof exitDateRaw==='number'&&exitDateRaw<1e10?exitDateRaw*1000:exitDateRaw);
+  const exitDate=_parseHist2yDate(exitDateRaw);
   // If the resolved trading day falls meaningfully short (>=5 days) of the
   // real target expiration, the actual expiration hasn't happened yet in
   // the cached data -- this cycle is still genuinely open. Don't fabricate
@@ -218,8 +235,8 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetDeltaAbs,r){
   const endIdx=trades[trades.length-1].exitIdx;
   const startDateRaw=hist2y.timestamps?.[startIdx],endDateRaw=hist2y.timestamps?.[endIdx];
   if(startDateRaw==null||endDateRaw==null)return null;
-  const startDate=startDateRaw instanceof Date?startDateRaw:new Date(typeof startDateRaw==='number'&&startDateRaw<1e10?startDateRaw*1000:startDateRaw);
-  const endDate=endDateRaw instanceof Date?endDateRaw:new Date(typeof endDateRaw==='number'&&endDateRaw<1e10?endDateRaw*1000:endDateRaw);
+  const startDate=_parseHist2yDate(startDateRaw);
+  const endDate=_parseHist2yDate(endDateRaw);
   const elapsedCalendarDaysApprox=(endDate-startDate)/86400000;
   const endPrice=closes[endIdx];
   if(endPrice==null||elapsedCalendarDaysApprox<=0)return null;
@@ -338,7 +355,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetDeltaAbs){
         allBuyHold.push(win.buyHoldAnnualizedPct);
         gotAny=true;
         const rawEndDate=h2.timestamps?.[win.endIdx];
-        const endDate=rawEndDate instanceof Date?rawEndDate:(rawEndDate!=null?new Date(typeof rawEndDate==='number'&&rawEndDate<1e10?rawEndDate*1000:rawEndDate):null);
+        const endDate=rawEndDate!=null?_parseHist2yDate(rawEndDate):null;
         if(endDate&&(bestRunEndDate==null||endDate>bestRunEndDate)){
           bestRunCycles=win.trades.slice(-8);bestRunTicker=t;bestRunStartIdx=win.startIdx;bestRunEndIdx=win.endIdx;bestRunTotalCycles=win.trades.length;bestRunEndDate=endDate;
         }
@@ -444,7 +461,7 @@ function _wheelBacktestTargetSentence(target,pctBeatTarget){
 // label at all, sitting right next to an outcome that actually resolves
 // at the end of the cycle, which was genuinely ambiguous.
 function _wheelBacktestCycleRowHtml(t,hist2y){
-  const toDateStr=d=>{if(d==null)return'?';if(d instanceof Date)return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});return new Date(typeof d==='number'&&d<1e10?d*1000:d).toLocaleDateString('en-US',{month:'short',day:'numeric'});};
+  const toDateStr=d=>{const parsed=_parseHist2yDate(d);return parsed?parsed.toLocaleDateString('en-US',{month:'short',day:'numeric'}):'?';};
   const entryDateStr=hist2y?toDateStr(hist2y.timestamps?.[t.entryIdx]):'?';
   const exitDateStr=hist2y?toDateStr(hist2y.timestamps?.[t.exitIdx]):'?';
   const label=t.optionType==='put'?'CSP':'CC';
@@ -496,7 +513,7 @@ function renderWheelBacktest(){
       ?`<div style="font-size:10px;color:var(--warn);margin-bottom:10px">&#x26A0; A result this large usually means the underlying moved sharply during one of these windows -- treat it as a sign of high volatility in that stretch, not a number to take at face value.</div>`:'';
 
     const exampleHist2y=S.get('hist2y_'+(isAggregate?result.recentCyclesTicker:selectedTicker));
-    const toDateStr=d=>{if(d==null)return null;if(d instanceof Date)return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});return new Date(typeof d==='number'&&d<1e10?d*1000:d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});};
+    const toDateStr=d=>{const parsed=_parseHist2yDate(d);return parsed?parsed.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):null;};
     const runStartStr=toDateStr(exampleHist2y?.timestamps?.[result.recentRunStartIdx]);
     const runEndStr=toDateStr(exampleHist2y?.timestamps?.[result.recentRunEndIdx]);
     const runSpanStr=(runStartStr&&runEndStr)?`${runStartStr} &rarr; ${runEndStr}`:'';

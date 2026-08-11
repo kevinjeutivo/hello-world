@@ -9,17 +9,33 @@
 //   - Realized vol typically understates implied vol (the volatility risk
 //     premium), so simulated premiums likely run somewhat LOW versus what
 //     was actually available historically -- a conservative bias.
-//   - No bid-ask spread, no volatility skew, no early assignment around
-//     dividends (all explicitly out of scope for this version).
+//   - No bid-ask spread, no volatility skew beyond the estimated term
+//     structure adjustment below, no early assignment around dividends
+//     (all explicitly out of scope for this version).
 // Settlement is European-style (checked only at expiration), not
 // day-by-day intraday touches -- matches the "no early assignment" scope.
+//
+// Strike selection targets a yield floor (WHEELBT_DEFAULT_TARGET_APY),
+// not a fixed delta: each cycle picks the strike closest to that target
+// annualized yield while still clearing it. If the preferred expiration
+// (from the toggle) can't clear the floor, tries the other expirations
+// within the 1-3 month range -- shorter or longer, whichever actually
+// works, prioritized by closeness to the preference -- and if none of
+// those clear it either, waits for a later trading day and repeats the
+// whole search there. See _estimateTermStructureSlope for why extending
+// duration can genuinely help (not just cost annualized efficiency) --
+// it requires a real, ticker-specific volatility term structure estimate,
+// not just more calendar time on a flat vol assumption.
+//
 // Globals used: S, _bsPutPrice, _bsCallPrice, _bsPutDelta, _bsCallDelta,
-// _solveStrikeForDelta, _realizedVolAsOf, _getTBillYield
+// _solveStrikeForYieldFloor, _realizedVolAsOf, _getTBillYield
 
-// The 30-delta target used throughout matches this app's existing wheel
-// mechanics conventions (Conviction Scoring, ITM Risk) rather than
-// introducing a separate delta setting to configure.
-const WHEELBT_TARGET_DELTA=0.30;
+// Strike selection targets a yield floor now (see _solveStrikeForYieldFloor
+// in helpers.js), not a fixed delta -- reuses WHEELBT_DEFAULT_TARGET_APY
+// directly as that floor, so the simulation is literally targeting the
+// same number the results get compared against, rather than two
+// independently-chosen values that happened to both be "12" by
+// coincidence.
 const WHEELBT_DEFAULT_TARGET_APY=12; // matches _calcIncome's own fallback default
 
 // ── Real monthly-expiration calendar mechanics ──────────────────────────
@@ -147,7 +163,25 @@ function _enumerateMonthlyStartIndices(hist2y){
 // fixed day-count) -- see _monthlyExpirationDate above. No lookahead
 // beyond entryIdx for pricing; the outcome is only revealed by looking at
 // the actual historical price at the (real) expiration index.
-function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetDeltaAbs,optionType,r){
+//
+// Strike is chosen via yield-floor targeting, not a fixed delta: the
+// strike CLOSEST to targetFloorPct annualized while still clearing it --
+// matching a real income-floor discipline ("give me a strike that just
+// clears my target") rather than a fixed statistical probability of
+// assignment regardless of what that happens to pay. Returns null if even
+// the at-the-money strike can't reach the floor at this DTE (the caller
+// is expected to try a different DTE, or wait for a later entry day, when
+// this happens -- see _findFloorClearingCycle below).
+//
+// termSlope (from _estimateTermStructureSlope) scales the vol input up as
+// monthsOut increases -- reflecting that this stock's own history shows
+// somewhat higher realized vol at longer horizons than at 1 month, which
+// is what actually lets extending duration help clear a yield floor
+// rather than hurt it (flat vol alone would make longer-dated ANNUALIZED
+// yield strictly lower, not higher, since option value grows slower than
+// linearly with time). Interpolated linearly between 1 month (no
+// adjustment) and 3 months (the full estimated slope).
+function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r,termSlope){
   const closes=hist2y.closes,timestamps=hist2y.timestamps;
   const n=closes.length;
   const S0=closes[entryIdx];
@@ -155,8 +189,11 @@ function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetDeltaAbs,optionType,r
   const entryDateRaw=timestamps?.[entryIdx];
   if(entryDateRaw==null)return null;
   const entryDate=_parseHist2yDate(entryDateRaw);
-  const sigma=_realizedVolAsOf(closes,entryIdx,21);
-  if(sigma==null||sigma<=0)return null;
+  const sigma1mo=_realizedVolAsOf(closes,entryIdx,21);
+  if(sigma1mo==null||sigma1mo<=0)return null;
+  const slope=termSlope!=null?termSlope:1.0;
+  const adjFactor=1+(slope-1)*((monthsOut-1)/2); // 1.0 at monthsOut=1, full slope at monthsOut=3, linear between
+  const sigma=sigma1mo*adjFactor;
 
   const expiryDate=_monthlyExpirationDate(entryDate,monthsOut);
   const exitIdx=_tradingDayIndexAtOrBefore(timestamps,expiryDate);
@@ -179,8 +216,8 @@ function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetDeltaAbs,optionType,r
   // and pricing should reflect the real duration being simulated.
   const T=(exitDate-entryDate)/(365*86400000);
   if(T<=0)return null;
-  const K=_solveStrikeForDelta(S0,T,r,sigma,targetDeltaAbs,optionType);
-  if(K==null||!isFinite(K))return null;
+  const K=_solveStrikeForYieldFloor(S0,T,r,sigma,targetFloorPct,optionType);
+  if(K==null||!isFinite(K))return null; // floor not reachable at this DTE -- caller tries a different DTE or waits
   const premium=optionType==='put'?_bsPutPrice(S0,K,T,r,sigma):_bsCallPrice(S0,K,T,r,sigma);
   if(!isFinite(premium)||premium<0)return null;
 
@@ -188,14 +225,91 @@ function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetDeltaAbs,optionType,r
   if(priceAtExit==null)return null;
   const assigned=optionType==='put'?(priceAtExit<K):(priceAtExit>K);
 
-  return{entryIdx,exitIdx,optionType,strike:K,premium,spotAtEntry:S0,priceAtExit,assigned};
+  return{entryIdx,exitIdx,optionType,strike:K,premium,spotAtEntry:S0,priceAtExit,assigned,monthsUsed:monthsOut};
+}
+
+// Given a candidate entry day and a preferred starting DTE, finds the
+// first entry that can actually clear the yield floor -- trying longer
+// DTEs first (up to maxMonthsOut, matching the app's existing 3-expiry
+// data-fetch cap elsewhere), and if nothing up to that cap works, waiting
+// for a later trading day and repeating. This mirrors a real decision
+// rule directly: extend duration first since it costs nothing but time
+// already being spent, and only delay entry if even the longest
+// reasonable duration still can't reach the target.
+// Estimates this specific stock's own volatility term structure -- how
+// much higher its realized vol tends to run at a ~3-month horizon versus
+// a ~1-month horizon -- from many already-completed past stretches within
+// its own cached history. Purely backward-looking at every reference
+// point (no lookahead), computed ONCE per ticker and applied uniformly
+// across the whole backtest (the cheaper of two options, versus
+// re-estimating fresh at every entry date -- accepted tradeoff: very
+// early simulated entries get a slope estimate informed by data that
+// technically includes some points chronologically after them, since the
+// estimate draws on the full 2-year cache rather than only what preceded
+// each individual entry).
+//
+// Each reference point measures realized vol over the 21 trading days
+// immediately following it, and separately over the 63 trading days
+// following it -- the ratio of the two is one sample of "how much higher
+// does this stock's vol run at 3 months than at 1 month." Averaging that
+// ratio across many non-overlapping reference points gives an empirical,
+// ticker-specific answer instead of a guessed industry-wide slope.
+// Clamped to a modest range so a thin/noisy sample can't produce an
+// extreme adjustment; returns 1.0 (flat, no adjustment) if there isn't
+// enough history yet to estimate anything.
+function _estimateTermStructureSlope(hist2y){
+  const closes=hist2y.closes;
+  const n=closes.length;
+  const ratios=[];
+  for(let refIdx=63;refIdx+63<=n-1;refIdx+=21){
+    const vol21=_realizedVolAsOf(closes,refIdx+21,21); // realized vol over the 21 trading days after refIdx
+    const vol63=_realizedVolAsOf(closes,refIdx+63,63); // realized vol over the 63 trading days after refIdx
+    if(vol21!=null&&vol21>0&&vol63!=null&&vol63>0)ratios.push(vol63/vol21);
+  }
+  if(!ratios.length)return 1.0;
+  const avgRatio=ratios.reduce((s,v)=>s+v,0)/ratios.length;
+  const CLAMP_MIN=0.7,CLAMP_MAX=1.4;
+  return Math.max(CLAMP_MIN,Math.min(CLAMP_MAX,avgRatio));
+}
+
+// Orders candidate DTEs (1..maxMonthsOut) by closeness to the preferred
+// starting DTE -- the preferred one first, then whichever neighbor is
+// closest, working outward. Ties (equally close on both sides) prefer the
+// shorter duration, since shorter-dated options carry a higher baseline
+// annualized yield before any term-structure adjustment even applies, so
+// it's marginally more likely to actually clear the floor.
+function _monthsOutSearchOrder(baseMonthsOut,maxMonthsOut){
+  const all=[];
+  for(let m=1;m<=maxMonthsOut;m++)all.push(m);
+  all.sort((a,b)=>{
+    const da=Math.abs(a-baseMonthsOut),db=Math.abs(b-baseMonthsOut);
+    if(da!==db)return da-db;
+    return a-b;
+  });
+  return all;
+}
+
+function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFloorPct,optionType,r,maxMonthsOut,termSlope){
+  const n=hist2y.closes.length;
+  const searchOrder=_monthsOutSearchOrder(baseMonthsOut,maxMonthsOut);
+  let idx=candidateEntryIdx;
+  while(idx<n){
+    for(const m of searchOrder){
+      const cyc=_simulateOneCycle(hist2y,idx,m,targetFloorPct,optionType,r,termSlope);
+      if(cyc)return cyc;
+    }
+    idx+=1; // no DTE (shorter or longer) cleared the floor on this entry day -- wait for the next trading day
+  }
+  return null; // ran out of data while waiting for a floor-clearing day
 }
 
 // Chains cycles across a roughly-one-year window starting at startIdx:
 // sells puts until assigned, then sells calls against the resulting shares
 // until called away, then reverts to puts -- repeating until either the
 // window's ~1 year is used up or the available price history runs out.
-function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetDeltaAbs,r){
+const WHEELBT_MAX_MONTHS_OUT=3; // matches the app's existing 3-expiry data-fetch cap elsewhere
+
+function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlope){
   const closes=hist2y.closes;
   const startPrice=closes[startIdx];
   if(startPrice==null||startPrice<=0)return null;
@@ -209,8 +323,8 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetDeltaAbs,r){
   const tradingDaysInYear=252;
 
   while(true){
-    const cyc=_simulateOneCycle(hist2y,curIdx,monthsOut,targetDeltaAbs,mode,r);
-    if(!cyc)break; // insufficient data (e.g. vol undefined this early in history) -- stop here
+    const cyc=_findFloorClearingCycle(hist2y,curIdx,monthsOut,targetFloorPct,mode,r,WHEELBT_MAX_MONTHS_OUT,termSlope);
+    if(!cyc)break; // couldn't clear the floor at any DTE, at any remaining entry day -- stop here
     trades.push(cyc);
     cumPremium+=cyc.premium;
 
@@ -287,16 +401,17 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetDeltaAbs,r){
 // headline stats -- a window truncated by running out of history early
 // would understate/skew the annualized figure and isn't a fair comparison
 // to the full-length ones.
-function _computeWheelBacktest(ticker,monthsOut,targetDeltaAbs){
+function _computeWheelBacktest(ticker,monthsOut,targetFloorPct){
   const h2=S.get('hist2y_'+ticker);
   if(!h2?.closes?.length||!h2.timestamps||!h2.opens||!h2.highs||!h2.lows)return null;
   const rRaw=_getTBillYield();
   const r=(rRaw!=null?rRaw:4.0)/100; // fallback if T-bill cache unavailable; rate has a small effect on BS price relative to sigma
   const MIN_COMPLETE_DAYS=300; // ~a full year, allowing some slack for real monthly spacing not being perfectly uniform
+  const termSlope=_estimateTermStructureSlope(h2); // once per ticker, applied uniformly across every window below
 
   const windows=[];
   _enumerateMonthlyStartIndices(h2).forEach(startIdx=>{
-    const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetDeltaAbs,r);
+    const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,termSlope);
     if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS)windows.push(win);
   });
   if(!windows.length)return null;
@@ -313,7 +428,7 @@ function _computeWheelBacktest(ticker,monthsOut,targetDeltaAbs){
   const mostRecentWindow=windows[windows.length-1];
 
   return{
-    ticker,monthsOut,targetDeltaAbs,sampleSize:windows.length,
+    ticker,monthsOut,targetFloorPct,sampleSize:windows.length,
     median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
     recentCycles:mostRecentWindow.trades.slice(-8),
@@ -327,7 +442,7 @@ function _computeWheelBacktest(ticker,monthsOut,targetDeltaAbs){
 // distribution -- mirrors Gap Fill's aggregate approach (pool raw events,
 // not an average of each ticker's own summary stat) for a much larger,
 // more statistically meaningful sample than any single ticker offers.
-function _computeWheelBacktestAggregate(tickers,monthsOut,targetDeltaAbs){
+function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct){
   const rRaw=_getTBillYield();
   const r=(rRaw!=null?rRaw:4.0)/100;
   const MIN_COMPLETE_DAYS=300;
@@ -346,9 +461,10 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetDeltaAbs){
   tickers.forEach(t=>{
     const h2=S.get('hist2y_'+t);
     if(!h2?.closes?.length||!h2.timestamps||!h2.opens||!h2.highs||!h2.lows)return;
+    const termSlope=_estimateTermStructureSlope(h2);
     let gotAny=false;
     _enumerateMonthlyStartIndices(h2).forEach(startIdx=>{
-      const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetDeltaAbs,r);
+      const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,termSlope);
       if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS){
         allReturns.push(win.annualizedReturnPct);
         allAssignmentRates.push(win.assignmentRatePct);
@@ -375,7 +491,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetDeltaAbs){
   const pctBeatTarget=(allReturns.filter(v=>v>=WHEELBT_DEFAULT_TARGET_APY).length/allReturns.length)*100;
 
   return{
-    monthsOut,targetDeltaAbs,sampleSize:allReturns.length,tickersWithData,tickersTotal:tickers.length,
+    monthsOut,targetFloorPct,sampleSize:allReturns.length,tickersWithData,tickersTotal:tickers.length,
     median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
     recentCycles:bestRunCycles,recentCyclesTicker:bestRunTicker,
@@ -385,11 +501,9 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetDeltaAbs){
 
 // ── Dashboard UI ─────────────────────────────────────────────────────────
 // Same conventions already established by Gap Fill/RSI Backtest: a scope
-// dropdown (aggregate vs. one ticker), a span-style toggle row (here: DTE
-// instead of a chart timeframe), a hero stat, and a supporting detail list.
-// The 30-delta target used throughout matches this app's existing wheel
-// mechanics conventions (Conviction Scoring, ITM Risk) rather than
-// introducing a separate delta setting to configure.
+// dropdown (aggregate vs. one ticker), a span-style toggle row (here: the
+// preferred starting expiration instead of a chart timeframe), a hero
+// stat, and a supporting detail list.
 
 function _populateWheelBacktestDropdown(){
   const sel=document.getElementById('wheelbt-ticker-sel');
@@ -467,9 +581,10 @@ function _wheelBacktestCycleRowHtml(t,hist2y){
   const label=t.optionType==='put'?'CSP':'CC';
   const outcome=t.assigned?(t.optionType==='put'?'Assigned':'Called away'):'Expired worthless';
   const outcomeColor=t.assigned?'var(--warn)':'var(--green)';
+  const monthsLabel=t.monthsUsed?` &middot; ${t.monthsUsed}mo`:'';
   return`<div style="padding:5px 0;border-bottom:1px solid var(--surface3)">
     <div style="display:flex;justify-content:space-between;font-size:11px">
-      <span style="color:var(--text2)">${label} $${t.strike.toFixed(2)}</span>
+      <span style="color:var(--text2)">${label} $${t.strike.toFixed(2)}${monthsLabel}</span>
       <span style="color:${outcomeColor}">${outcome}</span>
     </div>
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:1px">Opened ${entryDateStr} ($${t.spotAtEntry.toFixed(2)}) &rarr; ${exitDateStr} ($${t.priceAtExit.toFixed(2)})</div>
@@ -497,9 +612,9 @@ function renderWheelBacktest(){
   setTimeout(()=>{
     let result,isAggregate=!selectedTicker;
     if(isAggregate){
-      result=_computeWheelBacktestAggregate(watchlist,monthsOut,WHEELBT_TARGET_DELTA);
+      result=_computeWheelBacktestAggregate(watchlist,monthsOut,WHEELBT_DEFAULT_TARGET_APY);
     }else{
-      result=_computeWheelBacktest(selectedTicker,monthsOut,WHEELBT_TARGET_DELTA);
+      result=_computeWheelBacktest(selectedTicker,monthsOut,WHEELBT_DEFAULT_TARGET_APY);
     }
 
     if(!result){
@@ -532,7 +647,7 @@ function renderWheelBacktest(){
         <span style="color:var(--text2)">vs. Buy &amp; Hold (same windows)</span><span style="color:${vsColor}">${result.vsBuyHold>=0?'+':''}${result.vsBuyHold.toFixed(1)}pp avg</span>
       </div>
       <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3);margin-bottom:12px">
-        <span style="color:var(--text2)">Premium source</span><span style="color:var(--warn)">Realized vol (approx.)</span>
+        <span style="color:var(--text2)">Premium source</span><span style="color:var(--warn)">Realized vol + est. term structure</span>
       </div>
       <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">One Example Run${result.recentCyclesTicker?' ('+result.recentCyclesTicker+')':''}</div>
       ${runSpanStr?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:3px">Window: ${runSpanStr}</div>`:''}

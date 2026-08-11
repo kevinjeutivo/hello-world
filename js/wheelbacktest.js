@@ -104,12 +104,21 @@ function _simulateWheelWindow(hist2y,startIdx,dte,targetDeltaAbs,r){
   const unrealizedShareGainLoss=costBasis!=null?(endPrice-costBasis):0;
   const totalPnL=cumPremium+realizedShareGainLoss+unrealizedShareGainLoss;
 
-  // Capital base: the starting spot price, as a per-share reference (real
-  // cash-secured collateral is ~strike*100/contract; anchoring to a fixed
-  // starting reference rather than a fluctuating per-cycle strike is the
-  // simpler, standard convention for a single headline return figure, same
-  // spirit as an index anchored to a fixed base value).
-  const simpleReturn=totalPnL/startPrice;
+  // Capital base: the AVERAGE of each cycle's own spot price at entry, not
+  // just the window's day-1 starting price. This matters a lot on a
+  // volatile underlying -- a stock that rallies hard during the window
+  // means real committed capital (the value of shares held, or the strike
+  // securing a new put) grows right along with it, but a fixed day-1
+  // denominator stays frozen, silently understating the true capital base
+  // for every later cycle and inflating the resulting annualized return.
+  // Averaging each cycle's actual entry price captures that a real trader
+  // would have had progressively more capital at risk as the stock rose
+  // (or less, if it fell), without introducing full compounding -- still
+  // one total P&L divided by one denominator, matching _calcIncome's own
+  // simple/linear convention so this stays directly comparable to a
+  // target APY input.
+  const avgCapitalBase=trades.reduce((s,t)=>s+t.spotAtEntry,0)/trades.length;
+  const simpleReturn=totalPnL/avgCapitalBase;
   // Simple/linear annualizing -- NOT compounded -- to match the app's own
   // existing target-APY convention (_calcIncome's putsIncome is a flat
   // notional * APY calc, no compounding), so this stays directly
@@ -169,6 +178,7 @@ function _computeWheelBacktest(ticker,dte,targetDeltaAbs){
     vsBuyHold:avgAnnReturn-avgBuyHold,
     recentCycles:mostRecentWindow.trades.slice(-8),
     recentRunStartIdx:mostRecentWindow.startIdx,
+    recentRunEndIdx:mostRecentWindow.endIdx,
     recentRunTotalCycles:mostRecentWindow.trades.length,
   };
 }
@@ -186,7 +196,13 @@ function _computeWheelBacktestAggregate(tickers,dte,targetDeltaAbs){
   let allAssignmentRates=[];
   let allBuyHold=[];
   let tickersWithData=0;
-  let lastTickerCycles=null,lastTicker=null,lastTickerStartIdx=null,lastTickerTotalCycles=null;
+  // Tracks the single most CALENDAR-RECENT complete run across every
+  // ticker in the list -- not just whichever ticker happens to be iterated
+  // last, which is what a plain overwrite-on-every-match would produce.
+  // Comparing actual end dates (not array position) is what makes "one
+  // example run" mean something -- the most current one you have data
+  // for, regardless of where that ticker sits in your watchlist.
+  let bestRunCycles=null,bestRunTicker=null,bestRunStartIdx=null,bestRunEndIdx=null,bestRunTotalCycles=null,bestRunEndDate=null;
 
   tickers.forEach(t=>{
     const h2=S.get('hist2y_'+t);
@@ -200,7 +216,11 @@ function _computeWheelBacktestAggregate(tickers,dte,targetDeltaAbs){
         allAssignmentRates.push(win.assignmentRatePct);
         allBuyHold.push(win.buyHoldAnnualizedPct);
         gotAny=true;
-        lastTickerCycles=win.trades.slice(-8);lastTicker=t;lastTickerStartIdx=win.startIdx;lastTickerTotalCycles=win.trades.length;
+        const rawEndDate=h2.timestamps?.[win.endIdx];
+        const endDate=rawEndDate instanceof Date?rawEndDate:(rawEndDate!=null?new Date(typeof rawEndDate==='number'&&rawEndDate<1e10?rawEndDate*1000:rawEndDate):null);
+        if(endDate&&(bestRunEndDate==null||endDate>bestRunEndDate)){
+          bestRunCycles=win.trades.slice(-8);bestRunTicker=t;bestRunStartIdx=win.startIdx;bestRunEndIdx=win.endIdx;bestRunTotalCycles=win.trades.length;bestRunEndDate=endDate;
+        }
       }
     }
     if(gotAny)tickersWithData++;
@@ -220,8 +240,8 @@ function _computeWheelBacktestAggregate(tickers,dte,targetDeltaAbs){
     dte,targetDeltaAbs,sampleSize:allReturns.length,tickersWithData,tickersTotal:tickers.length,
     median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
-    recentCycles:lastTickerCycles,recentCyclesTicker:lastTicker,
-    recentRunStartIdx:lastTickerStartIdx,recentRunTotalCycles:lastTickerTotalCycles,
+    recentCycles:bestRunCycles,recentCyclesTicker:bestRunTicker,
+    recentRunStartIdx:bestRunStartIdx,recentRunEndIdx:bestRunEndIdx,recentRunTotalCycles:bestRunTotalCycles,
   };
 }
 
@@ -351,10 +371,19 @@ function renderWheelBacktest(){
 
     const scopeLabel=isAggregate?`Pooled across ${result.tickersWithData} of ${result.tickersTotal} watchlist tickers`:`${selectedTicker} only -- small single-ticker sample, directional intuition only`;
     const vsColor=result.vsBuyHold>=0?'var(--green)':'var(--red)';
+    const extremeCaveat=Math.max(Math.abs(result.worst),Math.abs(result.median),Math.abs(result.best))>=100
+      ?`<div style="font-size:10px;color:var(--warn);margin-bottom:10px">&#x26A0; A result this large usually means the underlying moved sharply during one of these windows -- treat it as a sign of high volatility in that stretch, not a number to take at face value.</div>`:'';
+
+    const exampleHist2y=S.get('hist2y_'+(isAggregate?result.recentCyclesTicker:selectedTicker));
+    const toDateStr=d=>{if(d==null)return null;if(d instanceof Date)return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});return new Date(typeof d==='number'&&d<1e10?d*1000:d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});};
+    const runStartStr=toDateStr(exampleHist2y?.timestamps?.[result.recentRunStartIdx]);
+    const runEndStr=toDateStr(exampleHist2y?.timestamps?.[result.recentRunEndIdx]);
+    const runSpanStr=(runStartStr&&runEndStr)?`${runStartStr} &rarr; ${runEndStr}`:'';
 
     content.innerHTML=`
       <div style="font-family:var(--mono);font-size:10px;color:${isAggregate?'var(--text3)':'var(--warn)'};margin-bottom:12px">${isAggregate?'':'&#x26A0; '}${scopeLabel} &middot; ${result.sampleSize} simulated windows</div>
       ${_wheelBacktestStatBlocksHtml(result.worst,result.median,result.best)}
+      ${extremeCaveat}
       ${_wheelBacktestRangeBarSvg(result.worst,result.median,result.best,target)}
       <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">worst &middot; median &middot; best of ${result.sampleSize} rolling 1-year windows (${dte}d cycles) &mdash; dashed line marks your target</div>
       <div style="font-size:11px;color:var(--warn);margin-bottom:14px">${_wheelBacktestTargetSentence(target,result.pctBeatTarget)}</div>
@@ -368,8 +397,9 @@ function renderWheelBacktest(){
         <span style="color:var(--text2)">Premium source</span><span style="color:var(--warn)">Realized vol (approx.)</span>
       </div>
       <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">One Example Run${result.recentCyclesTicker?' ('+result.recentCyclesTicker+')':''}</div>
-      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">The stats above pool all ${result.sampleSize} simulated windows together. This is just ONE of them -- the most recent that ran a full year -- shown cycle-by-cycle so you can see what actually happened along that specific path${result.recentRunTotalCycles>8?' (last 8 of '+result.recentRunTotalCycles+' cycles)':''}.</div>
-      <div style="max-height:160px;overflow-y:auto">${(result.recentCycles||[]).map(t=>_wheelBacktestCycleRowHtml(t,S.get('hist2y_'+(isAggregate?result.recentCyclesTicker:selectedTicker)))).join('')||'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No cycles to show.</div>'}</div>
+      ${runSpanStr?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:3px">Window: ${runSpanStr}</div>`:''}
+      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">The stats above pool all ${result.sampleSize} simulated windows together. This is just ONE of them -- the most recent that ran a full year -- shown cycle-by-cycle so you can see what actually happened along that specific path${result.recentRunTotalCycles>8?' (last 8 of '+result.recentRunTotalCycles+' cycles shown)':''}.</div>
+      <div style="max-height:160px;overflow-y:auto">${(result.recentCycles||[]).map(t=>_wheelBacktestCycleRowHtml(t,exampleHist2y)).join('')||'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No cycles to show.</div>'}</div>
     `;
   },10);
 }

@@ -15,13 +15,14 @@ function setDashboardViewMode(mode){
 }
 
 function _syncDashboardViewModeUI(){
-  const putsBtn=document.getElementById('dash-view-puts'),ccBtn=document.getElementById('dash-view-cc'),rsiBtn=document.getElementById('dash-view-rsi'),riskBtn=document.getElementById('dash-view-risk'),gapBtn=document.getElementById('dash-view-gap'),notesBtn=document.getElementById('dash-view-notes');
+  const putsBtn=document.getElementById('dash-view-puts'),ccBtn=document.getElementById('dash-view-cc'),rsiBtn=document.getElementById('dash-view-rsi'),riskBtn=document.getElementById('dash-view-risk'),gapBtn=document.getElementById('dash-view-gap'),notesBtn=document.getElementById('dash-view-notes'),wheelbtBtn=document.getElementById('dash-view-wheelbt');
   if(putsBtn)putsBtn.style.opacity=dashboardViewMode==='puts'?'1':'0.4';
   if(ccBtn)ccBtn.style.opacity=dashboardViewMode==='cc'?'1':'0.4';
   if(rsiBtn)rsiBtn.style.opacity=dashboardViewMode==='rsi'?'1':'0.4';
   if(riskBtn)riskBtn.style.opacity=dashboardViewMode==='risk'?'1':'0.4';
   if(gapBtn)gapBtn.style.opacity=dashboardViewMode==='gap'?'1':'0.4';
   if(notesBtn)notesBtn.style.opacity=dashboardViewMode==='notes'?'1':'0.4';
+  if(wheelbtBtn)wheelbtBtn.style.opacity=dashboardViewMode==='wheelbt'?'1':'0.4';
 
   const convictionControls=document.getElementById('dash-conviction-controls');
   const putsCard=document.getElementById('dash-puts-card');
@@ -31,7 +32,8 @@ function _syncDashboardViewModeUI(){
   const riskCard=document.getElementById('dash-risk-card');
   const gapCard=document.getElementById('dash-gap-card');
   const notesCard=document.getElementById('dash-notes-card');
-  if(convictionControls)convictionControls.style.display=(dashboardViewMode==='rsi'||dashboardViewMode==='risk'||dashboardViewMode==='gap'||dashboardViewMode==='notes')?'none':'';
+  const wheelbtCard=document.getElementById('dash-wheelbt-card');
+  if(convictionControls)convictionControls.style.display=(dashboardViewMode==='rsi'||dashboardViewMode==='risk'||dashboardViewMode==='gap'||dashboardViewMode==='notes'||dashboardViewMode==='wheelbt')?'none':'';
   if(putsCard)putsCard.style.display=dashboardViewMode==='puts'?'':'none';
   if(ccCard)ccCard.style.display=dashboardViewMode==='cc'?'':'none';
   if(rsiCard)rsiCard.style.display=dashboardViewMode==='rsi'?'':'none';
@@ -39,11 +41,13 @@ function _syncDashboardViewModeUI(){
   if(riskCard)riskCard.style.display=dashboardViewMode==='risk'?'':'none';
   if(gapCard)gapCard.style.display=dashboardViewMode==='gap'?'':'none';
   if(notesCard)notesCard.style.display=dashboardViewMode==='notes'?'':'none';
+  if(wheelbtCard)wheelbtCard.style.display=dashboardViewMode==='wheelbt'?'':'none';
 
   if(dashboardViewMode==='rsi'){_populateRSIBacktestDropdown();renderRSIBacktest();renderRSIRanking();}
   if(dashboardViewMode==='risk'){renderAssignmentRisk();}
   if(dashboardViewMode==='gap'){_populateGapFillDropdown();renderGapFillDashboard();}
   if(dashboardViewMode==='notes'){renderDashboardNotes();}
+  if(dashboardViewMode==='wheelbt'){_populateWheelBacktestDropdown();renderWheelBacktest();}
 }
 
 // 9 component definitions split into two rows: 4 on top, 5 on bottom.

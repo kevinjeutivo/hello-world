@@ -77,6 +77,53 @@ function _tradingDayIndexAtOrBefore(timestamps,targetDate){
   return result;
 }
 
+// Forward-search counterpart -- nearest trading day AT OR AFTER a target
+// date. Used below to find "the trading day you'd actually re-enter on,
+// right after a real expiration."
+function _tradingDayIndexAtOrAfter(timestamps,targetDate){
+  let lo=0,hi=timestamps.length-1,result=null;
+  while(lo<=hi){
+    const mid=(lo+hi)>>1;
+    const midDate=timestamps[mid] instanceof Date?timestamps[mid]:new Date(typeof timestamps[mid]==='number'&&timestamps[mid]<1e10?timestamps[mid]*1000:timestamps[mid]);
+    if(midDate>=targetDate){result=mid;hi=mid-1;}else{lo=mid+1;}
+  }
+  return result;
+}
+
+// Enumerates candidate window-start indices anchored to REAL monthly
+// expiration boundaries -- the trading day right after each 3rd-Friday
+// expiration across the full span of cached history. This replaces a
+// fixed trading-day step (e.g. "every 10 days") as the rolling-start
+// sampling strategy: now that cycles snap to real monthly dates, starting
+// every ~10 days would mostly just produce many near-duplicate windows
+// that resolve onto the SAME real expiration a few days apart -- not
+// genuinely independent scenarios. Anchoring to actual expiration-to-
+// expiration transitions gives a smaller but honestly distinct sample,
+// and also means every simulated window (not just the "example run" one)
+// begins the way a real trader working traditional monthlies actually
+// would -- re-entering shortly after the prior position resolved.
+function _enumerateMonthlyStartIndices(hist2y){
+  const timestamps=hist2y.timestamps;
+  if(!timestamps||!timestamps.length)return[];
+  const first=timestamps[0] instanceof Date?timestamps[0]:new Date(timestamps[0]);
+  const last=timestamps[timestamps.length-1] instanceof Date?timestamps[timestamps.length-1]:new Date(timestamps[timestamps.length-1]);
+  const starts=[];
+  let year=first.getFullYear(),month=first.getMonth();
+  while(true){
+    const expiry=_thirdFriday(year,month);
+    if(expiry>last)break;
+    const dayAfter=new Date(expiry.getTime()+86400000);
+    const idx=_tradingDayIndexAtOrAfter(timestamps,dayAfter);
+    if(idx!=null&&idx>=21&&idx<=timestamps.length-2)starts.push(idx);
+    month+=1;
+    if(month>11){month=0;year+=1;}
+  }
+  // De-duplicate -- two consecutive months' "day after expiration" could
+  // in principle resolve to the same trading day right at the edges of
+  // the cached range.
+  return[...new Set(starts)].sort((a,b)=>a-b);
+}
+
 // Simulates ONE option cycle (either a put or a call) starting at a given
 // index in the price history, expiring on the REAL 3rd-Friday monthly
 // expiration `monthsOut` months from the entry date (not an arbitrary
@@ -99,12 +146,15 @@ function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetDeltaAbs,optionType,r
   if(exitIdx==null||exitIdx<=entryIdx)return null; // shouldn't occur given the lead-time guard, but defensive
   const exitDateRaw=timestamps[exitIdx];
   const exitDate=exitDateRaw instanceof Date?exitDateRaw:new Date(typeof exitDateRaw==='number'&&exitDateRaw<1e10?exitDateRaw*1000:exitDateRaw);
-  // "Data exhausted" = the resolved trading day fell meaningfully short of
-  // the real target expiration date (>=5 days), meaning history ran out
-  // before this cycle could actually finish -- as opposed to the normal
-  // case of landing 0-3 days early because the exact expiry date wasn't a
-  // trading day (weekend/holiday), which is expected and not a shortfall.
-  const dataExhausted=(expiryDate-exitDate)/86400000>=5;
+  // If the resolved trading day falls meaningfully short (>=5 days) of the
+  // real target expiration, the actual expiration hasn't happened yet in
+  // the cached data -- this cycle is still genuinely open. Don't fabricate
+  // a resolved "worthless"/"assigned" outcome using whatever the last
+  // cached price happens to be as a stand-in for a real settlement price
+  // that hasn't occurred. Returning null here stops the chain cleanly at
+  // the last cycle that actually finished (the caller's existing
+  // if(!cyc)break already handles this correctly).
+  if((expiryDate-exitDate)/86400000>=5)return null;
 
   // T uses the ACTUAL elapsed calendar time to real expiration, not an
   // assumed monthsOut*30/365 -- monthly spacing isn't perfectly uniform
@@ -121,7 +171,7 @@ function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetDeltaAbs,optionType,r
   if(priceAtExit==null)return null;
   const assigned=optionType==='put'?(priceAtExit<K):(priceAtExit>K);
 
-  return{entryIdx,exitIdx,optionType,strike:K,premium,spotAtEntry:S0,priceAtExit,assigned,dataExhausted};
+  return{entryIdx,exitIdx,optionType,strike:K,premium,spotAtEntry:S0,priceAtExit,assigned};
 }
 
 // Chains cycles across a roughly-one-year window starting at startIdx:
@@ -161,7 +211,6 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetDeltaAbs,r){
     }
 
     curIdx=cyc.exitIdx;
-    if(cyc.dataExhausted)break;
     if(curIdx>=startIdx+tradingDaysInYear)break; // let the in-progress cycle finish naturally, then stop
   }
 
@@ -224,17 +273,15 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetDeltaAbs,r){
 function _computeWheelBacktest(ticker,monthsOut,targetDeltaAbs){
   const h2=S.get('hist2y_'+ticker);
   if(!h2?.closes?.length||!h2.timestamps||!h2.opens||!h2.highs||!h2.lows)return null;
-  const n=h2.closes.length;
   const rRaw=_getTBillYield();
   const r=(rRaw!=null?rRaw:4.0)/100; // fallback if T-bill cache unavailable; rate has a small effect on BS price relative to sigma
-  const stepDays=10;
   const MIN_COMPLETE_DAYS=300; // ~a full year, allowing some slack for real monthly spacing not being perfectly uniform
 
   const windows=[];
-  for(let startIdx=21;startIdx<=n-2;startIdx+=stepDays){
+  _enumerateMonthlyStartIndices(h2).forEach(startIdx=>{
     const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetDeltaAbs,r);
     if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS)windows.push(win);
-  }
+  });
   if(!windows.length)return null;
 
   const annReturns=windows.map(w=>w.annualizedReturnPct).sort((a,b)=>a-b);
@@ -266,7 +313,6 @@ function _computeWheelBacktest(ticker,monthsOut,targetDeltaAbs){
 function _computeWheelBacktestAggregate(tickers,monthsOut,targetDeltaAbs){
   const rRaw=_getTBillYield();
   const r=(rRaw!=null?rRaw:4.0)/100;
-  const stepDays=10;
   const MIN_COMPLETE_DAYS=300;
   let allReturns=[];
   let allAssignmentRates=[];
@@ -283,9 +329,8 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetDeltaAbs){
   tickers.forEach(t=>{
     const h2=S.get('hist2y_'+t);
     if(!h2?.closes?.length||!h2.timestamps||!h2.opens||!h2.highs||!h2.lows)return;
-    const n=h2.closes.length;
     let gotAny=false;
-    for(let startIdx=21;startIdx<=n-2;startIdx+=stepDays){
+    _enumerateMonthlyStartIndices(h2).forEach(startIdx=>{
       const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetDeltaAbs,r);
       if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS){
         allReturns.push(win.annualizedReturnPct);
@@ -298,7 +343,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetDeltaAbs){
           bestRunCycles=win.trades.slice(-8);bestRunTicker=t;bestRunStartIdx=win.startIdx;bestRunEndIdx=win.endIdx;bestRunTotalCycles=win.trades.length;bestRunEndDate=endDate;
         }
       }
-    }
+    });
     if(gotAny)tickersWithData++;
   });
 
@@ -461,7 +506,7 @@ function renderWheelBacktest(){
       ${_wheelBacktestStatBlocksHtml(result.worst,result.median,result.best)}
       ${extremeCaveat}
       ${_wheelBacktestRangeBarSvg(result.worst,result.median,result.best,target)}
-      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">worst &middot; median &middot; best of ${result.sampleSize} rolling 1-year windows (real ${monthsOut}-month monthly expirations) &mdash; dashed line marks your target</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">worst &middot; median &middot; best of ${result.sampleSize} 1-year windows, each starting the trading day after a real monthly expiration (${monthsOut}-month cycles) &mdash; dashed line marks your target</div>
       <div style="font-size:11px;color:var(--warn);margin-bottom:14px">${_wheelBacktestTargetSentence(target,result.pctBeatTarget)}</div>
       <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
         <span style="color:var(--text2)">Assignment rate</span><span style="color:var(--text)">${result.avgAssignmentRate.toFixed(0)}%</span>

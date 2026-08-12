@@ -373,6 +373,7 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlo
     if(!cyc)break; // couldn't clear the floor at any DTE, at any remaining entry day -- stop here
     trades.push(cyc);
     cumPremium+=cyc.premium;
+    cyc.equityGainDollar=0; // default; only a called-away call leg realizes an equity gain/loss
 
     if(mode==='put'){
       if(cyc.assigned){
@@ -381,7 +382,8 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlo
       }
     }else{ // mode === 'call'
       if(cyc.assigned){
-        realizedShareGainLoss+=(cyc.strike-costBasis);
+        cyc.equityGainDollar=cyc.strike-costBasis;
+        realizedShareGainLoss+=cyc.equityGainDollar;
         costBasis=null;
         mode='put';
       }
@@ -420,6 +422,22 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlo
   // simple/linear convention so this stays directly comparable to a
   // target APY input.
   const avgCapitalBase=trades.reduce((s,t)=>s+t.spotAtEntry,0)/trades.length;
+
+  // Second pass, now that avgCapitalBase is known: tag each cycle with its
+  // own leg contribution and a RUNNING cumulative return, computed over
+  // the FULL trades array (not whatever slice ends up displayed) -- so if
+  // only the last 8 of a longer chain get shown, their cumulative values
+  // still correctly reflect everything that came before, not just the
+  // visible rows. Uses the same simple/linear (non-compounded) convention
+  // as the window's own headline return, so the last row's cumulative
+  // value reconciles exactly with the window's total realized P&L.
+  let runningDollar=0;
+  trades.forEach(t=>{
+    t.legTotalDollar=t.premium+t.equityGainDollar;
+    runningDollar+=t.legTotalDollar;
+    t.cumulativePct=(runningDollar/avgCapitalBase)*100;
+  });
+
   const simpleReturn=totalPnL/avgCapitalBase;
   // Simple/linear annualizing -- NOT compounded -- to match the app's own
   // existing target-APY convention (_calcIncome's putsIncome is a flat
@@ -437,7 +455,10 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlo
   return{
     startIdx,endIdx,trades,cyclesRun:trades.length,
     annualizedReturnPct,assignmentRatePct,buyHoldAnnualizedPct,
-    elapsedCalendarDaysApprox,
+    elapsedCalendarDaysApprox,avgCapitalBase,
+    simpleReturnPct:simpleReturn*100, // raw, unannualized total -- what the row-by-row cumulative actually adds up to
+    stillHoldingShares:costBasis!=null,
+    unrealizedShareGainLoss,
   };
 }
 
@@ -481,6 +502,10 @@ function _computeWheelBacktest(ticker,monthsOut,targetFloorPct){
     recentRunStartIdx:mostRecentWindow.startIdx,
     recentRunEndIdx:mostRecentWindow.endIdx,
     recentRunTotalCycles:mostRecentWindow.trades.length,
+    recentRunSimpleReturnPct:mostRecentWindow.simpleReturnPct,
+    recentRunStillHoldingShares:mostRecentWindow.stillHoldingShares,
+    recentRunUnrealizedShareGainLoss:mostRecentWindow.unrealizedShareGainLoss,
+    recentRunAvgCapitalBase:mostRecentWindow.avgCapitalBase,
   };
 }
 
@@ -502,7 +527,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct){
   // Comparing actual end dates (not array position) is what makes "one
   // example run" mean something -- the most current one you have data
   // for, regardless of where that ticker sits in your watchlist.
-  let bestRunCycles=null,bestRunTicker=null,bestRunStartIdx=null,bestRunEndIdx=null,bestRunTotalCycles=null,bestRunEndDate=null;
+  let bestRunCycles=null,bestRunTicker=null,bestRunStartIdx=null,bestRunEndIdx=null,bestRunTotalCycles=null,bestRunEndDate=null,bestRunSimpleReturnPct=null,bestRunStillHoldingShares=null,bestRunUnrealizedShareGainLoss=null,bestRunAvgCapitalBase=null;
   // Per-ticker breakdown, tracked as a side effect of the same loop below
   // -- reused by the "Best Tickers" ranking view so it doesn't need its
   // own separate full computation pass over the whole watchlist.
@@ -525,7 +550,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct){
         const rawEndDate=h2.timestamps?.[win.endIdx];
         const endDate=rawEndDate!=null?_parseHist2yDate(rawEndDate):null;
         if(endDate&&(bestRunEndDate==null||endDate>bestRunEndDate)){
-          bestRunCycles=win.trades.slice(-8);bestRunTicker=t;bestRunStartIdx=win.startIdx;bestRunEndIdx=win.endIdx;bestRunTotalCycles=win.trades.length;bestRunEndDate=endDate;
+          bestRunCycles=win.trades.slice(-8);bestRunTicker=t;bestRunStartIdx=win.startIdx;bestRunEndIdx=win.endIdx;bestRunTotalCycles=win.trades.length;bestRunEndDate=endDate;bestRunSimpleReturnPct=win.simpleReturnPct;bestRunStillHoldingShares=win.stillHoldingShares;bestRunUnrealizedShareGainLoss=win.unrealizedShareGainLoss;bestRunAvgCapitalBase=win.avgCapitalBase;
         }
       }
     });
@@ -565,6 +590,8 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct){
     vsBuyHold:avgAnnReturn-avgBuyHold,
     recentCycles:bestRunCycles,recentCyclesTicker:bestRunTicker,
     recentRunStartIdx:bestRunStartIdx,recentRunEndIdx:bestRunEndIdx,recentRunTotalCycles:bestRunTotalCycles,
+    recentRunSimpleReturnPct:bestRunSimpleReturnPct,recentRunStillHoldingShares:bestRunStillHoldingShares,
+    recentRunUnrealizedShareGainLoss:bestRunUnrealizedShareGainLoss,recentRunAvgCapitalBase:bestRunAvgCapitalBase,
     perTickerRanking,
   };
 }
@@ -674,7 +701,7 @@ function _wheelBacktestTargetSentence(target,pctBeatTarget){
 // labeled -- the previous version showed only the entry date with no
 // label at all, sitting right next to an outcome that actually resolves
 // at the end of the cycle, which was genuinely ambiguous.
-function _wheelBacktestCycleRowHtml(t,hist2y){
+function _wheelBacktestCycleRowHtml(t,hist2y,avgCapitalBase){
   const toDateStr=d=>{const parsed=_parseHist2yDate(d);return parsed?parsed.toLocaleDateString('en-US',{month:'short',day:'numeric'}):'?';};
   const entryDateStr=hist2y?toDateStr(hist2y.timestamps?.[t.entryIdx]):'?';
   const exitDateStr=hist2y?toDateStr(hist2y.timestamps?.[t.exitIdx]):'?';
@@ -688,12 +715,23 @@ function _wheelBacktestCycleRowHtml(t,hist2y){
   const otmPct=Math.abs(t.spotAtEntry-t.strike)/t.spotAtEntry*100;
   const otmLabel=` &middot; ${otmPct.toFixed(1)}% OTM`;
   const strikeStr=t.strike%1===0?t.strike.toFixed(0):t.strike.toFixed(2);
+  // This leg's own contribution (premium, plus any realized equity gain/
+  // loss if this is a called-away call) and the running cumulative total
+  // through this row -- both already computed and tagged by
+  // _simulateWheelWindow's second pass, not recomputed here, so the
+  // display can never drift out of sync with the actual accounting.
+  const legRow=(avgCapitalBase&&t.cumulativePct!=null)?`
+    <div style="font-family:var(--mono);font-size:9px;margin-top:2px">
+      <span style="color:${t.legTotalDollar>=0?'var(--green)':'var(--red)'}">This leg: ${t.legTotalDollar>=0?'+':''}${(t.legTotalDollar/avgCapitalBase*100).toFixed(2)}%</span>
+      <span style="color:var(--text3)"> &middot; Running total: </span><span style="color:var(--accent)">${t.cumulativePct>=0?'+':''}${t.cumulativePct.toFixed(2)}%</span>
+    </div>`:'';
   return`<div style="padding:5px 0;border-bottom:1px solid var(--surface3)">
     <div style="display:flex;justify-content:space-between;font-size:11px">
       <span style="color:var(--text2)">${label} $${strikeStr}${monthsLabel}${otmLabel}</span>
       <span style="color:${outcomeColor}">${outcome}</span>
     </div>
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:1px">Opened ${entryDateStr} ($${t.spotAtEntry.toFixed(2)}) &rarr; ${exitDateStr} ($${t.priceAtExit.toFixed(2)})</div>
+    ${legRow}
   </div>`;
 }
 
@@ -782,7 +820,11 @@ function _renderWheelBacktestFromResult(result,isAggregate,isStarredMode,selecte
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">One Example Run${result.recentCyclesTicker?' ('+result.recentCyclesTicker+')':''}</div>
     ${runSpanStr?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:3px">Window: ${runSpanStr}</div>`:''}
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">The stats above pool all ${result.sampleSize} simulated windows together. This is just ONE of them -- the most recent that ran a full year -- shown cycle-by-cycle so you can see what actually happened along that specific path${result.recentRunTotalCycles>8?' (last 8 of '+result.recentRunTotalCycles+' cycles shown)':''}.</div>
-    <div style="max-height:160px;overflow-y:auto">${(result.recentCycles||[]).map(t=>_wheelBacktestCycleRowHtml(t,exampleHist2y)).join('')||'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No cycles to show.</div>'}</div>
+    <div style="max-height:160px;overflow-y:auto">${(result.recentCycles||[]).map(t=>_wheelBacktestCycleRowHtml(t,exampleHist2y,result.recentRunAvgCapitalBase)).join('')||'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No cycles to show.</div>'}</div>
+    ${result.recentRunSimpleReturnPct!=null?`<div style="display:flex;justify-content:space-between;font-size:11px;padding:6px 0;margin-top:4px;border-top:1px solid var(--border)">
+      <span style="color:var(--text)">Total this run${result.recentRunTotalCycles>8?' (all '+result.recentRunTotalCycles+' cycles, not just those shown)':''}</span>
+      <span style="font-weight:700;color:${result.recentRunSimpleReturnPct>=0?'var(--green)':'var(--red)'}">${result.recentRunSimpleReturnPct>=0?'+':''}${result.recentRunSimpleReturnPct.toFixed(2)}%</span>
+    </div>${result.recentRunStillHoldingShares?`<div style="font-family:var(--mono);font-size:9px;color:var(--text3)">Includes shares still held at the end of this run, marked at their value on the last day (not yet a realized sale).</div>`:''}`:''}
   `;
 }
 

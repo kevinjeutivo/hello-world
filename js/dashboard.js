@@ -33,6 +33,7 @@ function _syncDashboardViewModeUI(){
   const gapCard=document.getElementById('dash-gap-card');
   const notesCard=document.getElementById('dash-notes-card');
   const wheelbtCard=document.getElementById('dash-wheelbt-card');
+  const wheelbtRankingCard=document.getElementById('dash-wheelbt-ranking-card');
   if(convictionControls)convictionControls.style.display=(dashboardViewMode==='rsi'||dashboardViewMode==='risk'||dashboardViewMode==='gap'||dashboardViewMode==='notes'||dashboardViewMode==='wheelbt')?'none':'';
   if(putsCard)putsCard.style.display=dashboardViewMode==='puts'?'':'none';
   if(ccCard)ccCard.style.display=dashboardViewMode==='cc'?'':'none';
@@ -42,12 +43,13 @@ function _syncDashboardViewModeUI(){
   if(gapCard)gapCard.style.display=dashboardViewMode==='gap'?'':'none';
   if(notesCard)notesCard.style.display=dashboardViewMode==='notes'?'':'none';
   if(wheelbtCard)wheelbtCard.style.display=dashboardViewMode==='wheelbt'?'':'none';
+  if(wheelbtRankingCard)wheelbtRankingCard.style.display=dashboardViewMode==='wheelbt'?'':'none';
 
   if(dashboardViewMode==='rsi'){_populateRSIBacktestDropdown();renderRSIBacktest();renderRSIRanking();}
   if(dashboardViewMode==='risk'){renderAssignmentRisk();}
   if(dashboardViewMode==='gap'){_populateGapFillDropdown();renderGapFillDashboard();}
   if(dashboardViewMode==='notes'){renderDashboardNotes();}
-  if(dashboardViewMode==='wheelbt'){_populateWheelBacktestDropdown();renderWheelBacktest();}
+  if(dashboardViewMode==='wheelbt'){_populateWheelBacktestDropdown();renderWheelBacktest();renderWheelBacktestRanking();}
 }
 
 // 9 component definitions split into two rows: 4 on top, 5 on bottom.

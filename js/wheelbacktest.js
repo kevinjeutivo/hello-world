@@ -638,9 +638,14 @@ function _wheelBacktestCycleRowHtml(t,hist2y){
   const outcome=t.assigned?(t.optionType==='put'?'Assigned':'Called away'):'Expired worthless';
   const outcomeColor=t.assigned?'var(--warn)':'var(--green)';
   const monthsLabel=t.monthsUsed?` &middot; ${t.monthsUsed}mo`:'';
+  // Puts are always struck below spot, calls always above (the yield-floor
+  // solver only ever returns OTM-eligible strikes) -- one absolute-value
+  // formula covers both directions correctly.
+  const otmPct=Math.abs(t.spotAtEntry-t.strike)/t.spotAtEntry*100;
+  const otmLabel=` &middot; ${otmPct.toFixed(1)}% OTM`;
   return`<div style="padding:5px 0;border-bottom:1px solid var(--surface3)">
     <div style="display:flex;justify-content:space-between;font-size:11px">
-      <span style="color:var(--text2)">${label} $${t.strike.toFixed(2)}${monthsLabel}</span>
+      <span style="color:var(--text2)">${label} $${t.strike.toFixed(2)}${monthsLabel}${otmLabel}</span>
       <span style="color:${outcomeColor}">${outcome}</span>
     </div>
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:1px">Opened ${entryDateStr} ($${t.spotAtEntry.toFixed(2)}) &rarr; ${exitDateStr} ($${t.priceAtExit.toFixed(2)})</div>

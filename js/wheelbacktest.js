@@ -689,9 +689,10 @@ function _wheelBacktestCycleRowHtml(t,hist2y){
   // formula covers both directions correctly.
   const otmPct=Math.abs(t.spotAtEntry-t.strike)/t.spotAtEntry*100;
   const otmLabel=` &middot; ${otmPct.toFixed(1)}% OTM`;
+  const strikeStr=t.strike%1===0?t.strike.toFixed(0):t.strike.toFixed(2);
   return`<div style="padding:5px 0;border-bottom:1px solid var(--surface3)">
     <div style="display:flex;justify-content:space-between;font-size:11px">
-      <span style="color:var(--text2)">${label} $${t.strike.toFixed(2)}${monthsLabel}${otmLabel}</span>
+      <span style="color:var(--text2)">${label} $${strikeStr}${monthsLabel}${otmLabel}</span>
       <span style="color:${outcomeColor}">${outcome}</span>
     </div>
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:1px">Opened ${entryDateStr} ($${t.spotAtEntry.toFixed(2)}) &rarr; ${exitDateStr} ($${t.priceAtExit.toFixed(2)})</div>
@@ -786,7 +787,7 @@ function renderWheelBacktest(){
 function _wheelBacktestRankingRowHtml(r,rank,target){
   return`<div style="padding:8px 0;border-bottom:1px solid var(--surface3)">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
-      <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text)">${rank}. ${r.ticker} <span onclick="_wheelBacktestViewTickerFromRanking('${r.ticker}')" style="font-size:9px;color:var(--accent);text-decoration:underline;cursor:pointer;padding:3px 4px;display:inline-block">View</span></span>
+      <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text3)">${rank}.</span> <span onclick="navigateToTicker('${r.ticker}')" style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text);text-decoration:underline;cursor:pointer">${r.ticker}</span> <span onclick="_wheelBacktestViewTickerFromRanking('${r.ticker}')" style="font-size:9px;color:var(--accent);text-decoration:underline;cursor:pointer;padding:3px 4px;display:inline-block">View analysis</span>
       <span style="font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent)">${r.median>=0?'+':''}${r.median.toFixed(1)}%</span>
     </div>
     ${_wheelBacktestRangeBarSvg(r.worst,r.median,r.best,target)}

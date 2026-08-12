@@ -423,7 +423,7 @@ function _computeWheelBacktest(ticker,monthsOut,targetFloorPct){
   const avgAssignmentRate=windows.reduce((s,w)=>s+w.assignmentRatePct,0)/windows.length;
   const avgAnnReturn=annReturns.reduce((s,v)=>s+v,0)/annReturns.length;
   const avgBuyHold=windows.reduce((s,w)=>s+w.buyHoldAnnualizedPct,0)/windows.length;
-  const pctBeatTarget=(annReturns.filter(v=>v>=WHEELBT_DEFAULT_TARGET_APY).length/annReturns.length)*100;
+  const pctBeatTarget=(annReturns.filter(v=>v>=targetFloorPct).length/annReturns.length)*100;
 
   const mostRecentWindow=windows[windows.length-1];
 
@@ -457,18 +457,24 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct){
   // example run" mean something -- the most current one you have data
   // for, regardless of where that ticker sits in your watchlist.
   let bestRunCycles=null,bestRunTicker=null,bestRunStartIdx=null,bestRunEndIdx=null,bestRunTotalCycles=null,bestRunEndDate=null;
+  // Per-ticker breakdown, tracked as a side effect of the same loop below
+  // -- reused by the "Best Tickers" ranking view so it doesn't need its
+  // own separate full computation pass over the whole watchlist.
+  const perTickerReturns={};
 
   tickers.forEach(t=>{
     const h2=S.get('hist2y_'+t);
     if(!h2?.closes?.length||!h2.timestamps||!h2.opens||!h2.highs||!h2.lows)return;
     const termSlope=_estimateTermStructureSlope(h2);
     let gotAny=false;
+    perTickerReturns[t]=[];
     _enumerateMonthlyStartIndices(h2).forEach(startIdx=>{
       const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,termSlope);
       if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS){
         allReturns.push(win.annualizedReturnPct);
         allAssignmentRates.push(win.assignmentRatePct);
         allBuyHold.push(win.buyHoldAnnualizedPct);
+        perTickerReturns[t].push(win.annualizedReturnPct);
         gotAny=true;
         const rawEndDate=h2.timestamps?.[win.endIdx];
         const endDate=rawEndDate!=null?_parseHist2yDate(rawEndDate):null;
@@ -488,7 +494,24 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct){
   const avgAnnReturn=allReturns.reduce((s,v)=>s+v,0)/allReturns.length;
   const avgAssignmentRate=allAssignmentRates.reduce((s,v)=>s+v,0)/allAssignmentRates.length;
   const avgBuyHold=allBuyHold.reduce((s,v)=>s+v,0)/allBuyHold.length;
-  const pctBeatTarget=(allReturns.filter(v=>v>=WHEELBT_DEFAULT_TARGET_APY).length/allReturns.length)*100;
+  const pctBeatTarget=(allReturns.filter(v=>v>=targetFloorPct).length/allReturns.length)*100;
+
+  // Rank tickers by their own median simulated return, best first --
+  // requires at least 3 qualifying windows to be included, same
+  // small-sample caution already applied elsewhere in this app (RSI
+  // Ranking's minOccurrences), so one or two lucky windows on a thinly-
+  // cached ticker can't misleadingly top the list.
+  const MIN_TICKER_SAMPLE=3;
+  const perTickerRanking=Object.entries(perTickerReturns)
+    .filter(([,arr])=>arr.length>=MIN_TICKER_SAMPLE)
+    .map(([t,arr])=>{
+      const sorted=[...arr].sort((a,b)=>a-b);
+      return{
+        ticker:t,sampleSize:sorted.length,
+        worst:sorted[0],median:sorted[Math.floor(sorted.length/2)],best:sorted[sorted.length-1],
+      };
+    })
+    .sort((a,b)=>b.median-a.median);
 
   return{
     monthsOut,targetFloorPct,sampleSize:allReturns.length,tickersWithData,tickersTotal:tickers.length,
@@ -496,6 +519,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct){
     vsBuyHold:avgAnnReturn-avgBuyHold,
     recentCycles:bestRunCycles,recentCyclesTicker:bestRunTicker,
     recentRunStartIdx:bestRunStartIdx,recentRunEndIdx:bestRunEndIdx,recentRunTotalCycles:bestRunTotalCycles,
+    perTickerRanking,
   };
 }
 
@@ -508,12 +532,33 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct){
 function _populateWheelBacktestDropdown(){
   const sel=document.getElementById('wheelbt-ticker-sel');
   if(!sel)return;
-  if(sel.options.length===watchlist.length+1)return;
+  if(sel.options.length===watchlist.length+2)return; // 2 static options now: Aggregate, Starred Only
   const current=sel.value;
   const sorted=[...watchlist].sort((a,b)=>a.localeCompare(b));
   sel.innerHTML='<option value="">Aggregate (whole watchlist)</option>'+
+    '<option value="__starred__">Starred Only</option>'+
     sorted.map(t=>`<option value="${t}">${t}</option>`).join('');
-  if(sorted.includes(current))sel.value=current;
+  if(current==='__starred__'||sorted.includes(current))sel.value=current;
+}
+
+// Independent of Conviction Scoring's own target-apy field, by design --
+// this simulation's floor is a deliberately separate setting, so changing
+// one never silently changes the other. Defaults to 12%, same as
+// Conviction Scoring's own fallback, purely because that's this app's
+// existing convention, not because the two are linked.
+function getWheelBacktestTargetAPY(){
+  const stored=parseFloat(S.get('wheelbt_target_apy'));
+  return(!isNaN(stored)&&stored>0)?stored:WHEELBT_DEFAULT_TARGET_APY;
+}
+function setWheelBacktestTargetAPY(){
+  const input=document.getElementById('wheelbt-target-apy-input');
+  if(!input)return;
+  const val=parseFloat(input.value);
+  if(!isNaN(val)&&val>0){
+    S.set('wheelbt_target_apy',val);
+    renderWheelBacktest();
+    renderWheelBacktestRanking();
+  }
 }
 
 function getWheelBacktestMonths(){return parseInt(S.get('wheelbt_months'))||2;}
@@ -524,6 +569,7 @@ function setWheelBacktestMonths(months){
     if(btn)btn.style.opacity=(m===months)?'1':'0.4';
   });
   renderWheelBacktest();
+  renderWheelBacktestRanking();
 }
 
 // Purely geometric range bar -- worst-to-best span, median tick, target
@@ -595,9 +641,14 @@ function renderWheelBacktest(){
   const content=document.getElementById('wheelbt-content');
   if(!content)return;
   const sel=document.getElementById('wheelbt-ticker-sel');
-  const selectedTicker=sel?.value||'';
+  const selectedValue=sel?.value||'';
+  const isStarredMode=selectedValue==='__starred__';
+  const selectedTicker=isStarredMode?'':selectedValue;
   const monthsOut=getWheelBacktestMonths();
-  const target=WHEELBT_DEFAULT_TARGET_APY;
+  const target=getWheelBacktestTargetAPY();
+
+  const apyInput=document.getElementById('wheelbt-target-apy-input');
+  if(apyInput&&document.activeElement!==apyInput)apyInput.value=target;
 
   if(!watchlist.length){
     content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Watchlist is empty</div>';
@@ -611,10 +662,17 @@ function renderWheelBacktest(){
   // rather than the whole thing blocking in one frame.
   setTimeout(()=>{
     let result,isAggregate=!selectedTicker;
-    if(isAggregate){
-      result=_computeWheelBacktestAggregate(watchlist,monthsOut,WHEELBT_DEFAULT_TARGET_APY);
+    if(isStarredMode){
+      const starredList=watchlist.filter(t=>_starredTickers().has(t));
+      if(!starredList.length){
+        content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>No starred tickers yet -- tap the star on a ticker in the Watchlist tab to add one.</div>';
+        return;
+      }
+      result=_computeWheelBacktestAggregate(starredList,monthsOut,target);
+    }else if(isAggregate){
+      result=_computeWheelBacktestAggregate(watchlist,monthsOut,target);
     }else{
-      result=_computeWheelBacktest(selectedTicker,monthsOut,WHEELBT_DEFAULT_TARGET_APY);
+      result=_computeWheelBacktest(selectedTicker,monthsOut,target);
     }
 
     if(!result){
@@ -622,7 +680,7 @@ function renderWheelBacktest(){
       return;
     }
 
-    const scopeLabel=isAggregate?`Pooled across ${result.tickersWithData} of ${result.tickersTotal} watchlist tickers`:`${selectedTicker} only -- small single-ticker sample, directional intuition only`;
+    const scopeLabel=isStarredMode?`Pooled across ${result.tickersWithData} of ${result.tickersTotal} starred tickers`:isAggregate?`Pooled across ${result.tickersWithData} of ${result.tickersTotal} watchlist tickers`:`${selectedTicker} only -- small single-ticker sample, directional intuition only`;
     const vsColor=result.vsBuyHold>=0?'var(--green)':'var(--red)';
     const extremeCaveat=Math.max(Math.abs(result.worst),Math.abs(result.median),Math.abs(result.best))>=100
       ?`<div style="font-size:10px;color:var(--warn);margin-bottom:10px">&#x26A0; A result this large usually means the underlying moved sharply during one of these windows -- treat it as a sign of high volatility in that stretch, not a number to take at face value.</div>`:'';
@@ -654,5 +712,49 @@ function renderWheelBacktest(){
       <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">The stats above pool all ${result.sampleSize} simulated windows together. This is just ONE of them -- the most recent that ran a full year -- shown cycle-by-cycle so you can see what actually happened along that specific path${result.recentRunTotalCycles>8?' (last 8 of '+result.recentRunTotalCycles+' cycles shown)':''}.</div>
       <div style="max-height:160px;overflow-y:auto">${(result.recentCycles||[]).map(t=>_wheelBacktestCycleRowHtml(t,exampleHist2y)).join('')||'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No cycles to show.</div>'}</div>
     `;
+  },10);
+}
+
+// ── Best Tickers ranking ─────────────────────────────────────────────────
+// Always ranks across the whole watchlist regardless of the main card's
+// Scope selection -- "which of my tickers looks best" is inherently a
+// whole-watchlist question, distinct from "show me this one scope's
+// result" that the Scope dropdown controls. Shares the Preferred
+// Expiration and Target APY settings from the main card, so it stays
+// consistent with whatever that's currently showing.
+function _wheelBacktestRankingRowHtml(r,rank,target){
+  return`<div style="padding:8px 0;border-bottom:1px solid var(--surface3)">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
+      <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text)">${rank}. ${r.ticker}</span>
+      <span style="font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent)">${r.median>=0?'+':''}${r.median.toFixed(1)}%</span>
+    </div>
+    ${_wheelBacktestRangeBarSvg(r.worst,r.median,r.best,target)}
+    <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:8px;color:var(--text3);margin-top:1px">
+      <span>${r.worst>=0?'+':''}${r.worst.toFixed(1)}%</span>
+      <span>${r.sampleSize} windows</span>
+      <span>${r.best>=0?'+':''}${r.best.toFixed(1)}%</span>
+    </div>
+  </div>`;
+}
+
+function renderWheelBacktestRanking(){
+  const content=document.getElementById('wheelbt-ranking-content');
+  if(!content)return;
+  if(!watchlist.length){
+    content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Watchlist is empty</div>';
+    return;
+  }
+  const monthsOut=getWheelBacktestMonths();
+  const target=getWheelBacktestTargetAPY();
+  content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Computing...</div>';
+
+  setTimeout(()=>{
+    const result=_computeWheelBacktestAggregate(watchlist,monthsOut,target);
+    if(!result||!result.perTickerRanking||!result.perTickerRanking.length){
+      content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Not enough cached price history to rank any watchlist ticker yet. Run Prefetch All or Full Refresh first, and allow time for 2 years of history to accumulate.</div>';
+      return;
+    }
+    const top15=result.perTickerRanking.slice(0,15);
+    content.innerHTML=top15.map((r,i)=>_wheelBacktestRankingRowHtml(r,i+1,target)).join('');
   },10);
 }

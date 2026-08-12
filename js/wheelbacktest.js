@@ -181,6 +181,41 @@ function _enumerateMonthlyStartIndices(hist2y){
 // yield strictly lower, not higher, since option value grows slower than
 // linearly with time). Interpolated linearly between 1 month (no
 // adjustment) and 3 months (the full estimated slope).
+
+// Standard CBOE strike-interval guideline, confirmed across current
+// sources: <=$25 -> $2.50, $25-$200 -> $5, >$200 -> $10. The continuous
+// strike from _solveStrikeForYieldFloor is a theoretical boundary that
+// doesn't correspond to a real, tradeable strike -- snapping to this
+// makes the simulated strike something you could actually have selected
+// from a real options chain.
+function _realisticStrikeIncrement(spot){
+  return spot<=25?2.5:spot<=200?5:10;
+}
+
+// Snaps toward the money (never away from it) -- yield is monotonic in
+// strike, so rounding this direction guarantees the snapped strike still
+// clears the floor whenever the continuous boundary did (never rounds to
+// something that falls short). If the snap lands essentially AT spot
+// itself (can happen when spot sits very close to a grid line -- not
+// realistic with real market prices to the degree seen in clean
+// synthetic test data, but the underlying case is real near tier
+// boundaries), pushes one more full increment out: a strike
+// indistinguishable from spot isn't a genuine OTM position, and no real
+// options chain would treat it as meaningfully different from ATM.
+// Returns null if the increment is coarse enough that no valid OTM
+// strike exists at all in this direction.
+function _snapStrikeToRealistic(rawStrike,spot,optionType){
+  const increment=_realisticStrikeIncrement(spot);
+  let snapped=optionType==='put'
+    ?Math.ceil(rawStrike/increment)*increment
+    :Math.floor(rawStrike/increment)*increment;
+  const EPS=increment*0.001;
+  const tooCloseToSpot=optionType==='put'?snapped>=spot-EPS:snapped<=spot+EPS;
+  if(tooCloseToSpot)snapped=optionType==='put'?snapped-increment:snapped+increment;
+  const stillOTM=optionType==='put'?snapped<spot:snapped>spot;
+  return stillOTM?snapped:null;
+}
+
 function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r,termSlope){
   const closes=hist2y.closes,timestamps=hist2y.timestamps;
   const n=closes.length;
@@ -216,10 +251,21 @@ function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r
   // and pricing should reflect the real duration being simulated.
   const T=(exitDate-entryDate)/(365*86400000);
   if(T<=0)return null;
-  const K=_solveStrikeForYieldFloor(S0,T,r,sigma,targetFloorPct,optionType);
-  if(K==null||!isFinite(K))return null; // floor not reachable at this DTE -- caller tries a different DTE or waits
+  const K_raw=_solveStrikeForYieldFloor(S0,T,r,sigma,targetFloorPct,optionType);
+  if(K_raw==null||!isFinite(K_raw))return null; // floor not reachable at this DTE -- caller tries a different DTE or waits
+  const K=_snapStrikeToRealistic(K_raw,S0,optionType);
+  if(K==null)return null; // increment too coarse at this price level -- would cross the money, not a valid OTM strike
   const premium=optionType==='put'?_bsPutPrice(S0,K,T,r,sigma):_bsCallPrice(S0,K,T,r,sigma);
   if(!isFinite(premium)||premium<0)return null;
+  // Snapping (especially the too-close-to-spot push-out above) can move
+  // the strike further from the money than the continuous boundary was --
+  // re-verify the REALISTIC strike's own yield still clears the floor,
+  // rather than trusting the continuous solve alone. If it doesn't, this
+  // specific entry/DTE genuinely can't be done with a real, valid strike
+  // -- the caller's existing escalation/waiting logic handles this
+  // exactly like any other infeasible attempt.
+  const actualYield=_annualizedYieldPct(premium,S0,T);
+  if(actualYield<targetFloorPct-0.01)return null;
 
   const priceAtExit=closes[exitIdx];
   if(priceAtExit==null)return null;

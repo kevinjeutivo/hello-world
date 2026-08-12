@@ -725,7 +725,7 @@ function renderWheelBacktest(){
 function _wheelBacktestRankingRowHtml(r,rank,target){
   return`<div style="padding:8px 0;border-bottom:1px solid var(--surface3)">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
-      <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text)">${rank}. ${r.ticker}</span>
+      <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text)">${rank}. ${r.ticker} <span onclick="_wheelBacktestViewTickerFromRanking('${r.ticker}')" style="font-size:9px;color:var(--accent);text-decoration:underline;cursor:pointer;padding:3px 4px;display:inline-block">View</span></span>
       <span style="font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent)">${r.median>=0?'+':''}${r.median.toFixed(1)}%</span>
     </div>
     ${_wheelBacktestRangeBarSvg(r.worst,r.median,r.best,target)}
@@ -735,6 +735,19 @@ function _wheelBacktestRankingRowHtml(r,rank,target){
       <span>${r.best>=0?'+':''}${r.best.toFixed(1)}%</span>
     </div>
   </div>`;
+}
+
+// Selects the tapped ticker in the main card's Scope dropdown and
+// re-renders it, then scrolls that card into view -- it sits above the
+// ranking card, so without this the result would update off-screen and
+// look like nothing happened.
+function _wheelBacktestViewTickerFromRanking(ticker){
+  const sel=document.getElementById('wheelbt-ticker-sel');
+  if(!sel)return;
+  sel.value=ticker;
+  renderWheelBacktest();
+  const mainCard=document.getElementById('dash-wheelbt-card');
+  if(mainCard)mainCard.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
 function renderWheelBacktestRanking(){
@@ -754,7 +767,6 @@ function renderWheelBacktestRanking(){
       content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Not enough cached price history to rank any watchlist ticker yet. Run Prefetch All or Full Refresh first, and allow time for 2 years of history to accumulate.</div>';
       return;
     }
-    const top15=result.perTickerRanking.slice(0,15);
-    content.innerHTML=top15.map((r,i)=>_wheelBacktestRankingRowHtml(r,i+1,target)).join('');
+    content.innerHTML=result.perTickerRanking.map((r,i)=>_wheelBacktestRankingRowHtml(r,i+1,target)).join('');
   },10);
 }

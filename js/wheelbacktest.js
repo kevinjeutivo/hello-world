@@ -602,8 +602,7 @@ function setWheelBacktestTargetAPY(){
   const val=parseFloat(input.value);
   if(!isNaN(val)&&val>0){
     S.set('wheelbt_target_apy',val);
-    renderWheelBacktest();
-    renderWheelBacktestRanking();
+    refreshWheelBacktestViews();
   }
 }
 
@@ -614,8 +613,7 @@ function setWheelBacktestMonths(months){
     const btn=document.getElementById('wheelbt-months-'+m);
     if(btn)btn.style.opacity=(m===months)?'1':'0.4';
   });
-  renderWheelBacktest();
-  renderWheelBacktestRanking();
+  refreshWheelBacktestViews();
 }
 
 // Purely geometric range bar -- worst-to-best span, median tick, target
@@ -736,45 +734,56 @@ function renderWheelBacktest(){
     }else{
       result=_computeWheelBacktest(selectedTicker,monthsOut,target);
     }
-
-    if(!result){
-      content.innerHTML=`<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Not enough cached price history with Open/High/Low to complete a full-year simulation${isAggregate?' for any watchlist ticker':' for '+selectedTicker}. Run Prefetch All or Full Refresh first, and allow time for 2 years of history to accumulate.</div>`;
-      return;
-    }
-
-    const scopeLabel=isStarredMode?`Pooled across ${result.tickersWithData} of ${result.tickersTotal} starred tickers`:isAggregate?`Pooled across ${result.tickersWithData} of ${result.tickersTotal} watchlist tickers`:`${selectedTicker} only -- small single-ticker sample, directional intuition only`;
-    const vsColor=result.vsBuyHold>=0?'var(--green)':'var(--red)';
-    const extremeCaveat=Math.max(Math.abs(result.worst),Math.abs(result.median),Math.abs(result.best))>=100
-      ?`<div style="font-size:10px;color:var(--warn);margin-bottom:10px">&#x26A0; A result this large usually means the underlying moved sharply during one of these windows -- treat it as a sign of high volatility in that stretch, not a number to take at face value.</div>`:'';
-
-    const exampleHist2y=S.get('hist2y_'+(isAggregate?result.recentCyclesTicker:selectedTicker));
-    const toDateStr=d=>{const parsed=_parseHist2yDate(d);return parsed?parsed.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):null;};
-    const runStartStr=toDateStr(exampleHist2y?.timestamps?.[result.recentRunStartIdx]);
-    const runEndStr=toDateStr(exampleHist2y?.timestamps?.[result.recentRunEndIdx]);
-    const runSpanStr=(runStartStr&&runEndStr)?`${runStartStr} &rarr; ${runEndStr}`:'';
-
-    content.innerHTML=`
-      <div style="font-family:var(--mono);font-size:10px;color:${isAggregate?'var(--text3)':'var(--warn)'};margin-bottom:12px">${isAggregate?'':'&#x26A0; '}${scopeLabel} &middot; ${result.sampleSize} simulated windows</div>
-      ${_wheelBacktestStatBlocksHtml(result.worst,result.median,result.best)}
-      ${extremeCaveat}
-      ${_wheelBacktestRangeBarSvg(result.worst,result.median,result.best,target)}
-      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">worst &middot; median &middot; best of ${result.sampleSize} 1-year windows, each starting the trading day after a real monthly expiration (${monthsOut}-month cycles) &mdash; dashed line marks your target</div>
-      <div style="font-size:11px;color:var(--warn);margin-bottom:14px">${_wheelBacktestTargetSentence(target,result.pctBeatTarget)}</div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
-        <span style="color:var(--text2)">Assignment rate</span><span style="color:var(--text)">${result.avgAssignmentRate.toFixed(0)}%</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
-        <span style="color:var(--text2)">vs. Buy &amp; Hold (same windows)</span><span style="color:${vsColor}">${result.vsBuyHold>=0?'+':''}${result.vsBuyHold.toFixed(1)}pp avg</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3);margin-bottom:12px">
-        <span style="color:var(--text2)">Premium source</span><span style="color:var(--warn)">Realized vol + est. term structure</span>
-      </div>
-      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">One Example Run${result.recentCyclesTicker?' ('+result.recentCyclesTicker+')':''}</div>
-      ${runSpanStr?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:3px">Window: ${runSpanStr}</div>`:''}
-      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">The stats above pool all ${result.sampleSize} simulated windows together. This is just ONE of them -- the most recent that ran a full year -- shown cycle-by-cycle so you can see what actually happened along that specific path${result.recentRunTotalCycles>8?' (last 8 of '+result.recentRunTotalCycles+' cycles shown)':''}.</div>
-      <div style="max-height:160px;overflow-y:auto">${(result.recentCycles||[]).map(t=>_wheelBacktestCycleRowHtml(t,exampleHist2y)).join('')||'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No cycles to show.</div>'}</div>
-    `;
+    _renderWheelBacktestFromResult(result,isAggregate,isStarredMode,selectedTicker,monthsOut,target);
   },10);
+}
+
+// Pure rendering, given an already-computed result -- separated out so the
+// coordinator below (refreshWheelBacktestViews) can reuse a single
+// whole-watchlist computation for both this card and the ranking card,
+// instead of each independently computing the identical aggregate when
+// scope is "Aggregate" (the default and most common case).
+function _renderWheelBacktestFromResult(result,isAggregate,isStarredMode,selectedTicker,monthsOut,target){
+  const content=document.getElementById('wheelbt-content');
+  if(!content)return;
+
+  if(!result){
+    content.innerHTML=`<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Not enough cached price history with Open/High/Low to complete a full-year simulation${isAggregate?' for any watchlist ticker':' for '+selectedTicker}. Run Prefetch All or Full Refresh first, and allow time for 2 years of history to accumulate.</div>`;
+    return;
+  }
+
+  const scopeLabel=isStarredMode?`Pooled across ${result.tickersWithData} of ${result.tickersTotal} starred tickers`:isAggregate?`Pooled across ${result.tickersWithData} of ${result.tickersTotal} watchlist tickers`:`${selectedTicker} only -- small single-ticker sample, directional intuition only`;
+  const vsColor=result.vsBuyHold>=0?'var(--green)':'var(--red)';
+  const extremeCaveat=Math.max(Math.abs(result.worst),Math.abs(result.median),Math.abs(result.best))>=100
+    ?`<div style="font-size:10px;color:var(--warn);margin-bottom:10px">&#x26A0; A result this large usually means the underlying moved sharply during one of these windows -- treat it as a sign of high volatility in that stretch, not a number to take at face value.</div>`:'';
+
+  const exampleHist2y=S.get('hist2y_'+(isAggregate?result.recentCyclesTicker:selectedTicker));
+  const toDateStr=d=>{const parsed=_parseHist2yDate(d);return parsed?parsed.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):null;};
+  const runStartStr=toDateStr(exampleHist2y?.timestamps?.[result.recentRunStartIdx]);
+  const runEndStr=toDateStr(exampleHist2y?.timestamps?.[result.recentRunEndIdx]);
+  const runSpanStr=(runStartStr&&runEndStr)?`${runStartStr} &rarr; ${runEndStr}`:'';
+
+  content.innerHTML=`
+    <div style="font-family:var(--mono);font-size:10px;color:${isAggregate?'var(--text3)':'var(--warn)'};margin-bottom:12px">${isAggregate?'':'&#x26A0; '}${scopeLabel} &middot; ${result.sampleSize} simulated windows</div>
+    ${_wheelBacktestStatBlocksHtml(result.worst,result.median,result.best)}
+    ${extremeCaveat}
+    ${_wheelBacktestRangeBarSvg(result.worst,result.median,result.best,target)}
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">worst &middot; median &middot; best of ${result.sampleSize} 1-year windows, each starting the trading day after a real monthly expiration (${monthsOut}-month cycles) &mdash; dashed line marks your target</div>
+    <div style="font-size:11px;color:var(--warn);margin-bottom:14px">${_wheelBacktestTargetSentence(target,result.pctBeatTarget)}</div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
+      <span style="color:var(--text2)">Assignment rate</span><span style="color:var(--text)">${result.avgAssignmentRate.toFixed(0)}%</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
+      <span style="color:var(--text2)">vs. Buy &amp; Hold (same windows)</span><span style="color:${vsColor}">${result.vsBuyHold>=0?'+':''}${result.vsBuyHold.toFixed(1)}pp avg</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3);margin-bottom:12px">
+      <span style="color:var(--text2)">Premium source</span><span style="color:var(--warn)">Realized vol + est. term structure</span>
+    </div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">One Example Run${result.recentCyclesTicker?' ('+result.recentCyclesTicker+')':''}</div>
+    ${runSpanStr?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:3px">Window: ${runSpanStr}</div>`:''}
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">The stats above pool all ${result.sampleSize} simulated windows together. This is just ONE of them -- the most recent that ran a full year -- shown cycle-by-cycle so you can see what actually happened along that specific path${result.recentRunTotalCycles>8?' (last 8 of '+result.recentRunTotalCycles+' cycles shown)':''}.</div>
+    <div style="max-height:160px;overflow-y:auto">${(result.recentCycles||[]).map(t=>_wheelBacktestCycleRowHtml(t,exampleHist2y)).join('')||'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No cycles to show.</div>'}</div>
+  `;
 }
 
 // ── Best Tickers ranking ─────────────────────────────────────────────────
@@ -825,10 +834,75 @@ function renderWheelBacktestRanking(){
 
   setTimeout(()=>{
     const result=_computeWheelBacktestAggregate(watchlist,monthsOut,target);
-    if(!result||!result.perTickerRanking||!result.perTickerRanking.length){
-      content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Not enough cached price history to rank any watchlist ticker yet. Run Prefetch All or Full Refresh first, and allow time for 2 years of history to accumulate.</div>';
-      return;
+    _renderWheelBacktestRankingFromResult(result,target);
+  },10);
+}
+
+// Pure rendering, given an already-computed result -- see
+// _renderWheelBacktestFromResult above for the same pattern and the
+// reasoning (avoiding a duplicate identical computation when the
+// coordinator below already has this exact result on hand).
+function _renderWheelBacktestRankingFromResult(result,target){
+  const content=document.getElementById('wheelbt-ranking-content');
+  if(!content)return;
+  if(!result||!result.perTickerRanking||!result.perTickerRanking.length){
+    content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Not enough cached price history to rank any watchlist ticker yet. Run Prefetch All or Full Refresh first, and allow time for 2 years of history to accumulate.</div>';
+    return;
+  }
+  content.innerHTML=result.perTickerRanking.map((r,i)=>_wheelBacktestRankingRowHtml(r,i+1,target)).join('');
+}
+
+// ── Coordinator ──────────────────────────────────────────────────────────
+// The single entry point for the trigger sites that refresh BOTH cards
+// together (DTE change, target APY change, view-switch). Computes the
+// whole-watchlist aggregate ONCE and reuses it for the ranking card and,
+// when Scope is "Aggregate" (the default), the main card too -- avoiding
+// the identical simulation running twice in the same breath, which is
+// what independently calling renderWheelBacktest() + renderWheelBacktestRanking()
+// used to do. When Scope is Starred or a single ticker, the main card
+// still needs its own separate computation (genuinely different data,
+// nothing to share there), so only the ranking's cost is ever saved in
+// that case -- still a real, unconditional win since the ranking always
+// wants the whole watchlist regardless of Scope.
+function refreshWheelBacktestViews(){
+  const mainContent=document.getElementById('wheelbt-content');
+  const rankingContent=document.getElementById('wheelbt-ranking-content');
+  const sel=document.getElementById('wheelbt-ticker-sel');
+  const selectedValue=sel?.value||'';
+  const isStarredMode=selectedValue==='__starred__';
+  const selectedTicker=isStarredMode?'':selectedValue;
+  const isAggregateScope=!selectedTicker&&!isStarredMode;
+  const monthsOut=getWheelBacktestMonths();
+  const target=getWheelBacktestTargetAPY();
+
+  const apyInput=document.getElementById('wheelbt-target-apy-input');
+  if(apyInput&&document.activeElement!==apyInput)apyInput.value=target;
+
+  if(!watchlist.length){
+    if(mainContent)mainContent.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Watchlist is empty</div>';
+    if(rankingContent)rankingContent.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Watchlist is empty</div>';
+    return;
+  }
+  if(mainContent)mainContent.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Computing...</div>';
+  if(rankingContent)rankingContent.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Computing...</div>';
+
+  setTimeout(()=>{
+    const watchlistResult=_computeWheelBacktestAggregate(watchlist,monthsOut,target);
+    _renderWheelBacktestRankingFromResult(watchlistResult,target);
+
+    if(isAggregateScope){
+      _renderWheelBacktestFromResult(watchlistResult,true,false,selectedTicker,monthsOut,target);
+    }else if(isStarredMode){
+      const starredList=watchlist.filter(t=>_starredTickers().has(t));
+      if(!starredList.length){
+        if(mainContent)mainContent.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>No starred tickers yet -- tap the star on a ticker in the Watchlist tab to add one.</div>';
+      }else{
+        const starredResult=_computeWheelBacktestAggregate(starredList,monthsOut,target);
+        _renderWheelBacktestFromResult(starredResult,true,true,selectedTicker,monthsOut,target);
+      }
+    }else{
+      const tickerResult=_computeWheelBacktest(selectedTicker,monthsOut,target);
+      _renderWheelBacktestFromResult(tickerResult,false,false,selectedTicker,monthsOut,target);
     }
-    content.innerHTML=result.perTickerRanking.map((r,i)=>_wheelBacktestRankingRowHtml(r,i+1,target)).join('');
   },10);
 }

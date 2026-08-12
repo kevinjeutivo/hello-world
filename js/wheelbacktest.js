@@ -579,7 +579,17 @@ function setWheelBacktestMonths(months){
 // the actual numbers live in regular HTML around this bar instead, where
 // normal font scaling applies.
 function _wheelBacktestRangeBarSvg(worst,median,best,target){
-  const lo=Math.min(worst,target)-2,hi=Math.max(best,target)+2;
+  const dataMin=Math.min(worst,target),dataMax=Math.max(best,target);
+  const dataRange=dataMax-dataMin;
+  // Padding scales WITH the actual spread rather than a fixed +/-2pp --
+  // yield-floor targeting genuinely converges tightly around the target in
+  // many cases (a 8.9%-9.1% range around a 9% target is real, correct
+  // data, not a bug), and a fixed-size axis made a real tight cluster look
+  // like a barely-visible sliver. A tiny absolute floor (0.1) only exists
+  // to guard the theoretical zero-range case from collapsing the axis to
+  // zero width entirely.
+  const padding=Math.max(dataRange*0.3,0.1);
+  const lo=dataMin-padding,hi=dataMax+padding;
   const toX=(v)=>10+((v-lo)/(hi-lo))*352;
   const worstX=toX(worst),medX=toX(median),bestX=toX(best),targetX=toX(target);
   return`<svg viewBox="0 0 372 30" width="100%" height="30" style="margin-bottom:4px">

@@ -906,7 +906,12 @@ function _renderWheelBacktestRankingFromResult(result,target){
 // nothing to share there), so only the ranking's cost is ever saved in
 // that case -- still a real, unconditional win since the ranking always
 // wants the whole watchlist regardless of Scope.
+let _wheelbtViewEverRendered=false;
+let _wheelbtDataStale=false;
+
 function refreshWheelBacktestViews(){
+  _wheelbtViewEverRendered=true;
+  _wheelbtDataStale=false;
   const mainContent=document.getElementById('wheelbt-content');
   const rankingContent=document.getElementById('wheelbt-ranking-content');
   const sel=document.getElementById('wheelbt-ticker-sel');
@@ -919,6 +924,17 @@ function refreshWheelBacktestViews(){
 
   const apyInput=document.getElementById('wheelbt-target-apy-input');
   if(apyInput&&document.activeElement!==apyInput)apyInput.value=target;
+
+  // Preserve whatever the CURRENT scroll position is around this
+  // function's own shrink-then-grow cycle (the "Computing..." placeholder
+  // is much shorter than the real content, so replacing it and later
+  // restoring it changes page height twice). This makes the function safe
+  // to call from any context -- a background data-refresh while the user
+  // is actively looking at this tab, an explicit settings change, or a
+  // tab-switch where showTab() has ALREADY applied its own scroll-restore
+  // by the time this runs (callers that trigger this during a tab-switch
+  // defer slightly for exactly that reason -- see _syncDashboardViewModeUI).
+  const preservedScrollY=window.scrollY;
 
   if(!watchlist.length){
     if(mainContent)mainContent.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Watchlist is empty</div>';
@@ -946,5 +962,21 @@ function refreshWheelBacktestViews(){
       const tickerResult=_computeWheelBacktest(selectedTicker,monthsOut,target);
       _renderWheelBacktestFromResult(tickerResult,false,false,selectedTicker,monthsOut,target);
     }
+    window.scrollTo(0,preservedScrollY);
   },10);
+}
+
+// Called by Prefetch/Full Refresh when they finish, so Wheel Backtest
+// results stay consistent with the rest of the Dashboard (the Puts/CC
+// conviction cards already update in the background this same way,
+// regardless of which tab is currently visible -- see runDashboards()).
+// If the user is actively on this exact view right now, refresh
+// immediately (safe -- refreshWheelBacktestViews preserves scroll
+// position around its own render cycle). Otherwise, just mark it stale;
+// _syncDashboardViewModeUI picks that up and refreshes on next visit.
+function markWheelbtDataStale(){
+  _wheelbtDataStale=true;
+  if(typeof _activeTabName!=='undefined'&&_activeTabName==='dashboard'&&typeof dashboardViewMode!=='undefined'&&dashboardViewMode==='wheelbt'){
+    refreshWheelBacktestViews();
+  }
 }

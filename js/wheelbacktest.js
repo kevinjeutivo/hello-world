@@ -731,10 +731,10 @@ function _wheelBacktestTargetSentence(target,pctBeatTarget){
 // labeled -- the previous version showed only the entry date with no
 // label at all, sitting right next to an outcome that actually resolves
 // at the end of the cycle, which was genuinely ambiguous.
-function _wheelBacktestCycleRowHtml(t,hist2y,avgCapitalBase,totalCycles){
-  const toDateStr=d=>{const parsed=_parseHist2yDate(d);return parsed?parsed.toLocaleDateString('en-US',{month:'short',day:'numeric'}):'?';};
-  const entryDateStr=hist2y?toDateStr(hist2y.timestamps?.[t.entryIdx]):'?';
-  const exitDateStr=hist2y?toDateStr(hist2y.timestamps?.[t.exitIdx]):'?';
+function _wheelBacktestCycleRowHtml(t,hist2y,avgCapitalBase,totalCycles,showEntryYear){
+  const toDateStr=(d,includeYear)=>{const parsed=_parseHist2yDate(d);if(!parsed)return'?';return parsed.toLocaleDateString('en-US',includeYear?{month:'short',day:'numeric',year:'numeric'}:{month:'short',day:'numeric'});};
+  const entryDateStr=hist2y?toDateStr(hist2y.timestamps?.[t.entryIdx],showEntryYear):'?';
+  const exitDateStr=hist2y?toDateStr(hist2y.timestamps?.[t.exitIdx],false):'?';
   const label=t.optionType==='put'?'CSP':'CC';
   const outcome=t.assigned?(t.optionType==='put'?'Assigned':'Called away'):'Expired worthless';
   const outcomeColor=t.assigned?'var(--warn)':'var(--green)';
@@ -905,10 +905,26 @@ function _wheelBacktestExampleRunBodyHtml(n){
     ?`This runs continuously from the earliest cached data through to today -- not one of many samples, the single full history available for this ticker -- all ${n.totalCycles} cycles shown below, scroll to see the full sequence.`
     :`The stats above pool all ${n.sampleSize} simulated windows together. This is just ONE of them -- the most recent that ran a full year -- all ${n.totalCycles} cycles shown below so you can see what actually happened along that specific path.`;
 
+  // Tracks which calendar year was last shown on an entry date, across
+  // the whole list -- a row's entry date gets a year only when it differs
+  // from the previous row's (or on the very first row). Exit dates never
+  // get one. Keeps most rows exactly as short as before, while still
+  // making it possible to tell which year you're looking at in a run that
+  // spans several -- exactly the ambiguity a multi-year Full History list
+  // could otherwise create.
+  let _lastShownYear=null;
+  const cycleRowsHtml=n.cyclesToShow.map(t=>{
+    const entryDate=_parseHist2yDate(n.hist2y?.timestamps?.[t.entryIdx]);
+    const entryYear=entryDate?entryDate.getFullYear():null;
+    const showEntryYear=entryYear!=null&&entryYear!==_lastShownYear;
+    if(entryYear!=null)_lastShownYear=entryYear;
+    return _wheelBacktestCycleRowHtml(t,n.hist2y,n.avgCapitalBase,n.totalCycles,showEntryYear);
+  }).join('');
+
   return`
     ${spanStr?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:3px">Window: ${spanStr}</div>`:''}
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">${descSentence}</div>
-    <div style="max-height:160px;overflow-y:auto">${n.cyclesToShow.map(t=>_wheelBacktestCycleRowHtml(t,n.hist2y,n.avgCapitalBase,n.totalCycles)).join('')||'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No cycles to show.</div>'}</div>
+    <div style="max-height:160px;overflow-y:auto">${cycleRowsHtml||'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No cycles to show.</div>'}</div>
     ${n.simpleReturnPct!=null?`<div style="display:flex;justify-content:space-between;font-size:11px;padding:6px 0;margin-top:4px;border-top:1px solid var(--border)">
       <span style="color:var(--text)">Total this run</span>
       <span style="font-weight:700;color:${n.simpleReturnPct>=0?'var(--green)':'var(--red)'}">${n.simpleReturnPct>=0?'+':''}${n.simpleReturnPct.toFixed(2)}%${n.isFullHistory?' (raw, not annualized)':''}</span>

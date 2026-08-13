@@ -242,6 +242,7 @@ async function prefetchAll(){
   S.set('last_refresh_health',_health);
   _updateRefreshHealthBadge();
   if(btn)btn.disabled=false;renderWatchlist();toast('All data cached for offline use');
+  markWheelbtDataStale();
 }
 
 async function fullRefreshEverything(){
@@ -271,4 +272,5 @@ async function fullRefreshEverything(){
   setRefreshSpinner(false);
   setTimeout(()=>{document.getElementById('full-refresh-progress').style.display='none';},2000);
   btn.disabled=false;renderWatchlist();toast('Full refresh complete',3000);
+  markWheelbtDataStale();
 }

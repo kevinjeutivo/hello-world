@@ -371,6 +371,7 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlo
   while(true){
     const cyc=_findFloorClearingCycle(hist2y,curIdx,monthsOut,targetFloorPct,mode,r,WHEELBT_MAX_MONTHS_OUT,termSlope);
     if(!cyc)break; // couldn't clear the floor at any DTE, at any remaining entry day -- stop here
+    cyc.cyclePosition=trades.length+1; // 1-indexed position in the FULL sequence -- lets a truncated display show "cycle N of M" even when the shown slice doesn't start at the window's own true beginning
     trades.push(cyc);
     cumPremium+=cyc.premium;
     cyc.equityGainDollar=0; // default; only a called-away call leg realizes an equity gain/loss
@@ -730,7 +731,7 @@ function _wheelBacktestTargetSentence(target,pctBeatTarget){
 // labeled -- the previous version showed only the entry date with no
 // label at all, sitting right next to an outcome that actually resolves
 // at the end of the cycle, which was genuinely ambiguous.
-function _wheelBacktestCycleRowHtml(t,hist2y,avgCapitalBase){
+function _wheelBacktestCycleRowHtml(t,hist2y,avgCapitalBase,totalCycles){
   const toDateStr=d=>{const parsed=_parseHist2yDate(d);return parsed?parsed.toLocaleDateString('en-US',{month:'short',day:'numeric'}):'?';};
   const entryDateStr=hist2y?toDateStr(hist2y.timestamps?.[t.entryIdx]):'?';
   const exitDateStr=hist2y?toDateStr(hist2y.timestamps?.[t.exitIdx]):'?';
@@ -738,6 +739,11 @@ function _wheelBacktestCycleRowHtml(t,hist2y,avgCapitalBase){
   const outcome=t.assigned?(t.optionType==='put'?'Assigned':'Called away'):'Expired worthless';
   const outcomeColor=t.assigned?'var(--warn)':'var(--green)';
   const monthsLabel=t.monthsUsed?` &middot; ${t.monthsUsed}mo`:'';
+  // Only shown for a truncated (last-8-of-N) list -- makes it explicit
+  // when a row is NOT the window's own true first cycle (which is always
+  // a put; only a mid-sequence cutoff can make the top visible row a
+  // call), rather than leaving that ambiguous.
+  const posLabel=(t.cyclePosition&&totalCycles&&totalCycles>8)?` &middot; Cycle ${t.cyclePosition} of ${totalCycles}`:'';
   // Puts are always struck below spot, calls always above (the yield-floor
   // solver only ever returns OTM-eligible strikes) -- one absolute-value
   // formula covers both directions correctly.
@@ -756,7 +762,7 @@ function _wheelBacktestCycleRowHtml(t,hist2y,avgCapitalBase){
     </div>`:'';
   return`<div style="padding:5px 0;border-bottom:1px solid var(--surface3)">
     <div style="display:flex;justify-content:space-between;font-size:11px">
-      <span style="color:var(--text2)">${label} $${strikeStr}${monthsLabel}${otmLabel}</span>
+      <span style="color:var(--text2)">${label} $${strikeStr}${monthsLabel}${otmLabel}${posLabel}</span>
       <span style="color:${outcomeColor}">${outcome}</span>
     </div>
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:1px">Opened ${entryDateStr} ($${t.spotAtEntry.toFixed(2)}) &rarr; ${exitDateStr} ($${t.priceAtExit.toFixed(2)})</div>
@@ -902,7 +908,7 @@ function _wheelBacktestExampleRunBodyHtml(n){
   return`
     ${spanStr?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:3px">Window: ${spanStr}</div>`:''}
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">${descSentence}</div>
-    <div style="max-height:160px;overflow-y:auto">${n.cyclesToShow.map(t=>_wheelBacktestCycleRowHtml(t,n.hist2y,n.avgCapitalBase)).join('')||'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No cycles to show.</div>'}</div>
+    <div style="max-height:160px;overflow-y:auto">${n.cyclesToShow.map(t=>_wheelBacktestCycleRowHtml(t,n.hist2y,n.avgCapitalBase,n.totalCycles)).join('')||'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No cycles to show.</div>'}</div>
     ${n.simpleReturnPct!=null?`<div style="display:flex;justify-content:space-between;font-size:11px;padding:6px 0;margin-top:4px;border-top:1px solid var(--border)">
       <span style="color:var(--text)">Total this run${n.totalCycles>8?' (all '+n.totalCycles+' cycles, not just those shown)':''}</span>
       <span style="font-weight:700;color:${n.simpleReturnPct>=0?'var(--green)':'var(--red)'}">${n.simpleReturnPct>=0?'+':''}${n.simpleReturnPct.toFixed(2)}%${n.isFullHistory?' (raw, not annualized)':''}</span>

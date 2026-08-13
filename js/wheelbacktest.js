@@ -528,7 +528,7 @@ function _computeWheelBacktest(ticker,monthsOut,targetFloorPct){
     ticker,monthsOut,targetFloorPct,sampleSize:windows.length,
     median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
-    recentCycles:mostRecentWindow.trades.slice(-8),
+    recentCycles:mostRecentWindow.trades,
     recentRunStartIdx:mostRecentWindow.startIdx,
     recentRunEndIdx:mostRecentWindow.endIdx,
     recentRunTotalCycles:mostRecentWindow.trades.length,
@@ -580,7 +580,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct){
         const rawEndDate=h2.timestamps?.[win.endIdx];
         const endDate=rawEndDate!=null?_parseHist2yDate(rawEndDate):null;
         if(endDate&&(bestRunEndDate==null||endDate>bestRunEndDate)){
-          bestRunCycles=win.trades.slice(-8);bestRunTicker=t;bestRunStartIdx=win.startIdx;bestRunEndIdx=win.endIdx;bestRunTotalCycles=win.trades.length;bestRunEndDate=endDate;bestRunSimpleReturnPct=win.simpleReturnPct;bestRunStillHoldingShares=win.stillHoldingShares;bestRunUnrealizedShareGainLoss=win.unrealizedShareGainLoss;bestRunAvgCapitalBase=win.avgCapitalBase;
+          bestRunCycles=win.trades;bestRunTicker=t;bestRunStartIdx=win.startIdx;bestRunEndIdx=win.endIdx;bestRunTotalCycles=win.trades.length;bestRunEndDate=endDate;bestRunSimpleReturnPct=win.simpleReturnPct;bestRunStillHoldingShares=win.stillHoldingShares;bestRunUnrealizedShareGainLoss=win.unrealizedShareGainLoss;bestRunAvgCapitalBase=win.avgCapitalBase;
         }
       }
     });
@@ -743,7 +743,7 @@ function _wheelBacktestCycleRowHtml(t,hist2y,avgCapitalBase,totalCycles){
   // when a row is NOT the window's own true first cycle (which is always
   // a put; only a mid-sequence cutoff can make the top visible row a
   // call), rather than leaving that ambiguous.
-  const posLabel=(t.cyclePosition&&totalCycles&&totalCycles>8)?` &middot; Cycle ${t.cyclePosition} of ${totalCycles}`:'';
+  const posLabel=(t.cyclePosition&&totalCycles&&totalCycles>1)?` &middot; Cycle ${t.cyclePosition} of ${totalCycles}`:'';
   // Puts are always struck below spot, calls always above (the yield-floor
   // solver only ever returns OTM-eligible strikes) -- one absolute-value
   // formula covers both directions correctly.
@@ -883,7 +883,7 @@ function _wheelbtNormalizeRecentRun(result,hist2y){
 function _wheelbtNormalizeFullHistory(full){
   if(!full)return null;
   return{
-    cyclesToShow:full.trades.slice(-8),totalCycles:full.totalCycles,
+    cyclesToShow:full.trades,totalCycles:full.totalCycles,
     hist2y:S.get('hist2y_'+full.ticker),startIdx:full.startIdx,endIdx:full.endIdx,
     simpleReturnPct:full.simpleReturnPct,annualizedReturnPct:full.annualizedReturnPct,
     stillHoldingShares:full.stillHoldingShares,avgCapitalBase:full.avgCapitalBase,
@@ -902,15 +902,15 @@ function _wheelBacktestExampleRunBodyHtml(n){
   const endStr=toDateStr(n.hist2y?.timestamps?.[n.endIdx]);
   const spanStr=(startStr&&endStr)?`${startStr} &rarr; ${endStr}`:'';
   const descSentence=n.isFullHistory
-    ?`This runs continuously from the earliest cached data through to today -- not one of many samples, the single full history available for this ticker -- shown cycle-by-cycle${n.totalCycles>8?' (last 8 of '+n.totalCycles+' cycles shown)':''}.`
-    :`The stats above pool all ${n.sampleSize} simulated windows together. This is just ONE of them -- the most recent that ran a full year -- shown cycle-by-cycle so you can see what actually happened along that specific path${n.totalCycles>8?' (last 8 of '+n.totalCycles+' cycles shown)':''}.`;
+    ?`This runs continuously from the earliest cached data through to today -- not one of many samples, the single full history available for this ticker -- all ${n.totalCycles} cycles shown below, scroll to see the full sequence.`
+    :`The stats above pool all ${n.sampleSize} simulated windows together. This is just ONE of them -- the most recent that ran a full year -- all ${n.totalCycles} cycles shown below so you can see what actually happened along that specific path.`;
 
   return`
     ${spanStr?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:3px">Window: ${spanStr}</div>`:''}
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">${descSentence}</div>
     <div style="max-height:160px;overflow-y:auto">${n.cyclesToShow.map(t=>_wheelBacktestCycleRowHtml(t,n.hist2y,n.avgCapitalBase,n.totalCycles)).join('')||'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No cycles to show.</div>'}</div>
     ${n.simpleReturnPct!=null?`<div style="display:flex;justify-content:space-between;font-size:11px;padding:6px 0;margin-top:4px;border-top:1px solid var(--border)">
-      <span style="color:var(--text)">Total this run${n.totalCycles>8?' (all '+n.totalCycles+' cycles, not just those shown)':''}</span>
+      <span style="color:var(--text)">Total this run</span>
       <span style="font-weight:700;color:${n.simpleReturnPct>=0?'var(--green)':'var(--red)'}">${n.simpleReturnPct>=0?'+':''}${n.simpleReturnPct.toFixed(2)}%${n.isFullHistory?' (raw, not annualized)':''}</span>
     </div>${n.isFullHistory&&n.annualizedReturnPct!=null?`<div style="display:flex;justify-content:space-between;font-size:10px;padding:2px 0">
       <span style="color:var(--text3)">Same total, annualized</span>

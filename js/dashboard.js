@@ -49,7 +49,7 @@ function _syncDashboardViewModeUI(){
   if(dashboardViewMode==='risk'){renderAssignmentRisk();}
   if(dashboardViewMode==='gap'){_populateGapFillDropdown();renderGapFillDashboard();}
   if(dashboardViewMode==='notes'){renderDashboardNotes();}
-  if(dashboardViewMode==='wheelbt'){_populateWheelBacktestDropdown();refreshWheelBacktestViews();}
+  if(dashboardViewMode==='wheelbt'){_populateWheelBacktestDropdown();if(!_wheelbtViewEverRendered||_wheelbtDataStale)setTimeout(refreshWheelBacktestViews,50);}
 }
 
 // 9 component definitions split into two rows: 4 on top, 5 on bottom.

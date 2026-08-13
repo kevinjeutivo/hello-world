@@ -355,7 +355,7 @@ function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFl
 // window's ~1 year is used up or the available price history runs out.
 const WHEELBT_MAX_MONTHS_OUT=3; // matches the app's existing 3-expiry data-fetch cap elsewhere
 
-function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlope){
+function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlope,maxTradingDays){
   const closes=hist2y.closes;
   const startPrice=closes[startIdx];
   if(startPrice==null||startPrice<=0)return null;
@@ -366,7 +366,7 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlo
   let costBasis=null;
   let cumPremium=0;
   let realizedShareGainLoss=0;
-  const tradingDaysInYear=252;
+  const tradingDaysInYear=maxTradingDays||252; // callers omit this for the standard ~1-year window; Full History passes Infinity
 
   while(true){
     const cyc=_findFloorClearingCycle(hist2y,curIdx,monthsOut,targetFloorPct,mode,r,WHEELBT_MAX_MONTHS_OUT,termSlope);
@@ -468,6 +468,35 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlo
 // headline stats -- a window truncated by running out of history early
 // would understate/skew the annualized figure and isn't a fair comparison
 // to the full-length ones.
+
+// Computes ONE continuous run across a ticker's ENTIRE cached history,
+// rather than the standard ~1-year window -- starts at the earliest
+// monthly-anchored index (same anchoring convention as the regular
+// rolling windows, just taking the first one instead of iterating all of
+// them) and runs uncapped, stopping only when the cached data runs out.
+// Intentionally NOT part of the standard dashboard computation -- only
+// called lazily when the Full History toggle on the example run is
+// actually used.
+function _computeWheelBacktestFullHistory(ticker,monthsOut,targetFloorPct){
+  const h2=S.get('hist2y_'+ticker);
+  if(!h2?.closes?.length||!h2.timestamps||!h2.opens||!h2.highs||!h2.lows)return null;
+  const rRaw=_getTBillYield();
+  const r=(rRaw!=null?rRaw:4.0)/100;
+  const termSlope=_estimateTermStructureSlope(h2);
+  const starts=_enumerateMonthlyStartIndices(h2);
+  if(!starts.length)return null;
+  const win=_simulateWheelWindow(h2,starts[0],monthsOut,targetFloorPct,r,termSlope,Infinity);
+  if(!win||!win.trades.length)return null;
+  return{
+    ticker,trades:win.trades,startIdx:win.startIdx,endIdx:win.endIdx,
+    totalCycles:win.trades.length,simpleReturnPct:win.simpleReturnPct,
+    annualizedReturnPct:win.annualizedReturnPct,elapsedCalendarDaysApprox:win.elapsedCalendarDaysApprox,
+    avgCapitalBase:win.avgCapitalBase,stillHoldingShares:win.stillHoldingShares,
+    unrealizedShareGainLoss:win.unrealizedShareGainLoss,assignmentRatePct:win.assignmentRatePct,
+    buyHoldAnnualizedPct:win.buyHoldAnnualizedPct,
+  };
+}
+
 function _computeWheelBacktest(ticker,monthsOut,targetFloorPct){
   const h2=S.get('hist2y_'+ticker);
   if(!h2?.closes?.length||!h2.timestamps||!h2.opens||!h2.highs||!h2.lows)return null;
@@ -796,10 +825,7 @@ function _renderWheelBacktestFromResult(result,isAggregate,isStarredMode,selecte
     ?`<div style="font-size:10px;color:var(--warn);margin-bottom:10px">&#x26A0; A result this large usually means the underlying moved sharply during one of these windows -- treat it as a sign of high volatility in that stretch, not a number to take at face value.</div>`:'';
 
   const exampleHist2y=S.get('hist2y_'+(isAggregate?result.recentCyclesTicker:selectedTicker));
-  const toDateStr=d=>{const parsed=_parseHist2yDate(d);return parsed?parsed.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):null;};
-  const runStartStr=toDateStr(exampleHist2y?.timestamps?.[result.recentRunStartIdx]);
-  const runEndStr=toDateStr(exampleHist2y?.timestamps?.[result.recentRunEndIdx]);
-  const runSpanStr=(runStartStr&&runEndStr)?`${runStartStr} &rarr; ${runEndStr}`:'';
+  const exampleTicker=isAggregate?result.recentCyclesTicker:selectedTicker;
 
   content.innerHTML=`
     <div style="font-family:var(--mono);font-size:10px;color:${isAggregate?'var(--text3)':'var(--warn)'};margin-bottom:12px">${isAggregate?'':'&#x26A0; '}${scopeLabel} &middot; ${result.sampleSize} simulated windows</div>
@@ -817,15 +843,109 @@ function _renderWheelBacktestFromResult(result,isAggregate,isStarredMode,selecte
     <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3);margin-bottom:12px">
       <span style="color:var(--text2)">Premium source</span><span style="color:var(--warn)">Realized vol + est. term structure</span>
     </div>
-    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">One Example Run${result.recentCyclesTicker?' ('+result.recentCyclesTicker+')':''}</div>
-    ${runSpanStr?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:3px">Window: ${runSpanStr}</div>`:''}
-    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">The stats above pool all ${result.sampleSize} simulated windows together. This is just ONE of them -- the most recent that ran a full year -- shown cycle-by-cycle so you can see what actually happened along that specific path${result.recentRunTotalCycles>8?' (last 8 of '+result.recentRunTotalCycles+' cycles shown)':''}.</div>
-    <div style="max-height:160px;overflow-y:auto">${(result.recentCycles||[]).map(t=>_wheelBacktestCycleRowHtml(t,exampleHist2y,result.recentRunAvgCapitalBase)).join('')||'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No cycles to show.</div>'}</div>
-    ${result.recentRunSimpleReturnPct!=null?`<div style="display:flex;justify-content:space-between;font-size:11px;padding:6px 0;margin-top:4px;border-top:1px solid var(--border)">
-      <span style="color:var(--text)">Total this run${result.recentRunTotalCycles>8?' (all '+result.recentRunTotalCycles+' cycles, not just those shown)':''}</span>
-      <span style="font-weight:700;color:${result.recentRunSimpleReturnPct>=0?'var(--green)':'var(--red)'}">${result.recentRunSimpleReturnPct>=0?'+':''}${result.recentRunSimpleReturnPct.toFixed(2)}%</span>
-    </div>${result.recentRunStillHoldingShares?`<div style="font-family:var(--mono);font-size:9px;color:var(--text3)">Includes shares still held at the end of this run, marked at their value on the last day (not yet a realized sale).</div>`:''}`:''}
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
+      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Example Run${exampleTicker?' ('+exampleTicker+')':''}</div>
+      <div style="display:flex;gap:4px">
+        <span id="wheelbt-example-toggle-recent" onclick="setWheelBacktestExampleRunMode('recent')" style="font-family:var(--mono);font-size:8px;padding:2px 6px;border-radius:3px;cursor:pointer;background:var(--accent);color:#000">Most Recent</span>
+        <span id="wheelbt-example-toggle-full" onclick="setWheelBacktestExampleRunMode('full')" style="font-family:var(--mono);font-size:8px;padding:2px 6px;border-radius:3px;cursor:pointer;background:var(--surface3);color:var(--text3)">Full History</span>
+      </div>
+    </div>
+    <div id="wheelbt-example-run-content">${_wheelBacktestExampleRunBodyHtml(_wheelbtNormalizeRecentRun(result,exampleHist2y))}</div>
   `;
+
+  // Stored so the toggle handler can re-render either mode later without
+  // needing to re-derive scope/ticker context, and so Full History (a
+  // separate, lazy computation) knows exactly which ticker and settings
+  // to use.
+  _wheelbtLastRenderContext={result,isAggregate,exampleTicker,monthsOut,target};
+  _wheelbtExampleRunMode='recent';
+}
+
+// Converts the standard "Most Recent" result shape into the common shape
+// _wheelBacktestExampleRunBodyHtml consumes, so both modes can share one
+// rendering function despite coming from differently-shaped source data.
+function _wheelbtNormalizeRecentRun(result,hist2y){
+  return{
+    cyclesToShow:result.recentCycles||[],totalCycles:result.recentRunTotalCycles,
+    hist2y,startIdx:result.recentRunStartIdx,endIdx:result.recentRunEndIdx,
+    simpleReturnPct:result.recentRunSimpleReturnPct,annualizedReturnPct:null,
+    stillHoldingShares:result.recentRunStillHoldingShares,avgCapitalBase:result.recentRunAvgCapitalBase,
+    sampleSize:result.sampleSize,isFullHistory:false,
+  };
+}
+
+function _wheelbtNormalizeFullHistory(full){
+  if(!full)return null;
+  return{
+    cyclesToShow:full.trades.slice(-8),totalCycles:full.totalCycles,
+    hist2y:S.get('hist2y_'+full.ticker),startIdx:full.startIdx,endIdx:full.endIdx,
+    simpleReturnPct:full.simpleReturnPct,annualizedReturnPct:full.annualizedReturnPct,
+    stillHoldingShares:full.stillHoldingShares,avgCapitalBase:full.avgCapitalBase,
+    sampleSize:null,isFullHistory:true,
+  };
+}
+
+// Shared body renderer for the example-run section -- window span,
+// description, cycle list, and the total-this-run summary line. Consumes
+// the common shape either normalizer above produces, so neither mode
+// needs its own separate rendering logic.
+function _wheelBacktestExampleRunBodyHtml(n){
+  if(!n)return'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">Not enough cached history for this ticker to run a full-history simulation.</div>';
+  const toDateStr=d=>{const parsed=_parseHist2yDate(d);return parsed?parsed.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):null;};
+  const startStr=toDateStr(n.hist2y?.timestamps?.[n.startIdx]);
+  const endStr=toDateStr(n.hist2y?.timestamps?.[n.endIdx]);
+  const spanStr=(startStr&&endStr)?`${startStr} &rarr; ${endStr}`:'';
+  const descSentence=n.isFullHistory
+    ?`This runs continuously from the earliest cached data through to today -- not one of many samples, the single full history available for this ticker -- shown cycle-by-cycle${n.totalCycles>8?' (last 8 of '+n.totalCycles+' cycles shown)':''}.`
+    :`The stats above pool all ${n.sampleSize} simulated windows together. This is just ONE of them -- the most recent that ran a full year -- shown cycle-by-cycle so you can see what actually happened along that specific path${n.totalCycles>8?' (last 8 of '+n.totalCycles+' cycles shown)':''}.`;
+
+  return`
+    ${spanStr?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:3px">Window: ${spanStr}</div>`:''}
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">${descSentence}</div>
+    <div style="max-height:160px;overflow-y:auto">${n.cyclesToShow.map(t=>_wheelBacktestCycleRowHtml(t,n.hist2y,n.avgCapitalBase)).join('')||'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No cycles to show.</div>'}</div>
+    ${n.simpleReturnPct!=null?`<div style="display:flex;justify-content:space-between;font-size:11px;padding:6px 0;margin-top:4px;border-top:1px solid var(--border)">
+      <span style="color:var(--text)">Total this run${n.totalCycles>8?' (all '+n.totalCycles+' cycles, not just those shown)':''}</span>
+      <span style="font-weight:700;color:${n.simpleReturnPct>=0?'var(--green)':'var(--red)'}">${n.simpleReturnPct>=0?'+':''}${n.simpleReturnPct.toFixed(2)}%${n.isFullHistory?' (raw, not annualized)':''}</span>
+    </div>${n.isFullHistory&&n.annualizedReturnPct!=null?`<div style="display:flex;justify-content:space-between;font-size:10px;padding:2px 0">
+      <span style="color:var(--text3)">Same total, annualized</span>
+      <span style="color:var(--accent)">${n.annualizedReturnPct>=0?'+':''}${n.annualizedReturnPct.toFixed(2)}%</span>
+    </div>`:''}${n.stillHoldingShares?`<div style="font-family:var(--mono);font-size:9px;color:var(--text3)">Includes shares still held at the end of this run, marked at their value on the last day (not yet a realized sale).</div>`:''}`:''}
+  `;
+}
+
+// Toggle handler -- switches between "Most Recent" (cheap, reuses the
+// already-computed result) and "Full History" (a separate, lazy
+// computation, only run when this is actually tapped). Re-renders just
+// the example-run content, not the whole card.
+let _wheelbtLastRenderContext=null;
+let _wheelbtExampleRunMode='recent';
+function setWheelBacktestExampleRunMode(mode){
+  if(!_wheelbtLastRenderContext)return;
+  _wheelbtExampleRunMode=mode;
+  const recentBtn=document.getElementById('wheelbt-example-toggle-recent');
+  const fullBtn=document.getElementById('wheelbt-example-toggle-full');
+  if(recentBtn){recentBtn.style.background=mode==='recent'?'var(--accent)':'var(--surface3)';recentBtn.style.color=mode==='recent'?'#000':'var(--text3)';}
+  if(fullBtn){fullBtn.style.background=mode==='full'?'var(--accent)':'var(--surface3)';fullBtn.style.color=mode==='full'?'#000':'var(--text3)';}
+
+  const sectionEl=document.getElementById('wheelbt-example-run-content');
+  if(!sectionEl)return;
+  const ctx=_wheelbtLastRenderContext;
+
+  if(mode==='recent'){
+    const hist2y=S.get('hist2y_'+ctx.exampleTicker);
+    sectionEl.innerHTML=_wheelBacktestExampleRunBodyHtml(_wheelbtNormalizeRecentRun(ctx.result,hist2y));
+    return;
+  }
+
+  if(!ctx.exampleTicker){
+    sectionEl.innerHTML='<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">No ticker available for full history.</div>';
+    return;
+  }
+  sectionEl.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Computing full history...</div>';
+  setTimeout(()=>{
+    const full=_computeWheelBacktestFullHistory(ctx.exampleTicker,ctx.monthsOut,ctx.target);
+    sectionEl.innerHTML=_wheelBacktestExampleRunBodyHtml(_wheelbtNormalizeFullHistory(full));
+  },10);
 }
 
 // ── Best Tickers ranking ─────────────────────────────────────────────────

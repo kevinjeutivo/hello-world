@@ -1581,7 +1581,7 @@ if(document.readyState==='loading'){
   try{init();}catch(e){console.error('Init error:',e);toast('App init error: '+e.message,5000);}
 }
 
-if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').then(reg=>{window._swReg=reg;_updateBuildLabel();}).catch(err=>console.warn('SW:',err));});
+if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').then(reg=>{window._swReg=reg;_updateBuildLabel();}).catch(err=>console.warn('SW:',err));navigator.serviceWorker.addEventListener('controllerchange',_updateBuildLabel);});
 }
 </script>
 <!-- Income account switcher bar -- OUTSIDE #app to escape CSS zoom context.

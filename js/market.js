@@ -1,5 +1,6 @@
 // ═══ MARKET TAB with T-BILL YIELDS ═══
 function _mktTimeout(p,ms,label){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error('Timeout: '+label)),ms))]);}
+let currentTBillSpan='1y'; // T-bill chart timeframe toggle (3m/6m/1y)
 // Shared by loadMarketTab (live) and _renderMarketFromCache (cached) --
 // previously defined identically in both places.
 function fmtChg(val,chg,chgPct){if(!val)return'N/A';const color=chg>=0?'var(--green)':'var(--red)';const sign=chg>=0?'+':'';return`${val.toFixed(2)} <span style="color:${color};font-size:11px">${sign}${chg?.toFixed(2)} (${sign}${chgPct?.toFixed(2)}%)</span>`;}
@@ -13,7 +14,12 @@ function _computeMarketDerivedValues(sp500,nasdaq,spLivePrice,spPrevClose,nqLive
   const tb3Yr=tbill3m.length>=252?tbill3m[tbill3m.length-252].value:tbill3m[0]?.value;
   const tb6Yr=tbill6m.length>=252?tbill6m[tbill6m.length-252].value:tbill6m[0]?.value;
   const spread=tb3Current&&tb6Current?tb6Current-tb3Current:null;
-  const spreadStr=spread!==null?(spread>=0?`6M yields ${spread.toFixed(2)}bp above 3M (normal)`:`3M yields ${Math.abs(spread).toFixed(2)}bp above 6M (inverted -- market expects rate cuts)`):'';
+  // ^FVX is the 5-Year Treasury yield, used as the second series here --
+  // there is no 6-month T-bill index available via Yahoo. Label it honestly
+  // as 5Y throughout (previously mislabeled "6M" in the chart legend and
+  // spread text, even though this metric tile already correctly said
+  // "5-YEAR TREASURY").
+  const spreadStr=spread!==null?(spread>=0?`5Y yields ${spread.toFixed(2)}bp above 3M (normal)`:`3M yields ${Math.abs(spread).toFixed(2)}bp above 5Y (inverted -- market expects rate cuts)`):'';
 
   // Income engine summary -- compare all three layers
   const spyi_snap=S.get('snap_etf_SPYI');const nbos_snap=S.get('snap_etf_NBOS');
@@ -111,9 +117,9 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
       <div class="metrics-grid">
         <div class="metric-tile"><div class="metric-label">3-Month T-Bill (^IRX)</div><div class="metric-value" style="color:#64b5f6">${tb3Current?tb3Current.toFixed(3)+'%':'N/A'}</div><div class="metric-sub">${tb3Yr?`1Y ago: ${tb3Yr.toFixed(3)}% (${(tb3Current-tb3Yr)>=0?'+':''}${(tb3Current-tb3Yr).toFixed(3)}%)`:''}</div></div>
         <div class="metric-tile"><div class="metric-label">5-Year Treasury (^FVX)</div><div class="metric-value" style="color:#64b5f6">${tb6Current?tb6Current.toFixed(3)+'%':'N/A'}</div><div class="metric-sub">${tb6Yr?`1Y ago: ${tb6Yr.toFixed(3)}% (${(tb6Current-tb6Yr)>=0?'+':''}${(tb6Current-tb6Yr).toFixed(3)}%)`:''}</div></div>
-        ${spread!==null?`<div class="metric-tile" style="grid-column:span 2"><div class="metric-label">3M / 6M Spread</div><div class="metric-value" style="font-size:13px">${Math.abs(spread).toFixed(2)}bp ${spread>=0?'(6M > 3M)':'(3M > 6M -- inverted)'}</div><div class="metric-sub">${spreadStr}</div></div>`:''}
+        ${spread!==null?`<div class="metric-tile" style="grid-column:span 2"><div class="metric-label">3M / 5Y Spread</div><div class="metric-value" style="font-size:13px">${Math.abs(spread).toFixed(2)}bp ${spread>=0?'(5Y > 3M)':'(3M > 5Y -- inverted)'}</div><div class="metric-sub">${spreadStr}</div></div>`:''}
       </div>
-      ${tbill3m&&tbill3m.length?`<div class="chart-wrap" style="height:160px"><canvas id="tbill-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px">52-week history of 3-month (blue) and 6-month (orange) T-bill auction rates. Source: Yahoo Finance (^IRX, ^FVX) via Cloudflare Worker. When lines converge or cross (inversion), market is pricing in Federal Reserve rate cuts ahead.</div>`:''}
+      ${tbill3m&&tbill3m.length?`<div style="display:flex;gap:6px;margin:10px 0 4px"><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${currentTBillSpan==='3m'?'1':'0.4'}" id="tbill-btn-3m" onclick="toggleTBillSpan('3m')">3M</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${currentTBillSpan==='6m'?'1':'0.4'}" id="tbill-btn-6m" onclick="toggleTBillSpan('6m')">6M</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${currentTBillSpan==='1y'?'1':'0.4'}" id="tbill-btn-1y" onclick="toggleTBillSpan('1y')">1Y</button></div><div class="chart-wrap" style="height:160px"><canvas id="tbill-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px">History of 3-month T-bill (blue, ^IRX) and 5-Year Treasury (orange, ^FVX) yields -- not a 6-month T-bill rate, which has no direct index available via this data source. Source: Yahoo Finance via Cloudflare Worker. When lines converge or cross (inversion), market is pricing in Federal Reserve rate cuts ahead.</div>`:''}
     </div>
     <!-- Market indices -->
     <div class="metrics-grid">
@@ -128,23 +134,46 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
   setTimeout(()=>{
     const ctx=document.getElementById('sp500-chart')?.getContext('2d');
     if(ctx&&spLabels.length){new Chart(ctx,{type:'line',data:{labels:spLabels,datasets:[{data:spData,borderColor:'#4fc3f7',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}}});}
-    // T-bill chart -- Treasury auction data, weekly frequency
-    const tbCtx=document.getElementById('tbill-chart')?.getContext('2d');
-    if(tbCtx&&tbill3m.length){
-      // Use last 52 weekly auctions (~1 year) for chart
-      const last52_3m=tbill3m.slice(-52);
-      const last52_6m=tbill6m.slice(-52);
-      // Build unified label set from 3M dates (auctions every week)
-      const chartLabels=last52_3m.map(d=>d.date.slice(5)); // MM-DD
-      // Align 6M data to same date range (6M auctions are also weekly)
-      const len52=last52_3m.length;
-      const aligned6m=last52_6m.slice(-len52).map(d=>d.value);
-      new Chart(tbCtx,{type:'line',data:{labels:chartLabels,datasets:[
-        {label:'3-Month T-bill',data:last52_3m.map(d=>d.value),borderColor:'#64b5f6',borderWidth:1.5,pointRadius:0,tension:0.3,fill:false},
-        {label:'6-Month T-bill',data:aligned6m,borderColor:'#ff9800',borderWidth:1.5,pointRadius:0,tension:0.3,fill:false}
-      ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b8fa8',font:{size:9}}}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:8},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9},callback:v=>v.toFixed(2)+'%'},grid:{color:'#2a2e38'}}}}});
-    }
+    // T-bill chart -- data is daily (^IRX/^FVX via yahooHistory 1y/1d), not
+    // weekly. Slicing must be in trading-day counts, matching the 252-day
+    // convention already used for the "1Y ago" comparison above -- the old
+    // slice(-52) assumed weekly auctions and only ever showed ~10 weeks.
+    window._mktTBillData={tbill3m,tbill6m};
+    _drawTBillChart(tbill3m,tbill6m,currentTBillSpan);
   },100);
+}
+
+function _tbillSpanDays(span){return span==='3m'?63:span==='6m'?126:252;}
+
+// Shared by the initial render and toggleTBillSpan -- redraws only the
+// T-bill canvas, without re-rendering the whole card, so toggling doesn't
+// need a network round-trip (a full year of daily data is already fetched).
+function _drawTBillChart(tbill3m,tbill6m,span){
+  const tbCtx=document.getElementById('tbill-chart')?.getContext('2d');
+  if(!tbCtx||!tbill3m.length)return;
+  if(window._tbillChart){window._tbillChart.destroy();window._tbillChart=null;}
+  const n=_tbillSpanDays(span);
+  const recent3m=tbill3m.slice(-n);
+  const recent6m=tbill6m.slice(-n);
+  const chartLabels=recent3m.map(d=>d.date.slice(5)); // MM-DD
+  // Align 5Y series to the same date range/length as the 3M series
+  const aligned5y=recent6m.slice(-recent3m.length).map(d=>d.value);
+  window._tbillChart=new Chart(tbCtx,{type:'line',data:{labels:chartLabels,datasets:[
+    {label:'3-Month T-bill',data:recent3m.map(d=>d.value),borderColor:'#64b5f6',borderWidth:1.5,pointRadius:0,tension:0.3,fill:false},
+    {label:'5-Year Treasury',data:aligned5y,borderColor:'#ff9800',borderWidth:1.5,pointRadius:0,tension:0.3,fill:false}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b8fa8',font:{size:9}}}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:8},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9},callback:v=>v.toFixed(2)+'%'},grid:{color:'#2a2e38'}}}}});
+}
+
+function toggleTBillSpan(span){
+  currentTBillSpan=span;
+  const btn3=document.getElementById('tbill-btn-3m');
+  const btn6=document.getElementById('tbill-btn-6m');
+  const btn1=document.getElementById('tbill-btn-1y');
+  if(btn3)btn3.style.opacity=span==='3m'?'1':'0.4';
+  if(btn6)btn6.style.opacity=span==='6m'?'1':'0.4';
+  if(btn1)btn1.style.opacity=span==='1y'?'1':'0.4';
+  const data=window._mktTBillData;
+  if(data)_drawTBillChart(data.tbill3m,data.tbill6m,span);
 }
 
 async function loadMarketTab(){

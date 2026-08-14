@@ -1570,7 +1570,17 @@ function init(){
   window.addEventListener('online',updateOnlineIndicator);
   window.addEventListener('offline',updateOnlineIndicator);
   // Start market status banner ticker -- every second
-  try{updateMarketBanner();}catch(e){console.error('Banner error:',e);}
+  try{updateMarketBanner();}catch(e){
+    console.error('Banner error:',e);
+    // Previously this failed completely silently -- the static placeholder
+    // ("Loading market status...") would stay on screen indefinitely with
+    // no indication anything was wrong, easily mistaken for the app still
+    // loading rather than a real error.
+    try{
+      const banner=document.getElementById('market-status-banner');
+      if(banner){banner.className='mkt-closed';banner.textContent='Market status unavailable -- try refreshing';}
+    }catch(e2){}
+  }
   setInterval(function(){try{updateMarketBanner();}catch(e){console.error('Banner interval error:',e);}},1000);
   updateHeaderStatus();
   setInterval(()=>{try{updateHeaderStatus();}catch(e){console.warn('Header:',e.message);}},60000);
@@ -1600,7 +1610,7 @@ if(document.readyState==='loading'){
   try{init();}catch(e){console.error('Init error:',e);toast('App init error: '+e.message,5000);}
 }
 
-if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').then(reg=>{window._swReg=reg;_updateBuildLabel();}).catch(err=>console.warn('SW:',err));navigator.serviceWorker.addEventListener('controllerchange',_updateBuildLabel);});
+if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').then(reg=>{window._swReg=reg;_updateBuildLabel();}).catch(err=>console.warn('SW:',err));navigator.serviceWorker.addEventListener('controllerchange',()=>{_updateBuildLabel();try{toast('New version installed -- refresh to load it',5000);}catch(e){}});});
 }
 </script>
 <!-- Income account switcher bar -- OUTSIDE #app to escape CSS zoom context.

@@ -1,5 +1,8 @@
 // ═══ MARKET TAB with T-BILL YIELDS ═══
 function _mktTimeout(p,ms,label){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error('Timeout: '+label)),ms))]);}
+// Shared by loadMarketTab (live) and _renderMarketFromCache (cached) --
+// previously defined identically in both places.
+function fmtChg(val,chg,chgPct){if(!val)return'N/A';const color=chg>=0?'var(--green)':'var(--red)';const sign=chg>=0?'+':'';return`${val.toFixed(2)} <span style="color:${color};font-size:11px">${sign}${chg?.toFixed(2)} (${sign}${chgPct?.toFixed(2)}%)</span>`;}
 
 async function loadMarketTab(){
   if(offlineMode){await restoreMarketFromCache();return;}
@@ -104,7 +107,6 @@ async function loadMarketTab(){
     const nqPrevFinal=nqPrevClose||nqPrevHist||null;
     const nqChg=nqCurrent&&nqPrevFinal?nqCurrent-nqPrevFinal:null;
     const nqChgPct=nqChg&&nqPrevFinal?nqChg/nqPrevFinal*100:null;
-    function fmtChg(val,chg,chgPct){if(!val)return'N/A';const color=chg>=0?'var(--green)':'var(--red)';const sign=chg>=0?'+':'';return`${val.toFixed(2)} <span style="color:${color};font-size:11px">${sign}${chg?.toFixed(2)} (${sign}${chgPct?.toFixed(2)}%)</span>`;}
 
     // 1Y T-bill chart data
     // tbill3m and tbill6m arrays contain ~52 weekly auctions each
@@ -363,8 +365,6 @@ function _renderMarketFromCache(){
   const nqPrevFinal=nqPrevClose||nqPrevHist||null;
   const nqChg=nqCurrent&&nqPrevFinal?nqCurrent-nqPrevFinal:null;
   const nqChgPct=nqChg&&nqPrevFinal?nqChg/nqPrevFinal*100:null;
-
-  function fmtChg(val,chg,chgPct){if(!val)return'N/A';const color=chg>=0?'var(--green)':'var(--red)';const sign=chg>=0?'+':'';return`${val.toFixed(2)} <span style="color:${color};font-size:11px">${sign}${chg?.toFixed(2)} (${sign}${chgPct?.toFixed(2)}%)</span>`;}
 
   const cnews=S.get('market_news');
   const marketNews=cnews?.items||[];

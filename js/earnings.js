@@ -247,6 +247,7 @@ function renderRecentEarningsCards(){
   const el=document.getElementById('earnings-content');
   const data=buildRecentEarningsData();
   if(!data.length){el.innerHTML=`<div class="empty"><div class="empty-icon">&#x1F4C5;</div>No earnings reports in the last ${RECENT_EARNINGS_WINDOW_DAYS} days for your watchlist.</div>`;return;}
+  const starred=_starredTickers();
   el.innerHTML=data.map(e=>{
     const isFresh=e.daysAgo<=5;
     const cardCls='earnings-card earnings-card-normal';
@@ -268,9 +269,10 @@ function renderRecentEarningsCards(){
       (spark?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px"><span style="font-family:var(--mono);font-size:9px;color:var(--text3);width:32px;flex-shrink:0">PRICE</span>${spark}</div>`:'')+
       (hvrSpark?`<div style="display:flex;align-items:center;gap:8px"><span style="font-family:var(--mono);font-size:9px;color:var(--text3);width:32px;flex-shrink:0">HVR</span>${hvrSpark}</div>`:'')+
     `</div>`:'';
+    const starLabel=starred.has(e.ticker)?'<span style="font-size:14px;color:#ffc107" title="Starred">&#9733;</span>':'';
     return`<div class="${cardCls}" onclick="navigateToTicker('${e.ticker}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <div style="display:flex;align-items:center;gap:8px"><span style="font-family:var(--sans);font-size:20px;font-weight:700;color:var(--accent)">${e.ticker}</span>${e.snap.price?`<span style="font-family:var(--mono);font-size:13px;color:var(--text2)">$${e.snap.price.toFixed(2)}</span>`:''}</div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-family:var(--sans);font-size:20px;font-weight:700;color:var(--accent)">${e.ticker}</span>${starLabel}${e.snap.price?`<span style="font-family:var(--mono);font-size:13px;color:var(--text2)">$${e.snap.price.toFixed(2)}</span>`:''}</div>
         <div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--text2)">${agoLabel}</div><div style="font-family:var(--mono);font-size:11px;color:var(--text2)">${e.earningsDate}${timing}</div></div>
       </div>
       ${sparkRows}
@@ -369,6 +371,7 @@ function renderEarningsCards(isLive=false){
   if(!filtered.length){el.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4C5;</div>No upcoming earnings in this window. Press Refresh or run Full Refresh.</div>';return;}
   const ts=cached?.ts||nowPT();
   const tsEpoch=cached?.tsEpoch;
+  const starred=_starredTickers();
   el.innerHTML=tsChip(ts,isLive,tsEpoch)+filtered.map(e=>{
     const cardCls=e.daysUntil<=7?'earnings-card earnings-card-urgent':e.daysUntil<=21?'earnings-card earnings-card-soon':'earnings-card earnings-card-normal';
     const timing=e.earningsHour==='bmo'?' (before open)':e.earningsHour==='amc'?' (after close)':'';
@@ -378,9 +381,10 @@ function renderEarningsCards(isLive=false){
     else if(e.daysUntil<=35){guidance='Earnings in 2-5 weeks. Confirm your expirations do not straddle this date. ';if(e.beatStreak>=3)guidance+='Strong beat streak -- put selling may be favorable on post-announcement pullbacks. ';if(e.missStreak>=2)guidance+='Recent miss streak -- elevated event risk, consider wider strikes or avoiding this name around earnings. ';}
     else{guidance='Earnings far enough out that near-term options are generally safe. ';if(e.impliedMove)guidance+=`Market implies +/-${e.impliedMove}% move on earnings day.`;}
     const newsHtml=e.news?.length?e.news.map(n=>{const s=newsSentiment(n.headline);return`<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:3px"><span style="${s.css}">${sentDot(s)}</span> ${n.headline.slice(0,80)}...</div>`;}).join(''):'';
+    const starLabel=starred.has(e.ticker)?'<span style="font-size:15px;color:#ffc107;margin-left:4px" title="Starred">&#9733;</span>':'';
     return`<div class="${cardCls}" onclick="navigateToTicker('${e.ticker}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <div><span style="font-family:var(--sans);font-size:20px;font-weight:700;color:var(--accent)">${e.ticker}</span>${e.snap.price?`<span style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-left:8px">$${e.snap.price.toFixed(2)}</span>`:''}</div>
+        <div><span style="font-family:var(--sans);font-size:20px;font-weight:700;color:var(--accent)">${e.ticker}</span>${starLabel}${e.snap.price?`<span style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-left:8px">$${e.snap.price.toFixed(2)}</span>`:''}</div>
         <div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--warn)">${urgency}</div><div style="font-family:var(--mono);font-size:11px;color:var(--text2)">${e.earningsDate}${timing}</div></div>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">${e.ivrBadge||''}${e.impliedMove?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(124,106,247,0.2);color:#b39ddb">Implied +/-${e.impliedMove}%</span>`:''}${e.beatStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(0,200,150,0.2);color:var(--green)">Beat Streak: ${e.beatStreak}Qs</span>`:''}${e.missStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,71,87,0.2);color:var(--red)">Miss Streak: ${e.missStreak}Qs</span>`:''}</div>

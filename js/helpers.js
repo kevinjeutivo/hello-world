@@ -3,6 +3,15 @@
 // Globals used: tzPref, S, watchlist, WORKER_URL, vixThreshold
 // Dependencies: storage.js (S)
 
+// Shared by _computeRSIBacktestForTicker and _computeRSIBacktestAggregate --
+// previously defined identically (as a closure over a local `closes`) in
+// both places. Takes closes explicitly so both call sites can share it.
+function fwdReturn(closes,closeIdx,n){
+  const from=closes[closeIdx],to=closes[closeIdx+n];
+  if(from==null||to==null||from<=0)return null;
+  return(to-from)/from*100;
+}
+
 function applyFontSize(size){
   // All font sizes in this app are hardcoded in px (in app.css and inline
   // styles), so changing the root font-size has no effect on them.
@@ -489,12 +498,6 @@ function _computeRSIBacktestForTicker(ticker){
     const rsiPeriod=14;
     const rsi=computeRSI(closes,rsiPeriod); // rsi[k] corresponds to closes[k+rsiPeriod]
 
-    const fwdReturn=(closeIdx,n)=>{
-      const from=closes[closeIdx],to=closes[closeIdx+n];
-      if(from==null||to==null||from<=0)return null;
-      return(to-from)/from*100;
-    };
-
     // Detect episodes: both entering a zone (first day RSI crosses in, not
     // every day spent there) and leaving it (first day RSI crosses back out).
     // Entering measures "what happens once a stock looks stretched"; leaving
@@ -519,7 +522,7 @@ function _computeRSIBacktestForTicker(ticker){
     }
 
     const summarize=(idxList,n)=>{
-      const rets=idxList.map(idx=>fwdReturn(idx,n)).filter(r=>r!=null);
+      const rets=idxList.map(idx=>fwdReturn(closes,idx,n)).filter(r=>r!=null);
       if(!rets.length)return null;
       const avgReturn=rets.reduce((a,b)=>a+b,0)/rets.length;
       const pctPositive=rets.filter(r=>r>0).length/rets.length*100;
@@ -529,7 +532,7 @@ function _computeRSIBacktestForTicker(ticker){
     const baselineFor=(n)=>{
       const rets=[];
       for(let i=0;i<closes.length-n;i++){
-        const r=fwdReturn(i,n);
+        const r=fwdReturn(closes,i,n);
         if(r!=null)rets.push(r);
       }
       if(!rets.length)return null;
@@ -581,12 +584,6 @@ function _computeRSIBacktestAggregate(tickers){
       const rsi=computeRSI(closes,rsiPeriod);
       tickersWithData++;
 
-      const fwdReturn=(closeIdx,n)=>{
-        const from=closes[closeIdx],to=closes[closeIdx+n];
-        if(from==null||to==null||from<=0)return null;
-        return(to-from)/from*100;
-      };
-
       const idxByCat={oversoldEnter:[],oversoldExit:[],overboughtEnter:[],overboughtExit:[]};
       let wasOversold=false,wasOverbought=false;
       for(let k=0;k<rsi.length;k++){
@@ -605,10 +602,10 @@ function _computeRSIBacktestAggregate(tickers){
 
       RSI_BACKTEST_WINDOWS.forEach(n=>{
         CATEGORIES.forEach(cat=>{
-          idxByCat[cat].forEach(idx=>{const r=fwdReturn(idx,n);if(r!=null)pooled[cat][n].push(r);});
+          idxByCat[cat].forEach(idx=>{const r=fwdReturn(closes,idx,n);if(r!=null)pooled[cat][n].push(r);});
         });
         for(let i=0;i<closes.length-n;i++){
-          const r=fwdReturn(i,n);
+          const r=fwdReturn(closes,i,n);
           if(r!=null)baselinePooled[n].push(r);
         }
       });

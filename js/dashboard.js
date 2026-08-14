@@ -91,6 +91,7 @@ function renderCompBars(comps){
 
 function renderDashTable(elId,results,ts,isLive){
   const el=document.getElementById(elId);if(!results.length){el.innerHTML='<div class="empty">No data</div>';return;}
+  const starred=_starredTickers();
   el.innerHTML=results.filter(r=>r.signal!=='error').map(r=>{
     const bc=r.signal==='high'?'rgba(0,200,150,0.7)':r.signal==='medium'?'rgba(255,193,7,0.7)':'rgba(255,71,87,0.6)';
     const bg=r.signal==='high'?'rgba(0,200,150,0.12)':r.signal==='medium'?'rgba(255,193,7,0.12)':'rgba(255,71,87,0.10)';
@@ -99,9 +100,10 @@ function renderDashTable(elId,results,ts,isLive){
     const apy=r.estApy&&r.estApy!=='--'?r.estApy:null;
     const sc=r.score!=null?r.score:'';
     const comps=r.components||{};
+    const starLabel=starred.has(r.ticker)?'<span style="font-size:13px;color:#ffc107;margin-left:4px" title="Starred">&#9733;</span>':'';
     return'<div style="background:'+bg+';border:1px solid '+bc+';border-left:4px solid '+bc+';border-radius:10px;padding:12px;margin-bottom:10px;cursor:pointer" onclick="navigateToTicker(\''+r.ticker+'\')">'
       +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">'
-      +'<div><span style="font-family:var(--sans);font-size:18px;font-weight:700;color:var(--accent)">'+r.ticker+'</span>'+(r.price?'<span style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-left:8px">$'+r.price.toFixed(2)+'</span>':'')+'</div>'
+      +'<div><span style="font-family:var(--sans);font-size:18px;font-weight:700;color:var(--accent)">'+r.ticker+'</span>'+starLabel+(r.price?'<span style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-left:8px">$'+r.price.toFixed(2)+'</span>':'')+'</div>'
       +'<div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;font-weight:600">'+r.signal.toUpperCase()+(sc!==''?' &middot; '+sc:'')+'</div>'+(r.ivrBadge||'')+'</div>'
       +'</div>'
       +renderCompBars(comps)

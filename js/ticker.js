@@ -1,6 +1,13 @@
 // Income Engine -- ticker.js
 // currentBBSpan declared as global in index.html
 function _tkTimeout(p,ms,label){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error('Timeout: '+label)),ms))]);}
+// hist2y_-style timestamp -> 'YYYY-MM-DD'. Goes through the shared
+// _parseHist2yDate() (defined in wheelbacktest.js, loaded earlier) so the
+// epoch-seconds-vs-milliseconds handling stays in one place instead of
+// being reimplemented per call site -- previously three separate local
+// closures here had three slightly different (one incomplete) versions
+// of this same check.
+function _tkDateStr(d){const parsed=_parseHist2yDate(d);return parsed?parsed.toISOString().split('T')[0]:null;}
 // Ticker tab: load, render, restore from cache, chart functions.
 // Globals used: currentTicker, WORKER_URL, S, offlineMode
 // Dependencies: helpers.js, api.js, storage.js
@@ -824,14 +831,13 @@ function renderBBChart(bbData,hist){
         if(!h2?.timestamps||!h2.opens||!h2.highs||!h2.lows)return;
         const events=_computeGapEvents(t,h2);
         if(!events||!events.length)return;
-        const toDateStr=d=>{if(d instanceof Date)return d.toISOString().split('T')[0];return new Date(typeof d==='number'&&d<1e10?d*1000:d).toISOString().split('T')[0];};
-        const visibleDates=bbData.timestamps.map(toDateStr);
+        const visibleDates=bbData.timestamps.map(_tkDateStr);
         const dateToIdx={};visibleDates.forEach((d,i)=>{dateToIdx[d]=i;});
         const c=chart.ctx,xs=chart.scales.x,ys=chart.scales.y;
         c.save();
         c.setLineDash([3,3]);c.lineWidth=1;
         events.filter(e=>!e.filled).forEach(e=>{
-          const gapDateStr=toDateStr(h2.timestamps[e.index]);
+          const gapDateStr=_tkDateStr(h2.timestamps[e.index]);
           const startIdx=dateToIdx[gapDateStr];
           if(startIdx==null)return; // gap falls outside the currently visible span
           const xStart=xs.getPixelForValue(startIdx);
@@ -1430,24 +1436,20 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span,cmpSerie
   const cutoff=new Date(Date.now()-cutoffDays*86400000);
 
   // Align series by date -- find common date range
-  const _toDateStr=d=>{
-    if(d instanceof Date)return d.toISOString().split('T')[0];
-    return new Date(d*1000).toISOString().split('T')[0];
-  };
   const stockDates=hist2y.timestamps
-    .map((d,i)=>({d:_toDateStr(d),i}))
-    .filter(({d})=>new Date(d+'T00:00:00Z')>=cutoff)
+    .map((d,i)=>({d:_tkDateStr(d),i}))
+    .filter(({d})=>d&&new Date(d+'T00:00:00Z')>=cutoff)
     .map(({d})=>d);
   const spDates=hist2ySP.timestamps
-    .map((d,i)=>({d:_toDateStr(d),i}))
-    .filter(({d})=>new Date(d+'T00:00:00Z')>=cutoff)
+    .map((d,i)=>({d:_tkDateStr(d),i}))
+    .filter(({d})=>d&&new Date(d+'T00:00:00Z')>=cutoff)
     .map(({d})=>d);
   const _stockFiltered=hist2y.timestamps
-    .map((d,i)=>({d:_toDateStr(d),c:hist2y.closes[i]}))
-    .filter(({d})=>new Date(d+'T00:00:00Z')>=cutoff);
+    .map((d,i)=>({d:_tkDateStr(d),c:hist2y.closes[i]}))
+    .filter(({d})=>d&&new Date(d+'T00:00:00Z')>=cutoff);
   const _spFiltered=hist2ySP.timestamps
-    .map((d,i)=>({d:_toDateStr(d),c:hist2ySP.closes[i]}))
-    .filter(({d})=>new Date(d+'T00:00:00Z')>=cutoff);
+    .map((d,i)=>({d:_tkDateStr(d),c:hist2ySP.closes[i]}))
+    .filter(({d})=>d&&new Date(d+'T00:00:00Z')>=cutoff);
 
   const stockMap={};_stockFiltered.forEach(({d,c})=>{if(c!=null)stockMap[d]=c;});
   const spMap={};_spFiltered.forEach(({d,c})=>{if(c!=null)spMap[d]=c;});
@@ -1457,8 +1459,8 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span,cmpSerie
   if(cmpSeries&&cmpSeries.timestamps&&cmpSeries.closes){
     cmpMap={};
     cmpSeries.timestamps
-      .map((d,i)=>({d:_toDateStr(d),c:cmpSeries.closes[i]}))
-      .filter(({d})=>new Date(d+'T00:00:00Z')>=cutoff)
+      .map((d,i)=>({d:_tkDateStr(d),c:cmpSeries.closes[i]}))
+      .filter(({d})=>d&&new Date(d+'T00:00:00Z')>=cutoff)
       .forEach(({d,c})=>{if(c!=null)cmpMap[d]=c;});
   }
 

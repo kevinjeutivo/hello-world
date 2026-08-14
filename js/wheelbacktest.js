@@ -977,10 +977,12 @@ function setWheelBacktestExampleRunMode(mode){
 // result" that the Scope dropdown controls. Shares the Preferred
 // Expiration and Target APY settings from the main card, so it stays
 // consistent with whatever that's currently showing.
-function _wheelBacktestRankingRowHtml(r,rank,target){
+function _wheelBacktestRankingRowHtml(r,rank,target,starred){
+  const isStarred=starred&&starred.has(r.ticker);
+  const starLabel=isStarred?`<span style="font-size:11px;color:#ffc107;margin-left:3px" title="Starred">&#9733;</span>`:'';
   return`<div style="padding:8px 0;border-bottom:1px solid var(--surface3)">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
-      <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text3)">${rank}.</span> <span onclick="navigateToTicker('${r.ticker}')" style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text);text-decoration:underline;cursor:pointer">${r.ticker}</span> <span onclick="_wheelBacktestViewTickerFromRanking('${r.ticker}')" style="font-size:9px;color:var(--accent);text-decoration:underline;cursor:pointer;padding:3px 4px;display:inline-block">View analysis</span>
+      <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text3)">${rank}.</span> <span onclick="navigateToTicker('${r.ticker}')" style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text);text-decoration:underline;cursor:pointer">${r.ticker}</span>${starLabel} <span onclick="_wheelBacktestViewTickerFromRanking('${r.ticker}')" style="font-size:9px;color:var(--accent);text-decoration:underline;cursor:pointer;padding:3px 4px;display:inline-block">View analysis</span>
       <span style="font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent)">${r.median>=0?'+':''}${r.median.toFixed(1)}%</span>
     </div>
     ${_wheelBacktestRangeBarSvg(r.worst,r.median,r.best,target)}
@@ -1018,8 +1020,26 @@ function renderWheelBacktestRanking(){
 
   setTimeout(()=>{
     const result=_computeWheelBacktestAggregate(watchlist,monthsOut,target);
+    _wheelbtLastRankingResult=result;
+    _wheelbtLastRankingTarget=target;
     _renderWheelBacktestRankingFromResult(result,target);
   },10);
+}
+
+// Filtering between "all" and "starred" is purely a display-layer
+// operation on the already-computed ranking -- no need to recompute the
+// underlying simulation, so the toggle re-renders instantly rather than
+// showing a "Computing..." state.
+let _wheelbtLastRankingResult=null;
+let _wheelbtLastRankingTarget=null;
+let _wheelbtRankingFilterMode='all';
+function setWheelBacktestRankingFilter(mode){
+  _wheelbtRankingFilterMode=mode;
+  const allBtn=document.getElementById('wheelbt-ranking-filter-all');
+  const starredBtn=document.getElementById('wheelbt-ranking-filter-starred');
+  if(allBtn){allBtn.style.background=mode==='all'?'var(--accent)':'var(--surface3)';allBtn.style.color=mode==='all'?'#000':'var(--text3)';}
+  if(starredBtn){starredBtn.style.background=mode==='starred'?'var(--accent)':'var(--surface3)';starredBtn.style.color=mode==='starred'?'#000':'var(--text3)';}
+  _renderWheelBacktestRankingFromResult(_wheelbtLastRankingResult,_wheelbtLastRankingTarget);
 }
 
 // Pure rendering, given an already-computed result -- see
@@ -1033,7 +1053,19 @@ function _renderWheelBacktestRankingFromResult(result,target){
     content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Not enough cached price history to rank any watchlist ticker yet. Run Prefetch All or Full Refresh first, and allow time for 2 years of history to accumulate.</div>';
     return;
   }
-  content.innerHTML=result.perTickerRanking.map((r,i)=>_wheelBacktestRankingRowHtml(r,i+1,target)).join('');
+  const starred=_starredTickers();
+  let list=result.perTickerRanking;
+  if(_wheelbtRankingFilterMode==='starred'){
+    list=list.filter(r=>starred.has(r.ticker));
+    if(!list.length){
+      content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>None of your starred tickers appear in this ranking yet -- tap the star on a ticker in the Watchlist tab, or switch back to All.</div>';
+      return;
+    }
+  }
+  // Renumbered relative to whatever's actually shown -- when filtered to
+  // Starred, "#1" means "your best-ranked starred ticker," not its
+  // original rank among the whole watchlist.
+  content.innerHTML=list.map((r,i)=>_wheelBacktestRankingRowHtml(r,i+1,target,starred)).join('');
 }
 
 // ── Coordinator ──────────────────────────────────────────────────────────
@@ -1088,6 +1120,8 @@ function refreshWheelBacktestViews(){
 
   setTimeout(()=>{
     const watchlistResult=_computeWheelBacktestAggregate(watchlist,monthsOut,target);
+    _wheelbtLastRankingResult=watchlistResult;
+    _wheelbtLastRankingTarget=target;
     _renderWheelBacktestRankingFromResult(watchlistResult,target);
 
     if(isAggregateScope){

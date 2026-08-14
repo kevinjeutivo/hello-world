@@ -100,6 +100,17 @@ function _parseHist2yDate(raw){
   return new Date(raw); // ISO string or other parseable format
 }
 
+// Shared by _wheelBacktestCycleRowHtml and _wheelBacktestExampleRunBodyHtml --
+// previously two near-identical local closures (one hardcoded to always
+// include the year, the other parameterized). Returns null on an
+// unparseable date; callers that need a placeholder string fall back
+// to '?' themselves so each caller's existing display behavior is preserved.
+function _wheelBacktestDateStr(d,includeYear){
+  const parsed=_parseHist2yDate(d);
+  if(!parsed)return null;
+  return parsed.toLocaleDateString('en-US',includeYear?{month:'short',day:'numeric',year:'numeric'}:{month:'short',day:'numeric'});
+}
+
 function _tradingDayIndexAtOrBefore(timestamps,targetDate){
   let lo=0,hi=timestamps.length-1,result=null;
   while(lo<=hi){
@@ -732,9 +743,8 @@ function _wheelBacktestTargetSentence(target,pctBeatTarget){
 // label at all, sitting right next to an outcome that actually resolves
 // at the end of the cycle, which was genuinely ambiguous.
 function _wheelBacktestCycleRowHtml(t,hist2y,avgCapitalBase,totalCycles,showEntryYear){
-  const toDateStr=(d,includeYear)=>{const parsed=_parseHist2yDate(d);if(!parsed)return'?';return parsed.toLocaleDateString('en-US',includeYear?{month:'short',day:'numeric',year:'numeric'}:{month:'short',day:'numeric'});};
-  const entryDateStr=hist2y?toDateStr(hist2y.timestamps?.[t.entryIdx],showEntryYear):'?';
-  const exitDateStr=hist2y?toDateStr(hist2y.timestamps?.[t.exitIdx],false):'?';
+  const entryDateStr=hist2y?(_wheelBacktestDateStr(hist2y.timestamps?.[t.entryIdx],showEntryYear)||'?'):'?';
+  const exitDateStr=hist2y?(_wheelBacktestDateStr(hist2y.timestamps?.[t.exitIdx],false)||'?'):'?';
   const label=t.optionType==='put'?'CSP':'CC';
   const outcome=t.assigned?(t.optionType==='put'?'Assigned':'Called away'):'Expired worthless';
   const outcomeColor=t.assigned?'var(--warn)':'var(--green)';
@@ -897,9 +907,8 @@ function _wheelbtNormalizeFullHistory(full){
 // needs its own separate rendering logic.
 function _wheelBacktestExampleRunBodyHtml(n){
   if(!n)return'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:6px 0">Not enough cached history for this ticker to run a full-history simulation.</div>';
-  const toDateStr=d=>{const parsed=_parseHist2yDate(d);return parsed?parsed.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):null;};
-  const startStr=toDateStr(n.hist2y?.timestamps?.[n.startIdx]);
-  const endStr=toDateStr(n.hist2y?.timestamps?.[n.endIdx]);
+  const startStr=_wheelBacktestDateStr(n.hist2y?.timestamps?.[n.startIdx],true);
+  const endStr=_wheelBacktestDateStr(n.hist2y?.timestamps?.[n.endIdx],true);
   const spanStr=(startStr&&endStr)?`${startStr} &rarr; ${endStr}`:'';
   const descSentence=n.isFullHistory
     ?`This runs continuously from the earliest cached data through to today -- not one of many samples, the single full history available for this ticker -- all ${n.totalCycles} cycles shown below, scroll to see the full sequence.`

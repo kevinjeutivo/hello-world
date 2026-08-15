@@ -317,18 +317,17 @@ async function fetchFedFundsFutures(){
 }
 
 async function fetchTBills(){
-  // Yahoo Finance T-bill index tickers via existing Worker history proxy:
+  // Yahoo Finance Treasury yield index tickers via existing Worker history proxy:
   //   ^IRX = 13-week (3-month) T-bill yield index -- daily closing rate
-  //   ^FVX = 5-year Treasury yield (closest Yahoo has to 6-month for context)
+  //   ^FVX = 5-year Treasury yield
+  //   ^TNX = 10-year Treasury yield
   // Yahoo expresses these as percentage points (e.g. 4.82 = 4.82%).
-  // We divide by 10 because Yahoo stores them as tenths of a percent internally
-  // -- actually Yahoo ^IRX returns the annualized discount rate directly as a %
-  // so no division needed. Check: if value ~480, divide by 100. If ~4.8, use as-is.
-  const [hist3m, hist5y] = await Promise.all([
+  const [hist3m, hist5y, hist10y] = await Promise.all([
     yahooHistory('^IRX', '1y', '1d'),
-    yahooHistory('^FVX', '1y', '1d')
+    yahooHistory('^FVX', '1y', '1d'),
+    yahooHistory('^TNX', '1y', '1d')
   ]);
-  // ^IRX values from Yahoo are in percent (e.g. 4.82 means 4.82%)
+  // ^IRX/^FVX/^TNX values from Yahoo are in percent (e.g. 4.82 means 4.82%)
   // but sometimes returned as tenths (48.2). Normalize: if median > 20, divide by 10.
   function normalizeYield(closes) {
     const valid = closes.filter(c => c !== null && c > 0);
@@ -339,11 +338,15 @@ async function fetchTBills(){
   }
   const norm3m = normalizeYield(hist3m.closes);
   const norm5y = normalizeYield(hist5y.closes);
+  const norm10y = normalizeYield(hist10y.closes);
   const tbill3m = hist3m.timestamps
     .map((ts, i) => ({date: ts.toISOString().split('T')[0], value: norm3m[i]}))
     .filter(d => d.value !== null);
-  const tbill6m = hist5y.timestamps
+  const tbill5y = hist5y.timestamps
     .map((ts, i) => ({date: ts.toISOString().split('T')[0], value: norm5y[i]}))
     .filter(d => d.value !== null);
-  return {tbill3m, tbill6m, label3m:'3-Month T-Bill (^IRX)', label6m:'5-Year Treasury (^FVX)'};
+  const tbill10y = hist10y.timestamps
+    .map((ts, i) => ({date: ts.toISOString().split('T')[0], value: norm10y[i]}))
+    .filter(d => d.value !== null);
+  return {tbill3m, tbill5y, tbill10y, label3m:'3-Month T-Bill (^IRX)', label5y:'5-Year Treasury (^FVX)', label10y:'10-Year Treasury (^TNX)'};
 }

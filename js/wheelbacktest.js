@@ -227,7 +227,7 @@ function _snapStrikeToRealistic(rawStrike,spot,optionType){
   return stillOTM?snapped:null;
 }
 
-function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r,termSlope){
+function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r,termSlope,earningsAvoidDates){
   const closes=hist2y.closes,timestamps=hist2y.timestamps;
   const n=closes.length;
   const S0=closes[entryIdx];
@@ -255,6 +255,21 @@ function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r
   // the last cycle that actually finished (the caller's existing
   // if(!cyc)break already handles this correctly).
   if((expiryDate-exitDate)/86400000>=5)return null;
+
+  // Earnings-avoidance strategies pass a precomputed list of effective
+  // earnings dates (epoch-ms) for this ticker; Default strategy always
+  // passes null/undefined here and this check is skipped entirely. If any
+  // earnings date falls within [entryDate, exitDate] inclusive, this
+  // specific entry/DTE can't be used -- same as any other infeasible
+  // attempt, the caller's existing escalation/waiting logic in
+  // _findFloorClearingCycle handles it (try a different DTE, or wait for
+  // a later trading day and try again -- which naturally produces a
+  // hiatus in the cycle sequence around earnings, with no separate
+  // "shrink to an earlier expiration" or "wait N days" logic needed).
+  if(earningsAvoidDates&&earningsAvoidDates.length){
+    const t0=entryDate.getTime(),t1=exitDate.getTime();
+    if(earningsAvoidDates.some(e=>e>=t0&&e<=t1))return null;
+  }
 
   // T uses the ACTUAL elapsed calendar time to real expiration, not an
   // assumed monthsOut*30/365 -- monthly spacing isn't perfectly uniform
@@ -346,16 +361,16 @@ function _monthsOutSearchOrder(baseMonthsOut,maxMonthsOut){
   return all;
 }
 
-function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFloorPct,optionType,r,maxMonthsOut,termSlope){
+function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFloorPct,optionType,r,maxMonthsOut,termSlope,earningsAvoidDates){
   const n=hist2y.closes.length;
   const searchOrder=_monthsOutSearchOrder(baseMonthsOut,maxMonthsOut);
   let idx=candidateEntryIdx;
   while(idx<n){
     for(const m of searchOrder){
-      const cyc=_simulateOneCycle(hist2y,idx,m,targetFloorPct,optionType,r,termSlope);
+      const cyc=_simulateOneCycle(hist2y,idx,m,targetFloorPct,optionType,r,termSlope,earningsAvoidDates);
       if(cyc)return cyc;
     }
-    idx+=1; // no DTE (shorter or longer) cleared the floor on this entry day -- wait for the next trading day
+    idx+=1; // no DTE (shorter or longer) cleared the floor on this entry day, or all spanned an earnings date -- wait for the next trading day
   }
   return null; // ran out of data while waiting for a floor-clearing day
 }
@@ -366,7 +381,7 @@ function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFl
 // window's ~1 year is used up or the available price history runs out.
 const WHEELBT_MAX_MONTHS_OUT=3; // matches the app's existing 3-expiry data-fetch cap elsewhere
 
-function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlope,maxTradingDays){
+function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlope,maxTradingDays,earningsDates,earningsAvoidTypes){
   const closes=hist2y.closes;
   const startPrice=closes[startIdx];
   if(startPrice==null||startPrice<=0)return null;
@@ -378,9 +393,16 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlo
   let cumPremium=0;
   let realizedShareGainLoss=0;
   const tradingDaysInYear=maxTradingDays||252; // callers omit this for the standard ~1-year window; Full History passes Infinity
+  const hasEarningsDates=earningsDates&&earningsDates.length>0;
 
   while(true){
-    const cyc=_findFloorClearingCycle(hist2y,curIdx,monthsOut,targetFloorPct,mode,r,WHEELBT_MAX_MONTHS_OUT,termSlope);
+    // Only pass the earnings-date list through for leg types this
+    // strategy actually restricts (Default strategy passes
+    // earningsAvoidTypes=null, so this is always null there, and the
+    // check inside _simulateOneCycle is skipped entirely -- Default's
+    // output is untouched by any of this).
+    const applyEarnings=hasEarningsDates&&earningsAvoidTypes&&earningsAvoidTypes.includes(mode);
+    const cyc=_findFloorClearingCycle(hist2y,curIdx,monthsOut,targetFloorPct,mode,r,WHEELBT_MAX_MONTHS_OUT,termSlope,applyEarnings?earningsDates:null);
     if(!cyc)break; // couldn't clear the floor at any DTE, at any remaining entry day -- stop here
     cyc.cyclePosition=trades.length+1; // 1-indexed position in the FULL sequence -- lets a truncated display show "cycle N of M" even when the shown slice doesn't start at the window's own true beginning
     trades.push(cyc);
@@ -489,15 +511,55 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlo
 // Intentionally NOT part of the standard dashboard computation -- only
 // called lazily when the Full History toggle on the example run is
 // actually used.
-function _computeWheelBacktestFullHistory(ticker,monthsOut,targetFloorPct){
+// ── Strategy support ─────────────────────────────────────────────────────
+// "Default" strategy: no earnings avoidance, behaves exactly as before.
+// "no-earnings-csp": a CSP is never opened if its window would span the
+// ticker's own earnings date -- reuses the SAME day-by-day/DTE-escalation
+// retry loop already in _findFloorClearingCycle (no separate "shrink to
+// an earlier expiration" or "wait N trading days" logic needed), which
+// naturally produces a hiatus in the cycle sequence around earnings.
+// Designed so a future flavor extending this to covered calls too is just
+// a different earningsAvoidTypes list (e.g. ['put','call']), not new code
+// here or in the simulation core above.
+function _wheelBacktestEarningsAvoidTypes(strategy){
+  if(strategy==='no-earnings-csp')return['put'];
+  return null;
+}
+
+// Effective earnings dates (override > auto-confirmed > estimate -- same
+// precedence and the same underlying data as the Ticker tab) for one
+// ticker, as epoch-ms numbers for a cheap numeric range check. Computed
+// once per ticker per backtest run, same "compute once, reuse across
+// every window" pattern already used for the term-structure slope.
+// Returns [] if there's no earnings data cached yet for this ticker (e.g.
+// it hasn't been through Prefetch or a Ticker tab visit recently) --
+// callers then simply never reject a candidate for earnings, which is the
+// correct, honest behavior: this strategy can only avoid what it actually
+// knows about, and silently falling back to Default-like behavior for
+// that one ticker is safer than either fabricating a date or failing.
+function _getEarningsAvoidDates(ticker){
+  if(typeof _getEarningsWithOverrides!=='function'||typeof _effectiveEarningsDate!=='function')return[];
+  const entries=_getEarningsWithOverrides(ticker);
+  if(!entries||!entries.length)return[];
+  return entries.map(e=>{
+    const eff=_effectiveEarningsDate(e);
+    if(!eff?.date)return null;
+    const d=new Date(eff.date+'T12:00:00Z'); // matches the T12:00:00Z convention already used elsewhere for earnings date strings
+    return isNaN(d.getTime())?null:d.getTime();
+  }).filter(t=>t!=null);
+}
+
+function _computeWheelBacktestFullHistory(ticker,monthsOut,targetFloorPct,strategy){
   const h2=S.get('hist2y_'+ticker);
   if(!h2?.closes?.length||!h2.timestamps||!h2.opens||!h2.highs||!h2.lows)return null;
   const rRaw=_getTBillYield();
   const r=(rRaw!=null?rRaw:4.0)/100;
   const termSlope=_estimateTermStructureSlope(h2);
+  const earningsAvoidTypes=_wheelBacktestEarningsAvoidTypes(strategy);
+  const earningsDates=earningsAvoidTypes?_getEarningsAvoidDates(ticker):null;
   const starts=_enumerateMonthlyStartIndices(h2);
   if(!starts.length)return null;
-  const win=_simulateWheelWindow(h2,starts[0],monthsOut,targetFloorPct,r,termSlope,Infinity);
+  const win=_simulateWheelWindow(h2,starts[0],monthsOut,targetFloorPct,r,termSlope,Infinity,earningsDates,earningsAvoidTypes);
   if(!win||!win.trades.length)return null;
   return{
     ticker,trades:win.trades,startIdx:win.startIdx,endIdx:win.endIdx,
@@ -509,17 +571,19 @@ function _computeWheelBacktestFullHistory(ticker,monthsOut,targetFloorPct){
   };
 }
 
-function _computeWheelBacktest(ticker,monthsOut,targetFloorPct){
+function _computeWheelBacktest(ticker,monthsOut,targetFloorPct,strategy){
   const h2=S.get('hist2y_'+ticker);
   if(!h2?.closes?.length||!h2.timestamps||!h2.opens||!h2.highs||!h2.lows)return null;
   const rRaw=_getTBillYield();
   const r=(rRaw!=null?rRaw:4.0)/100; // fallback if T-bill cache unavailable; rate has a small effect on BS price relative to sigma
   const MIN_COMPLETE_DAYS=300; // ~a full year, allowing some slack for real monthly spacing not being perfectly uniform
   const termSlope=_estimateTermStructureSlope(h2); // once per ticker, applied uniformly across every window below
+  const earningsAvoidTypes=_wheelBacktestEarningsAvoidTypes(strategy);
+  const earningsDates=earningsAvoidTypes?_getEarningsAvoidDates(ticker):null;
 
   const windows=[];
   _enumerateMonthlyStartIndices(h2).forEach(startIdx=>{
-    const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,termSlope);
+    const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,termSlope,undefined,earningsDates,earningsAvoidTypes);
     if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS)windows.push(win);
   });
   if(!windows.length)return null;
@@ -536,7 +600,7 @@ function _computeWheelBacktest(ticker,monthsOut,targetFloorPct){
   const mostRecentWindow=windows[windows.length-1];
 
   return{
-    ticker,monthsOut,targetFloorPct,sampleSize:windows.length,
+    ticker,monthsOut,targetFloorPct,strategy:strategy||'default',sampleSize:windows.length,
     median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
     recentCycles:mostRecentWindow.trades,
@@ -554,10 +618,11 @@ function _computeWheelBacktest(ticker,monthsOut,targetFloorPct){
 // distribution -- mirrors Gap Fill's aggregate approach (pool raw events,
 // not an average of each ticker's own summary stat) for a much larger,
 // more statistically meaningful sample than any single ticker offers.
-function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct){
+function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strategy){
   const rRaw=_getTBillYield();
   const r=(rRaw!=null?rRaw:4.0)/100;
   const MIN_COMPLETE_DAYS=300;
+  const earningsAvoidTypes=_wheelBacktestEarningsAvoidTypes(strategy);
   let allReturns=[];
   let allAssignmentRates=[];
   let allBuyHold=[];
@@ -578,10 +643,11 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct){
     const h2=S.get('hist2y_'+t);
     if(!h2?.closes?.length||!h2.timestamps||!h2.opens||!h2.highs||!h2.lows)return;
     const termSlope=_estimateTermStructureSlope(h2);
+    const earningsDates=earningsAvoidTypes?_getEarningsAvoidDates(t):null;
     let gotAny=false;
     perTickerReturns[t]=[];
     _enumerateMonthlyStartIndices(h2).forEach(startIdx=>{
-      const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,termSlope);
+      const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,termSlope,undefined,earningsDates,earningsAvoidTypes);
       if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS){
         allReturns.push(win.annualizedReturnPct);
         allAssignmentRates.push(win.assignmentRatePct);
@@ -626,7 +692,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct){
     .sort((a,b)=>b.median-a.median);
 
   return{
-    monthsOut,targetFloorPct,sampleSize:allReturns.length,tickersWithData,tickersTotal:tickers.length,
+    monthsOut,targetFloorPct,strategy:strategy||'default',sampleSize:allReturns.length,tickersWithData,tickersTotal:tickers.length,
     median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
     recentCycles:bestRunCycles,recentCyclesTicker:bestRunTicker,
@@ -681,6 +747,23 @@ function setWheelBacktestMonths(months){
     const btn=document.getElementById('wheelbt-months-'+m);
     if(btn)btn.style.opacity=(m===months)?'1':'0.4';
   });
+  refreshWheelBacktestViews();
+}
+
+// Valid values are enumerated here rather than trusted from storage, so a
+// stale/unrecognized value (e.g. from a future build's strategy that this
+// build doesn't know about, if the person switches between devices on
+// different builds) safely falls back to 'default' instead of silently
+// passing an unknown string down into the simulation core.
+const WHEELBT_VALID_STRATEGIES=['default','no-earnings-csp'];
+function getWheelBacktestStrategy(){
+  const s=S.get('wheelbt_strategy');
+  return WHEELBT_VALID_STRATEGIES.includes(s)?s:'default';
+}
+function setWheelBacktestStrategy(){
+  const sel=document.getElementById('wheelbt-strategy-sel');
+  if(!sel)return;
+  S.set('wheelbt_strategy',sel.value);
   refreshWheelBacktestViews();
 }
 
@@ -789,6 +872,7 @@ function renderWheelBacktest(){
   const selectedTicker=isStarredMode?'':selectedValue;
   const monthsOut=getWheelBacktestMonths();
   const target=getWheelBacktestTargetAPY();
+  const strategy=getWheelBacktestStrategy();
 
   const apyInput=document.getElementById('wheelbt-target-apy-input');
   if(apyInput&&document.activeElement!==apyInput)apyInput.value=target;
@@ -811,11 +895,11 @@ function renderWheelBacktest(){
         content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>No starred tickers yet -- tap the star on a ticker in the Watchlist tab to add one.</div>';
         return;
       }
-      result=_computeWheelBacktestAggregate(starredList,monthsOut,target);
+      result=_computeWheelBacktestAggregate(starredList,monthsOut,target,strategy);
     }else if(isAggregate){
-      result=_computeWheelBacktestAggregate(watchlist,monthsOut,target);
+      result=_computeWheelBacktestAggregate(watchlist,monthsOut,target,strategy);
     }else{
-      result=_computeWheelBacktest(selectedTicker,monthsOut,target);
+      result=_computeWheelBacktest(selectedTicker,monthsOut,target,strategy);
     }
     _renderWheelBacktestFromResult(result,isAggregate,isStarredMode,selectedTicker,monthsOut,target);
   },10);
@@ -873,7 +957,7 @@ function _renderWheelBacktestFromResult(result,isAggregate,isStarredMode,selecte
   // needing to re-derive scope/ticker context, and so Full History (a
   // separate, lazy computation) knows exactly which ticker and settings
   // to use.
-  _wheelbtLastRenderContext={result,isAggregate,exampleTicker,monthsOut,target};
+  _wheelbtLastRenderContext={result,isAggregate,exampleTicker,monthsOut,target,strategy:result.strategy};
   _wheelbtExampleRunMode='recent';
 }
 
@@ -974,7 +1058,7 @@ function setWheelBacktestExampleRunMode(mode){
   }
   sectionEl.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Computing full history...</div>';
   setTimeout(()=>{
-    const full=_computeWheelBacktestFullHistory(ctx.exampleTicker,ctx.monthsOut,ctx.target);
+    const full=_computeWheelBacktestFullHistory(ctx.exampleTicker,ctx.monthsOut,ctx.target,ctx.strategy);
     sectionEl.innerHTML=_wheelBacktestExampleRunBodyHtml(_wheelbtNormalizeFullHistory(full));
   },10);
 }
@@ -1025,10 +1109,11 @@ function renderWheelBacktestRanking(){
   }
   const monthsOut=getWheelBacktestMonths();
   const target=getWheelBacktestTargetAPY();
+  const strategy=getWheelBacktestStrategy();
   content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Computing...</div>';
 
   setTimeout(()=>{
-    const result=_computeWheelBacktestAggregate(watchlist,monthsOut,target);
+    const result=_computeWheelBacktestAggregate(watchlist,monthsOut,target,strategy);
     _wheelbtLastRankingResult=result;
     _wheelbtLastRankingTarget=target;
     _renderWheelBacktestRankingFromResult(result,target);
@@ -1104,6 +1189,7 @@ function refreshWheelBacktestViews(){
   const isAggregateScope=!selectedTicker&&!isStarredMode;
   const monthsOut=getWheelBacktestMonths();
   const target=getWheelBacktestTargetAPY();
+  const strategy=getWheelBacktestStrategy();
 
   const apyInput=document.getElementById('wheelbt-target-apy-input');
   if(apyInput&&document.activeElement!==apyInput)apyInput.value=target;
@@ -1128,7 +1214,7 @@ function refreshWheelBacktestViews(){
   if(rankingContent)rankingContent.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Computing...</div>';
 
   setTimeout(()=>{
-    const watchlistResult=_computeWheelBacktestAggregate(watchlist,monthsOut,target);
+    const watchlistResult=_computeWheelBacktestAggregate(watchlist,monthsOut,target,strategy);
     _wheelbtLastRankingResult=watchlistResult;
     _wheelbtLastRankingTarget=target;
     _renderWheelBacktestRankingFromResult(watchlistResult,target);
@@ -1140,11 +1226,11 @@ function refreshWheelBacktestViews(){
       if(!starredList.length){
         if(mainContent)mainContent.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>No starred tickers yet -- tap the star on a ticker in the Watchlist tab to add one.</div>';
       }else{
-        const starredResult=_computeWheelBacktestAggregate(starredList,monthsOut,target);
+        const starredResult=_computeWheelBacktestAggregate(starredList,monthsOut,target,strategy);
         _renderWheelBacktestFromResult(starredResult,true,true,selectedTicker,monthsOut,target);
       }
     }else{
-      const tickerResult=_computeWheelBacktest(selectedTicker,monthsOut,target);
+      const tickerResult=_computeWheelBacktest(selectedTicker,monthsOut,target,strategy);
       _renderWheelBacktestFromResult(tickerResult,false,false,selectedTicker,monthsOut,target);
     }
     window.scrollTo(0,preservedScrollY);

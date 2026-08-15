@@ -160,13 +160,20 @@
   </div>
   <div id="dash-wheelbt-card" class="card" style="display:none">
     <div class="card-title"><span class="dot" style="background:#7c6af7"></span>Wheel Backtest</div>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Simulates the wheel (CSP &rarr; assignment &rarr; CC &rarr; called away &rarr; repeat) against real historical prices, using real monthly (3rd-Friday) expirations. Strike each cycle is the one closest to your target APY while still clearing it -- not a fixed delta. If your preferred expiration can't clear the floor, tries the other expirations (1-3mo, whichever works), then waits for a later day if none do. Black-Scholes premiums, realized volatility standing in for implied vol -- see "Premium source" below.</div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Simulates the wheel (CSP &rarr; assignment &rarr; CC &rarr; called away &rarr; repeat) against real historical prices, using real monthly (3rd-Friday) expirations. Strike each cycle is the one closest to your target APY while still clearing it -- not a fixed delta. If your preferred expiration can't clear the floor, tries the other expirations (1-3mo, whichever works), then waits for a later day if none do. Black-Scholes premiums, realized volatility standing in for implied vol -- see "Premium source" below. Strategy selector below chooses which entry rules apply -- see "Strategy" in the Guide tab.</div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">This is not real historical options data -- an approximation using each stock's own price history.</div>
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
       <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Scope:</span>
       <select class="input" id="wheelbt-ticker-sel" onchange="renderWheelBacktest()" style="font-family:var(--mono);font-size:11px;padding:4px 6px;flex:1">
         <option value="">Aggregate (whole watchlist)</option>
         <option value="__starred__">Starred Only</option>
+      </select>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Strategy:</span>
+      <select class="input" id="wheelbt-strategy-sel" onchange="setWheelBacktestStrategy()" style="font-family:var(--mono);font-size:11px;padding:4px 6px;flex:1">
+        <option value="default">Default</option>
+        <option value="no-earnings-csp">No Earnings Overlap (CSP)</option>
       </select>
     </div>
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
@@ -516,6 +523,7 @@
     <div class="guide-kv"><span class="guide-key">Rolling windows</span><span class="guide-val">Each simulated 1-year window starts the trading day right after a real monthly expiration -- anchored to actual expiration-to-expiration transitions, not an arbitrary fixed step, so the sample reflects genuinely distinct scenarios rather than many near-duplicate starts.</span></div>
     <div class="guide-kv"><span class="guide-key">Worst / median / best</span><span class="guide-val">The spread across every qualifying rolling window, with a marker at your Target APY and a plain-language sentence on what percentage of windows actually beat it.</span></div>
     <div class="guide-kv"><span class="guide-key">Scope</span><span class="guide-val">Aggregate (whole watchlist), Starred Only, or a single ticker. Target APY and Preferred Expiration are independent settings for this feature specifically -- changing them here never changes Conviction Scoring's own target, or vice versa.</span></div>
+    <div class="guide-kv"><span class="guide-key">Strategy</span><span class="guide-val">"Default" is the strike/expiration rules described above with no other restriction. "No Earnings Overlap (CSP)" additionally never opens a cash-secured put whose window would span the ticker's own earnings date -- reuses the same day-by-day retry that already handles a thin yield floor, so a hiatus of a month or more around earnings is expected, not a bug. Covered calls are unaffected by this strategy. Earnings dates use the same source and override precedence as the Ticker tab (manual override, then auto-confirmed, then estimate); a ticker with no cached earnings data yet behaves like Default for that ticker until it's been through Prefetch or a Ticker tab visit.</span></div>
     <div class="guide-kv"><span class="guide-key">Best Tickers</span><span class="guide-val">Every qualifying watchlist ticker ranked by median simulated return, always across the whole watchlist regardless of the Scope selection above. A gold star marks tickers you've starred, so they're easy to spot while scanning a long list -- toggle All / Starred Only above the list to filter down to just those. Tap a ticker name to jump to its Ticker page, or "View analysis" to load that ticker's specific report in the card above.</span></div>
     <div class="guide-kv"><span class="guide-key">One Example Run</span><span class="guide-val">The single most calendar-recent complete window, shown cycle by cycle -- strike, DTE used, % out of the money, outcome, this leg's own gain, and a running cumulative total, ending in a "Total this run" summary that reconciles exactly with the per-row numbers above it.</span></div>
     <div class="guide-kv"><span class="guide-key">Full History toggle</span><span class="guide-val">Switches the example run from "Most Recent" (~1 year) to one continuous run across the ticker's entire cached history. Shows both the raw total (unannualized, since it spans more than a year) and that same total's annualized equivalent side by side.</span></div>

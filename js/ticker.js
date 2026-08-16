@@ -43,7 +43,13 @@ async function loadTicker(){
     // is only fetched when explicitly enabled in Settings (default off).
     let earnings,upgrades,ah,qs,h2;
     const _finnhubSeq=(async()=>{
-      const _e=await fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`);
+      // Some security types (e.g. mutual funds) trigger a 403 from Finnhub's
+      // earnings-calendar endpoint rather than an empty result -- caught
+      // here so it degrades to "no earnings data" (which is simply true for
+      // a mutual fund) instead of aborting this whole Promise.all and
+      // discarding the Yahoo quote/history data that succeeded fine on its
+      // own. prefetch.js already guards this identical call the same way.
+      const _e=await fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`).catch(e=>{console.warn('earnings calendar failed:',t,e?.message);return null;});
       const _u=_fetchUpgrades?await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`).catch(()=>null):null;
       return[_e,_u];
     })();
@@ -1907,7 +1913,11 @@ async function refreshSingleTicker(){
     // Finnhub: only earnings calendar + news/recommendations. Historical earnings
     // and upgrades handled as noted below.
     let _rUpgradesErr=null;
-    const earnings=await fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`);
+    // Same 403-for-unsupported-security-type guard as loadTicker/prefetch.js
+    // -- a mutual fund genuinely has no earnings calendar, and that should
+    // degrade gracefully rather than aborting the whole refresh before it
+    // even reaches the quote/history steps below.
+    const earnings=await fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`).catch(e=>{console.warn('earnings calendar failed:',t,e?.message);return null;});
     let upgrades=null,priceTargetS=null;
     if(_fetchUpgrades){
       try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch(e){_rUpgradesErr=e?.message||'failed';}

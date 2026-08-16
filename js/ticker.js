@@ -54,10 +54,27 @@ async function loadTicker(){
     ]);
     try{
       [[earnings,upgrades],[ah,qs,h2]]=await Promise.all([_finnhubSeq,_yahooBatch]);
-      // Build snap from Yahoo /quote (via fetchAfterHoursPrice which now returns full quote fields)
-      if(!ah||!ah.price)throw new Error('Yahoo quote failed for '+t);
-      const _price=ah.price;
-      const _prev=ah.prevClose||_price;
+      // Build snap from Yahoo /quote (via fetchAfterHoursPrice which now returns full quote fields).
+      // Some security types -- notably mutual funds, which price once daily
+      // via NAV rather than a continuously-updating "regular market price"
+      // -- don't populate regularMarketPrice via the live /quote endpoint
+      // even though the quote request itself succeeds. Fall back to the
+      // latest close from the concurrently-fetched 2Y history in that case
+      // (h2 -- already fetched, no extra network cost required) -- for a
+      // once-daily-priced security that's the more correct number anyway,
+      // not just a workaround for a missing field. ah is normalized to {}
+      // rather than left null so every ah.xxx access below stays safe.
+      if(!ah)ah={};
+      let _price=ah.price,_prev=ah.prevClose;
+      if(_price==null&&h2?.closes?.length){
+        const _validCloses=h2.closes.filter(c=>c!=null&&c>0);
+        if(_validCloses.length){
+          _price=_validCloses[_validCloses.length-1];
+          _prev=_validCloses.length>=2?_validCloses[_validCloses.length-2]:_price;
+        }
+      }
+      if(_price==null)throw new Error('No data available for '+t);
+      _prev=_prev||_price;
       const _prevSnap=S.get('snap_'+t);
       const _pmFields=_resolvePostMarketFields(ah,_prevSnap);
       snap={
@@ -1895,11 +1912,27 @@ async function refreshSingleTicker(){
     if(_fetchUpgrades){
       try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch(e){_rUpgradesErr=e?.message||'failed';}
     }
-    // Build snap from Yahoo /quote
+    // Build snap from Yahoo /quote. Fetched concurrently with 2Y history
+    // (rather than waiting for Step 3 below) specifically so the
+    // once-daily-NAV fallback has data to fall back to right away -- same
+    // pattern and reasoning as loadTicker.
     setP(20,'Fetching '+t+' Yahoo quote...');
-    const ah=await fetchAfterHoursPrice(t);
-    if(!ah||!ah.price)throw new Error('Yahoo quote failed for '+t);
-    const _rPrice=ah.price,_rPrev=ah.prevClose||ah.price;
+    let ah,_rh2;
+    [ah,_rh2]=await Promise.all([
+      fetchAfterHoursPrice(t),
+      _tkTimeout(yahooHistory(t,'2y','1d'),15000,'hist2y').catch(e=>{console.warn('hist2y failed:',t,e?.message);return null;})
+    ]);
+    if(!ah)ah={};
+    let _rPrice=ah.price,_rPrev=ah.prevClose;
+    if(_rPrice==null&&_rh2?.closes?.length){
+      const _validCloses=_rh2.closes.filter(c=>c!=null&&c>0);
+      if(_validCloses.length){
+        _rPrice=_validCloses[_validCloses.length-1];
+        _rPrev=_validCloses.length>=2?_validCloses[_validCloses.length-2]:_rPrice;
+      }
+    }
+    if(_rPrice==null)throw new Error('No data available for '+t);
+    _rPrev=_rPrev||_rPrice;
     const futE=(earnings?.earningsCalendar||[]).filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));
     const _rPrevSnap=S.get('snap_'+t);
     const _rPmFields=_resolvePostMarketFields(ah,_rPrevSnap);
@@ -1955,12 +1988,11 @@ async function refreshSingleTicker(){
     }
     // Step 3: Price history
     setP(35,'Fetching '+t+' price history...');
-    // Single 2Y fetch populates all three history cache keys; intraday in parallel
+    // 2Y history was already fetched above (needed for the price fallback) --
+    // only intraday remains to fetch here now.
     try{
-      const [_rh2,_idRes]=await Promise.all([
-        _tkTimeout(yahooHistory(t,'2y','1d'),15000,'hist2y'),
-        _tkTimeout(yahooHistory(t,'1d','5m'),10000,'intraday').catch(e=>{console.warn('intraday failed:',t,e?.message);return null;})
-      ]);
+      const _idRes=await _tkTimeout(yahooHistory(t,'1d','5m'),10000,'intraday').catch(e=>{console.warn('intraday failed:',t,e?.message);return null;});
+      if(!_rh2)throw new Error('hist2y unavailable');
       const _rts=_rh2.timestamps.map(d=>Math.floor(d.getTime()/1000));
       const _rcl=_rh2.closes.map(v=>v!=null?Math.round(v*100)/100:null);
       const _rvl=_rh2.volumes?_rh2.volumes.map(v=>v||0):null;

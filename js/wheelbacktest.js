@@ -1074,14 +1074,18 @@ function _wheelBacktestRankingRowHtml(r,rank,target,starred){
   const isStarred=starred&&starred.has(r.ticker);
   const starLabel=isStarred?`<span style="font-size:11px;color:#ffc107" title="Starred">&#9733;</span>`:'';
   return`<div style="padding:8px 0;border-bottom:1px solid var(--surface3)">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
-      <span style="display:flex;align-items:baseline;gap:4px;min-width:0">
+    <div style="display:flex;align-items:baseline;margin-bottom:3px">
+      <span style="flex:1;display:flex;justify-content:flex-start;align-items:baseline;gap:4px;min-width:0">
         <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text3)">${rank}.</span>
         <span onclick="navigateToTicker('${r.ticker}')" style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text);text-decoration:underline;cursor:pointer">${r.ticker}</span>
         ${starLabel}
+      </span>
+      <span style="flex:1;display:flex;justify-content:center">
         <span onclick="_wheelBacktestViewTickerFromRanking('${r.ticker}')" style="font-size:9px;color:var(--accent);text-decoration:underline;cursor:pointer;padding:3px 4px;white-space:nowrap">View analysis</span>
       </span>
-      <span style="font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent);white-space:nowrap;padding-left:6px">${r.median>=0?'+':''}${r.median.toFixed(1)}%</span>
+      <span style="flex:1;display:flex;justify-content:flex-end">
+        <span style="font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent);white-space:nowrap">${r.median>=0?'+':''}${r.median.toFixed(1)}%</span>
+      </span>
     </div>
     ${_wheelBacktestRangeBarSvg(r.worst,r.median,r.best,target)}
     <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:8px;color:var(--text3);margin-top:1px">

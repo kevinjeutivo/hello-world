@@ -172,10 +172,20 @@ function _getIncomePositionsForTicker(ticker){
   const accounts=S.get('income_accounts_meta')||[];
   const result=[];
   accounts.forEach((a,i)=>{
-    const puts=(S.get('income_'+a.id+'_put_positions')||[])
-      .filter(p=>p.ticker===ticker&&_posExpiryStatusWL(p)!=='remove');
-    const ccs=(S.get('income_'+a.id+'_cc_positions')||[])
-      .filter(p=>p.ticker===ticker&&_posExpiryStatusWL(p)!=='remove');
+    // p&& guard first: a malformed/null entry in a position array (e.g.
+    // from a storage-full write that got cut off partway through) would
+    // otherwise throw on p.ticker and take down every account's lookup for
+    // every ticker, not just the one broken entry -- skip just that entry
+    // instead.
+    let puts=[],ccs=[];
+    try{
+      puts=(S.get('income_'+a.id+'_put_positions')||[])
+        .filter(p=>p&&p.ticker===ticker&&_posExpiryStatusWL(p)!=='remove');
+    }catch(e){console.warn('put_positions read failed for account',a.id,e?.message);}
+    try{
+      ccs=(S.get('income_'+a.id+'_cc_positions')||[])
+        .filter(p=>p&&p.ticker===ticker&&_posExpiryStatusWL(p)!=='remove');
+    }catch(e){console.warn('cc_positions read failed for account',a.id,e?.message);}
     if(puts.length||ccs.length) result.push({acctName:a.name,acctId:a.id,acctIdx:i,puts,ccs});
   });
   return result;
@@ -183,7 +193,14 @@ function _getIncomePositionsForTicker(ticker){
 
 function _openPositionsModal(ticker){
   _closeTickerMenu();
-  const accountPositions=_getIncomePositionsForTicker(ticker);
+  let accountPositions=[];
+  try{
+    accountPositions=_getIncomePositionsForTicker(ticker);
+  }catch(e){
+    console.warn('_getIncomePositionsForTicker failed for',ticker,e?.message);
+    toast('Could not load positions for '+ticker);
+    return;
+  }
   if(!accountPositions.length){toast('No active positions found for '+ticker);return;}
 
   const ACCT_COLORS=['#00d4aa','#ff6b35','#7c6af7','#64b5f6','#ffd32a','#00c896','#f06292','#ffa502'];
@@ -276,7 +293,20 @@ function _openTickerMenu(ticker,btnEl){
     'border-radius:var(--radius);box-shadow:0 4px 20px rgba(0,0,0,0.5);min-width:170px;overflow:hidden';
 
   const hasNote=!!(S.get('watchlist_note_'+ticker));
-  const hasPositions=_getIncomePositionsForTicker(ticker).length>0;
+  // Wrapped defensively: this loops over every income account's position
+  // data (not just this ticker's), so any one account with corrupted or
+  // partially-written position data (e.g. from a storage-full write
+  // failure) would otherwise throw here on every single call, for every
+  // ticker, before the menu is ever built or shown -- exactly the "menu
+  // does nothing, for every ticker, no exceptions" symptom this was
+  // reported as. Degrades to "no positions found" rather than silently
+  // killing the whole menu.
+  let hasPositions=false;
+  try{
+    hasPositions=_getIncomePositionsForTicker(ticker).length>0;
+  }catch(e){
+    console.warn('_getIncomePositionsForTicker failed for',ticker,e?.message);
+  }
 
   menu.innerHTML=
     '<div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:8px 12px 6px;border-bottom:1px solid var(--border)">'+ticker+'</div>'+

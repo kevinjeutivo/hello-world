@@ -44,8 +44,8 @@ html,body{background:var(--bg);color:var(--text);font-family:var(--sans);font-si
 .vix-dot-extreme{background:#b39ddb;animation:vixpulse 1.4s ease-in-out infinite}
 @keyframes vixpulse{0%,100%{opacity:1}50%{opacity:0.3}}
 /* Offline banner */
-.offline-banner{position:fixed;top:0;left:0;right:0;background:rgba(255,165,2,0.95);color:#000;font-family:var(--mono);font-size:12px;padding:10px 16px;text-align:center;z-index:500;transform:translateY(-100%);transition:transform 0.3s;font-weight:600}
-.offline-banner.show{transform:translateY(0)}
+.offline-banner{background:rgba(255,165,2,0.95);color:#000;font-family:var(--mono);font-size:12px;padding:0 16px;text-align:center;font-weight:600;max-height:0;overflow:hidden;transition:max-height 0.3s,padding 0.3s}
+.offline-banner.show{max-height:100px;padding:10px 16px}
 /* Offline mode overlay */
 #offline-mode-bar{display:none;background:rgba(124,106,247,0.15);border-bottom:1px solid rgba(124,106,247,0.3);font-family:var(--mono);font-size:10px;color:#b39ddb;padding:4px 16px;text-align:center}
 /* Layout */

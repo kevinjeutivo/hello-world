@@ -308,6 +308,14 @@ function showOfflineBanner(fetchTs,fetchTsEpoch){
   const b=document.getElementById('offline-banner');
   const age=relAge(fetchTs,fetchTsEpoch);
   b.textContent=`Offline -- showing cached data${fetchTs?` from ${fetchTs}${age?' ('+age+')':''}`:''}.`;
+  // Previously position:fixed, standalone outside the sticky header group --
+  // on at least one real device this left a static, opaque gap at the very
+  // top of the screen that didn't move with scroll, fully covering this
+  // banner until the page was scrolled and back (reported: looked like a
+  // black curtain being lifted/dropped over it). The market-status banner,
+  // living inside #sticky-chrome the whole time, never had this problem.
+  // Moved this banner inside that same container and off position:fixed
+  // entirely instead of continuing to patch around it.
   b.classList.add('show');
   setTimeout(()=>b.classList.remove('show'),4500);
 }

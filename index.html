@@ -942,6 +942,8 @@
       <div class="card-title" style="font-size:12px;margin-bottom:6px"><span class="dot" style="background:var(--accent3)"></span>Storage Usage</div>
       <div id="storage-display" style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6">Tap Measure to see usage</div>
       <button class="btn btn-secondary" onclick="measureStorage()" style="margin-top:6px;width:100%">Measure Storage</button>
+      <button class="btn btn-secondary" id="storage-capacity-test-btn" onclick="measureRealStorageCapacity()" style="margin-top:6px;width:100%">Measure Real Storage Limit (optional, ~1 sec)</button>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:4px">Writes and deletes temporary throwaway data to find this device's actual localStorage ceiling, since iOS Safari doesn't report it directly. Safe -- never touches your real data. Result is saved on this device only, not included in exports.</div>
     </div>
     <div style="margin-top:12px">
       <div class="card-title" style="font-size:12px;margin-bottom:6px"><span class="dot" style="background:var(--green)"></span>Worker Health Check</div>
@@ -1544,6 +1546,20 @@ function init(){
   // it naturally stops matching anything once enough real time has passed.
   // Safe to call every init.
   try{ purgeContaminatedConfirmedEarnings(); }catch(e){ console.error('Confirmed-earnings purge error:',e); }
+  // Startup safety net for the storage-capacity test (Settings): if it was
+  // ever interrupted before its own cleanup ran (e.g. app backgrounded
+  // mid-test), remove any leftover throwaway keys rather than letting them
+  // silently eat into real storage headroom. Safe to call every init --
+  // no-op if none exist.
+  try{ _cleanupStrayStorageTestKeys(); }catch(e){ console.error('Storage-test-key cleanup error:',e); }
+  // One-time (gated on the result key being absent, not a run-count flag,
+  // so it also naturally re-fires after a full "Clear All Cached Data"
+  // reset): measure this device's real localStorage ceiling while
+  // localStorage is still close to empty -- the cleanest possible baseline,
+  // before real ticker data accumulates and makes the same measurement
+  // less representative of the device's true capacity. Completes in ~1ms
+  // at realistic sizes (tested), so no perceptible startup delay.
+  try{ if(!S.get('_storage_capacity_kb'))measureRealStorageCapacity(); }catch(e){ console.error('Initial storage-capacity measurement error:',e); }
   // One-time cleanup: remove orphaned flat income position keys left over from
   // pre-migration state. Safe to call every init -- S.del is a no-op if key absent.
   // Only runs when migration is already complete (flag set) and accounts exist.

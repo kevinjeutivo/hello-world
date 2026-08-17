@@ -206,8 +206,13 @@ async function fetchAfterHoursPrice(symbol){
       high:q.regularMarketDayHigh||null,
       low:q.regularMarketDayLow||null,
       intradayVolume:q.regularMarketVolume||null,
-      // Company info (replaces Finnhub /stock/profile2)
-      name:q.shortName||q.longName||null,
+      // Company info (replaces Finnhub /stock/profile2). longName preferred
+      // over shortName -- Yahoo's shortName has its own internal length cap
+      // that ETFs/mutual funds with longer official names frequently hit,
+      // cutting off mid-word (e.g. "Vanguard Morningstar Mid-Cap ET" instead
+      // of "...ETF"). Most individual stocks' shortName rarely hits that
+      // cap, so this only meaningfully affects funds.
+      name:q.longName||q.shortName||null,
       marketCap:q.marketCap||null,                    // already in dollars
       // Valuation (replaces Finnhub /stock/metric)
       peRatio:q.trailingPE||null,

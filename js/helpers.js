@@ -420,7 +420,16 @@ function avg(arr){const v=arr.filter(x=>x!==null&&!isNaN(x));return v.length?v.r
 
 function stdDev(arr){const a=avg(arr);if(a===null)return null;const v=arr.filter(x=>x!==null&&!isNaN(x));return Math.sqrt(v.reduce((s,x)=>s+(x-a)**2,0)/v.length);}
 
-function computeRSI(closes,period=14){const result=[];for(let i=0;i<closes.length;i++){if(i<period){result.push(null);continue;}const sl=closes.slice(i-period,i+1);let g=0,l=0;for(let j=1;j<sl.length;j++){const d=sl[j]-sl[j-1];if(d>0)g+=d;else l-=d;}const ag=g/period,al=l/period;if(al===0){result.push(100);continue;}result.push(100-100/(1+ag/al));}return result.filter(v=>v!==null);}
+// Filters null closes first -- without this, a single missing/failed-fetch
+// day (a null in the array, which this app's own history caching produces
+// often enough that other callers already filter for it externally) gets
+// coerced to 0 by JS's subtraction, producing a fake huge gain or loss at
+// that point and corrupting every 14-day window containing it. Previously
+// only 2 of 6 call sites pre-filtered before calling this -- the rest,
+// including the watchlist/ticker RSI badge, were exposed to this. Filtering
+// once here, internally, fixes all of them at once regardless of what any
+// given caller remembers to do.
+function computeRSI(closes,period=14){const filtered=closes.filter(c=>c!=null);const result=[];for(let i=0;i<filtered.length;i++){if(i<period){result.push(null);continue;}const sl=filtered.slice(i-period,i+1);let g=0,l=0;for(let j=1;j<sl.length;j++){const d=sl[j]-sl[j-1];if(d>0)g+=d;else l-=d;}const ag=g/period,al=l/period;if(al===0){result.push(100);continue;}result.push(100-100/(1+ag/al));}return result.filter(v=>v!==null);}
 
 // Backtests RSI as a signal: for each historical episode where RSI crossed
 // into oversold (<30) or overbought (>70) territory, computes the stock's

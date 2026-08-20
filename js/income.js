@@ -7,7 +7,62 @@
 // Dependencies: helpers.js, storage.js
 
 const INCOME_MMF_TTL_HRS   = 24;
-const CA_STATE_TAX_RATE    = 0.093; // CA MFJ $200-300K bracket
+
+// ── State tax rate (configurable in Settings) ──────────────────────────────
+// No lookup table of actual rates -- the person enters their own known
+// marginal rate directly (more accurate per-person than any table this app
+// could maintain, and needs no annual upkeep). The state list exists only
+// to (a) name the selected state correctly in the explanatory text, and
+// (b) flag the ~9 states with no income tax at all, where 0% isn't an
+// approximation, it's just correct.
+const US_STATES=[
+  'Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware',
+  'District of Columbia','Florida','Georgia','Hawaii','Idaho','Illinois','Indiana','Iowa',
+  'Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota',
+  'Mississippi','Missouri','Montana','Nebraska','Nevada','New Hampshire','New Jersey','New Mexico',
+  'New York','North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Rhode Island',
+  'South Carolina','South Dakota','Tennessee','Texas','Utah','Vermont','Virginia','Washington',
+  'West Virginia','Wisconsin','Wyoming',
+];
+const NO_INCOME_TAX_STATES=new Set([
+  'Alaska','Florida','Nevada','New Hampshire','South Dakota','Tennessee','Texas','Washington','Wyoming',
+]);
+
+function getTaxState(){
+  const s=S.get('tax_state');
+  return US_STATES.includes(s)?s:'California'; // personal default, now an explicit setting rather than baked in
+}
+function getStateTaxRatePct(){
+  const r=S.get('state_tax_rate');
+  return(typeof r==='number'&&r>=0&&r<=100)?r:9.3; // personal default, now an explicit setting rather than baked in
+}
+function isNoIncomeTaxState(state){
+  return NO_INCOME_TAX_STATES.has(state??getTaxState());
+}
+function setTaxState(){
+  const sel=document.getElementById('tax-state-sel');
+  if(!sel)return;
+  S.set('tax_state',sel.value);
+  // One-time convenience, not a persistent override: if the newly-selected
+  // state has no income tax, zero out the rate field at the moment of
+  // selection, since leaving a stale nonzero rate in place after picking a
+  // no-tax state would otherwise silently produce a wrong TEY with no
+  // warning. Still fully editable afterward -- the calculation always just
+  // uses whatever's currently in the rate field, never the state directly.
+  if(isNoIncomeTaxState(sel.value)){
+    const rateInput=document.getElementById('state-tax-rate-input');
+    if(rateInput)rateInput.value='0';
+    S.set('state_tax_rate',0);
+  }
+  recalcIncome();
+}
+function setStateTaxRate(){
+  const input=document.getElementById('state-tax-rate-input');
+  if(!input)return;
+  const v=parseFloat(input.value);
+  if(!isNaN(v)&&v>=0&&v<=100)S.set('state_tax_rate',v);
+  recalcIncome();
+}
 
 // ── Account color palette (8 colors, assigned by creation order) ──────────────
 const ACCT_COLORS = [
@@ -336,11 +391,22 @@ function _getTargetAPY(){
   return parseFloat(globalEl?.value) || 12;
 }
 
+// Shared by both T-bill and FDLXX component notes below. No-tax-state case
+// reads as a plain statement rather than "+0.00% benefit", since there's no
+// adjustment happening at all in that state, not a benefit that rounds to zero.
+function _teyNoteText(rawYield,teyYield,state){
+  if(isNoIncomeTaxState(state))
+    return`Raw: ${rawYield.toFixed(2)}% -- ${state} has no state income tax, so this is already the effective yield.`;
+  return`Raw: ${rawYield.toFixed(2)}% → TEY: ${teyYield.toFixed(2)}% (+${(teyYield-rawYield).toFixed(2)}% ${state} benefit)`;
+}
+
 // ── Calculation engine ────────────────────────────────────────────────────────
 
 function _calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targetAPY,overridePutsNotional,overrideCCNotional){
-  const tbillTEY=tbillYield!=null?tbillYield/(1-CA_STATE_TAX_RATE):null;
-  const fdlxxTEY=fdlxxYield!=null?fdlxxYield/(1-CA_STATE_TAX_RATE):null;
+  const stateTaxRate=getStateTaxRatePct()/100;
+  const taxState=getTaxState();
+  const tbillTEY=tbillYield!=null?tbillYield/(1-stateTaxRate):null;
+  const fdlxxTEY=fdlxxYield!=null?fdlxxYield/(1-stateTaxRate):null;
 
   const tbillIncome=(inp.tbillAmt*(tbillTEY??0))/100;
   const fdlxxIncome=(inp.fdlxxAmt*(fdlxxTEY??0))/100;
@@ -351,9 +417,9 @@ function _calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targ
 
   const l1Components=[
     {label:'T-Bills (3-month)', amt:inp.tbillAmt, yld:tbillTEY, income:tbillIncome,
-      note:tbillYield!=null?`Raw: ${tbillYield.toFixed(2)}% → TEY: ${tbillTEY.toFixed(2)}% (+${(tbillTEY-tbillYield).toFixed(2)}% CA benefit)`:null},
+      note:tbillYield!=null?_teyNoteText(tbillYield,tbillTEY,taxState):null},
     {label:'FDLXX',             amt:inp.fdlxxAmt, yld:fdlxxTEY,   income:fdlxxIncome,
-      note:fdlxxYield!=null?`Raw: ${fdlxxYield.toFixed(2)}% → TEY: ${fdlxxTEY.toFixed(2)}% (+${(fdlxxTEY-fdlxxYield).toFixed(2)}% CA benefit)`:null},
+      note:fdlxxYield!=null?_teyNoteText(fdlxxYield,fdlxxTEY,taxState):null},
     {label:'SPAXX / Free cash', amt:inp.spaxxAmt, yld:spaxxYield, income:spaxxIncome, note:null},
   ];
 
@@ -533,7 +599,7 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta,rawFetched){
   const l1ComponentsWithFallback=l1.components.map(c=>{
     if(c.label==='FDLXX'){
       const fetchedRaw=rawFetched?.fdlxx??null; // raw fetched yield (pre-TEY), always from MMF cache
-      const manualTEY=inp.fdlxxYieldManual!=null?inp.fdlxxYieldManual/(1-CA_STATE_TAX_RATE):null;
+      const manualTEY=inp.fdlxxYieldManual!=null?inp.fdlxxYieldManual/(1-getStateTaxRatePct()/100):null;
       // Display TEY: if toggle active and manual set, use manualTEY; else use auto-fetched TEY
       const displayYld=(inp.fdlxxUseManual&&manualTEY!=null)?manualTEY:(c.yld??manualTEY);
       return{...c,yld:displayYld,
@@ -554,7 +620,10 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta,rawFetched){
   });
 
   const mmfStatusNote=(()=>{
-    const parts=['T-bills and FDLXX yields shown as CA state tax-equivalent (raw ÷ (1 − 9.3%)) — both are exempt from CA state income tax.'];
+    const _taxState=getTaxState(),_taxRate=getStateTaxRatePct();
+    const parts=[isNoIncomeTaxState(_taxState)
+      ?`T-bills and FDLXX yields shown at their raw rate -- ${_taxState} has no state income tax, so no tax-equivalent adjustment applies.`
+      :`T-bills and FDLXX yields shown as ${_taxState} state tax-equivalent (raw ÷ (1 − ${_taxRate}%)) — both are exempt from ${_taxState} state income tax.`];
     parts.push('T-bill yield sourced from Market tab cache (^IRX). Refresh the Market tab to update it.');
     if(!fdlxxNeedsManual&&!spaxxNeedsManual&&mmfTs){
       parts.push('MMF yields: '+(mmfFromCache?'cached':'live')+' as of '

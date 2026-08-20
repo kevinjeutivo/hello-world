@@ -374,6 +374,19 @@ function _populateCutoffSelect(){
   sel.innerHTML=etHours.map(h=>`<option value="${h}"${h===savedET?' selected':''}>${etToDisplay(h)}</option>`).join('');
 }
 
+// Populate the state dropdown (Income tab tax-equivalent yield setting).
+// Options built from US_STATES (income.js) rather than hand-written here,
+// so there's one list to keep in sync, not two.
+function _populateTaxStateSelect(){
+  const sel=document.getElementById('tax-state-sel');
+  if(!sel||typeof US_STATES==='undefined')return;
+  const current=getTaxState();
+  sel.innerHTML=US_STATES.map(s=>{
+    const label=isNoIncomeTaxState(s)?s+' (no income tax)':s;
+    return`<option value="${s}"${s===current?' selected':''}>${label}</option>`;
+  }).join('');
+}
+
 function openSettings(){
   document.getElementById('finnhub-key-input').value=FINNHUB_KEY;
   document.getElementById('worker-fragment-settings-input').value=S.get('worker_fragment')||'';
@@ -387,6 +400,8 @@ function openSettings(){
   document.getElementById('font-size-input').value=fontSize;
   loadWeightSliders();
   _populateCutoffSelect();
+  _populateTaxStateSelect();
+  document.getElementById('state-tax-rate-input').value=getStateTaxRatePct();
   document.getElementById('settings-overlay').classList.add('open');
 }
 
@@ -506,6 +521,7 @@ const EXPORT_KEYS_STATIC=[
   'income_accounts_meta','income_active_account','income_migration_v1',
   'debug_options_fetch','prefetch_sleep_ms','fetch_upgrades_enabled',
   'dashboard_notes','bb_gap_overlay','gap_list_filter',
+  'tax_state','state_tax_rate',
 ];
 
 function _buildExportData(){

@@ -59,6 +59,72 @@ function _computeMarketDerivedValues(sp500,nasdaq,spLivePrice,spPrevClose,nqLive
 // card's explanatory sentence was missing from the cached-render copy, and
 // the live copy computed outlook/outlookHike but never used either --
 // dead code left over from an edit that only touched one of the two copies.
+// Second day of each 2-day FOMC meeting (when the rate decision is
+// announced) -- sourced from the Fed's own published schedule. These are
+// published roughly a year and a half ahead and essentially never move, so
+// this only needs updating about once a year when the next year's tentative
+// schedule comes out (usually announced in the back half of the prior year).
+const FOMC_MEETING_DATES=[
+  '2026-01-28','2026-03-18','2026-04-29','2026-06-17','2026-07-29','2026-09-16','2026-10-28','2026-12-09',
+  '2027-01-27','2027-03-17','2027-04-28','2027-06-09','2027-07-28','2027-09-15','2027-10-27','2027-12-08',
+];
+const _MONTH_ABBR={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+
+// Simple version: assumes at most one standard 25bp step per meeting.
+// Correct the large majority of the time; a genuine 50bp-move scenario
+// would show as a probability this model can't fully represent (capped at
+// 100% for whichever direction), which is a known, accepted simplification
+// for a first version rather than the fuller multi-outcome treatment CME's
+// own methodology uses.
+function _computeFedMeetingProbabilities(fedFutures){
+  if(!fedFutures||!fedFutures.length)return[];
+  const STEP=0.25; // standard FOMC move size, percentage points
+  const results=[];
+  let currentRate=null;
+  for(let i=0;i<fedFutures.length;i++){
+    const c=fedFutures[i];
+    const[mAbbr,yStr]=(c.month||'').split(' ');
+    const m=_MONTH_ABBR[mAbbr],y=parseInt(yStr);
+    if(m==null||isNaN(y))continue;
+    const daysInMonth=new Date(y,m+1,0).getDate();
+    const meetingDateStr=FOMC_MEETING_DATES.find(d=>{
+      const dd=new Date(d+'T12:00:00Z');
+      return dd.getFullYear()===y&&dd.getMonth()===m;
+    });
+    if(!meetingDateStr){
+      // No meeting this month -- if we don't have a baseline rate yet,
+      // this month's implied rate IS the baseline (nothing moves it).
+      if(currentRate==null)currentRate=c.impliedRate;
+      continue;
+    }
+    const meetingDay=new Date(meetingDateStr+'T12:00:00Z').getDate();
+    const daysBefore=meetingDay-1;
+    const daysAfter=daysInMonth-daysBefore;
+    if(currentRate==null||daysAfter<=0){
+      // Can't cleanly establish a pre-meeting baseline for this specific
+      // meeting (e.g. it falls in the very first fetched month, before any
+      // meeting-free month has given us a starting rate) -- skip just this
+      // one meeting rather than guess. Later meetings still get a chance to
+      // resolve once/if a baseline becomes available.
+      continue;
+    }
+    // Day-weighted average: the contract's implied rate for the whole month
+    // blends the known pre-meeting rate with the unknown post-meeting rate.
+    const postMeetingRate=(c.impliedRate*daysInMonth-currentRate*daysBefore)/daysAfter;
+    const impliedMove=postMeetingRate-currentRate;
+    let pCut=0,pHike=0;
+    if(impliedMove<0)pCut=Math.min(Math.abs(impliedMove)/STEP,1);
+    else if(impliedMove>0)pHike=Math.min(impliedMove/STEP,1);
+    const pHold=1-pCut-pHike;
+    results.push({
+      month:c.month,meetingDate:meetingDateStr,
+      pHold:Math.round(pHold*100),pCut25:Math.round(pCut*100),pHike25:Math.round(pHike*100),
+    });
+    currentRate=postMeetingRate; // chain forward -- next meeting's baseline is this one's outcome
+  }
+  return results;
+}
+
 function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFutures,tbill3m,tbill5y,tbill10y,marketNews,derived}){
   const{tb3Current,tb5yCurrent,tb10yCurrent,tb3Yr,tb5yYr,tb10yYr,spread35,spread310,spread510,spreadStr35,spreadStr310,spreadStr510,spyiYield,nbosYield,vixCurrent,spCurrent,spChg,spChgPct,nqCurrent,nqChg,nqChgPct,spLabels,spData}=derived;
 
@@ -109,12 +175,22 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
       const outlookFlat=Math.abs(totalBps)<25?'Markets pricing no change':'';
       const outlookMild=totalBps<=-25&&totalBps>-50?'Markets pricing ~1 cut':'';
       const summary=outlookFlat||outlookMild||(totalBps<=-50?'Markets pricing 2+ cuts':'Markets pricing 1-2 cuts');
+      const meetingProbs=_computeFedMeetingProbabilities(fedFutures);
+      const probRows=meetingProbs.map(p=>{
+        const dateLabel=new Date(p.meetingDate+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+        const parts=[];
+        if(p.pHold>0)parts.push(p.pHold+'% hold');
+        if(p.pCut25>0)parts.push(p.pCut25+'% cut 25bp');
+        if(p.pHike25>0)parts.push(p.pHike25+'% hike 25bp');
+        return '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);padding:3px 0">'+dateLabel+' meeting: '+parts.join(', ')+'</div>';
+      }).join('');
       return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Fed Funds Futures (CME Implied Rates)</div>'
         +'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:8px">30-day futures price → implied rate (100 − price). Delta vs near-month contract.</div>'
         +'<div class="options-table-wrap"><table class="options-table">'
         +'<thead><tr><th style="text-align:left">Month</th><th>Price</th><th>Implied Rate</th><th>Δ vs Now</th></tr></thead>'
         +'<tbody>'+rows+'</tbody></table></div>'
         +'<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:8px">'+summary+' (next '+fedFutures.length+' months, '+Math.abs(totalBps)+'bp total)</div>'
+        +(probRows?'<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--surface3)"><div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:2px">Meeting-by-meeting odds (simplified -- assumes at most one 25bp step per meeting):</div>'+probRows+'</div>':'')
         +'</div>';
     })()}
     <div class="card">

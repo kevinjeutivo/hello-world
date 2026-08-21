@@ -387,6 +387,47 @@ function _populateTaxStateSelect(){
   }).join('');
 }
 
+// ── FOMC meeting dates (Fed Funds Futures probability breakdown, Market tab) ──
+// Self-service editing for exactly the scenario where nobody's available to
+// push a code update -- the Fed publishes these on its own site once a
+// year, so anyone can copy the 8 new dates in by hand. See
+// _effectiveFomcDates() in market.js for how a saved override here takes
+// over from the built-in list.
+function _renderFomcDatesEditor(){
+  const ta=document.getElementById('fomc-dates-textarea');
+  if(!ta||typeof _effectiveFomcDates!=='function')return;
+  ta.value=_effectiveFomcDates().join('\n');
+}
+function saveFomcDates(){
+  const ta=document.getElementById('fomc-dates-textarea');
+  if(!ta)return;
+  const lines=ta.value.split('\n').map(l=>l.trim()).filter(l=>l.length);
+  const valid=[],invalid=[];
+  lines.forEach(l=>{
+    // Strictly YYYY-MM-DD -- matches the format used throughout the rest
+    // of the app, and avoids ambiguous MM/DD vs DD/MM parsing.
+    if(/^\d{4}-\d{2}-\d{2}$/.test(l)&&!isNaN(new Date(l+'T12:00:00Z').getTime()))valid.push(l);
+    else invalid.push(l);
+  });
+  if(invalid.length){
+    toast('Not saved -- '+invalid.length+' line(s) not in YYYY-MM-DD format: '+invalid.slice(0,3).join(', ')+(invalid.length>3?'...':''),5000);
+    return;
+  }
+  if(!valid.length){
+    toast('Not saved -- list is empty. Use Reset to Defaults to start over.',4000);
+    return;
+  }
+  const deduped=[...new Set(valid)].sort();
+  S.set('fomc_meeting_dates_override',deduped);
+  ta.value=deduped.join('\n');
+  toast('FOMC meeting dates saved ('+deduped.length+' dates)',3000);
+}
+function resetFomcDatesToDefault(){
+  S.del('fomc_meeting_dates_override');
+  _renderFomcDatesEditor();
+  toast('Reset to built-in defaults',2500);
+}
+
 function openSettings(){
   document.getElementById('finnhub-key-input').value=FINNHUB_KEY;
   document.getElementById('worker-fragment-settings-input').value=S.get('worker_fragment')||'';
@@ -401,6 +442,7 @@ function openSettings(){
   loadWeightSliders();
   _populateCutoffSelect();
   _populateTaxStateSelect();
+  _renderFomcDatesEditor();
   document.getElementById('state-tax-rate-input').value=getStateTaxRatePct();
   document.getElementById('settings-overlay').classList.add('open');
 }
@@ -522,6 +564,7 @@ const EXPORT_KEYS_STATIC=[
   'debug_options_fetch','prefetch_sleep_ms','fetch_upgrades_enabled',
   'dashboard_notes','bb_gap_overlay','gap_list_filter',
   'tax_state','state_tax_rate',
+  'fomc_meeting_dates_override',
 ];
 
 function _buildExportData(){

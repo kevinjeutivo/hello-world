@@ -67,7 +67,19 @@ function _computeMarketDerivedValues(sp500,nasdaq,spLivePrice,spPrevClose,nqLive
 const FOMC_MEETING_DATES=[
   '2026-01-28','2026-03-18','2026-04-29','2026-06-17','2026-07-29','2026-09-16','2026-10-28','2026-12-09',
   '2027-01-27','2027-03-17','2027-04-28','2027-06-09','2027-07-28','2027-09-15','2027-10-27','2027-12-08',
+  '2028-01-26', // only 2028 date announced so far -- the rest of 2028's schedule is expected ~Aug/Sep 2027, per the Fed's usual one-year-ahead announcement pattern
 ];
+// Editable in Settings (see _renderFomcDatesEditor/saveFomcDates below), for
+// exactly the scenario where nobody's available to update the hardcoded
+// list above via a code change -- the Fed publishes these dates on its own
+// site, so anyone can copy the next year's 8 dates in by hand once a year.
+// A stored override, if present, is the sole effective list (not merged
+// with the hardcoded one), so what's shown in the editor is always the
+// complete picture, never a hidden diff against something invisible.
+function _effectiveFomcDates(){
+  const stored=S.get('fomc_meeting_dates_override');
+  return(Array.isArray(stored)&&stored.length)?stored:FOMC_MEETING_DATES;
+}
 const _MONTH_ABBR={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
 
 // Simple version: assumes at most one standard 25bp step per meeting.
@@ -79,6 +91,7 @@ const _MONTH_ABBR={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,N
 function _computeFedMeetingProbabilities(fedFutures){
   if(!fedFutures||!fedFutures.length)return[];
   const STEP=0.25; // standard FOMC move size, percentage points
+  const meetingDates=_effectiveFomcDates();
   const results=[];
   let currentRate=null;
   for(let i=0;i<fedFutures.length;i++){
@@ -87,7 +100,7 @@ function _computeFedMeetingProbabilities(fedFutures){
     const m=_MONTH_ABBR[mAbbr],y=parseInt(yStr);
     if(m==null||isNaN(y))continue;
     const daysInMonth=new Date(y,m+1,0).getDate();
-    const meetingDateStr=FOMC_MEETING_DATES.find(d=>{
+    const meetingDateStr=meetingDates.find(d=>{
       const dd=new Date(d+'T12:00:00Z');
       return dd.getFullYear()===y&&dd.getMonth()===m;
     });

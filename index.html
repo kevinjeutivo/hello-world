@@ -1211,7 +1211,14 @@ v1.7 -- 2026-04-29
       <input class="input" type="text" id="worker-fragment-input" placeholder="the address you were given" autocapitalize="off" autocorrect="off" spellcheck="false">
     </div>
     <div id="worker-setup-status" style="font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:10px;min-height:14px"></div>
-    <button class="btn btn-primary" id="worker-setup-continue-btn" onclick="submitWorkerFragment()">Continue</button>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6;background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:12px">
+      This app is for informational and educational purposes only -- not financial, investment, or trading advice. Options trading involves substantial risk of loss. The developer accepts no liability for losses arising from its use. <a href="javascript:void(0)" onclick="document.getElementById('disclaimer-modal').style.display='block'" style="color:var(--accent);text-decoration:underline">Read the full disclaimer</a>.
+    </div>
+    <label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:14px;font-family:var(--mono);font-size:11px;color:var(--text2);cursor:pointer">
+      <input type="checkbox" id="worker-setup-disclaimer-check" onchange="_updateWorkerSetupContinueState()" style="margin-top:2px;flex-shrink:0">
+      <span>I understand this is not financial advice and I'm using this app at my own risk.</span>
+    </label>
+    <button class="btn btn-primary" id="worker-setup-continue-btn" onclick="submitWorkerFragment()" disabled>Continue</button>
     <button class="btn btn-secondary" id="worker-setup-cancel-btn" style="display:none" onclick="cancelWorkerFragmentCheck()">Cancel</button>
   </div>
 </div>
@@ -1488,12 +1495,23 @@ function _setWorkerSetupStatus(msg,isError){
   el.textContent=msg;
   el.style.color=isError?'var(--danger)':'var(--text2)';
 }
+function _updateWorkerSetupContinueState(){
+  const check=document.getElementById('worker-setup-disclaimer-check');
+  const continueBtn=document.getElementById('worker-setup-continue-btn');
+  if(check&&continueBtn)continueBtn.disabled=!check.checked;
+}
 function openWorkerSetupOverlay(){
   const input=document.getElementById('worker-fragment-input');
   if(input)input.value=S.get('worker_fragment')||'';
   _setWorkerSetupStatus('');
   document.getElementById('worker-setup-cancel-btn').style.display='none';
-  document.getElementById('worker-setup-continue-btn').disabled=false;
+  // Both call sites (true first launch, and after "Clear All Cached Data")
+  // are genuine fresh-start moments -- the checkbox resets unchecked and
+  // Continue starts disabled every time this modal opens, not just once
+  // ever, so a full reset also means a fresh acknowledgment.
+  const check=document.getElementById('worker-setup-disclaimer-check');
+  if(check)check.checked=false;
+  document.getElementById('worker-setup-continue-btn').disabled=true;
   document.getElementById('worker-setup-overlay').classList.add('open');
 }
 function cancelWorkerFragmentCheck(){
@@ -1503,6 +1521,8 @@ function cancelWorkerFragmentCheck(){
   if(_workerSetupAbortCtrl)_workerSetupAbortCtrl.abort('user-cancel');
 }
 async function submitWorkerFragment(){
+  const check=document.getElementById('worker-setup-disclaimer-check');
+  if(check&&!check.checked){_setWorkerSetupStatus('Please check the box above to continue.',true);return;}
   const raw=document.getElementById('worker-fragment-input').value;
   const fragment=_normalizeWorkerFragment(raw);
   if(!fragment){_setWorkerSetupStatus('Enter a value before continuing.',true);return;}

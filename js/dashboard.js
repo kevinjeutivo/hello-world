@@ -416,9 +416,28 @@ function getValuationScope(){
   const s=S.get('valuation_scope');
   return s==='starred'?s:'all';
 }
+// Metric definitions: key -> {label, snapField, decimals, secondary}.
+// "secondary" is which OTHER metric displays alongside the selected one in
+// each row -- chosen for what pairs most usefully, not just "whatever's
+// left": TTM/Forward paired together directly shows the growth
+// expectation implied by the gap between them (same read as the Ticker
+// page's "Earnings growth/shrinkage expected" note); PEG is paired with
+// Forward P/E specifically because Yahoo's PEG is itself forward-P/E-based
+// internally, so showing them together is the methodologically coherent
+// pairing, not trailing P/E.
+const VALUATION_METRICS={
+  pe:    {rowLabel:'P/E TTM', shortLabel:'TTM', snapField:'peRatio',   decimals:1, secondary:'pe_fwd'},
+  pe_fwd:{rowLabel:'P/E Fwd', shortLabel:'Fwd', snapField:'peForward', decimals:1, secondary:'pe'},
+  peg:   {rowLabel:'PEG',     shortLabel:'PEG', snapField:'pegRatio',  decimals:2, secondary:'pe_fwd'},
+};
+function _fmtValuationMetric(key,val){
+  if(val==null)return'N/A';
+  return val.toFixed(VALUATION_METRICS[key].decimals);
+}
+
 function getValuationMetric(){
   const m=S.get('valuation_metric');
-  return m==='peg'?m:'pe';
+  return VALUATION_METRICS[m]?m:'pe';
 }
 function setValuationScope(scope){
   S.set('valuation_scope',scope);
@@ -442,9 +461,10 @@ function renderValuationDashboard(){
   const allBtn=document.getElementById('valuation-scope-all'),starBtn=document.getElementById('valuation-scope-starred');
   if(allBtn){allBtn.style.background=scope==='all'?'var(--accent)':'var(--surface3)';allBtn.style.color=scope==='all'?'#000':'var(--text3)';}
   if(starBtn){starBtn.style.background=scope==='starred'?'var(--accent)':'var(--surface3)';starBtn.style.color=scope==='starred'?'#000':'var(--text3)';}
-  const peBtn=document.getElementById('valuation-metric-pe'),pegBtn=document.getElementById('valuation-metric-peg');
-  if(peBtn){peBtn.style.background=metric==='pe'?'var(--accent)':'var(--surface3)';peBtn.style.color=metric==='pe'?'#000':'var(--text3)';}
-  if(pegBtn){pegBtn.style.background=metric==='peg'?'var(--accent)':'var(--surface3)';pegBtn.style.color=metric==='peg'?'#000':'var(--text3)';}
+  Object.keys(VALUATION_METRICS).forEach(k=>{
+    const btn=document.getElementById('valuation-metric-'+k);
+    if(btn){btn.style.background=metric===k?'var(--accent)':'var(--surface3)';btn.style.color=metric===k?'#000':'var(--text3)';}
+  });
 
   const starred=scope==='starred'?_starredTickers():null;
   const tickers=starred?watchlist.filter(t=>starred.has(t)):watchlist;
@@ -466,6 +486,7 @@ function renderValuationDashboard(){
       ticker:t,
       price:snap.price??null,
       pe:snap.peRatio??null,
+      pe_fwd:snap.peForward??null,
       peg:snap.pegRatio??null,
     });
   });
@@ -473,8 +494,10 @@ function renderValuationDashboard(){
   const sectorNames=Object.keys(groups).filter(s=>s!==NO_SECTOR).sort();
   if(groups[NO_SECTOR])sectorNames.push(NO_SECTOR); // always last
 
-  const metricKey=metric==='peg'?'peg':'pe';
-  const metricLabel=metric==='peg'?'PEG':'P/E';
+  const metricKey=metric;
+  const metricLabel=VALUATION_METRICS[metric].rowLabel;
+  const secondaryKey=VALUATION_METRICS[metric].secondary;
+  const secondaryLabel=VALUATION_METRICS[secondaryKey].shortLabel;
 
   content.innerHTML=sectorNames.map(sector=>{
     const rows=groups[sector];
@@ -492,15 +515,13 @@ function renderValuationDashboard(){
     });
     const countNote=rows.length===1?' <span style="color:var(--text3);font-weight:400">(1 ticker -- no in-watchlist comparison)</span>':'';
     const rowsHtml=sorted.map(r=>{
-      const valStr=r[metricKey]!=null?r[metricKey].toFixed(metric==='peg'?2:1):'N/A';
-      const otherKey=metricKey==='pe'?'peg':'pe';
-      const otherLabel=metricKey==='pe'?'PEG':'P/E';
-      const otherStr=r[otherKey]!=null?r[otherKey].toFixed(otherKey==='peg'?2:1):'N/A';
+      const valStr=_fmtValuationMetric(metricKey,r[metricKey]);
+      const otherStr=_fmtValuationMetric(secondaryKey,r[secondaryKey]);
       const priceStr=r.price!=null?'$'+r.price.toFixed(2):'N/A';
       return`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--surface3)">
         <span style="font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer" onclick="navigateToTicker('${r.ticker}')">${r.ticker}</span>
         <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${priceStr}</span>
-        <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${otherLabel} ${otherStr}</span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${secondaryLabel} ${otherStr}</span>
         <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent)">${metricLabel} ${valStr}</span>
       </div>`;
     }).join('');

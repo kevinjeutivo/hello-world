@@ -15,7 +15,7 @@ function setDashboardViewMode(mode){
 }
 
 function _syncDashboardViewModeUI(){
-  const putsBtn=document.getElementById('dash-view-puts'),ccBtn=document.getElementById('dash-view-cc'),rsiBtn=document.getElementById('dash-view-rsi'),riskBtn=document.getElementById('dash-view-risk'),gapBtn=document.getElementById('dash-view-gap'),notesBtn=document.getElementById('dash-view-notes'),wheelbtBtn=document.getElementById('dash-view-wheelbt');
+  const putsBtn=document.getElementById('dash-view-puts'),ccBtn=document.getElementById('dash-view-cc'),rsiBtn=document.getElementById('dash-view-rsi'),riskBtn=document.getElementById('dash-view-risk'),gapBtn=document.getElementById('dash-view-gap'),notesBtn=document.getElementById('dash-view-notes'),wheelbtBtn=document.getElementById('dash-view-wheelbt'),valuationBtn=document.getElementById('dash-view-valuation');
   if(putsBtn)putsBtn.style.opacity=dashboardViewMode==='puts'?'1':'0.4';
   if(ccBtn)ccBtn.style.opacity=dashboardViewMode==='cc'?'1':'0.4';
   if(rsiBtn)rsiBtn.style.opacity=dashboardViewMode==='rsi'?'1':'0.4';
@@ -23,6 +23,7 @@ function _syncDashboardViewModeUI(){
   if(gapBtn)gapBtn.style.opacity=dashboardViewMode==='gap'?'1':'0.4';
   if(notesBtn)notesBtn.style.opacity=dashboardViewMode==='notes'?'1':'0.4';
   if(wheelbtBtn)wheelbtBtn.style.opacity=dashboardViewMode==='wheelbt'?'1':'0.4';
+  if(valuationBtn)valuationBtn.style.opacity=dashboardViewMode==='valuation'?'1':'0.4';
 
   const convictionControls=document.getElementById('dash-conviction-controls');
   const putsCard=document.getElementById('dash-puts-card');
@@ -34,7 +35,8 @@ function _syncDashboardViewModeUI(){
   const notesCard=document.getElementById('dash-notes-card');
   const wheelbtCard=document.getElementById('dash-wheelbt-card');
   const wheelbtRankingCard=document.getElementById('dash-wheelbt-ranking-card');
-  if(convictionControls)convictionControls.style.display=(dashboardViewMode==='rsi'||dashboardViewMode==='risk'||dashboardViewMode==='gap'||dashboardViewMode==='notes'||dashboardViewMode==='wheelbt')?'none':'';
+  const valuationCard=document.getElementById('dash-valuation-card');
+  if(convictionControls)convictionControls.style.display=(dashboardViewMode==='rsi'||dashboardViewMode==='risk'||dashboardViewMode==='gap'||dashboardViewMode==='notes'||dashboardViewMode==='wheelbt'||dashboardViewMode==='valuation')?'none':'';
   if(putsCard)putsCard.style.display=dashboardViewMode==='puts'?'':'none';
   if(ccCard)ccCard.style.display=dashboardViewMode==='cc'?'':'none';
   if(rsiCard)rsiCard.style.display=dashboardViewMode==='rsi'?'':'none';
@@ -44,12 +46,14 @@ function _syncDashboardViewModeUI(){
   if(notesCard)notesCard.style.display=dashboardViewMode==='notes'?'':'none';
   if(wheelbtCard)wheelbtCard.style.display=dashboardViewMode==='wheelbt'?'':'none';
   if(wheelbtRankingCard)wheelbtRankingCard.style.display=dashboardViewMode==='wheelbt'?'':'none';
+  if(valuationCard)valuationCard.style.display=dashboardViewMode==='valuation'?'':'none';
 
   if(dashboardViewMode==='rsi'){_populateRSIBacktestDropdown();renderRSIBacktest();renderRSIRanking();}
   if(dashboardViewMode==='risk'){renderAssignmentRisk();}
   if(dashboardViewMode==='gap'){_populateGapFillDropdown();renderGapFillDashboard();}
   if(dashboardViewMode==='notes'){renderDashboardNotes();}
   if(dashboardViewMode==='wheelbt'){_populateWheelBacktestDropdown();if(!_wheelbtViewEverRendered||_wheelbtDataStale)setTimeout(refreshWheelBacktestViews,50);}
+  if(dashboardViewMode==='valuation'){renderValuationDashboard();}
 }
 
 // 9 component definitions split into two rows: 4 on top, 5 on bottom.
@@ -402,6 +406,107 @@ function renderAssignmentRisk(){
         <span>Time value: ${tvStr}</span>
       </div>
       ${earningsStr?`<div style="font-family:var(--mono);font-size:10px;margin-top:2px">${earningsStr}</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+// ── Valuation view (sector-grouped P/E & PEG comparison) ────────────────────
+
+function getValuationScope(){
+  const s=S.get('valuation_scope');
+  return s==='starred'?s:'all';
+}
+function getValuationMetric(){
+  const m=S.get('valuation_metric');
+  return m==='peg'?m:'pe';
+}
+function setValuationScope(scope){
+  S.set('valuation_scope',scope);
+  renderValuationDashboard();
+}
+function setValuationMetric(metric){
+  S.set('valuation_metric',metric);
+  renderValuationDashboard();
+}
+
+function renderValuationDashboard(){
+  const content=document.getElementById('valuation-content');
+  if(!content)return;
+  const scope=getValuationScope();
+  const metric=getValuationMetric();
+  // Sync toggle button visuals to the persisted preference -- this view's
+  // choices survive reloads (unlike the Wheel Backtest ranking filter,
+  // which intentionally resets every load), so the buttons need to catch
+  // up to a stored non-default value on a fresh render, not just when
+  // clicked.
+  const allBtn=document.getElementById('valuation-scope-all'),starBtn=document.getElementById('valuation-scope-starred');
+  if(allBtn){allBtn.style.background=scope==='all'?'var(--accent)':'var(--surface3)';allBtn.style.color=scope==='all'?'#000':'var(--text3)';}
+  if(starBtn){starBtn.style.background=scope==='starred'?'var(--accent)':'var(--surface3)';starBtn.style.color=scope==='starred'?'#000':'var(--text3)';}
+  const peBtn=document.getElementById('valuation-metric-pe'),pegBtn=document.getElementById('valuation-metric-peg');
+  if(peBtn){peBtn.style.background=metric==='pe'?'var(--accent)':'var(--surface3)';peBtn.style.color=metric==='pe'?'#000':'var(--text3)';}
+  if(pegBtn){pegBtn.style.background=metric==='peg'?'var(--accent)':'var(--surface3)';pegBtn.style.color=metric==='peg'?'#000':'var(--text3)';}
+
+  const starred=scope==='starred'?_starredTickers():null;
+  const tickers=starred?watchlist.filter(t=>starred.has(t)):watchlist;
+  if(!tickers.length){
+    content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>'+(starred?'No starred tickers yet -- tap the star on a ticker in the Watchlist tab to add one.':'Watchlist is empty')+'</div>';
+    return;
+  }
+
+  // Group by sector -- tickers with no sector (ETFs, mutual funds, or not
+  // yet prefetched) land in their own explicit bucket rather than
+  // disappearing silently.
+  const NO_SECTOR='No sector data';
+  const groups={};
+  tickers.forEach(t=>{
+    const snap=S.get('snap_'+t)||{};
+    const sector=snap.sector||NO_SECTOR;
+    if(!groups[sector])groups[sector]=[];
+    groups[sector].push({
+      ticker:t,
+      price:snap.price??null,
+      pe:snap.peRatio??null,
+      peg:snap.pegRatio??null,
+    });
+  });
+
+  const sectorNames=Object.keys(groups).filter(s=>s!==NO_SECTOR).sort();
+  if(groups[NO_SECTOR])sectorNames.push(NO_SECTOR); // always last
+
+  const metricKey=metric==='peg'?'peg':'pe';
+  const metricLabel=metric==='peg'?'PEG':'P/E';
+
+  content.innerHTML=sectorNames.map(sector=>{
+    const rows=groups[sector];
+    // Within each sector: sort by the selected metric ascending: tickers
+    // missing that specific metric (common for the No sector data bucket,
+    // and for unprofitable companies with no meaningful trailing P/E) sink
+    // to the bottom of their own group rather than mixing in as if they
+    // were the "cheapest" -- a missing value is not a low value.
+    const sorted=[...rows].sort((a,b)=>{
+      const av=a[metricKey],bv=b[metricKey];
+      if(av==null&&bv==null)return a.ticker.localeCompare(b.ticker);
+      if(av==null)return 1;
+      if(bv==null)return -1;
+      return av-bv;
+    });
+    const countNote=rows.length===1?' <span style="color:var(--text3);font-weight:400">(1 ticker -- no in-watchlist comparison)</span>':'';
+    const rowsHtml=sorted.map(r=>{
+      const valStr=r[metricKey]!=null?r[metricKey].toFixed(metric==='peg'?2:1):'N/A';
+      const otherKey=metricKey==='pe'?'peg':'pe';
+      const otherLabel=metricKey==='pe'?'PEG':'P/E';
+      const otherStr=r[otherKey]!=null?r[otherKey].toFixed(otherKey==='peg'?2:1):'N/A';
+      const priceStr=r.price!=null?'$'+r.price.toFixed(2):'N/A';
+      return`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--surface3)">
+        <span style="font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer" onclick="navigateToTicker('${r.ticker}')">${r.ticker}</span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${priceStr}</span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${otherLabel} ${otherStr}</span>
+        <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent)">${metricLabel} ${valStr}</span>
+      </div>`;
+    }).join('');
+    return`<div style="margin-bottom:14px">
+      <div style="font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--text2);margin-bottom:4px">${sector}${countNote}</div>
+      ${rowsHtml}
     </div>`;
   }).join('');
 }

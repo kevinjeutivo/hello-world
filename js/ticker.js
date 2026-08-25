@@ -120,6 +120,8 @@ async function loadTicker(){
       // -- qs was already fetched concurrently above, alongside the quote and hist2y calls
       try{
         if(qs){
+          if(qs.sector!=null)snap.sector=qs.sector;
+          if(qs.industry!=null)snap.industry=qs.industry;
           if(qs.beta!=null)snap.beta=qs.beta;
           if(qs.ptMean){snap.ptMean=qs.ptMean;snap.ptHigh=qs.ptHigh||null;snap.ptLow=qs.ptLow||null;snap.ptAnalysts=qs.ptAnalysts||null;}
           if(qs.pegRatio!=null)snap.pegRatio=qs.pegRatio;
@@ -1977,6 +1979,8 @@ async function refreshSingleTicker(){
     // Step 2: Yahoo quoteSummary (beta, short interest, R40 inputs, price targets, trends)
     setP(20,'Fetching '+t+' extended data...');
       try{const qs=await fetchQuoteSummary(t);if(qs){
+        if(qs.sector!=null)snap.sector=qs.sector;
+        if(qs.industry!=null)snap.industry=qs.industry;
         if(qs.beta!=null)snap.beta=qs.beta;
         if(qs.ptMean){snap.ptMean=qs.ptMean;snap.ptHigh=qs.ptHigh||null;snap.ptLow=qs.ptLow||null;snap.ptAnalysts=qs.ptAnalysts||null;}
         if(qs.pegRatio!=null)snap.pegRatio=qs.pegRatio;

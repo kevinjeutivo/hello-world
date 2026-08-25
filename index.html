@@ -201,14 +201,15 @@
   </div>
   <div id="dash-valuation-card" class="card" style="display:none">
     <div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Valuation by Sector</div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Your watchlist grouped by sector, ranked by valuation multiple within each group -- a low P/E or PEG only means much relative to similar companies, not across unrelated sectors. ETFs, funds, and anything not yet prefetched land in "No sector data" below.</div>
-    <div style="display:flex;justify-content:space-between;margin-bottom:10px">
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Your watchlist grouped by sector, ranked by valuation multiple within each group -- a low P/E or PEG only means much relative to similar companies, not across unrelated sectors. ETFs, funds, and anything not yet prefetched land in "No sector data" below. PEG here uses forward P/E internally (Yahoo's methodology) -- see the paired value in each row.</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:10px">
       <div style="display:flex;gap:4px">
         <span id="valuation-scope-all" onclick="setValuationScope('all')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--accent);color:#000">All</span>
         <span id="valuation-scope-starred" onclick="setValuationScope('starred')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--surface3);color:var(--text3)">Starred Only</span>
       </div>
       <div style="display:flex;gap:4px">
-        <span id="valuation-metric-pe" onclick="setValuationMetric('pe')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--accent);color:#000">P/E</span>
+        <span id="valuation-metric-pe" onclick="setValuationMetric('pe')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--accent);color:#000">P/E TTM</span>
+        <span id="valuation-metric-pe_fwd" onclick="setValuationMetric('pe_fwd')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--surface3);color:var(--text3)">P/E Fwd</span>
         <span id="valuation-metric-peg" onclick="setValuationMetric('peg')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--surface3);color:var(--text3)">PEG</span>
       </div>
     </div>

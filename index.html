@@ -86,6 +86,7 @@
       <button class="btn btn-secondary" id="dash-view-gap" onclick="setDashboardViewMode('gap')" style="font-size:10px;padding:3px 8px;opacity:0.4">Gap Fill</button>
       <button class="btn btn-secondary" id="dash-view-notes" onclick="setDashboardViewMode('notes')" style="font-size:10px;padding:3px 8px;opacity:0.4">Notes</button>
       <button class="btn btn-secondary" id="dash-view-wheelbt" onclick="setDashboardViewMode('wheelbt')" style="font-size:10px;padding:3px 8px;opacity:0.4">Wheel Backtest</button>
+      <button class="btn btn-secondary" id="dash-view-valuation" onclick="setDashboardViewMode('valuation')" style="font-size:10px;padding:3px 8px;opacity:0.4">Valuation</button>
     </div>
   </div>
   <div id="dash-conviction-controls" class="card">
@@ -197,6 +198,21 @@
       <span id="wheelbt-ranking-filter-starred" onclick="setWheelBacktestRankingFilter('starred')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--surface3);color:var(--text3)">Starred Only</span>
     </div>
     <div id="wheelbt-ranking-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Loading...</div></div>
+  </div>
+  <div id="dash-valuation-card" class="card" style="display:none">
+    <div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Valuation by Sector</div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Your watchlist grouped by sector, ranked by valuation multiple within each group -- a low P/E or PEG only means much relative to similar companies, not across unrelated sectors. ETFs, funds, and anything not yet prefetched land in "No sector data" below.</div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:10px">
+      <div style="display:flex;gap:4px">
+        <span id="valuation-scope-all" onclick="setValuationScope('all')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--accent);color:#000">All</span>
+        <span id="valuation-scope-starred" onclick="setValuationScope('starred')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--surface3);color:var(--text3)">Starred Only</span>
+      </div>
+      <div style="display:flex;gap:4px">
+        <span id="valuation-metric-pe" onclick="setValuationMetric('pe')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--accent);color:#000">P/E</span>
+        <span id="valuation-metric-peg" onclick="setValuationMetric('peg')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--surface3);color:var(--text3)">PEG</span>
+      </div>
+    </div>
+    <div id="valuation-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Loading...</div></div>
   </div>
 </div>
 

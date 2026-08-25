@@ -87,15 +87,17 @@ async function yahooOptionsViaProxy(symbol,expiration){
 }
 
 async function fetchQuoteSummary(symbol){
-  // Single call fetching 5 quoteSummary modules:
+  // Single call fetching 6 quoteSummary modules:
   // financialData: price targets, margins, growth
   // defaultKeyStatistics: PEG, EV/EBITDA, short interest, beta
   // earningsTrend: EPS/revenue estimates by period + revision direction
   // recommendationTrend: buy/hold/sell counts by month (Yahoo free, vs Finnhub premium)
   // earningsHistory: past actual-vs-estimate EPS + surprise (replaces Finnhub /stock/earnings)
+  // assetProfile: sector/industry classification -- null for ETFs/mutual funds/indices,
+  // which aren't individual companies and have no sector of their own
   if(offlineMode)return null;
   try{
-    const modules='financialData,defaultKeyStatistics,earningsTrend,recommendationTrend,earningsHistory';
+    const modules='financialData,defaultKeyStatistics,earningsTrend,recommendationTrend,earningsHistory,assetProfile';
     const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=summary&modules=${encodeURIComponent(modules)}`);
     if(!r.ok)return null;
     const d=await r.json();
@@ -106,7 +108,13 @@ async function fetchQuoteSummary(symbol){
     const et=res.earningsTrend?.trend||[];
     const rt=res.recommendationTrend?.trend||[];
     const eh=res.earningsHistory?.history||[];
+    const ap=res.assetProfile||{};
     return{
+      // Sector/industry classification (assetProfile) -- for grouping
+      // valuation comparisons among similar companies, not raw across
+      // unrelated sectors
+      sector:ap.sector||null,
+      industry:ap.industry||null,
       // Price targets (financialData)
       ptMean:fd.targetMeanPrice?.raw||null,
       ptHigh:fd.targetHighPrice?.raw||null,

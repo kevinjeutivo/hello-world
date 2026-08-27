@@ -32,8 +32,8 @@ function scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,expi
 
   // ── Per-component scores (−1 negative, 0 neutral, 1 low, 2 good, 3 best) ──
   // Unified IVR scale: <30 Low | 30-49 Normal | 50-69 Elevated | >=70 High
-  const ivrScore  = ivrVal===null?0:(ivrVal>=70?3:ivrVal>=50?2:ivrVal>=30?1:-1);
-  const rsiScore  = rsiVal===null?0:(rsiVal<35?3:rsiVal<50?2:rsiVal>70?-1:rsiVal>60?0:1);
+  const ivrScore  = (ivrVal===null||isNaN(ivrVal))?0:(ivrVal>=70?3:ivrVal>=50?2:ivrVal>=30?1:-1);
+  const rsiScore  = (rsiVal===null||isNaN(rsiVal))?0:(rsiVal<35?3:rsiVal<50?2:rsiVal>70?-1:rsiVal>60?0:1);
   const rangeScore= rangePos===null?0:(rangePos<0.35?3:rangePos<0.55?2:rangePos>0.85?-1:1);
   const apyScore  = !estApy?0:(parseFloat(estApy)>=12?3:parseFloat(estApy)>=8?2:parseFloat(estApy)>=5?1:0);
   const earnScore = !earningsDate?1:(()=>{const d=daysUntilDate(earningsDate.split(' ')[0])??Math.round((new Date(earningsDate.split(' ')[0])-new Date())/86400000);return d>=0&&d<35?-1:d<60?0:2;})();
@@ -73,8 +73,8 @@ function scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate,recStrike,exp
 
   // ── Per-component scores for calls (inverted logic vs puts for RSI/range) ──
   // Unified IVR scale: <30 Low | 30-49 Normal | 50-69 Elevated | >=70 High
-  const ivrScore  = ivrVal===null?0:(ivrVal>=70?3:ivrVal>=50?2:ivrVal>=30?1:-1);
-  const rsiScore  = rsiVal===null?0:(rsiVal>70?3:rsiVal>60?2:rsiVal<35?-1:rsiVal<50?0:1);
+  const ivrScore  = (ivrVal===null||isNaN(ivrVal))?0:(ivrVal>=70?3:ivrVal>=50?2:ivrVal>=30?1:-1);
+  const rsiScore  = (rsiVal===null||isNaN(rsiVal))?0:(rsiVal>70?3:rsiVal>60?2:rsiVal<35?-1:rsiVal<50?0:1);
   const rangeScore= rangePos===null?0:(rangePos>0.80?3:rangePos>0.60?2:rangePos<0.30?-1:rangePos<0.50?0:1);
   const apyScore  = !estApy?0:(parseFloat(estApy)>=12?3:parseFloat(estApy)>=8?2:parseFloat(estApy)>=5?1:0);
   const earnScore = !earningsDate?1:(()=>{const d=daysUntilDate(earningsDate.split(' ')[0])??Math.round((new Date(earningsDate.split(' ')[0])-new Date())/86400000);return d>=0&&d<35?-1:d<60?0:2;})();

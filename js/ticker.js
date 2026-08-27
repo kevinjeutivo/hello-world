@@ -85,7 +85,13 @@ async function loadTicker(){
       const _pmFields=_resolvePostMarketFields(ah,_prevSnap);
       snap={
         ticker:t,
-        name:ah.name||t,
+        // Falls back to the previously cached name first, ticker symbol
+        // only as a last resort -- a one-off fetch with a missing
+        // longName/shortName (rare, but observed for NVDA specifically)
+        // should not permanently overwrite a perfectly good cached name
+        // with the bare ticker until some future fetch happens to
+        // include a name again.
+        name:ah.name||_prevSnap?.name||t,
         price:_price,
         prevClose:_prev,
         change:_price-_prev,
@@ -105,6 +111,29 @@ async function loadTicker(){
         // Earnings from Finnhub calendar (BMO/AMC timing)
         earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),
         earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),
+        // quoteSummary-derived fields (sector/beta/PEG/price targets/etc.) are
+        // seeded from the previous cached snap here, NOT left unset -- this
+        // object literal gets saved below (and possibly again after the qs
+        // merge further down) regardless of whether quoteSummary succeeds
+        // this run. Without this seed, a quoteSummary fetch failure (or the
+        // brief in-between window before it resolves) would silently wipe
+        // every one of these fields to undefined on save, discarding
+        // perfectly good previously-cached data. quoteSummary fails as one
+        // atomic unit (fully populated or fully null, never partial), so
+        // these are preserved or refreshed together, not field-by-field.
+        sector:_prevSnap?.sector??null,industry:_prevSnap?.industry??null,
+        beta:_prevSnap?.beta??null,pegRatio:_prevSnap?.pegRatio??null,
+        evToEbitda:_prevSnap?.evToEbitda??null,totalAssets:_prevSnap?.totalAssets??null,
+        shortPctFloat:_prevSnap?.shortPctFloat??null,shortRatioYahoo:_prevSnap?.shortRatioYahoo??null,
+        ptMean:_prevSnap?.ptMean??null,ptHigh:_prevSnap?.ptHigh??null,ptLow:_prevSnap?.ptLow??null,ptAnalysts:_prevSnap?.ptAnalysts??null,
+        earningsTrend:_prevSnap?.earningsTrend??null,recTrend:_prevSnap?.recTrend??null,earningsHistoryYahoo:_prevSnap?.earningsHistoryYahoo??null,
+        revenueGrowthYahoo:_prevSnap?.revenueGrowthYahoo??null,operatingMarginsYahoo:_prevSnap?.operatingMarginsYahoo??null,fcfMarginYahoo:_prevSnap?.fcfMarginYahoo??null,
+        // true = these fields (if present at all) are carried over from a
+        // previous fetch, not confirmed fresh this run. Set false only
+        // inside the qs-success branch below. Read directly off the saved
+        // snap by the Refresh Health tracking and the Valuation dashboard
+        // view -- one flag, one source of truth, no separate tracking.
+        summaryDegraded:true,summaryTs:_prevSnap?.summaryTs??null,
         ts:nowPT(),tsEpoch:Date.now(),isLive:true
       };
       S.set('snap_'+t,snap);
@@ -120,6 +149,7 @@ async function loadTicker(){
       // -- qs was already fetched concurrently above, alongside the quote and hist2y calls
       try{
         if(qs){
+          snap.summaryDegraded=false;snap.summaryTs=nowPT();
           if(qs.sector!=null)snap.sector=qs.sector;
           if(qs.industry!=null)snap.industry=qs.industry;
           if(qs.beta!=null)snap.beta=qs.beta;
@@ -1949,7 +1979,7 @@ async function refreshSingleTicker(){
     const _rPrevSnap=S.get('snap_'+t);
     const _rPmFields=_resolvePostMarketFields(ah,_rPrevSnap);
     const snap={
-      ticker:t,name:ah.name||t,
+      ticker:t,name:ah.name||_rPrevSnap?.name||t, // preserve a good cached name over a one-off fetch that came back without one -- see loadTicker for the same reasoning
       price:_rPrice,prevClose:_rPrev,
       change:_rPrice-_rPrev,changePct:((_rPrice-_rPrev)/_rPrev*100),
       high:ah.high||null,low:ah.low||null,
@@ -1964,6 +1994,18 @@ async function refreshSingleTicker(){
       postMarketChange:_rPmFields.postMarketChange,
       postMarketChangePct:_rPmFields.postMarketChangePct,
       earningsDate:futE[0]?.date||null,earningsHour:futE[0]?.hour||null,
+      // Same quoteSummary-preservation reasoning as loadTicker -- see there
+      // for the full explanation. Seeded from the previous snap so a
+      // quoteSummary failure this run doesn't wipe these fields via the
+      // unconditional save below.
+      sector:_rPrevSnap?.sector??null,industry:_rPrevSnap?.industry??null,
+      beta:_rPrevSnap?.beta??null,pegRatio:_rPrevSnap?.pegRatio??null,
+      evToEbitda:_rPrevSnap?.evToEbitda??null,totalAssets:_rPrevSnap?.totalAssets??null,
+      shortPctFloat:_rPrevSnap?.shortPctFloat??null,shortRatioYahoo:_rPrevSnap?.shortRatioYahoo??null,
+      ptMean:_rPrevSnap?.ptMean??null,ptHigh:_rPrevSnap?.ptHigh??null,ptLow:_rPrevSnap?.ptLow??null,ptAnalysts:_rPrevSnap?.ptAnalysts??null,
+      earningsTrend:_rPrevSnap?.earningsTrend??null,recTrend:_rPrevSnap?.recTrend??null,earningsHistoryYahoo:_rPrevSnap?.earningsHistoryYahoo??null,
+      revenueGrowthYahoo:_rPrevSnap?.revenueGrowthYahoo??null,operatingMarginsYahoo:_rPrevSnap?.operatingMarginsYahoo??null,fcfMarginYahoo:_rPrevSnap?.fcfMarginYahoo??null,
+      summaryDegraded:true,summaryTs:_rPrevSnap?.summaryTs??null,
       ts:nowPT(),tsEpoch:Date.now(),isLive:true
     };
     // Save pending earnings date + promote passed dates to confirmed
@@ -1979,6 +2021,7 @@ async function refreshSingleTicker(){
     // Step 2: Yahoo quoteSummary (beta, short interest, R40 inputs, price targets, trends)
     setP(20,'Fetching '+t+' extended data...');
       try{const qs=await fetchQuoteSummary(t);if(qs){
+        snap.summaryDegraded=false;snap.summaryTs=nowPT();
         if(qs.sector!=null)snap.sector=qs.sector;
         if(qs.industry!=null)snap.industry=qs.industry;
         if(qs.beta!=null)snap.beta=qs.beta;
@@ -2104,7 +2147,9 @@ async function refreshSingleTicker(){
         // Preserve 'skipped' status if options were not explicitly fetched this run
         const _prevOpts=_h.tickers[t]?.options;
         const _newOpts=optionsLoaded?true:(_prevOpts==='skipped'?'skipped':false);
+        const _finalSnap=S.get('snap_'+t);
         _h.tickers[t]={snap:true,hist:true,options:_newOpts,finnhub:!_rUpgradesErr,
+          summaryDegraded:_finalSnap?.summaryDegraded||false,
           ...(_rUpgradesErr?{finnhubDetail:'upgrades: '+_rUpgradesErr.slice(0,90)}:{})};
         // Recompute summary -- uses the in-memory `watchlist` global, not
         // S.get('watchlist') directly: on a device that's never explicitly
@@ -2113,7 +2158,9 @@ async function refreshSingleTicker(){
         // (from defaults) and the app is otherwise working normally --
         // reading storage directly here would silently report 0 total.
         const _ok=watchlist.filter(tk=>_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist&&_h.tickers[tk]?.finnhub).length;
-        _h.summary={total:watchlist.length,ok:_ok,failed:watchlist.filter(tk=>!(_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist&&_h.tickers[tk]?.finnhub))};
+        _h.summary={total:watchlist.length,ok:_ok,
+          failed:watchlist.filter(tk=>!(_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist&&_h.tickers[tk]?.finnhub)),
+          degraded:watchlist.filter(tk=>_h.tickers[tk]?.snap&&_h.tickers[tk]?.hist&&_h.tickers[tk]?.finnhub&&_h.tickers[tk]?.summaryDegraded)};
         _h.completedTs=nowPT();
         S.set('last_refresh_health',_h);
         if(typeof _updateRefreshHealthBadge==='function')_updateRefreshHealthBadge();

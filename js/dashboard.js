@@ -488,6 +488,10 @@ function renderValuationDashboard(){
       pe:snap.peRatio??null,
       pe_fwd:snap.peForward??null,
       peg:snap.pegRatio??null,
+      // Only PEG is currently tracked for staleness here -- P/E (TTM) and
+      // P/E (Forward) come from the separate quote endpoint, not
+      // quoteSummary, and aren't covered by this preservation fix yet.
+      pegStale:!!snap.summaryDegraded,
     });
   });
 
@@ -499,7 +503,19 @@ function renderValuationDashboard(){
   const secondaryKey=VALUATION_METRICS[metric].secondary;
   const secondaryLabel=VALUATION_METRICS[secondaryKey].shortLabel;
 
-  content.innerHTML=sectorNames.map(sector=>{
+  // Staleness note: only relevant when PEG is actually visible somewhere on
+  // screen right now (as the primary metric -- PEG never appears as a
+  // secondary value, per the pairing rules above), and only counts
+  // currently-in-view tickers, not the whole watchlist.
+  const staleTickers=tickers.filter(t=>{
+    const snap=S.get('snap_'+t)||{};
+    return snap.summaryDegraded&&snap.pegRatio!=null;
+  });
+  const staleNote=(metric==='peg'&&staleTickers.length)
+    ?`<div style="font-family:var(--mono);font-size:10px;color:#64b5f6;margin-bottom:10px;padding:6px 8px;background:rgba(100,181,246,0.1);border-radius:6px">&#x25D1; PEG for ${staleTickers.length} ticker${staleTickers.length===1?'':'s'} below is from an earlier fetch, not this one (quoteSummary didn't come through last refresh) -- marked with &#x25D1; next to the value.</div>`
+    :'';
+
+  content.innerHTML=staleNote+sectorNames.map(sector=>{
     const rows=groups[sector];
     // Within each sector: sort by the selected metric ascending: tickers
     // missing that specific metric (common for the No sector data bucket,
@@ -518,11 +534,12 @@ function renderValuationDashboard(){
       const valStr=_fmtValuationMetric(metricKey,r[metricKey]);
       const otherStr=_fmtValuationMetric(secondaryKey,r[secondaryKey]);
       const priceStr=r.price!=null?'$'+r.price.toFixed(2):'N/A';
+      const staleMark=(metricKey==='peg'&&r.pegStale&&r.peg!=null)?' <span style="color:#64b5f6" title="From an earlier fetch, not this one">&#x25D1;</span>':'';
       return`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--surface3)">
         <span style="font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer" onclick="navigateToTicker('${r.ticker}')">${r.ticker}</span>
         <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${priceStr}</span>
         <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${secondaryLabel} ${otherStr}</span>
-        <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent)">${metricLabel} ${valStr}</span>
+        <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent)">${metricLabel} ${valStr}${staleMark}</span>
       </div>`;
     }).join('');
     return`<div style="margin-bottom:14px">

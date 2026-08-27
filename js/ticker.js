@@ -300,7 +300,11 @@ function buildEarningsTrendCard(trend){
     if(p==='0q')return'This Qtr';if(p==='+1q')return'Next Qtr';
     if(p==='0y')return'This Year';if(p==='+1y')return'Next Year';return p;
   };
-  const rows=trend.map(p=>{
+  // Filters out any null/malformed entry first -- a bad entry in this
+  // array (unlikely, but this is unvalidated third-party API data) would
+  // otherwise throw on p.epsMean and take down the whole card instead of
+  // just skipping that one row.
+  const rows=trend.filter(p=>p).map(p=>{
     const epsStr=p.epsMean!=null?'$'+p.epsMean.toFixed(2):'--';
     const revStr=p.revenueAvg!=null?(p.revenueAvg>=1e9?(p.revenueAvg/1e9).toFixed(1)+'B':(p.revenueAvg/1e6).toFixed(0)+'M'):'--';
     const growthStr=p.growth!=null?((p.growth>=0?'+':'')+( p.growth*100).toFixed(1)+'%'):'--';
@@ -319,7 +323,10 @@ function buildEarningsTrendCard(trend){
 }
 
 function buildRecTrendCard(trend){
-  const months=trend.slice(0,3);
+  // Same null-entry guard as buildEarningsTrendCard above, applied before
+  // slicing to the first 3 months so a bad entry can't throw partway
+  // through rendering.
+  const months=trend.filter(m=>m).slice(0,3);
   const cols=['#00d4aa','#4fc3f7','#555870'];
   const rows=months.map((m,i)=>{
     const total=(m.strongBuy||0)+(m.buy||0)+(m.hold||0)+(m.sell||0)+(m.strongSell||0);

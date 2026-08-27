@@ -923,11 +923,18 @@ function _updateRefreshHealthBadge(){
   if(!h){badge.style.display='none';return;}
   const total=h.summary?.total||0;
   const ok=h.summary?.ok||0;
+  const degraded=h.summary?.degraded?.length||0;
   const allOk=ok===total;
   badge.style.display='flex';
   badge.style.background=allOk?'rgba(0,212,170,0.15)':'rgba(255,165,2,0.2)';
   badge.style.borderColor=allOk?'rgba(0,212,170,0.4)':'rgba(255,165,2,0.5)';
-  badge.innerHTML=(allOk?'&#x2714;':'&#x26A0;')+' '+ok+'/'+total+' tickers'+(allOk?'':' <span style="font-size:9px">tap for details</span>');
+  // Degraded tickers (snap/hist/finnhub all succeeded, but quoteSummary --
+  // sector/beta/PEG/price targets/etc. -- came back from a previous fetch,
+  // not this one) get a de-emphasized note rather than changing the
+  // badge's overall pass/fail color, since a stale PEG value is a much
+  // smaller concern than a genuinely failed ticker.
+  const degradedNote=degraded>0?' <span style="color:var(--text3)">&middot; '+degraded+' stale valuation</span>':'';
+  badge.innerHTML=(allOk?'&#x2714;':'&#x26A0;')+' '+ok+'/'+total+' tickers'+degradedNote+((!allOk||degraded>0)?' <span style="font-size:9px">tap for details</span>':'');
 }
 
 function openRefreshHealthModal(){
@@ -941,25 +948,33 @@ function openRefreshHealthModal(){
   }
   const total=h.summary?.total||0;const ok=h.summary?.ok||0;
   const failed=h.summary?.failed||[];
+  const degraded=h.summary?.degraded||[];
   const allOk=ok===total;
   const elapsed=h.elapsedLabel||null;
 
   const tickerRows=Object.entries(h.tickers||{}).map(([t,v])=>{
-    const ok=v.snap&&v.hist&&v.finnhub;
-    const status=ok?'&#x2714;':'&#x26A0;';
-    const color=ok?'var(--green)':'var(--warn)';
+    const coreOk=v.snap&&v.hist&&v.finnhub;
+    const isDegraded=coreOk&&v.summaryDegraded;
+    // Three states, not two: fully OK, degraded (core data fine, but
+    // sector/beta/PEG/price targets/etc. are carried over from an earlier
+    // fetch rather than confirmed fresh this run), or failed (core data
+    // itself didn't come through). Distinct color/icon per state so a
+    // stale-valuation ticker doesn't read as seriously as a genuine failure.
+    const status=coreOk?(isDegraded?'&#x25D1;':'&#x2714;'):'&#x26A0;';
+    const color=coreOk?(isDegraded?'#64b5f6':'var(--green)'):'var(--warn)';
     const detail=[
       v.snap?'':'snap failed',
       v.hist?'':'hist failed',
       v.options===true?'':v.options==='skipped'?'options skipped (fresh)':'options failed',
       v.finnhub?'':(v.finnhubDetail?v.finnhubDetail:'finnhub failed'),
+      isDegraded?'valuation data (sector/beta/PEG/price targets) is from an earlier fetch, not this one':'',
     ].filter(Boolean).join(', ');
     return `<div onclick="_goToTickerFromHealthModal('${t}')" style="font-family:var(--mono);font-size:10px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer">
       <div style="display:flex;justify-content:space-between">
         <span style="color:var(--text2)">${t} <span style="color:var(--text3);font-size:9px">&#x203A;</span></span>
-        <span style="color:${color}">${status}${ok?' OK':''}</span>
+        <span style="color:${color}">${status}${coreOk?(isDegraded?' Stale valuation':' OK'):''}</span>
       </div>
-      ${ok?'':`<div style="color:${color};margin-top:2px;word-break:break-word">${detail}</div>`}
+      ${coreOk&&!isDegraded?'':`<div style="color:${color};margin-top:2px;word-break:break-word">${detail}</div>`}
     </div>`;
   }).join('');
 
@@ -967,7 +982,7 @@ function openRefreshHealthModal(){
     <div class="modal-title">Last Refresh Health</div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">
       Completed: ${h.completedTs||h.ts||'unknown'}${elapsed?' &nbsp;·&nbsp; <span style="color:var(--text2)">'+elapsed+'</span>':''}<br>
-      Result: <span style="color:${allOk?'var(--green)':'var(--warn)'}">${ok}/${total} tickers fully refreshed</span>
+      Result: <span style="color:${allOk?'var(--green)':'var(--warn)'}">${ok}/${total} tickers fully refreshed</span>${degraded.length?'<br>Valuation data (sector/beta/PEG/price targets) stale on <span style="color:#64b5f6">'+degraded.length+' ticker'+(degraded.length===1?'':'s')+'</span> -- quoteSummary failed as a whole for those, so nothing on this run was mixed fresh/stale within a single ticker.':''}
     </div>
     ${allOk?'':`<button class="btn btn-secondary" id="retry-failed-btn" style="width:100%;margin-bottom:10px" onclick="retryFailedTickers()">&#x21BB; Retry ${failed.length} Failed</button>`}
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">Tap any row to jump to that ticker</div>

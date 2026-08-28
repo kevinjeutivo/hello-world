@@ -1121,6 +1121,122 @@ function _effectiveEarningsDate(e){
 let _overrideModalTicker=null;
 let _overrideModalIdx=null;
 
+// Detects a likely missing quarterly earnings report by checking the
+// largest gap between consecutive known dates (and between the start of
+// available price history and the first known date, and the last known
+// date and the end of that history) against a threshold comfortably wider
+// than one normal quarterly cycle (~91 days) -- catches a genuinely
+// missing quarter (e.g. a recent spinoff whose earnings history is much
+// shorter than its price history) without false-flagging normal BMO/AMC
+// timing variance or a single slightly-early/late report.
+const EARNINGS_GAP_THRESHOLD_DAYS=150;
+function _hasLikelyMissingEarningsQuarter(ticker,hist2y){
+  if(!hist2y?.timestamps?.length)return false;
+  const entries=_getEarningsWithOverrides(ticker);
+  const dates=entries.map(e=>{
+    const eff=_effectiveEarningsDate(e);
+    return eff?.date?new Date(eff.date+'T12:00:00Z').getTime():null;
+  }).filter(t=>t!=null).sort((a,b)=>a-b);
+
+  const histStart=_parseHist2yDate(hist2y.timestamps[0])?.getTime();
+  const histEnd=_parseHist2yDate(hist2y.timestamps[hist2y.timestamps.length-1])?.getTime();
+  if(histStart==null||histEnd==null)return false;
+
+  const gaps=[];
+  if(dates.length){
+    gaps.push(dates[0]-histStart);
+    for(let i=1;i<dates.length;i++)gaps.push(dates[i]-dates[i-1]);
+    gaps.push(histEnd-dates[dates.length-1]);
+  }else{
+    gaps.push(histEnd-histStart);
+  }
+  const maxGapDays=Math.max(...gaps)/86400000;
+  return maxGapDays>EARNINGS_GAP_THRESHOLD_DAYS;
+}
+
+// Manually add an earnings date the automatic sources (Finnhub calendar,
+// the app's own confirmed-date cache) don't have -- most useful for
+// recently spun-off or newly listed tickers whose earnings history as a
+// distinct reporting entity is much shorter than their price history.
+// Reuses the same earnings_hist_ storage and rendering as every other
+// entry, so the chart's vertical lines and the reaction-pattern analysis
+// pick it up automatically with no separate wiring.
+function openAddEarningsDateModal(ticker){
+  let el=document.getElementById('earn-add-modal');
+  if(!el){
+    el=document.createElement('div');
+    el.className='modal-overlay';
+    el.id='earn-add-modal';
+    document.body.appendChild(el);
+    el.addEventListener('click',e=>{if(e.target===el)_closeAddEarningsDateModal();});
+  }
+  el.innerHTML=
+    '<div class="modal-box" style="max-width:360px;max-height:80vh;overflow-y:auto">'+
+      '<div class="modal-title">Add Earnings Date</div>'+
+      '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">'+
+        'Manually add a known past earnings date the automatic sources don\'t have -- most useful for recently spun-off or newly listed companies with thin tracked history. '+
+        'Enter the actual US Eastern date, as shown on financial sites such as Earnings Whispers or Yahoo Finance.'+
+      '</div>'+
+      '<div class="input-group" style="margin-bottom:10px">'+
+        '<label class="input-label">Earnings date (ET)</label>'+
+        '<input class="input" type="date" id="earn-add-date">'+
+      '</div>'+
+      '<div class="input-group" style="margin-bottom:14px">'+
+        '<label class="input-label">Announcement timing (optional)</label>'+
+        '<div style="display:flex;gap:6px;margin-top:4px">'+
+          '<button id="earn-add-hour-bmo" class="btn btn-secondary" style="flex:1;font-size:11px;opacity:0.4" onclick="_setAddEarnHourBtn(&quot;bmo&quot;)">BMO</button>'+
+          '<button id="earn-add-hour-amc" class="btn btn-secondary" style="flex:1;font-size:11px;opacity:0.4" onclick="_setAddEarnHourBtn(&quot;amc&quot;)">AMC</button>'+
+          '<button id="earn-add-hour-unk" class="btn btn-secondary" style="flex:1;font-size:11px;opacity:1" onclick="_setAddEarnHourBtn(null)">Unknown</button>'+
+        '</div>'+
+        '<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:4px">BMO = Before Market Open &nbsp;·&nbsp; AMC = After Market Close</div>'+
+      '</div>'+
+      '<div style="display:flex;gap:8px">'+
+        '<button class="btn btn-secondary btn-sm" onclick="_closeAddEarningsDateModal()">Cancel</button>'+
+        '<button class="btn btn-primary btn-sm" onclick="_saveAddEarningsDate(&quot;'+ticker+'&quot;)">Add Date</button>'+
+      '</div>'+
+    '</div>';
+  el.dataset.hour='';
+  el.classList.add('open');
+}
+function _setAddEarnHourBtn(hour){
+  const el=document.getElementById('earn-add-modal');
+  if(el)el.dataset.hour=hour||'';
+  const bmoBtn=document.getElementById('earn-add-hour-bmo');
+  const amcBtn=document.getElementById('earn-add-hour-amc');
+  const unkBtn=document.getElementById('earn-add-hour-unk');
+  if(bmoBtn)bmoBtn.style.opacity=hour==='bmo'?'1':'0.4';
+  if(amcBtn)amcBtn.style.opacity=hour==='amc'?'1':'0.4';
+  if(unkBtn)unkBtn.style.opacity=!hour?'1':'0.4';
+}
+function _closeAddEarningsDateModal(){
+  const el=document.getElementById('earn-add-modal');
+  if(el)el.classList.remove('open');
+}
+function _saveAddEarningsDate(ticker){
+  const dateEl=document.getElementById('earn-add-date');
+  const el=document.getElementById('earn-add-modal');
+  const dateVal=dateEl?.value;
+  if(!dateVal){toast('Please enter a date');return;}
+  const hourRaw=el?.dataset.hour||'';
+  const hour=hourRaw==='bmo'?'bmo':hourRaw==='amc'?'amc':null;
+
+  const cache=S.get('earnings_hist_'+ticker);
+  const data=cache?.data?[...cache.data]:[];
+  // Reject an exact-date duplicate -- editing an existing entry should go
+  // through the normal Override flow instead of creating a second row for
+  // the same date.
+  if(data.some(e=>(e.override?.date||e.date)===dateVal)){
+    toast('An earnings date entry already exists for '+dateVal);
+    return;
+  }
+  data.push({date:dateVal,hour,gapPct:null,direction:null,source:'manual'});
+  data.sort((a,b)=>(a.override?.date||a.date).localeCompare(b.override?.date||b.date));
+  S.set('earnings_hist_'+ticker,{...(cache||{}),data});
+  _closeAddEarningsDateModal();
+  toast('Earnings date added');
+  if(currentTicker===ticker)restoreTickerFromCache(ticker);
+}
+
 function openEarningsOverrideModal(ticker,idx){
   _overrideModalTicker=ticker;
   _overrideModalIdx=idx;
@@ -1158,7 +1274,7 @@ function openEarningsOverrideModal(ticker,idx){
       // Algorithm estimate
       '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:6px">'+
         'Algorithm estimate: <span style="color:var(--text2)">'+entry.date+'</span>'+
-        (entry.source==='gap-estimated'?' <span style="color:var(--warn)">(gap-estimated)</span>':entry.source==='auto-confirmed'?' <span style="color:var(--accent)">(auto-confirmed)</span>':' (time-estimated)')+
+        (entry.source==='manual'?' <span style="color:var(--accent)">(manually added)</span>':entry.source==='gap-estimated'?' <span style="color:var(--warn)">(gap-estimated)</span>':entry.source==='auto-confirmed'?' <span style="color:var(--accent)">(auto-confirmed)</span>':' (time-estimated)')+
       '</div>'+
       // Confirmed cache entry (if available)
       (_confDateStr?
@@ -1402,6 +1518,7 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
     const preStr=e.preDayRet!=null?fmtPct(e.preDayRet):'';
     const postStr=e.postDayRet!=null?fmtPct(e.postDayRet):'';
     const srcLabel=e.isOverride?'':
+      e.source==='manual'?'<span style="color:var(--accent);font-size:8px"> manual</span>':
       e.source==='gap-estimated'?'':
       e.source==='auto-confirmed'?'<span style="color:var(--accent);font-size:8px"> auto</span>':
       '<span style="color:var(--text3);font-size:8px"> ~est</span>';
@@ -1461,14 +1578,17 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
       ${earningsWithOvr?.length?'<div style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:2px;height:12px;background:rgba(255,165,2,0.75)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--text3)">Solid=confirmed · Dashed=estimated · Teal=overridden</span></div>':''}
     </div>
     ${earnSummary?`<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">${earnSummary}</div>`:''}
-    ${earningsWithOvr.length?`<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
-      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">EARNINGS DATES — tap to override any estimated date with the actual date</div>
-      <div style="max-height:200px;overflow-y:auto">
-        ${earningsWithOvr.slice().reverse().map((e,ri)=>{
+    ${(()=>{
+      const showAddPrompt=_hasLikelyMissingEarningsQuarter(ticker,hist2y);
+      if(!earningsWithOvr.length&&!showAddPrompt)return'';
+      const addBtn=showAddPrompt?'<button onclick="openAddEarningsDateModal(&quot;'+ticker+'&quot;)" style="font-family:var(--mono);font-size:9px;background:none;border:1px solid var(--accent);border-radius:4px;color:var(--accent);padding:2px 6px;cursor:pointer;white-space:nowrap;margin-left:6px">+ Add</button>':'';
+      const rowsHtml=earningsWithOvr.length?'<div style="max-height:200px;overflow-y:auto">'+
+        earningsWithOvr.slice().reverse().map((e,ri)=>{
           const idx=earningsWithOvr.length-1-ri;
           const eff=_effectiveEarningsDate(e);
           const hasOvr=!!e.override;
           const srcLabel=hasOvr?'<span style="color:var(--accent);font-size:8px">overridden</span>':
+            e.source==='manual'?'<span style="color:var(--accent);font-size:8px">manually added</span>':
             e.source==='gap-estimated'?'<span style="color:var(--warn);font-size:8px">gap-estimated</span>':
             e.source==='auto-confirmed'?'<span style="color:var(--accent);font-size:8px">auto-confirmed</span>':
             '<span style="color:var(--text3);font-size:8px">time-estimated</span>';
@@ -1482,9 +1602,17 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
               (hasOvr?'Edit':'Override')+
             '</button>'+
           '</div>';
-        }).join('')}
-      </div>
-    </div>`:''}
+        }).join('')+
+      '</div>':'<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">No earnings dates on record yet for this ticker.</div>';
+      return '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'+
+          '<div style="font-family:var(--mono);font-size:9px;color:var(--text3)">EARNINGS DATES — tap to override any estimated date with the actual date</div>'+
+          addBtn+
+        '</div>'+
+        (showAddPrompt?'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px;line-height:1.5">A stretch of this history has no tracked earnings date -- common for a recently spun-off or newly listed company. Tap + Add if you know an actual date.</div>':'')+
+        rowsHtml+
+      '</div>';
+    })()}
   </div>`;
 }
 
@@ -1591,9 +1719,14 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span,cmpSerie
           const isOverride=!!ev.isOverride;
           const isAutoConfirmed=ev.source==='auto-confirmed';
           const isGapEstimated=ev.source==='gap-estimated';
-          c.strokeStyle=isOverride?'rgba(0,212,170,0.85)':(isAutoConfirmed||isGapEstimated)?'rgba(255,165,2,0.75)':'rgba(139,143,168,0.5)';
-          c.lineWidth=isOverride?2:isAutoConfirmed?1.5:1;
-          c.setLineDash(isOverride||isAutoConfirmed?[]:[4,3]);
+          // Manually-added dates (see openAddEarningsDateModal) represent a
+          // definite known fact the person entered, not an algorithmic
+          // guess -- rendered the same as auto-confirmed (solid, not
+          // dashed) rather than lumped in with the estimated categories.
+          const isManual=ev.source==='manual';
+          c.strokeStyle=isOverride?'rgba(0,212,170,0.85)':(isAutoConfirmed||isGapEstimated||isManual)?'rgba(255,165,2,0.75)':'rgba(139,143,168,0.5)';
+          c.lineWidth=isOverride?2:(isAutoConfirmed||isManual)?1.5:1;
+          c.setLineDash(isOverride||isAutoConfirmed||isManual?[]:[4,3]);
           c.beginPath();c.moveTo(xPx,ys.top);c.lineTo(xPx,ys.bottom);c.stroke();
           c.setLineDash([]);
         });

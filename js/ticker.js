@@ -1237,6 +1237,28 @@ function _saveAddEarningsDate(ticker){
   if(currentTicker===ticker)restoreTickerFromCache(ticker);
 }
 
+// Removes a manually-added earnings date entry entirely -- scoped to
+// source==='manual' only, not available for auto-fetched entries (Finnhub
+// calendar, auto-confirmed, gap-estimated), since deleting one of those
+// would just have it silently reappear on the next refresh and create
+// confusing "I deleted it but it came back" behavior. A manually-added
+// entry has no such automatic source to re-add it, so deletion here is
+// genuinely final and unambiguous. idx is resolved against the same
+// _getEarningsWithOverrides(ticker) list the row was rendered from,
+// matching how openEarningsOverrideModal/_saveEarningsOverride already
+// resolve idx -- same indexing convention throughout this file.
+function deleteManualEarningsDate(ticker,idx){
+  const entries=_getEarningsWithOverrides(ticker);
+  const entry=entries[idx];
+  if(!entry||entry.source!=='manual'){toast('Can only delete manually-added dates');return;}
+  const cache=S.get('earnings_hist_'+ticker);
+  if(!cache?.data)return;
+  const data=cache.data.filter((e,i)=>i!==idx);
+  S.set('earnings_hist_'+ticker,{...cache,data});
+  toast('Earnings date removed');
+  if(currentTicker===ticker)restoreTickerFromCache(ticker);
+}
+
 function openEarningsOverrideModal(ticker,idx){
   _overrideModalTicker=ticker;
   _overrideModalIdx=idx;
@@ -1594,13 +1616,17 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
             '<span style="color:var(--text3);font-size:8px">time-estimated</span>';
           const hourLabel=eff.hour==='bmo'?' BMO':eff.hour==='amc'?' AMC':'';
           const estRef=hasOvr?'<span style="color:var(--text3);font-size:8px;text-decoration:line-through">'+e.date+'</span> ':'';
+          const deleteBtn=e.source==='manual'?'<button onclick="deleteManualEarningsDate(&quot;'+ticker+'&quot;,'+idx+')" style="font-family:var(--mono);font-size:9px;background:none;border:1px solid var(--warn);border-radius:4px;color:var(--warn);padding:2px 6px;cursor:pointer;margin-left:4px">Delete</button>':'';
           return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)">'+
             '<div style="font-family:var(--mono);font-size:10px">'+
               estRef+'<span style="color:'+(hasOvr?'var(--accent)':'var(--text2)')+'">'+eff.date+hourLabel+'</span> '+srcLabel+
             '</div>'+
-            '<button onclick="openEarningsOverrideModal(&quot;'+ticker+'&quot;,'+idx+')" style="font-family:var(--mono);font-size:9px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);padding:2px 6px;cursor:pointer">'+
-              (hasOvr?'Edit':'Override')+
-            '</button>'+
+            '<div style="display:flex;flex-shrink:0">'+
+              '<button onclick="openEarningsOverrideModal(&quot;'+ticker+'&quot;,'+idx+')" style="font-family:var(--mono);font-size:9px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);padding:2px 6px;cursor:pointer">'+
+                (hasOvr?'Edit':'Override')+
+              '</button>'+
+              deleteBtn+
+            '</div>'+
           '</div>';
         }).join('')+
       '</div>':'<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">No earnings dates on record yet for this ticker.</div>';
@@ -1719,14 +1745,18 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span,cmpSerie
           const isOverride=!!ev.isOverride;
           const isAutoConfirmed=ev.source==='auto-confirmed';
           const isGapEstimated=ev.source==='gap-estimated';
-          // Manually-added dates (see openAddEarningsDateModal) represent a
-          // definite known fact the person entered, not an algorithmic
-          // guess -- rendered the same as auto-confirmed (solid, not
-          // dashed) rather than lumped in with the estimated categories.
+          // Manually-added dates (see openAddEarningsDateModal) belong with
+          // "overridden" (teal), not "auto-confirmed" (gold) -- both
+          // represent the person directly asserting a date, versus the
+          // system's own algorithmic guess or automatic confirmation over
+          // time. Solid-vs-dashed (certainty) and teal-vs-gold (who
+          // asserted it: person vs algorithm) are two separate questions;
+          // this was previously conflating them.
           const isManual=ev.source==='manual';
-          c.strokeStyle=isOverride?'rgba(0,212,170,0.85)':(isAutoConfirmed||isGapEstimated||isManual)?'rgba(255,165,2,0.75)':'rgba(139,143,168,0.5)';
-          c.lineWidth=isOverride?2:(isAutoConfirmed||isManual)?1.5:1;
-          c.setLineDash(isOverride||isAutoConfirmed||isManual?[]:[4,3]);
+          const isPersonAsserted=isOverride||isManual;
+          c.strokeStyle=isPersonAsserted?'rgba(0,212,170,0.85)':(isAutoConfirmed||isGapEstimated)?'rgba(255,165,2,0.75)':'rgba(139,143,168,0.5)';
+          c.lineWidth=isPersonAsserted?2:isAutoConfirmed?1.5:1;
+          c.setLineDash(isPersonAsserted||isAutoConfirmed?[]:[4,3]);
           c.beginPath();c.moveTo(xPx,ys.top);c.lineTo(xPx,ys.bottom);c.stroke();
           c.setLineDash([]);
         });

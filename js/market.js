@@ -185,9 +185,20 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
           +'</tr>';
       }).join('');
       const totalBps=Math.round((lastRate-firstRate)*100);
-      const outlookFlat=Math.abs(totalBps)<25?'Markets pricing no change':'';
-      const outlookMild=totalBps<=-25&&totalBps>-50?'Markets pricing ~1 cut':'';
-      const summary=outlookFlat||outlookMild||(totalBps<=-50?'Markets pricing 2+ cuts':'Markets pricing 1-2 cuts');
+      const _absBps=Math.abs(totalBps);
+      // Symmetric by construction across both directions, rather than the
+      // previous cut-only branches with a same-text fallback for anything
+      // that didn't match -- that fallback silently caught positive
+      // (hike-direction) totalBps too, since nothing there checked sign,
+      // producing "Markets pricing 1-2 cuts" even when the underlying
+      // futures prices were falling (implied rate rising, a hike signal)
+      // -- exactly contradicting the correctly-signed meeting-by-meeting
+      // breakdown below it.
+      const summary=_absBps<25
+        ?'Markets pricing no change'
+        :(totalBps<0
+            ?(_absBps<50?'Markets pricing ~1 cut':'Markets pricing 2+ cuts')
+            :(_absBps<50?'Markets pricing ~1 hike':'Markets pricing 2+ hikes'));
       const meetingProbs=_computeFedMeetingProbabilities(fedFutures);
       const probRows=meetingProbs.map(p=>{
         const dateLabel=new Date(p.meetingDate+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric'});

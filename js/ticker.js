@@ -1324,6 +1324,10 @@ function openEarningsOverrideModal(ticker,idx){
         '<div style="margin-bottom:10px">'+
           '<button class="btn btn-secondary" style="font-size:10px;color:var(--warn)" onclick="_clearEarningsOverride()">Clear override — revert to estimate</button>'+
         '</div>':'')+
+      (entry.source==='manual'?
+        '<div style="margin-bottom:10px">'+
+          '<button class="btn btn-secondary" style="font-size:10px;color:var(--warn)" onclick="deleteManualEarningsDate(&quot;'+ticker+'&quot;,'+idx+');_closeEarningsOverrideModal();">Delete this manually-added date</button>'+
+        '</div>':'')+
       '<div style="display:flex;gap:8px">'+
         '<button class="btn btn-secondary btn-sm" onclick="_closeEarningsOverrideModal()">Cancel</button>'+
         '<button class="btn btn-primary btn-sm" onclick="_saveEarningsOverride()">Save Override</button>'+
@@ -1616,17 +1620,13 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
             '<span style="color:var(--text3);font-size:8px">time-estimated</span>';
           const hourLabel=eff.hour==='bmo'?' BMO':eff.hour==='amc'?' AMC':'';
           const estRef=hasOvr?'<span style="color:var(--text3);font-size:8px;text-decoration:line-through">'+e.date+'</span> ':'';
-          const deleteBtn=e.source==='manual'?'<button onclick="deleteManualEarningsDate(&quot;'+ticker+'&quot;,'+idx+')" style="font-family:var(--mono);font-size:9px;background:none;border:1px solid var(--warn);border-radius:4px;color:var(--warn);padding:2px 6px;cursor:pointer;margin-left:4px">Delete</button>':'';
           return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)">'+
             '<div style="font-family:var(--mono);font-size:10px">'+
               estRef+'<span style="color:'+(hasOvr?'var(--accent)':'var(--text2)')+'">'+eff.date+hourLabel+'</span> '+srcLabel+
             '</div>'+
-            '<div style="display:flex;flex-shrink:0">'+
-              '<button onclick="openEarningsOverrideModal(&quot;'+ticker+'&quot;,'+idx+')" style="font-family:var(--mono);font-size:9px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);padding:2px 6px;cursor:pointer">'+
-                (hasOvr?'Edit':'Override')+
-              '</button>'+
-              deleteBtn+
-            '</div>'+
+            '<button onclick="openEarningsOverrideModal(&quot;'+ticker+'&quot;,'+idx+')" style="font-family:var(--mono);font-size:9px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);padding:2px 6px;cursor:pointer">'+
+              (hasOvr?'Edit':'Override')+
+            '</button>'+
           '</div>';
         }).join('')+
       '</div>':'<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">No earnings dates on record yet for this ticker.</div>';
@@ -1708,11 +1708,21 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span,cmpSerie
 
   // Earnings vertical line annotations
   const showEarnings=getRelPerfEarningsToggle();
-  // Build effective earnings map using overrides where available
+  // Build effective earnings map using overrides where available. Gated
+  // only on the toggle, not on earningsHistory (Yahoo's own earnings-
+  // history module) -- that's a separate dataset from this app's own
+  // tracked earnings_hist_<ticker> cache (_getEarningsWithOverrides),
+  // which is the authoritative source here and is what manually-added
+  // dates land in. Previously this whole block was gated on
+  // earningsHistory?.length, so a ticker with thin/empty Yahoo history
+  // (a recent spinoff, for example) would never draw anything at all --
+  // including a manually-added date -- since the app's own cache was
+  // never even reached.
   const earningsDateMap=new Map();
-  if(showEarnings&&earningsHistory?.length){
+  if(showEarnings){
     const _withOvr=_getEarningsWithOverrides(ticker);
-    (_withOvr.length?_withOvr:earningsHistory).forEach(e=>{
+    const _earnSource=_withOvr.length?_withOvr:(earningsHistory||[]);
+    _earnSource.forEach(e=>{
       const eff=_withOvr.length?_effectiveEarningsDate(e):e;
       if(eff.date)earningsDateMap.set(eff.date,eff);
     });

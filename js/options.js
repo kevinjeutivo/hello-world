@@ -1,5 +1,29 @@
 // Income Engine -- options.js
 
+// Determines which upcoming FOMC meetings have an "expected" (i.e. more
+// likely than not) hike or cut, per the Market tab's meeting-odds
+// calculation -- meetings expected to hold are deliberately excluded here,
+// not just de-emphasized, since the whole point of this warning is to flag
+// meetings where a real rate move is more likely than not. Since the
+// underlying model only ever produces two nonzero outcomes per meeting
+// (hold plus at most one of cut/hike, mutually exclusive, summing to
+// 100%), "expected" here simply means whichever of the two is larger.
+// Reads from the Fed Funds Futures data the Market tab already cached
+// (fed_futures) -- no separate fetch, and gracefully returns nothing if
+// the Market tab has never been loaded.
+function _getQualifyingFomcMeetings(){
+  const cf=S.get('fed_futures');
+  const fedFutures=cf?.data||null;
+  if(!fedFutures||typeof _computeFedMeetingProbabilities!=='function')return[];
+  let meetings=[];
+  try{meetings=_computeFedMeetingProbabilities(fedFutures)||[];}catch{return[];}
+  return meetings.map(m=>{
+    const direction=m.pCut25>m.pHold?'cut':m.pHike25>m.pHold?'hike':null;
+    if(!direction)return null;
+    return{meetingDate:m.meetingDate,direction,pct:direction==='cut'?m.pCut25:m.pHike25};
+  }).filter(Boolean);
+}
+
 // Validate options data before caching -- rejects synthetic/after-hours placeholder data.
 // Yahoo returns geometric IV values (50%, 25%, 12.5%...) and zero OI when market is closed.
 // Slim a per-expiry Yahoo options response to a flat, compact structure.
@@ -416,6 +440,28 @@ async function loadOptionsForTicker(){
     }
     const snap=S.get('snap_'+t);
     if(snap?.earningsDate){const today=new Date(),earningsD=new Date(snap.earningsDate);const warns=monthly.filter(e=>{const ed=new Date(e);return today<earningsD&&earningsD<=ed;});const timing=snap.earningsHour==='bmo'?' (before open)':snap.earningsHour==='amc'?' (after close)':'';const warnEl=document.getElementById('options-earnings-warn');warnEl.innerHTML=warns.length?`<div class="earnings-warn">Earnings on ${snap.earningsDate}${timing} falls within ${warns.join(', ')} window. Elevated assignment risk.</div>`:'';}
+    // FOMC warning -- separate from and styled distinctly (purple) from the
+    // amber earnings warning above, since they're different kinds of risk.
+    // Only meetings with an expected (more-likely-than-not) hike or cut are
+    // considered -- see _getQualifyingFomcMeetings. Handles multiple
+    // qualifying meetings spanning different expiries by listing each one
+    // against whichever window(s) it falls within, rather than assuming
+    // there's ever just one.
+    {
+      const fomcMeetings=_getQualifyingFomcMeetings();
+      const fomcWarnEl=document.getElementById('options-fomc-warn');
+      if(fomcWarnEl){
+        const today2=new Date();
+        const fomcParts=fomcMeetings.map(fm=>{
+          const fmD=new Date(fm.meetingDate+'T12:00:00Z');
+          const windowsHit=monthly.filter(e=>{const ed=new Date(e);return today2<fmD&&fmD<=ed;});
+          if(!windowsHit.length)return null;
+          const dateLabel=fmD.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+          return dateLabel+' ('+fm.direction+' '+fm.pct+'% expected) falls within '+windowsHit.join(', ')+' window';
+        }).filter(Boolean);
+        fomcWarnEl.innerHTML=fomcParts.length?`<div class="fomc-warn">&#x1F3DB; FOMC: ${fomcParts.join('. ')}. Elevated volatility risk around the rate decision.</div>`:'';
+      }
+    }
     lastOptionsTickerLoaded=t;
     // Auto-render the table now that data, chips, and prefs are all ready.
     // Without this, a fresh fetch after tab navigation is never reflected until
@@ -466,6 +512,26 @@ function buildOptionsTable(){
     return `<tr><td colspan="7" style="padding:0;border:none"><div style="background:rgba(255,165,2,0.1);border-left:3px solid rgba(255,165,2,0.7);padding:5px 10px;font-family:var(--mono);font-size:10px;color:var(--warn);font-weight:600">&#x1F4C5; Earnings ${earningsDateStr}${earningsTiming} &middot; ${daysAway}d away</div></td></tr>`;
   }
 
+  // FOMC banners -- unlike earnings (fires at most once), a wider chain can
+  // span more than one qualifying meeting, so this tracks per-meeting-date
+  // rather than a single boolean, and can insert into more than one
+  // expiry group across the table.
+  const fomcMeetingsForInline=_getQualifyingFomcMeetings();
+  const fomcShown=new Set();
+  function fomcBannerUpTo(expD){
+    return fomcMeetingsForInline.filter(fm=>{
+      if(fomcShown.has(fm.meetingDate))return false;
+      const fmD=new Date(fm.meetingDate+'T12:00:00Z');
+      return fmD<=expD;
+    }).map(fm=>{
+      fomcShown.add(fm.meetingDate);
+      const fmD=new Date(fm.meetingDate+'T12:00:00Z');
+      const dateLabel=fmD.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      const daysAway=daysUntilDate(fm.meetingDate)??Math.round((fmD-today)/86400000);
+      return `<tr><td colspan="7" style="padding:0;border:none"><div style="background:rgba(124,106,247,0.1);border-left:3px solid rgba(124,106,247,0.7);padding:5px 10px;font-family:var(--mono);font-size:10px;color:var(--accent3);font-weight:600">&#x1F3DB; FOMC ${dateLabel} (${fm.direction} ${fm.pct}% expected) &middot; ${daysAway}d away</div></td></tr>`;
+    }).join('');
+  }
+
   const priceSepRow=`<tr><td colspan="7" style="padding:0;border:none">
     <div style="background:rgba(79,195,247,0.12);border-top:2px solid #4fc3f7;border-bottom:2px solid #4fc3f7;
     padding:4px 8px;font-family:var(--mono);font-size:10px;color:#4fc3f7;font-weight:600;text-align:center;letter-spacing:0.5px">
@@ -511,6 +577,11 @@ function buildOptionsTable(){
     if(earningsD&&!earningsBannerInserted&&earningsD<=expD){
       tableBodyHTML+=earningsBanner();
     }
+
+    // FOMC banner(s) -- can insert more than one qualifying meeting into
+    // this same group if more than one falls at or before this expiry and
+    // neither has been shown yet.
+    tableBodyHTML+=fomcBannerUpTo(expD);
 
     // Current price separator
     const sepIdx=expRows.findIndex(r=>r.strike>currentPrice);

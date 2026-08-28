@@ -136,6 +136,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .row{display:flex;gap:8px;align-items:center}
 .row .input{flex:1}
 .earnings-warn{background:rgba(255,165,2,0.1);border:1px solid rgba(255,165,2,0.3);border-radius:var(--radius);padding:10px 12px;font-family:var(--mono);font-size:11px;color:var(--warn);margin-bottom:10px;line-height:1.5}
+.fomc-warn{background:rgba(124,106,247,0.1);border:1px solid rgba(124,106,247,0.35);border-radius:var(--radius);padding:10px 12px;font-family:var(--mono);font-size:11px;color:var(--accent3);margin-bottom:10px;line-height:1.5}
 .oi-empty-box{background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.3);border-radius:var(--radius);padding:12px;font-family:var(--mono);font-size:11px;color:var(--warn);line-height:1.6;margin-top:8px}
 .vix-banner{border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
 .vix-banner-label{font-family:var(--sans);font-size:13px;font-weight:700}

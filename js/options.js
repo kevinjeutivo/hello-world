@@ -497,39 +497,45 @@ function buildOptionsTable(){
   let tableBodyHTML='';
   // today is already declared above in buildOptionsTable scope
 
-  // Earnings info for banner
+  // Earnings + FOMC banners, unified into one date-sorted list rather than
+  // two separate insertion systems. Previously earnings had a "before this
+  // group's header" placement (fires when earningsD<expD) while FOMC only
+  // ever inserted after the header, unconditionally -- meaning if both an
+  // earnings date and an earlier FOMC meeting fell in the same expiry
+  // group, the FOMC banner (chronologically first) would render below the
+  // earnings banner (chronologically later), which is backwards. Merging
+  // both into one sorted list and inserting each group's qualifying,
+  // not-yet-shown events together, in date order, fixes that regardless of
+  // how many of either type land in the same window.
   const snap_for_opts=S.get('snap_'+t);
   const earningsDateStr=snap_for_opts?.earningsDate||null;
   const earningsHourStr=snap_for_opts?.earningsHour||null;
   const earningsTiming=earningsHourStr==='bmo'?' BMO':earningsHourStr==='amc'?' AMC':'';
   const earningsD=earningsDateStr?new Date(earningsDateStr+'T12:00:00Z'):null;
-  let earningsBannerInserted=false;
 
-  function earningsBanner(){
-    if(!earningsDateStr||earningsBannerInserted)return'';
-    earningsBannerInserted=true;
-    const daysAway=daysUntilDate(earningsDateStr)??Math.round((earningsD-today)/86400000);
-    return `<tr><td colspan="7" style="padding:0;border:none"><div style="background:rgba(255,165,2,0.1);border-left:3px solid rgba(255,165,2,0.7);padding:5px 10px;font-family:var(--mono);font-size:10px;color:var(--warn);font-weight:600">&#x1F4C5; Earnings ${earningsDateStr}${earningsTiming} &middot; ${daysAway}d away</div></td></tr>`;
+  const bannerEvents=[];
+  if(earningsD){
+    bannerEvents.push({date:earningsD,shown:false,render:()=>{
+      const daysAway=daysUntilDate(earningsDateStr)??Math.round((earningsD-today)/86400000);
+      return `<tr><td colspan="7" style="padding:0;border:none"><div style="background:rgba(255,165,2,0.1);border-left:3px solid rgba(255,165,2,0.7);padding:5px 10px;font-family:var(--mono);font-size:10px;color:var(--warn);font-weight:600">&#x1F4C5; Earnings ${earningsDateStr}${earningsTiming} &middot; ${daysAway}d away</div></td></tr>`;
+    }});
   }
-
-  // FOMC banners -- unlike earnings (fires at most once), a wider chain can
-  // span more than one qualifying meeting, so this tracks per-meeting-date
-  // rather than a single boolean, and can insert into more than one
-  // expiry group across the table.
-  const fomcMeetingsForInline=_getQualifyingFomcMeetings();
-  const fomcShown=new Set();
-  function fomcBannerUpTo(expD){
-    return fomcMeetingsForInline.filter(fm=>{
-      if(fomcShown.has(fm.meetingDate))return false;
-      const fmD=new Date(fm.meetingDate+'T12:00:00Z');
-      return fmD<=expD;
-    }).map(fm=>{
-      fomcShown.add(fm.meetingDate);
-      const fmD=new Date(fm.meetingDate+'T12:00:00Z');
+  _getQualifyingFomcMeetings().forEach(fm=>{
+    const fmD=new Date(fm.meetingDate+'T12:00:00Z');
+    bannerEvents.push({date:fmD,shown:false,render:()=>{
       const dateLabel=fmD.toLocaleDateString('en-US',{month:'short',day:'numeric'});
       const daysAway=daysUntilDate(fm.meetingDate)??Math.round((fmD-today)/86400000);
       return `<tr><td colspan="7" style="padding:0;border:none"><div style="background:rgba(124,106,247,0.1);border-left:3px solid rgba(124,106,247,0.7);padding:5px 10px;font-family:var(--mono);font-size:10px;color:var(--accent3);font-weight:600">&#x1F3DB; FOMC ${dateLabel} (${fm.direction} ${fm.pct}% expected) &middot; ${daysAway}d away</div></td></tr>`;
-    }).join('');
+    }});
+  });
+  bannerEvents.sort((a,b)=>a.date-b.date);
+
+  // Every qualifying, not-yet-shown event up to and including this expiry,
+  // in date order -- a group can pick up more than one of either type.
+  function bannersUpTo(expD){
+    return bannerEvents.filter(ev=>!ev.shown&&ev.date<=expD)
+      .map(ev=>{ev.shown=true;return ev.render();})
+      .join('');
   }
 
   const priceSepRow=`<tr><td colspan="7" style="padding:0;border:none">
@@ -558,11 +564,9 @@ function buildOptionsTable(){
     // Format expiration date for display
     const expLabel=expD.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
 
-    // Insert earnings banner BEFORE this expiration header if earnings falls before this expiry
-    // and has not been inserted yet
-    if(earningsD&&!earningsBannerInserted&&earningsD<expD){
-      tableBodyHTML+=earningsBanner();
-    }
+    // Insert any qualifying, not-yet-shown banner events (earnings and/or
+    // FOMC) before this expiration's header, in date order.
+    tableBodyHTML+=bannersUpTo(expD);
 
     // Expiration group header row -- pre-compute RGB to avoid regex inside template literal
     const hx=expColor.replace('#','');
@@ -570,18 +574,6 @@ function buildOptionsTable(){
     const eg=parseInt(hx.substring(2,4),16);
     const eb=parseInt(hx.substring(4,6),16);
     tableBodyHTML+='<tr><td colspan="7" style="padding:0;border:none"><div style="background:rgba('+er+','+eg+','+eb+',0.12);border-left:4px solid '+expColor+';border-top:1px solid '+expColor+'44;padding:6px 10px;font-family:var(--mono);font-size:11px;color:'+expColor+';font-weight:600;display:flex;justify-content:space-between;align-items:center"><span>'+expLabel+'</span><span style="font-size:13px;letter-spacing:0.5px">DTE: '+dte+'</span></div></td></tr>';
-
-    // Insert earnings banner INSIDE this group if earnings falls within this expiry window
-    // (after prev expiry and before this expiry -- already checked above for between-group case)
-    // Here check if earnings is AFTER prev expiry but this is first group (no prev expiry)
-    if(earningsD&&!earningsBannerInserted&&earningsD<=expD){
-      tableBodyHTML+=earningsBanner();
-    }
-
-    // FOMC banner(s) -- can insert more than one qualifying meeting into
-    // this same group if more than one falls at or before this expiry and
-    // neither has been shown yet.
-    tableBodyHTML+=fomcBannerUpTo(expD);
 
     // Current price separator
     const sepIdx=expRows.findIndex(r=>r.strike>currentPrice);

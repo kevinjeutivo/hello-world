@@ -579,6 +579,9 @@
     <div class="guide-h3">IV Crush</div>
     <div class="guide-kv"><span class="guide-key">What it is</span><span class="guide-val">Implied volatility spikes before earnings announcements (uncertainty = demand for options). After earnings, uncertainty resolves and IV collapses — often 30–50% overnight.</span></div>
     <div class="guide-kv"><span class="guide-key">For sellers</span><span class="guide-val">Selling puts before earnings captures elevated premium but risks large gap moves. Selling the day after earnings captures lower but "clean" premium without binary event risk.</span></div>
+    <div class="guide-h3">Risk Warnings</div>
+    <div class="guide-kv"><span class="guide-key">Earnings banner (amber)</span><span class="guide-val">Appears both as a summary at the top of the Options tab and inline within the table, whenever the ticker's earnings date falls within one of the displayed expirations. IV crush and gap risk both concentrate around that date -- elevated assignment risk either way.</span></div>
+    <div class="guide-kv"><span class="guide-key">FOMC banner (purple)</span><span class="guide-val">Same idea, for FOMC meetings where the Market tab's own meeting-odds calculation shows a hike or cut as more likely than a hold. Hold-expected meetings are deliberately never flagged -- only genuine, meaningfully-probable rate moves. Reads the Market tab's own cached data, so visiting Market at least once populates it; nothing shows until then. A chain spanning more than one qualifying meeting shows all of them, and if both an earnings date and an FOMC meeting land in the same window, they're merged and ordered correctly by date, not just by type.</span></div>
   </div>
 </div>
 
@@ -601,6 +604,7 @@
     <div class="guide-kv"><span class="guide-key">How it works</span><span class="guide-val">The app automatically accumulates confirmed earnings dates as you use it. Each time a future earnings date passes, it&apos;s promoted to the confirmed history cache and used to improve future date estimates.</span></div>
     <div class="guide-kv"><span class="guide-key">Override</span><span class="guide-val">Tap any earnings date row to override the estimated date with the actual confirmed date. The modal shows the algorithm estimate, any cached confirmed date (with one-tap Accept), and a manual date picker.</span></div>
     <div class="guide-kv"><span class="guide-key">Sources (priority order)</span><span class="guide-val">1. Your manual override · 2. Auto-confirmed from prior fetch · 3. Gap-confirmed (≥3% price gap near estimate) · 4. Pure cadence estimate (91-day stepback)</span></div>
+    <div class="guide-kv"><span class="guide-key">Adding a missing date</span><span class="guide-val">A "+ Add" prompt appears on the Ticker page's Relative Performance card when there's a suspiciously large gap in tracked earnings history relative to the available price history -- most common for a recently spun-off or newly listed company, where the automatic sources simply don't go back far enough. Manually-added dates render in teal (matching an override), not gold like an auto-confirmed date, since they represent a direct assertion, not an algorithmic guess. Delete a manually-added date from within its own Override modal -- only manual entries can be deleted, since an auto-fetched one would just reappear on the next refresh.</span></div>
   </div>
 </div>
 
@@ -667,7 +671,7 @@
   </div>
   <div class="gs-body" id="gb-data">
     <div class="guide-h3">Prefetch &amp; Refresh</div>
-    <div class="guide-kv"><span class="guide-key">Prefetch All</span><span class="guide-val">Fetches all data for every watchlist ticker sequentially. Run before making decisions to ensure data is current. The refresh health badge below the button shows how many tickers updated successfully.</span></div>
+    <div class="guide-kv"><span class="guide-key">Prefetch All</span><span class="guide-val">Fetches all data for every watchlist ticker sequentially. Run before making decisions to ensure data is current. The refresh health badge below the button shows how many tickers updated successfully, plus a separate degraded count -- a ticker whose core data (price, history, earnings) came through fine but whose valuation data (sector, beta, PEG, price targets) is carried over from an earlier fetch, distinct from a genuine failure. Tap the badge for a per-ticker breakdown.</span></div>
     <div class="guide-kv"><span class="guide-key">Force Refresh Everything</span><span class="guide-val">Also refreshes the VIX tab, ETF tab, Market tab, Earnings tab, and runs conviction scoring. Use when you want a complete picture, not just ticker data.</span></div>
     <div class="guide-kv"><span class="guide-key">Refresh Ticker</span><span class="guide-val">Refreshes a single ticker including options chain. Always fetches live — no cache skip. Use when you want the most current data for a specific ticker.</span></div>
     <div class="guide-h3">Options Live Window</div>

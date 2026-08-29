@@ -591,8 +591,12 @@ function buildOptionsTable(){
     }
   });
 
-  // Earnings banner after all expirations if not yet inserted
-  if(earningsD&&!earningsBannerInserted){tableBodyHTML+=earningsBanner();}
+  // Catch-all: any banner event that never fell within a displayed
+  // expiry's window (e.g. an earnings date or FOMC meeting after every
+  // shown expiration) still gets shown, appended at the end, rather than
+  // silently disappearing. Covers both types now, not just earnings.
+  const _unshownBanners=bannerEvents.filter(ev=>!ev.shown).map(ev=>{ev.shown=true;return ev.render();}).join('');
+  if(_unshownBanners)tableBodyHTML+=_unshownBanners;
   // Timestamp reflects the oldest per-expiry cache among selected expirations,
   // since that's the actual data source for the table rows.
   // No live/cached binary -- just "data as of [time]" which is what matters.

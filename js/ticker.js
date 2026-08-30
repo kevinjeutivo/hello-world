@@ -626,7 +626,8 @@ function _buildMultipleHistoryCard(ticker){
   const body=hasAny
     ?'<div class="chart-wrap" style="height:140px"><canvas id="mh-price-chart"></canvas></div>'
      +'<div class="chart-wrap" style="height:140px;margin-top:4px"><canvas id="mh-mult-chart"></canvas></div>'
-     +'<div class="commentary" style="margin-top:10px">One continuous multiple line: realized TTM P/E from past earnings reports, switching seamlessly to the current quarter\'s forward-estimate basis (still trailing-twelve-month, so no visual seam) as it develops. Solid = known or currently tracked. Dashed, past the "now" line = a projection assuming today\'s multiple holds flat through the next expected report -- not a forecast, just a what-if baseline. Deliberately NOT the same figure as the "P/E (Forward)" tile above, which uses Yahoo\'s own next-fiscal-year estimate (a different, purely forward basis) -- the two numbers will often differ, sometimes by a lot for a fast-growing stock. Tap a point for whether it\'s realized, estimated, or projected.</div>'
+     +'<div id="mh-slider-container" style="margin-top:10px"></div>'
+     +'<div class="commentary" style="margin-top:10px">One continuous multiple line: realized TTM P/E from past earnings reports, switching seamlessly to the current quarter\'s forward-estimate basis (still trailing-twelve-month, so no visual seam) as it develops. Solid = known or currently tracked. Dashed, past the "now" line = a projection -- drag the slider above to explore what price a different multiple implies at the next report, holding this quarter\'s EPS estimate fixed. Deliberately NOT the same figure as the "P/E (Forward)" tile above, which uses Yahoo\'s own next-fiscal-year estimate (a different, purely forward basis) -- the two numbers will often differ, sometimes by a lot for a fast-growing stock. Tap a point for whether it\'s realized, estimated, or projected.</div>'
      +'<div id="mh-debug" style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text3);white-space:pre-wrap"></div>'
     :'<div class="commentary" style="margin-top:4px">Building history -- check back after the next earnings report. This chart accumulates from today forward; historical forward estimates can\'t be backfilled.</div>'
      +(()=>{
@@ -696,16 +697,44 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   const futureIdx=futureLabel?labels.indexOf(futureLabel):-1; // last of futureLabels == boundaryDate itself
 
   // Price series: dense close where available, else the stored
-  // priceAtReport. Every label past "now" (all the spacer days plus the
-  // boundary date) is held flat at "now"'s price -- holding the multiple
-  // and the EPS basis both constant makes price constant too, by
-  // construction, so no separate projection math is needed here.
+  // priceAtReport. Everything past "now" is filled below.
   const denseByLabel={};histLabels.forEach((d,i)=>{denseByLabel[d]=hist2y.closes[i];});
   const sparsePriceByLabel={};perm.forEach(r=>{const d=r.reportDate||r.quarterEndDate;if(d)sparsePriceByLabel[d]=r.priceAtReport;});
   const priceSeries=labels.map(d=>denseByLabel[d]??sparsePriceByLabel[d]??null);
+  const nowPriceValue=nowIdx>=0?priceSeries[nowIdx]:null;
+
+  // What-if slider basis: the EPS estimate for whichever quarter is
+  // currently tracked (constant for the rest of this quarter, by
+  // construction), and the multiple that's currently implied by it --
+  // both needed up front, since the slider's DEFAULT value has to drive
+  // the very first render, not just user interaction. Rounding the
+  // default to the nearest integer (matching the slider's integer step)
+  // means the initial line already reflects where the slider will sit,
+  // rather than snapping to a slightly different value the moment it's
+  // first touched.
+  const currentEps=nearestGroup?.entries?.length?nearestGroup.entries[nearestGroup.entries.length-1].projTtmEps:null;
+  const currentMultiple=(nowPriceValue!=null&&currentEps>0)?nowPriceValue/currentEps:null;
+  const sliderApplicable=futureIdx>nowIdx&&nowIdx>=0&&currentEps>0&&currentMultiple>0;
+  const defaultSliderVal=sliderApplicable?Math.round(currentMultiple):null;
+  const defaultTargetPrice=sliderApplicable?defaultSliderVal*currentEps:null;
+
+  // Every label past "now" gets filled by a straight-line interpolation
+  // from today's real price to the target implied by the (default, until
+  // dragged) slider multiple times the constant EPS -- holding EPS fixed
+  // and letting price move linearly is what makes the multiple move
+  // linearly too, automatically, once recomputed as price/EPS below.
+  // Falls back to a flat hold (the old behavior) only when there's no
+  // valid EPS/multiple to build a slider from at all.
   if(nowIdx>=0){
-    const flatPrice=priceSeries[nowIdx];
-    for(let i=nowIdx+1;i<labels.length;i++)priceSeries[i]=flatPrice;
+    if(sliderApplicable){
+      for(let i=nowIdx+1;i<labels.length;i++){
+        const t=(i-nowIdx)/(futureIdx-nowIdx);
+        priceSeries[i]=nowPriceValue+t*(defaultTargetPrice-nowPriceValue);
+      }
+    }else{
+      const flatPrice=priceSeries[nowIdx];
+      for(let i=nowIdx+1;i<labels.length;i++)priceSeries[i]=flatPrice;
+    }
   }
   const priceByLabel={};labels.forEach((d,i)=>{priceByLabel[d]=priceSeries[i];});
 
@@ -731,14 +760,17 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   });
   const combinedSteps=[...ttmSteps,...fwdSteps];
   const {values:multSeries,sources:multSources}=_mhPiecewiseMultiple(combinedSteps,labels,priceByLabel,true);
-  // The piecewise fill already produces a flat multiple across this whole
-  // stretch on its own (constant price / the same last-known eps), but the
-  // tag override still matters -- otherwise every spacer day would read as
-  // "estimate" in the tooltip, indistinguishable from the real current
-  // estimate at "now" itself.
+  // Recomputed directly from the interpolated price above (price/EPS),
+  // not re-derived through the piecewise walk -- keeps the two charts
+  // mathematically locked together by construction, same principle as
+  // the slider-drag handler below.
   if(nowIdx>=0){
-    const flatMult=multSeries[nowIdx];
-    for(let i=nowIdx+1;i<labels.length;i++){multSeries[i]=flatMult;multSources[i]='projected';}
+    if(sliderApplicable){
+      for(let i=nowIdx+1;i<labels.length;i++){multSeries[i]=priceSeries[i]/currentEps;multSources[i]='projected';}
+    }else{
+      const flatMult=multSeries[nowIdx];
+      for(let i=nowIdx+1;i<labels.length;i++){multSeries[i]=flatMult;multSources[i]='projected';}
+    }
   }
 
   // Anchor dots at realized report dates get a bigger, solid-colored
@@ -790,6 +822,32 @@ function _renderMultipleHistoryChart(ticker,hist2y){
       +(tqe?'prior actuals for nearestGroup (need 3): '+priorCount:'');
   }
 
+  // Slider control: lets the multiple past "now" be dragged rather than
+  // just held at its default value. Reset on every fresh render (not
+  // persisted) -- this is a what-if exploration tool, not a saved setting.
+  // Global state (window._mhSliderState), same pattern as the chart
+  // instances themselves (window._mhPriceChart/_mhMultChart) -- always
+  // reassigned here (even to null) so switching tickers can't leave a
+  // previous ticker's target stuck on screen.
+  const sliderEl=document.getElementById('mh-slider-container');
+  if(sliderEl){
+    if(sliderApplicable){
+      sliderEl.innerHTML=
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
+        +'<span style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">What-if: multiple at next report</span>'
+        +'<span id="mh-slider-label" style="font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600">'+defaultSliderVal+'x &rarr; $'+defaultTargetPrice.toFixed(2)+'</span>'
+        +'</div>'
+        +'<input type="range" id="mh-mult-slider" min="'+Math.max(1,Math.round(currentMultiple*0.5))+'" max="'+Math.round(currentMultiple*1.5)+'" step="1" value="'+defaultSliderVal+'" style="width:100%" oninput="_mhOnSliderInput(&quot;'+ticker+'&quot;)">';
+    }else{
+      sliderEl.innerHTML='';
+    }
+  }
+  window._mhSliderState=sliderApplicable?{
+    ticker,nowIdx,futureIdx,currentEps,
+    basePriceSeries:priceSeries.slice(), // clean "now" anchor, independent of whatever the slider does afterward
+    sliderVal:defaultSliderVal,targetPrice:defaultTargetPrice
+  }:null;
+
   const priceCtx=document.getElementById('mh-price-chart')?.getContext('2d');
   const multCtx=document.getElementById('mh-mult-chart')?.getContext('2d');
   if(!priceCtx||!multCtx)return;
@@ -829,11 +887,50 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   // segment-callback technique already used in renderHVRChart.
   const _dashPastNow=ctx=>(nowIdx>=0&&ctx.p0DataIndex>=nowIdx)?[4,3]:undefined;
 
-  const priceSourceLabel=i=>i===futureIdx?' (projected, flat multiple)':'';
+  const priceSourceLabel=i=>i===futureIdx?' (projected)':'';
   const multSourceLabel=i=>{
     const s=multSources[i];
     return s==='realized'?' (realized)':s==='estimate'?' (estimate)':s==='projected'?' (projected)':'';
   };
+
+  // Target-value callout, shared by both charts: floats near the TOP of
+  // the chart (not pinned to wherever the target point's y-value happens
+  // to land, since a big multiple swing could push that near the very
+  // top or bottom edge) and clamped so it never gets clipped by the right
+  // edge -- the whole point of the slider is this number, so it can't be
+  // the one thing that's cut off. A small dot at the true point plus a
+  // thin connecting line keeps the floating label visually tied to what
+  // it's actually describing.
+  function _mhTargetLabelPlugin(getPointValue,formatText){
+    return{id:'mhTargetLabel',afterDraw(chart){
+      const state=window._mhSliderState;
+      if(!state||state.futureIdx<0)return;
+      const pointVal=getPointValue(state);
+      if(pointVal==null)return;
+      const c=chart.ctx,xs=chart.scales.x,ys=chart.scales.y;
+      const xPx=xs.getPixelForValue(state.futureIdx);
+      const yPoint=ys.getPixelForValue(pointVal);
+      const text=formatText(state);
+      c.save();
+      c.font='bold 10px DM Mono,monospace';
+      const textW=c.measureText(text).width;
+      const labelY=ys.top+14;
+      let labelX=xPx;
+      if(labelX+textW+8>xs.right)labelX=xs.right-textW-8;
+      if(labelX<xs.left+4)labelX=xs.left+4;
+      c.setLineDash([2,2]);c.strokeStyle='rgba(139,143,168,0.4)';c.lineWidth=1;
+      c.beginPath();c.moveTo(xPx,yPoint);c.lineTo(xPx,labelY+8);c.stroke();
+      c.setLineDash([]);
+      c.fillStyle='rgba(139,143,168,0.95)';
+      c.beginPath();c.arc(xPx,yPoint,3,0,Math.PI*2);c.fill();
+      c.fillRect(labelX-4,labelY-3,textW+8,15);
+      c.fillStyle='#0a0b0f';c.textAlign='left';
+      c.fillText(text,labelX,labelY+8);
+      c.restore();
+    }};
+  }
+  const _mhPriceTargetPlugin=_mhTargetLabelPlugin(s=>s.targetPrice,s=>'$'+s.targetPrice.toFixed(2));
+  const _mhMultTargetPlugin=_mhTargetLabelPlugin(s=>s.sliderVal,s=>s.sliderVal+'x');
 
   window._mhPriceChart=new Chart(priceCtx,{
     type:'line',
@@ -842,7 +939,7 @@ function _renderMultipleHistoryChart(ticker,hist2y){
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.parsed.y?.toFixed(2)+priceSourceLabel(c.dataIndex)}}},
       scales:{x:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:6},grid:{display:false}},
         y:{ticks:{color:'#555870',font:{size:8},callback:v=>'$'+v},grid:{color:'#2a2e38'}}}},
-    plugins:[_mhNowLinePlugin]
+    plugins:sliderApplicable?[_mhNowLinePlugin,_mhPriceTargetPlugin]:[_mhNowLinePlugin]
   });
   window._mhMultChart=new Chart(multCtx,{
     type:'line',
@@ -853,8 +950,38 @@ function _renderMultipleHistoryChart(ticker,hist2y){
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'P/E: '+c.parsed.y?.toFixed(1)+'x'+multSourceLabel(c.dataIndex)}}},
       scales:{x:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:6},grid:{display:false}},
         y:{ticks:{color:'#555870',font:{size:8},callback:v=>v+'x'},grid:{color:'#2a2e38'}}}},
-    plugins:[_mhNowLinePlugin]
+    plugins:sliderApplicable?[_mhNowLinePlugin,_mhMultTargetPlugin]:[_mhNowLinePlugin]
   });
+}
+
+// Slider drag handler -- recomputes the linear-interpolated projected
+// segment on both charts from the same clean "now" anchor every time
+// (never compounding off the previous drag position), so dragging back
+// and forth stays numerically exact rather than drifting. update('none')
+// skips Chart.js's animation so dragging feels immediate, not laggy.
+function _mhOnSliderInput(ticker){
+  const state=window._mhSliderState;
+  const slider=document.getElementById('mh-mult-slider');
+  const priceChart=window._mhPriceChart,multChart=window._mhMultChart;
+  if(!state||state.ticker!==ticker||!slider||!priceChart||!multChart)return;
+  const{nowIdx,futureIdx,currentEps,basePriceSeries}=state;
+  if(nowIdx<0||futureIdx<=nowIdx||currentEps==null)return;
+  const sliderVal=parseInt(slider.value,10);
+  const nowPrice=basePriceSeries[nowIdx];
+  const targetPrice=sliderVal*currentEps;
+  const priceData=priceChart.data.datasets[0].data;
+  const multData=multChart.data.datasets[0].data;
+  for(let i=nowIdx;i<=futureIdx;i++){
+    const t=(i-nowIdx)/(futureIdx-nowIdx);
+    const p=nowPrice+t*(targetPrice-nowPrice);
+    priceData[i]=p;
+    multData[i]=p/currentEps;
+  }
+  state.sliderVal=sliderVal;state.targetPrice=targetPrice;
+  const label=document.getElementById('mh-slider-label');
+  if(label)label.textContent=sliderVal+'x \u2192 $'+targetPrice.toFixed(2);
+  priceChart.update('none');
+  multChart.update('none');
 }
 
 function buildUpgradeTable(upgrades){
@@ -2868,4 +2995,3 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
-                                                                                                                                                                                                        

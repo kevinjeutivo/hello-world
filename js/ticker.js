@@ -545,6 +545,17 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   const nearestGroup=track.slice().sort((a,b)=>a.targetQuarterEnd.localeCompare(b.targetQuarterEnd))[0];
   const fwdSteps=(nearestGroup?.entries||[]).filter(e=>e.projTtmEps>0).map(e=>({date:e.date,eps:e.projTtmEps}));
   const fwdSeries=fwdSteps.length?_mhPiecewiseMultiple(fwdSteps,labels,priceByLabel):labels.map(()=>null);
+  // A point with no non-null neighbor on either side gets a small visible
+  // dot -- otherwise Chart.js draws nothing for it at all (no line segment
+  // to connect, and pointRadius:0 hides the dot too). This is the normal
+  // state right after this feature starts tracking a ticker, before a
+  // second nearby point exists to form a line.
+  const fwdPointRadius=fwdSeries.map((v,i)=>{
+    if(v==null)return 0;
+    const prevNull=i===0||fwdSeries[i-1]==null;
+    const nextNull=i===fwdSeries.length-1||fwdSeries[i+1]==null;
+    return(prevNull&&nextNull)?3:0;
+  });
 
   const priceCtx=document.getElementById('mh-price-chart')?.getContext('2d');
   const multCtx=document.getElementById('mh-mult-chart')?.getContext('2d');
@@ -554,24 +565,50 @@ function _renderMultipleHistoryChart(ticker,hist2y){
 
   const dispLabels=labels.map(d=>{const dt=new Date(d);return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'});});
 
+  // "Now" marker -- a gentle vertical reference line shared by both panels
+  // so it's obvious, at a glance, where realized/tracked history ends and
+  // today sits. Falls back to the last available label (e.g. a weekend,
+  // when there's no exact "today" trading day) rather than not drawing at
+  // all. Same afterDraw technique already used for the earnings-date and
+  // RSI threshold lines elsewhere on this page -- see renderRelPerfChart.
+  const todayStr=_tkDateStr(Date.now());
+  const todayIdx=labels.indexOf(todayStr)>=0?labels.indexOf(todayStr):labels.length-1;
+  const _mhNowLinePlugin={
+    id:'mhNowLine',
+    afterDraw(chart){
+      if(todayIdx<0)return;
+      const c=chart.ctx,xs=chart.scales.x,ys=chart.scales.y;
+      const xPx=xs.getPixelForValue(todayIdx);
+      c.save();
+      c.setLineDash([3,3]);c.lineWidth=1;c.strokeStyle='rgba(139,143,168,0.35)';
+      c.beginPath();c.moveTo(xPx,ys.top);c.lineTo(xPx,ys.bottom);c.stroke();
+      c.setLineDash([]);
+      c.font='8px DM Mono,monospace';c.fillStyle='rgba(139,143,168,0.6)';
+      c.fillText('now',xPx+3,ys.top+9);
+      c.restore();
+    }
+  };
+
   window._mhPriceChart=new Chart(priceCtx,{
     type:'line',
     data:{labels:dispLabels,datasets:[{label:'Price',data:priceSeries,borderColor:'rgba(79,195,247,0.9)',borderWidth:1.5,pointRadius:0,spanGaps:false,tension:0.1}]},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.parsed.y?.toFixed(2)}}},
       scales:{x:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:6},grid:{display:false}},
-        y:{ticks:{color:'#555870',font:{size:8},callback:v=>'$'+v},grid:{color:'#2a2e38'}}}}
+        y:{ticks:{color:'#555870',font:{size:8},callback:v=>'$'+v},grid:{color:'#2a2e38'}}}},
+    plugins:[_mhNowLinePlugin]
   });
   window._mhMultChart=new Chart(multCtx,{
     type:'line',
     data:{labels:dispLabels,datasets:[
       {label:'TTM P/E',data:ttmSeries,borderColor:'rgba(0,212,170,0.9)',borderWidth:1.5,pointRadius:ttmPointRadius,pointBackgroundColor:'rgba(0,212,170,1)',spanGaps:false,tension:0},
-      {label:'Forward P/E',data:fwdSeries,borderColor:'rgba(255,165,2,0.8)',borderWidth:1.5,borderDash:[4,3],pointRadius:0,spanGaps:false,tension:0}
+      {label:'Forward P/E',data:fwdSeries,borderColor:'rgba(255,165,2,0.8)',borderWidth:1.5,borderDash:[4,3],pointRadius:fwdPointRadius,pointBackgroundColor:'rgba(255,165,2,1)',spanGaps:false,tension:0}
     ]},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
       plugins:{legend:{display:true,labels:{color:'#8b8fa8',font:{size:9},boxWidth:10}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.parsed.y?.toFixed(1)+'x'}}},
       scales:{x:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:6},grid:{display:false}},
-        y:{ticks:{color:'#555870',font:{size:8},callback:v=>v+'x'},grid:{color:'#2a2e38'}}}}
+        y:{ticks:{color:'#555870',font:{size:8},callback:v=>v+'x'},grid:{color:'#2a2e38'}}}},
+    plugins:[_mhNowLinePlugin]
   });
 }
 

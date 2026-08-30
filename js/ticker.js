@@ -543,8 +543,9 @@ function _buildMultipleHistoryCard(ticker){
        const trendForDebug=snapForDebug?.earningsTrend||[];
        return '<div style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text3);white-space:pre-wrap">RAW STATE (for debugging):\n'
          +'snap.tsEpoch: '+(snapForDebug?.tsEpoch?new Date(snapForDebug.tsEpoch).toISOString():'null')+'\n'
-         +'earningsTrend (0q/+1q only):\n'
-         +trendForDebug.filter(p=>p&&(p.period==='0q'||p.period==='+1q')).map(p=>'  '+p.period+': endDate='+JSON.stringify(p.endDate)+' epsMean='+p.epsMean).join('\n')+'\n'
+         +'snap.peForward (Yahoo\'s own, top-of-page figure): '+snapForDebug?.peForward+'\n'
+         +'earningsTrend (all 4 periods):\n'
+         +trendForDebug.filter(p=>p).map(p=>'  '+p.period+': endDate='+JSON.stringify(p.endDate)+' epsMean='+p.epsMean+' growth='+p.growth+' revenueAvg='+p.revenueAvg).join('\n')+'\n'
          +'fwdpe_track_'+ticker+': '+JSON.stringify(track)+'\n'
          +'multiple_hist_'+ticker+': '+JSON.stringify(perm)+'</div>';
      })();
@@ -599,8 +600,9 @@ function _renderMultipleHistoryChart(ticker,hist2y){
     const priorCount=tqe?histForDebug.filter(h=>h.epsActual!=null&&h.date&&h.date<tqe).length:null;
     debugEl.textContent='RAW STATE (for debugging):\n'
       +'snap.tsEpoch: '+(snapForDebug?.tsEpoch?new Date(snapForDebug.tsEpoch).toISOString():'null')+'\n'
-      +'earningsTrend (0q/+1q only):\n'
-      +trendForDebug.filter(p=>p&&(p.period==='0q'||p.period==='+1q')).map(p=>'  '+p.period+': endDate='+JSON.stringify(p.endDate)+' epsMean='+p.epsMean).join('\n')+'\n'
+      +'snap.peForward (Yahoo\'s own, top-of-page figure): '+snapForDebug?.peForward+'\n'
+      +'earningsTrend (all 4 periods):\n'
+      +trendForDebug.filter(p=>p).map(p=>'  '+p.period+': endDate='+JSON.stringify(p.endDate)+' epsMean='+p.epsMean+' growth='+p.growth+' revenueAvg='+p.revenueAvg).join('\n')+'\n'
       +'earningsHistoryYahoo ('+histForDebug.length+' entries):\n'
       +histForDebug.map(h=>'  '+h.date+': actual='+h.epsActual+' est='+h.epsEstimate).join('\n')+'\n'
       +'fwdpe_track_'+ticker+' ('+track.length+' groups):\n'

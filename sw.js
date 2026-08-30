@@ -5,8 +5,8 @@
 // Version bump this string to force a refresh
 // of the cache when you deploy a new version.
 // ============================================
-const CACHE_NAME = 'putseller-v405';
-const APP_BUILD = 405; // increment with every deploy, matches CACHE_NAME version
+const CACHE_NAME = 'putseller-v406';
+const APP_BUILD = 406; // increment with every deploy, matches CACHE_NAME version
 
 // Files to cache on install — the app shell
 const APP_SHELL = [

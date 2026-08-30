@@ -623,13 +623,27 @@ function _buildMultipleHistoryCard(ticker){
   const perm=S.get('multiple_hist_'+ticker)||[];
   const track=S.get('fwdpe_track_'+ticker)||[];
   const hasAny=perm.length||track.some(g=>g.entries.length);
+  // Same collapse/expand pattern as the Guide sections (.gs-header/.gs-body/
+  // .gs-chevron, .gs-body defaults to display:none via existing CSS -- no
+  // new styles needed) -- default collapsed since this is raw diagnostic
+  // data, not something to read on every visit, but kept available (not
+  // removed) since it's genuinely useful for independently checking this
+  // feature's numbers as it accumulates real quarters over time.
+  const debugToggle=
+    '<div class="gs-header" onclick="_mhToggleDebug()" style="margin-top:8px">'
+    +'<span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Raw data (for verification)</span>'
+    +'<span class="gs-chevron" id="mh-debug-chevron">&#9658;</span>'
+    +'</div>';
   const body=hasAny
     ?'<div class="chart-wrap" style="height:140px"><canvas id="mh-price-chart"></canvas></div>'
      +'<div class="chart-wrap" style="height:140px;margin-top:4px"><canvas id="mh-mult-chart"></canvas></div>'
      +'<div id="mh-slider-container" style="margin-top:10px"></div>'
      +'<div class="commentary" style="margin-top:10px">One continuous multiple line: realized TTM P/E from past earnings reports, switching seamlessly to the current quarter\'s forward-estimate basis (still trailing-twelve-month, so no visual seam) as it develops. Solid = known or currently tracked. Dashed, past the "now" line = a projection -- drag the slider above to explore what price a different multiple implies at the next report, holding this quarter\'s EPS estimate fixed. Deliberately NOT the same figure as the "P/E (Forward)" tile above, which uses Yahoo\'s own next-fiscal-year estimate (a different, purely forward basis) -- the two numbers will often differ, sometimes by a lot for a fast-growing stock. Tap a point for whether it\'s realized, estimated, or projected.</div>'
-     +'<div id="mh-debug" style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text3);white-space:pre-wrap"></div>'
+     +debugToggle
+     +'<div class="gs-body" id="mh-debug-body"><div id="mh-debug" style="font-family:var(--mono);font-size:10px;color:var(--text3);white-space:pre-wrap"></div></div>'
     :'<div class="commentary" style="margin-top:4px">Building history -- check back after the next earnings report. This chart accumulates from today forward; historical forward estimates can\'t be backfilled.</div>'
+     +debugToggle
+     +'<div class="gs-body" id="mh-debug-body">'
      +(()=>{
        // Covers the case where track/perm are BOTH completely empty (not
        // just containing unusable entries) -- _renderMultipleHistoryChart
@@ -638,15 +652,29 @@ function _buildMultipleHistoryCard(ticker){
        // diagnosing "why is nothing here at all."
        const snapForDebug=S.get('snap_'+ticker);
        const trendForDebug=snapForDebug?.earningsTrend||[];
-       return '<div style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text3);white-space:pre-wrap">RAW STATE (for debugging):\n'
+       return '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);white-space:pre-wrap">RAW STATE (for debugging):\n'
          +'snap.tsEpoch: '+(snapForDebug?.tsEpoch?new Date(snapForDebug.tsEpoch).toISOString():'null')+'\n'
          +'snap.peForward (Yahoo\'s own, top-of-page figure): '+snapForDebug?.peForward+'\n'
          +'earningsTrend (all 4 periods):\n'
          +trendForDebug.filter(p=>p).map(p=>'  '+p.period+': endDate='+JSON.stringify(p.endDate)+' epsMean='+p.epsMean+' growth='+p.growth+' revenueAvg='+p.revenueAvg).join('\n')+'\n'
          +'fwdpe_track_'+ticker+': '+JSON.stringify(track)+'\n'
          +'multiple_hist_'+ticker+': '+JSON.stringify(perm)+'</div>';
-     })();
+     })()
+     +'</div>';
   return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent)"></span>Multiple History (TTM &amp; Forward P/E)</div>'+body+'</div>';
+}
+
+// Simple show/hide toggle for the Multiple History card's raw-data section
+// -- deliberately not persisted across renders/sessions the way Guide
+// sections are (this panel fully regenerates on every render anyway), just
+// a plain default-collapsed/click-to-expand control.
+function _mhToggleDebug(){
+  const bodyEl=document.getElementById('mh-debug-body');
+  const chev=document.getElementById('mh-debug-chevron');
+  if(!bodyEl)return;
+  const isOpen=bodyEl.classList.contains('open');
+  bodyEl.classList.toggle('open',!isOpen);
+  if(chev)chev.classList.toggle('open',!isOpen);
 }
 
 function _renderMultipleHistoryChart(ticker,hist2y){
@@ -956,7 +984,7 @@ function _renderMultipleHistoryChart(ticker,hist2y){
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'P/E: '+c.parsed.y?.toFixed(1)+'x'+multSourceLabel(c.dataIndex)}}},
       scales:{x:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:6},grid:{display:false}},
-        y:{ticks:{color:'#555870',font:{size:8},callback:v=>v+'x'},grid:{color:'#2a2e38'}}}},
+        y:{ticks:{color:'#555870',font:{size:8},callback:v=>(Math.round(v*100)/100)+'x'},grid:{color:'#2a2e38'}}}},
     plugins:sliderApplicable?[_mhNowLinePlugin,_mhMultTargetPlugin]:[_mhNowLinePlugin]
   });
 }
@@ -3002,4 +3030,4 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
-                         
+    

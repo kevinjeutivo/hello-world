@@ -508,6 +508,7 @@ function _buildMultipleHistoryCard(ticker){
     ?'<div class="chart-wrap" style="height:140px"><canvas id="mh-price-chart"></canvas></div>'
      +'<div class="chart-wrap" style="height:140px;margin-top:4px"><canvas id="mh-mult-chart"></canvas></div>'
      +'<div class="commentary" style="margin-top:10px">TTM P/E (solid): trailing-12mo multiple, dense since the most recent earnings report, sparse further back until more quarters accumulate. Forward P/E (dashed): projected multiple for the nearest upcoming quarter, on the same trailing-twelve-month basis so the two lines are directly comparable.</div>'
+     +'<div id="mh-debug" style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text3);white-space:pre-wrap"></div>'
     :'<div class="commentary" style="margin-top:4px">Building history -- check back after the next earnings report. This chart accumulates from today forward; historical forward estimates can\'t be backfilled.</div>';
   return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent)"></span>Multiple History (TTM &amp; Forward P/E)</div>'+body+'</div>';
 }
@@ -545,6 +546,28 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   const nearestGroup=track.slice().sort((a,b)=>a.targetQuarterEnd.localeCompare(b.targetQuarterEnd))[0];
   const fwdSteps=(nearestGroup?.entries||[]).filter(e=>e.projTtmEps>0).map(e=>({date:e.date,eps:e.projTtmEps}));
   const fwdSeries=fwdSteps.length?_mhPiecewiseMultiple(fwdSteps,labels,priceByLabel):labels.map(()=>null);
+
+  // Self-diagnostic: if a quarter is being tracked (has dense entries) but
+  // none of them produced a usable projected TTM EPS, show exactly why --
+  // this is a "why is this null" case the app can surface directly rather
+  // than requiring Web Inspector to dig into localStorage by hand.
+  const debugEl=document.getElementById('mh-debug');
+  if(debugEl){
+    if(nearestGroup?.entries?.length&&fwdSteps.length===0){
+      const snapForDebug=S.get('snap_'+ticker);
+      const histForDebug=snapForDebug?.earningsHistoryYahoo||[];
+      const tqe=nearestGroup.targetQuarterEnd;
+      const priorCount=histForDebug.filter(h=>h.epsActual!=null&&h.date&&h.date<tqe).length;
+      const actualsDump=histForDebug.map(h=>'  '+(h.date||'(no date)')+': actual='+(h.epsActual??'null')+(h.date&&tqe&&h.date<tqe?' [counts as prior]':h.date&&tqe&&h.date>=tqe?' [NOT prior -- on/after target]':'')).join('\n');
+      debugEl.textContent='Debug -- forward line has no usable data:\n'
+        +'  targetQuarterEnd: '+JSON.stringify(tqe)+' (type: '+typeof tqe+')\n'
+        +'  last captured estimate: '+(nearestGroup.entries[nearestGroup.entries.length-1]?.quarterlyEpsEst??'null')+'\n'
+        +'  earningsHistoryYahoo entries ('+histForDebug.length+' total):\n'+(actualsDump||'  (none)')+'\n'
+        +'  actuals counted as "prior" (need 3): '+priorCount;
+    }else{
+      debugEl.textContent='';
+    }
+  }
   // A point with no non-null neighbor on either side gets a small visible
   // dot -- otherwise Chart.js draws nothing for it at all (no line segment
   // to connect, and pointRadius:0 hides the dot too). This is the normal

@@ -457,6 +457,20 @@ function _updateMultipleHistory(ticker,snap,hist2yCache){
       if(gi===-1||!track[gi].entries.length)return; // not a quarter we were tracking
       const g=track[gi];
       const reportInfo=_mhFindReportInfo(ticker,h.date);
+      // Consolidation writes a PERMANENT, immutable record -- so it should
+      // only happen once hist2y_'s price data has genuinely caught up to
+      // the report date, not settle for a same-day fallback that can never
+      // be corrected later. Yahoo's earningsHistoryYahoo and this app's
+      // own price history are two independent feeds with no guaranteed
+      // sync; if the actual EPS shows up before the price does, defer
+      // rather than permanently bake in an approximation. Distinguishes
+      // "hasn't caught up yet" (latestPriceDate not yet past reportDate --
+      // wait for a later refresh) from "genuinely a non-trading day"
+      // (latestPriceDate already past reportDate, exact date still
+      // missing -- the existing prior-day-close fallback in
+      // _mhPriceAtReport is legitimately correct here, not a data lag).
+      const priceCaughtUp=priceMap[reportInfo?.date]!=null||(reportInfo?.date&&latestPriceDate&&latestPriceDate>reportInfo.date);
+      if(reportInfo?.date&&!priceCaughtUp)return; // try again next refresh
       const priceAtReport=_mhPriceAtReport(priceMap,reportInfo);
       const ttmEps=_mhTtmEpsFromHistory(histArr,h.date);
       const first=g.entries[0],last=g.entries[g.entries.length-1];
@@ -475,6 +489,14 @@ function _updateMultipleHistory(ticker,snap,hist2yCache){
     // Step 2: append a dense snapshot for each currently-open quarter.
     (trendArr.filter(p=>p&&(p.period==='0q'||p.period==='+1q')&&p.endDate)).forEach(p=>{
       if(p.epsMean==null)return;
+      // Guards against Yahoo's own modules disagreeing with each other
+      // for a refresh or two: if earningsTrend has already rolled this
+      // period's label forward onto a quarter that consolidation already
+      // recorded (possible if earningsTrend updates before
+      // earningsHistoryYahoo does, or vice versa across two refreshes),
+      // don't re-open tracking for a quarter that's already permanently
+      // closed.
+      if(perm.some(r=>r.quarterEndDate===p.endDate))return;
       let g=track.find(x=>_mhDateDiffDays(x.targetQuarterEnd,p.endDate)<=_MH_TOLERANCE_DAYS);
       if(!g){g={targetQuarterEnd:p.endDate,entries:[]};track.push(g);}
       const lastEntry=g.entries[g.entries.length-1];
@@ -498,7 +520,16 @@ function _updateMultipleHistory(ticker,snap,hist2yCache){
         g.entries.push(newEntry);
       }
     });
-    track=track.slice(-2); // defensive cap -- only 0q/+1q should ever exist
+    // Cap track to 2 groups (only 0q/+1q should ever exist) -- but never
+    // evict a group whose quarter has already reported (targetQuarterEnd
+    // in the past) and is simply waiting on Step 1's deferral above to
+    // resolve. Evicting one of those by position, rather than by whether
+    // it's actually done, would permanently orphan it: once gone from
+    // track, Step 1 can never find it again to consolidate, even after
+    // the price data it was waiting on finally arrives.
+    const overdue=track.filter(g=>g.targetQuarterEnd<=today);
+    const notYetDue=track.filter(g=>g.targetQuarterEnd>today);
+    track=[...overdue,...notYetDue.slice(-2)];
 
     S.set(trackKey,track);
     S.set(permKey,perm);
@@ -622,7 +653,19 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   // step (tagged below) flows through to the tooltip so a point can still
   // say whether it's realized or estimated, without needing two datasets.
   const ttmSteps=perm.filter(r=>r.ttmEpsAsOfReport>0).map(r=>({date:r.reportDate||r.quarterEndDate,eps:r.ttmEpsAsOfReport,source:'realized'}));
-  const fwdSteps=(nearestGroup?.entries||[]).filter(e=>e.projTtmEps>0).map(e=>({date:e.date,eps:e.projTtmEps,source:'estimate'}));
+  const ttmStepDates=new Set(ttmSteps.map(s=>s.date));
+  // Consolidation (writing the realized anchor) and starting to track the
+  // next quarter both happen in the same refresh pass, dated to the same
+  // day -- so a forward-tracking entry can land on the exact same calendar
+  // date as the realized report it followed. Nudged one day later so the
+  // report day itself shows the actual print, not a same-day head start on
+  // the next quarter's estimate. Only affects this transient render-time
+  // array, not what's actually stored in fwdpe_track_.
+  const fwdSteps=(nearestGroup?.entries||[]).filter(e=>e.projTtmEps>0).map(e=>{
+    let d=e.date;
+    if(ttmStepDates.has(d))d=_tkDateStr(new Date(new Date(d+'T12:00:00Z').getTime()+86400000));
+    return{date:d,eps:e.projTtmEps,source:'estimate'};
+  });
   const combinedSteps=[...ttmSteps,...fwdSteps];
   const {values:multSeries,sources:multSources}=_mhPiecewiseMultiple(combinedSteps,labels,priceByLabel,true);
   // The piecewise fill already produces a flat multiple across this whole

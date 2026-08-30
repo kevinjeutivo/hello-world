@@ -509,7 +509,22 @@ function _buildMultipleHistoryCard(ticker){
      +'<div class="chart-wrap" style="height:140px;margin-top:4px"><canvas id="mh-mult-chart"></canvas></div>'
      +'<div class="commentary" style="margin-top:10px">TTM P/E (solid): trailing-12mo multiple, dense since the most recent earnings report, sparse further back until more quarters accumulate. Forward P/E (dashed): projected multiple for the nearest upcoming quarter, on the same trailing-twelve-month basis so the two lines are directly comparable.</div>'
      +'<div id="mh-debug" style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text3);white-space:pre-wrap"></div>'
-    :'<div class="commentary" style="margin-top:4px">Building history -- check back after the next earnings report. This chart accumulates from today forward; historical forward estimates can\'t be backfilled.</div>';
+    :'<div class="commentary" style="margin-top:4px">Building history -- check back after the next earnings report. This chart accumulates from today forward; historical forward estimates can\'t be backfilled.</div>'
+     +(()=>{
+       // Covers the case where track/perm are BOTH completely empty (not
+       // just containing unusable entries) -- _renderMultipleHistoryChart
+       // never runs in that case (it early-returns before reaching its own
+       // debug dump), so without this, this branch would be a dead end for
+       // diagnosing "why is nothing here at all."
+       const snapForDebug=S.get('snap_'+ticker);
+       const trendForDebug=snapForDebug?.earningsTrend||[];
+       return '<div style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text3);white-space:pre-wrap">RAW STATE (for debugging):\n'
+         +'snap.tsEpoch: '+(snapForDebug?.tsEpoch?new Date(snapForDebug.tsEpoch).toISOString():'null')+'\n'
+         +'earningsTrend (0q/+1q only):\n'
+         +trendForDebug.filter(p=>p&&(p.period==='0q'||p.period==='+1q')).map(p=>'  '+p.period+': endDate='+JSON.stringify(p.endDate)+' epsMean='+p.epsMean).join('\n')+'\n'
+         +'fwdpe_track_'+ticker+': '+JSON.stringify(track)+'\n'
+         +'multiple_hist_'+ticker+': '+JSON.stringify(perm)+'</div>';
+     })();
   return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent)"></span>Multiple History (TTM &amp; Forward P/E)</div>'+body+'</div>';
 }
 
@@ -547,26 +562,31 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   const fwdSteps=(nearestGroup?.entries||[]).filter(e=>e.projTtmEps>0).map(e=>({date:e.date,eps:e.projTtmEps}));
   const fwdSeries=fwdSteps.length?_mhPiecewiseMultiple(fwdSteps,labels,priceByLabel):labels.map(()=>null);
 
-  // Self-diagnostic: if a quarter is being tracked (has dense entries) but
-  // none of them produced a usable projected TTM EPS, show exactly why --
-  // this is a "why is this null" case the app can surface directly rather
-  // than requiring Web Inspector to dig into localStorage by hand.
+  // Self-diagnostic: always dump raw stored state, not just when the
+  // forward line looks broken. Screenshotting this is the fastest way to
+  // get real ground truth off an iPhone-only workflow (no Mac/cable Web
+  // Inspector needed) -- reasoning from chart appearance alone hasn't been
+  // reliable enough to keep debugging blind.
   const debugEl=document.getElementById('mh-debug');
   if(debugEl){
-    if(nearestGroup?.entries?.length&&fwdSteps.length===0){
-      const snapForDebug=S.get('snap_'+ticker);
-      const histForDebug=snapForDebug?.earningsHistoryYahoo||[];
-      const tqe=nearestGroup.targetQuarterEnd;
-      const priorCount=histForDebug.filter(h=>h.epsActual!=null&&h.date&&h.date<tqe).length;
-      const actualsDump=histForDebug.map(h=>'  '+(h.date||'(no date)')+': actual='+(h.epsActual??'null')+(h.date&&tqe&&h.date<tqe?' [counts as prior]':h.date&&tqe&&h.date>=tqe?' [NOT prior -- on/after target]':'')).join('\n');
-      debugEl.textContent='Debug -- forward line has no usable data:\n'
-        +'  targetQuarterEnd: '+JSON.stringify(tqe)+' (type: '+typeof tqe+')\n'
-        +'  last captured estimate: '+(nearestGroup.entries[nearestGroup.entries.length-1]?.quarterlyEpsEst??'null')+'\n'
-        +'  earningsHistoryYahoo entries ('+histForDebug.length+' total):\n'+(actualsDump||'  (none)')+'\n'
-        +'  actuals counted as "prior" (need 3): '+priorCount;
-    }else{
-      debugEl.textContent='';
-    }
+    const snapForDebug=S.get('snap_'+ticker);
+    const histForDebug=snapForDebug?.earningsHistoryYahoo||[];
+    const trendForDebug=snapForDebug?.earningsTrend||[];
+    const tqe=nearestGroup?.targetQuarterEnd;
+    const priorCount=tqe?histForDebug.filter(h=>h.epsActual!=null&&h.date&&h.date<tqe).length:null;
+    debugEl.textContent='RAW STATE (for debugging):\n'
+      +'snap.tsEpoch: '+(snapForDebug?.tsEpoch?new Date(snapForDebug.tsEpoch).toISOString():'null')+'\n'
+      +'earningsTrend (0q/+1q only):\n'
+      +trendForDebug.filter(p=>p&&(p.period==='0q'||p.period==='+1q')).map(p=>'  '+p.period+': endDate='+JSON.stringify(p.endDate)+' epsMean='+p.epsMean).join('\n')+'\n'
+      +'earningsHistoryYahoo ('+histForDebug.length+' entries):\n'
+      +histForDebug.map(h=>'  '+h.date+': actual='+h.epsActual+' est='+h.epsEstimate).join('\n')+'\n'
+      +'fwdpe_track_'+ticker+' ('+track.length+' groups):\n'
+      +track.map(g=>'  targetQuarterEnd='+JSON.stringify(g.targetQuarterEnd)+' entries='+JSON.stringify(g.entries)).join('\n')+'\n'
+      +'multiple_hist_'+ticker+' ('+perm.length+' records):\n'
+      +perm.map(r=>'  '+JSON.stringify(r)).join('\n')+'\n'
+      +'nearestGroup targetQuarterEnd: '+JSON.stringify(tqe)+'\n'
+      +'fwdSteps computed: '+JSON.stringify(fwdSteps)+'\n'
+      +(tqe?'prior actuals for nearestGroup (need 3): '+priorCount:'');
   }
   // A point with no non-null neighbor on either side gets a small visible
   // dot -- otherwise Chart.js draws nothing for it at all (no line segment

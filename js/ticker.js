@@ -435,7 +435,16 @@ function _updateMultipleHistory(ticker,snap,hist2yCache){
     const trendArr=snap?.earningsTrend,histArr=snap?.earningsHistoryYahoo;
     if(!trendArr?.length)return; // no forward estimates to track (e.g. ETFs/funds)
     const priceMap=_mhPriceMap(hist2yCache);
-    const today=_tkDateStr(Math.floor(Date.now()/1000));
+    // Anchor to the most recent date that actually has a price bar, not
+    // literal calendar-today -- on a weekend or market holiday, "today"
+    // has no corresponding entry anywhere in hist2y_'s trading-day dates,
+    // which means the chart's x-axis (built from those same dates) has no
+    // slot to plot it at. A value can be perfectly correct and still be
+    // unplottable if it's anchored to a date the chart can't place. Falls
+    // back to literal today only if priceMap is empty entirely (e.g. very
+    // first run before hist2y_ exists yet).
+    const latestPriceDate=Object.keys(priceMap).sort().pop()||null;
+    const today=latestPriceDate||_tkDateStr(Math.floor(Date.now()/1000));
     const trackKey='fwdpe_track_'+ticker,permKey='multiple_hist_'+ticker;
     let track=S.get(trackKey)||[];
     let perm=S.get(permKey)||[];
@@ -469,11 +478,25 @@ function _updateMultipleHistory(ticker,snap,hist2yCache){
       let g=track.find(x=>_mhDateDiffDays(x.targetQuarterEnd,p.endDate)<=_MH_TOLERANCE_DAYS);
       if(!g){g={targetQuarterEnd:p.endDate,entries:[]};track.push(g);}
       const lastEntry=g.entries[g.entries.length-1];
-      if(lastEntry&&lastEntry.quarterlyEpsEst===p.epsMean)return; // no change since last capture
+      // A previously-stored entry anchored to a non-trading date (the
+      // exact bug just described) is unplottable forever unless corrected
+      // -- the estimate alone not having changed isn't reason enough to
+      // leave it stuck. Only treated as "misaligned" when priceMap has
+      // real dates to check against; an empty priceMap on a very first
+      // run isn't evidence of misalignment, just absence of data yet.
+      const lastEntryMisaligned=lastEntry&&Object.keys(priceMap).length>0&&priceMap[lastEntry.date]==null;
+      if(lastEntry&&lastEntry.quarterlyEpsEst===p.epsMean&&!lastEntryMisaligned)return; // no change, already correctly anchored
       const price=priceMap[today]??snap.price??null;
       const projTtmEps=_mhProjectedTtmEps(histArr,p.endDate,p.epsMean);
-      g.entries.push({date:today,price,quarterlyEpsEst:p.epsMean,projTtmEps,
-        forwardPE:(price!=null&&projTtmEps>0)?price/projTtmEps:null});
+      const newEntry={date:today,price,quarterlyEpsEst:p.epsMean,projTtmEps,
+        forwardPE:(price!=null&&projTtmEps>0)?price/projTtmEps:null};
+      if(lastEntry&&lastEntryMisaligned&&lastEntry.quarterlyEpsEst===p.epsMean){
+        // Same estimate as before, just needed its anchor corrected --
+        // replace in place rather than growing the array with a duplicate.
+        g.entries[g.entries.length-1]=newEntry;
+      }else{
+        g.entries.push(newEntry);
+      }
     });
     track=track.slice(-2); // defensive cap -- only 0q/+1q should ever exist
 

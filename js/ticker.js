@@ -713,9 +713,15 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   // rather than snapping to a slightly different value the moment it's
   // first touched.
   const currentEps=nearestGroup?.entries?.length?nearestGroup.entries[nearestGroup.entries.length-1].projTtmEps:null;
+  // The single upcoming quarter's own estimate, distinct from currentEps
+  // above (which is the TTM-basis figure -- 3 trailing actuals + this
+  // estimate -- actually used in the multiple/price math throughout this
+  // chart). Surfaced separately so it's never ambiguous which number is
+  // driving the slider's calculation.
+  const currentQuarterlyEps=nearestGroup?.entries?.length?nearestGroup.entries[nearestGroup.entries.length-1].quarterlyEpsEst:null;
   const currentMultiple=(nowPriceValue!=null&&currentEps>0)?nowPriceValue/currentEps:null;
   const sliderApplicable=futureIdx>nowIdx&&nowIdx>=0&&currentEps>0&&currentMultiple>0;
-  const defaultSliderVal=sliderApplicable?Math.round(currentMultiple):null;
+  const defaultSliderVal=sliderApplicable?Math.round(currentMultiple*2)/2:null; // nearest 0.5, matching the slider's step
   const defaultTargetPrice=sliderApplicable?defaultSliderVal*currentEps:null;
 
   // Every label past "now" gets filled by a straight-line interpolation
@@ -833,11 +839,12 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   if(sliderEl){
     if(sliderApplicable){
       sliderEl.innerHTML=
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">'
         +'<span style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">What-if: multiple at next report</span>'
-        +'<span id="mh-slider-label" style="font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600">'+defaultSliderVal+'x &rarr; $'+defaultTargetPrice.toFixed(2)+'</span>'
+        +'<span id="mh-slider-label" style="font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600">'+defaultSliderVal.toFixed(1)+'x &rarr; $'+defaultTargetPrice.toFixed(2)+'</span>'
         +'</div>'
-        +'<input type="range" id="mh-mult-slider" min="'+Math.max(1,Math.round(currentMultiple*0.5))+'" max="'+Math.round(currentMultiple*1.5)+'" step="1" value="'+defaultSliderVal+'" style="width:100%" oninput="_mhOnSliderInput(&quot;'+ticker+'&quot;)">';
+        +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">Fwd qtr EPS (est.): $'+(currentQuarterlyEps!=null?currentQuarterlyEps.toFixed(2):'N/A')+' &middot; TTM-basis EPS held constant: $'+currentEps.toFixed(2)+'</div>'
+        +'<input type="range" id="mh-mult-slider" min="'+(Math.max(0.5,Math.round(currentMultiple*0.5*2)/2))+'" max="'+(Math.round(currentMultiple*1.5*2)/2)+'" step="0.5" value="'+defaultSliderVal+'" style="width:100%" oninput="_mhOnSliderInput(&quot;'+ticker+'&quot;)">';
     }else{
       sliderEl.innerHTML='';
     }
@@ -896,11 +903,13 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   // Target-value callout, shared by both charts: floats near the TOP of
   // the chart (not pinned to wherever the target point's y-value happens
   // to land, since a big multiple swing could push that near the very
-  // top or bottom edge) and clamped so it never gets clipped by the right
-  // edge -- the whole point of the slider is this number, so it can't be
-  // the one thing that's cut off. A small dot at the true point plus a
-  // thin connecting line keeps the floating label visually tied to what
-  // it's actually describing.
+  // top or bottom edge) and pinned to a fixed top-right corner rather
+  // than tracking the target point's own x-position -- a corner the
+  // plotted line rarely passes directly through, so the number stays
+  // readable instead of sitting on top of the data it's describing. A
+  // small dot at the true point plus a thin connecting line keeps the
+  // floating label visually tied to what it's actually describing even
+  // though it isn't positioned right on top of it.
   function _mhTargetLabelPlugin(getPointValue,formatText){
     return{id:'mhTargetLabel',afterDraw(chart){
       const state=window._mhSliderState;
@@ -915,11 +924,9 @@ function _renderMultipleHistoryChart(ticker,hist2y){
       c.font='bold 10px DM Mono,monospace';
       const textW=c.measureText(text).width;
       const labelY=ys.top+14;
-      let labelX=xPx;
-      if(labelX+textW+8>xs.right)labelX=xs.right-textW-8;
-      if(labelX<xs.left+4)labelX=xs.left+4;
+      const labelX=xs.right-textW-8; // fixed corner, never tracks the point -- guarantees no clipping and stays clear of the line
       c.setLineDash([2,2]);c.strokeStyle='rgba(139,143,168,0.4)';c.lineWidth=1;
-      c.beginPath();c.moveTo(xPx,yPoint);c.lineTo(xPx,labelY+8);c.stroke();
+      c.beginPath();c.moveTo(xPx,yPoint);c.lineTo(labelX+textW/2,labelY+8);c.stroke();
       c.setLineDash([]);
       c.fillStyle='rgba(139,143,168,0.95)';
       c.beginPath();c.arc(xPx,yPoint,3,0,Math.PI*2);c.fill();
@@ -930,7 +937,7 @@ function _renderMultipleHistoryChart(ticker,hist2y){
     }};
   }
   const _mhPriceTargetPlugin=_mhTargetLabelPlugin(s=>s.targetPrice,s=>'$'+s.targetPrice.toFixed(2));
-  const _mhMultTargetPlugin=_mhTargetLabelPlugin(s=>s.sliderVal,s=>s.sliderVal+'x');
+  const _mhMultTargetPlugin=_mhTargetLabelPlugin(s=>s.sliderVal,s=>s.sliderVal.toFixed(1)+'x');
 
   window._mhPriceChart=new Chart(priceCtx,{
     type:'line',
@@ -966,7 +973,7 @@ function _mhOnSliderInput(ticker){
   if(!state||state.ticker!==ticker||!slider||!priceChart||!multChart)return;
   const{nowIdx,futureIdx,currentEps,basePriceSeries}=state;
   if(nowIdx<0||futureIdx<=nowIdx||currentEps==null)return;
-  const sliderVal=parseInt(slider.value,10);
+  const sliderVal=Math.round(parseFloat(slider.value)*2)/2; // snap to a clean 0.5 step, guards against float drift from the input element
   const nowPrice=basePriceSeries[nowIdx];
   const targetPrice=sliderVal*currentEps;
   const priceData=priceChart.data.datasets[0].data;
@@ -979,7 +986,7 @@ function _mhOnSliderInput(ticker){
   }
   state.sliderVal=sliderVal;state.targetPrice=targetPrice;
   const label=document.getElementById('mh-slider-label');
-  if(label)label.textContent=sliderVal+'x \u2192 $'+targetPrice.toFixed(2);
+  if(label)label.textContent=sliderVal.toFixed(1)+'x \u2192 $'+targetPrice.toFixed(2);
   priceChart.update('none');
   multChart.update('none');
 }
@@ -2995,3 +3002,4 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
+                         

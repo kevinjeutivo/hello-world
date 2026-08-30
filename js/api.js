@@ -143,7 +143,13 @@ async function fetchQuoteSummary(symbol){
         revenueAvg:p.revenueEstimate?.avg?.raw||null,
         epsRevUp:p.earningsEstimate?.numberOfAnalystsWithEstimate?.raw||null,
         growth:p.growth?.raw||null,
-        endDate:p.endDate
+        // Unlike every other field above, nothing previously read endDate,
+        // so it was left as Yahoo's raw {raw,fmt} wrapper object -- taken
+        // bare it stringifies to "[object Object]" wherever compared as a
+        // date. Unwrapped the same way earningsHistoryYahoo's own date
+        // field already is, below. Defensive fallback to a bare string in
+        // case some Yahoo responses ever send it unwrapped.
+        endDate:p.endDate?.fmt||(p.endDate?.raw?fmtDate(new Date(p.endDate.raw*1000)):(typeof p.endDate==='string'?p.endDate:null))
       })),
       // Recommendation trend (last 3 months)
       recTrend:rt.slice(0,3).map(m=>({

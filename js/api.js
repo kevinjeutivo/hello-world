@@ -98,7 +98,14 @@ async function fetchQuoteSummary(symbol){
   if(offlineMode)return null;
   try{
     const modules='financialData,defaultKeyStatistics,earningsTrend,recommendationTrend,earningsHistory,assetProfile';
-    const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=summary&modules=${encodeURIComponent(modules)}`);
+    // Cache-bust: every other Yahoo fetch in this file (history, options,
+    // quote, even the sibling type=summary&modules=topHoldings call below)
+    // includes _t=Date.now() specifically because an identical URL is a
+    // prime target for stale caching at the browser or Cloudflare layer.
+    // This call was the one exception -- missing since before this
+    // session -- which meant earningsTrend/earningsHistoryYahoo could be
+    // served from a stale response indefinitely, with no way to tell.
+    const r=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(symbol)}&type=summary&modules=${encodeURIComponent(modules)}&_t=${Date.now()}`);
     if(!r.ok)return null;
     const d=await r.json();
     const res=d.quoteSummary?.result?.[0];

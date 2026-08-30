@@ -5,8 +5,8 @@
 // Version bump this string to force a refresh
 // of the cache when you deploy a new version.
 // ============================================
-const CACHE_NAME = 'putseller-v402';
-const APP_BUILD = 402; // increment with every deploy, matches CACHE_NAME version
+const CACHE_NAME = 'putseller-v403';
+const APP_BUILD = 403; // increment with every deploy, matches CACHE_NAME version
 
 // Files to cache on install — the app shell
 const APP_SHELL = [
@@ -39,10 +39,23 @@ const APP_SHELL = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(APP_SHELL).catch(err => {
-        // Font/CDN failures should not block install
-        console.warn('SW: some shell resources failed to cache', err);
-      });
+      // cache.addAll() previously used here relies on the browser's default
+      // HTTP cache mode for its internal fetches -- meaning even a brand
+      // new CACHE_NAME could silently get populated with STALE file bytes,
+      // if GitHub Pages' own Cache-Control headers (or the browser's disk
+      // cache) still consider a file "fresh" from an earlier visit. A
+      // version bump reliably changes the cache *name*; it does not, on
+      // its own, force a genuine network fetch of the files underneath it.
+      // {cache:'reload'} on each fetch forces a real network round-trip,
+      // bypassing that layer, so a version bump reliably gets truly fresh
+      // files every time. As a side benefit, per-file .catch() also means
+      // one bad CDN fetch (Chart.js, fonts) no longer aborts caching of
+      // every other shell file the way a single combined addAll() catch did.
+      return Promise.all(APP_SHELL.map(url =>
+        fetch(new Request(url, {cache: 'reload'}))
+          .then(response => cache.put(url, response))
+          .catch(err => console.warn('SW: failed to cache', url, err))
+      ));
     }).then(() => self.skipWaiting())
   );
 });

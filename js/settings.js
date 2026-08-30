@@ -539,6 +539,12 @@ function clearMarketDataCache(){
     if(k.startsWith('put_pos'))continue;
     if(k.startsWith('cc_pos'))continue;
     if(k.startsWith('vol_badge'))continue;
+    // NOTE: multiple_hist_ and fwdpe_track_ are intentionally NOT swept here,
+    // even though this block clears several other per-ticker caches -- they
+    // aren't re-fetchable market-data caches, they're accumulated history
+    // (see _buildExportData below). Don't widen the prefixes above to catch
+    // them; a "hist" or "mult" match here would silently destroy data a
+    // refresh can't restore.
     if(k.startsWith('snap_')||k.startsWith('hist_')||k.startsWith('hist1y_')||
        k.startsWith('hist2y_')||k.startsWith('options_')||k.startsWith('news_')||
        k.startsWith('rec_')||k.startsWith('upgrades_')||
@@ -579,6 +585,16 @@ function _buildExportData(){
   _allKeys.forEach(k=>{
     const _k=k.replace(/^"|"$/g,'');
     if(_k.startsWith('earnings_hist_')||_k.startsWith('earnings_confirmed_')||_k.startsWith('earnings_pending_')){
+      const v=S.get(_k);
+      if(v!=null&&(!Array.isArray(v)||v.length>0))data.keys[_k]=v;
+    }
+    // Multiple History (TTM & forward P/E): both the permanent per-quarter
+    // records and the in-flight dense tracking data. Neither is re-fetchable
+    // from Yahoo -- there's no historical forward-estimate endpoint -- so
+    // unlike snap_/hist2y_/options_ (deliberately excluded, since a refresh
+    // trivially repopulates them), losing either of these without a recent
+    // backup is a permanent gap, same reasoning as earnings_hist_ above.
+    if(_k.startsWith('multiple_hist_')||_k.startsWith('fwdpe_track_')){
       const v=S.get(_k);
       if(v!=null&&(!Array.isArray(v)||v.length>0))data.keys[_k]=v;
     }

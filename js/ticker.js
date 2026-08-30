@@ -232,6 +232,10 @@ async function loadTicker(){
     // Historical earnings dates for the chart markers -- see _buildEarningsHistory
     // in helpers.js for the full algorithm (shared with prefetch.js).
     _buildEarningsHistory(t);
+    // Multiple History (TTM & forward P/E) -- must run after both hist2y_
+    // and earnings_hist_ (just above) are current, since it needs both a
+    // dense price map and confirmed BMO/AMC report timing.
+    _updateMultipleHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
     try{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}
     catch{const cn=S.get('news_'+t);if(cn)news=cn.items;}
     const upgradesData=S.get('upgrades_'+t)?.data||[];
@@ -345,6 +349,230 @@ function buildRecTrendCard(trend){
     +'<div class="options-table-wrap"><table class="options-table">'
     +'<thead><tr><th style="text-align:left">Month</th><th>Buy%</th><th>Hold%</th><th>Sell%</th><th>Total</th></tr></thead>'
     +'<tbody>'+rows+'</tbody></table></div></div>';
+}
+
+// ── Multiple History (TTM & forward P/E over time) ──────────────────────────
+// Two storage keys per ticker:
+//  multiple_hist_<ticker>: sparse, permanent, immutable once written. One
+//    record per quarter, written the moment that quarter's actual EPS shows
+//    up in earningsHistoryYahoo. Never edited after write, even across
+//    usage gaps -- a staler lastSeen is an accepted, honestly-labeled
+//    degradation, not something patched retroactively.
+//  fwdpe_track_<ticker>: dense, temporary. Up to 2 in-flight groups (this
+//    quarter / next quarter per earningsTrend's 0q/+1q), keyed by each
+//    quarter's endDate (not by the 0q/+1q label, which shifts meaning as
+//    the calendar rolls forward) with +/-45 day tolerance to absorb small
+//    drift in Yahoo's own estimated quarter-end date. A new entry is
+//    appended only when the quarterly EPS estimate actually changes, not
+//    on every refresh -- this is a "spike then whittle" design: only the
+//    nearest unrealized quarter/s ever carry dense data, and each group is
+//    discarded the moment its quarter consolidates into a permanent record.
+//
+// Both TTM and forward multiples are stored on the same basis (a projected
+// trailing-twelve-month EPS: 3 known trailing actuals + the 4th quarter's
+// estimate or actual) specifically so the forward line and the realized
+// line are comparable on one chart, not two different definitions of "P/E."
+
+const _MH_TOLERANCE_DAYS=45;
+function _mhDateDiffDays(a,b){return Math.abs((new Date(a)-new Date(b))/86400000);}
+
+// {dateStr: close} map from a hist2y_-shaped object (timestamps as Date
+// objects or epoch seconds, per _parseHist2yDate's existing handling).
+function _mhPriceMap(h2){
+  const map={};if(!h2?.timestamps?.length)return map;
+  h2.timestamps.forEach((ts,i)=>{
+    const ds=_tkDateStr(ts);if(!ds)return;
+    const c=h2.closes[i];if(c!=null)map[ds]=c;
+  });
+  return map;
+}
+function _mhPriorTradingDayPrice(priceMap,dateStr){
+  let best=null;
+  for(const d of Object.keys(priceMap).sort()){if(d<dateStr)best=d;else break;}
+  return best?priceMap[best]:null;
+}
+// Nearest confirmed/manual earnings date at or after a quarter's end date --
+// reuses the same earnings_hist_ cache (and its overrides) as the rest of
+// the app rather than a second date source.
+function _mhFindReportInfo(ticker,quarterEndDate){
+  const candidates=_getEarningsWithOverrides(ticker).map(_effectiveEarningsDate)
+    .filter(e=>e.date>=quarterEndDate).sort((a,b)=>a.date.localeCompare(b.date));
+  return candidates.length?candidates[0]:null;
+}
+// AMC: report lands after this close, so it's still the last clean price.
+// BMO, or hour unknown (defaults to the more conservative BMO convention):
+// the report lands before this day opens, so the PRIOR close is last clean.
+function _mhPriceAtReport(priceMap,reportInfo){
+  if(!reportInfo?.date)return null;
+  if(reportInfo.hour==='amc')return priceMap[reportInfo.date]??_mhPriorTradingDayPrice(priceMap,reportInfo.date);
+  return _mhPriorTradingDayPrice(priceMap,reportInfo.date);
+}
+// Realized TTM EPS as of a given quarter: sum of the 4 most recent actuals
+// with quarter-end date <= throughDate. Null (not partial) below 4 actuals.
+function _mhTtmEpsFromHistory(earningsHistoryYahoo,throughDate){
+  const actuals=(earningsHistoryYahoo||[])
+    .filter(h=>h.epsActual!=null&&h.date&&(!throughDate||h.date<=throughDate))
+    .sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4);
+  return actuals.length<4?null:actuals.reduce((s,h)=>s+h.epsActual,0);
+}
+// Projected TTM EPS for a not-yet-reported quarter: its own current
+// estimate + the 3 actual quarters immediately preceding it. Null (not
+// partial) below 3 trailing actuals -- same honest-gap principle as above.
+function _mhProjectedTtmEps(earningsHistoryYahoo,quarterEndDate,estimateEps){
+  if(estimateEps==null)return null;
+  const priorActuals=(earningsHistoryYahoo||[])
+    .filter(h=>h.epsActual!=null&&h.date&&h.date<quarterEndDate)
+    .sort((a,b)=>b.date.localeCompare(a.date)).slice(0,3);
+  return priorActuals.length<3?null:estimateEps+priorActuals.reduce((s,h)=>s+h.epsActual,0);
+}
+
+// Called once per fresh fetch (loadTicker, refreshSingleTicker, prefetch.js),
+// after snap, hist2y_, and earnings_hist_ are all current for this ticker.
+// Idempotent: safe to call even when nothing changed, since dense entries
+// are only appended on a genuine value change.
+function _updateMultipleHistory(ticker,snap,hist2yCache){
+  try{
+    const trendArr=snap?.earningsTrend,histArr=snap?.earningsHistoryYahoo;
+    if(!trendArr?.length)return; // no forward estimates to track (e.g. ETFs/funds)
+    const priceMap=_mhPriceMap(hist2yCache);
+    const today=_tkDateStr(Math.floor(Date.now()/1000));
+    const trackKey='fwdpe_track_'+ticker,permKey='multiple_hist_'+ticker;
+    let track=S.get(trackKey)||[];
+    let perm=S.get(permKey)||[];
+
+    // Step 1: consolidate any tracked group whose quarter has now reported.
+    (histArr||[]).forEach(h=>{
+      if(h.epsActual==null||!h.date)return;
+      if(perm.some(r=>r.quarterEndDate===h.date))return; // already consolidated
+      const gi=track.findIndex(g=>_mhDateDiffDays(g.targetQuarterEnd,h.date)<=_MH_TOLERANCE_DAYS);
+      if(gi===-1||!track[gi].entries.length)return; // not a quarter we were tracking
+      const g=track[gi];
+      const reportInfo=_mhFindReportInfo(ticker,h.date);
+      const priceAtReport=_mhPriceAtReport(priceMap,reportInfo);
+      const ttmEps=_mhTtmEpsFromHistory(histArr,h.date);
+      const first=g.entries[0],last=g.entries[g.entries.length-1];
+      perm.push({
+        quarterEndDate:h.date,reportDate:reportInfo?.date||null,reportHour:reportInfo?.hour||null,
+        priceAtReport,ttmEpsAsOfReport:ttmEps,
+        ttmPE:(priceAtReport!=null&&ttmEps>0)?priceAtReport/ttmEps:null,
+        epsActual:h.epsActual,epsEstimateQuarterly:h.epsEstimate,
+        firstSeen:{date:first.date,price:first.price,quarterlyEpsEst:first.quarterlyEpsEst,projTtmEps:first.projTtmEps,forwardPE:first.forwardPE},
+        lastSeen:{date:last.date,price:last.price,quarterlyEpsEst:last.quarterlyEpsEst,projTtmEps:last.projTtmEps,forwardPE:last.forwardPE}
+      });
+      track.splice(gi,1);
+    });
+    perm.sort((a,b)=>a.quarterEndDate.localeCompare(b.quarterEndDate));
+
+    // Step 2: append a dense snapshot for each currently-open quarter.
+    (trendArr.filter(p=>p&&(p.period==='0q'||p.period==='+1q')&&p.endDate)).forEach(p=>{
+      if(p.epsMean==null)return;
+      let g=track.find(x=>_mhDateDiffDays(x.targetQuarterEnd,p.endDate)<=_MH_TOLERANCE_DAYS);
+      if(!g){g={targetQuarterEnd:p.endDate,entries:[]};track.push(g);}
+      const lastEntry=g.entries[g.entries.length-1];
+      if(lastEntry&&lastEntry.quarterlyEpsEst===p.epsMean)return; // no change since last capture
+      const price=priceMap[today]??snap.price??null;
+      const projTtmEps=_mhProjectedTtmEps(histArr,p.endDate,p.epsMean);
+      g.entries.push({date:today,price,quarterlyEpsEst:p.epsMean,projTtmEps,
+        forwardPE:(price!=null&&projTtmEps>0)?price/projTtmEps:null});
+    });
+    track=track.slice(-2); // defensive cap -- only 0q/+1q should ever exist
+
+    S.set(trackKey,track);
+    S.set(permKey,perm);
+  }catch(e){console.warn('Multiple history update failed:',ticker,e?.message);}
+}
+
+// Given ascending {date,eps} steps, returns price[t]/eps(t) for each label
+// in `labels` (most recent step with date<=t) -- null before the first
+// step or where a price isn't known for that date. Used for both the TTM
+// line (steps = permanent quarterly anchors) and the forward line (steps =
+// the nearest tracked quarter's dense revisions), so both share one
+// piecewise-constant-EPS-over-dense-price algorithm.
+function _mhPiecewiseMultiple(steps,labels,priceByLabel){
+  const sorted=(steps||[]).filter(s=>s.eps>0&&s.date).sort((a,b)=>a.date.localeCompare(b.date));
+  if(!sorted.length)return labels.map(()=>null);
+  let si=0;
+  return labels.map(d=>{
+    if(d<sorted[0].date)return null;
+    while(si+1<sorted.length&&sorted[si+1].date<=d)si++;
+    const price=priceByLabel[d];
+    return price!=null?price/sorted[si].eps:null;
+  });
+}
+
+function _buildMultipleHistoryCard(ticker){
+  const perm=S.get('multiple_hist_'+ticker)||[];
+  const track=S.get('fwdpe_track_'+ticker)||[];
+  const hasAny=perm.length||track.some(g=>g.entries.length);
+  const body=hasAny
+    ?'<div class="chart-wrap" style="height:140px"><canvas id="mh-price-chart"></canvas></div>'
+     +'<div class="chart-wrap" style="height:140px;margin-top:4px"><canvas id="mh-mult-chart"></canvas></div>'
+     +'<div class="commentary" style="margin-top:10px">TTM P/E (solid): trailing-12mo multiple, dense since the most recent earnings report, sparse further back until more quarters accumulate. Forward P/E (dashed): projected multiple for the nearest upcoming quarter, on the same trailing-twelve-month basis so the two lines are directly comparable.</div>'
+    :'<div class="commentary" style="margin-top:4px">Building history -- check back after the next earnings report. This chart accumulates from today forward; historical forward estimates can\'t be backfilled.</div>';
+  return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent)"></span>Multiple History (TTM &amp; Forward P/E)</div>'+body+'</div>';
+}
+
+function _renderMultipleHistoryChart(ticker,hist2y){
+  const perm=S.get('multiple_hist_'+ticker)||[];
+  const track=S.get('fwdpe_track_'+ticker)||[];
+  if(!perm.length&&!track.some(g=>g.entries.length))return;
+
+  // Labels: permanent-record dates that fall before hist2y's dense window,
+  // plus every hist2y date (dense). Sparse points beyond the dense window
+  // stay sparse by design -- no daily price exists for them beyond our own
+  // stored anchors.
+  const histLabels=(hist2y?.timestamps||[]).map(d=>_tkDateStr(d)).filter(Boolean);
+  const earliestDense=histLabels[0]||null;
+  const sparseLabels=perm.map(r=>r.reportDate||r.quarterEndDate).filter(d=>d&&(!earliestDense||d<earliestDense));
+  const labels=[...new Set([...sparseLabels,...histLabels])].sort();
+
+  // Price series: dense close where available, else the stored priceAtReport.
+  const denseByLabel={};histLabels.forEach((d,i)=>{denseByLabel[d]=hist2y.closes[i];});
+  const sparsePriceByLabel={};perm.forEach(r=>{const d=r.reportDate||r.quarterEndDate;if(d)sparsePriceByLabel[d]=r.priceAtReport;});
+  const priceSeries=labels.map(d=>denseByLabel[d]??sparsePriceByLabel[d]??null);
+  const priceByLabel={};labels.forEach((d,i)=>{priceByLabel[d]=priceSeries[i];});
+
+  // TTM line: piecewise-constant using each permanent record's realized EPS.
+  const ttmSteps=perm.filter(r=>r.ttmEpsAsOfReport>0).map(r=>({date:r.reportDate||r.quarterEndDate,eps:r.ttmEpsAsOfReport}));
+  const ttmSeries=_mhPiecewiseMultiple(ttmSteps,labels,priceByLabel);
+  // Anchor dots get a visible point; the dense fill in between doesn't.
+  const ttmAnchorDates=new Set(perm.map(r=>r.reportDate||r.quarterEndDate));
+  const ttmPointRadius=labels.map(d=>ttmAnchorDates.has(d)?4:0);
+
+  // Forward line: nearest tracked quarter only (soonest targetQuarterEnd) --
+  // the further-out quarter's dense data is still stored for future use,
+  // just not plotted alongside this one in this pass.
+  const nearestGroup=track.slice().sort((a,b)=>a.targetQuarterEnd.localeCompare(b.targetQuarterEnd))[0];
+  const fwdSteps=(nearestGroup?.entries||[]).filter(e=>e.projTtmEps>0).map(e=>({date:e.date,eps:e.projTtmEps}));
+  const fwdSeries=fwdSteps.length?_mhPiecewiseMultiple(fwdSteps,labels,priceByLabel):labels.map(()=>null);
+
+  const priceCtx=document.getElementById('mh-price-chart')?.getContext('2d');
+  const multCtx=document.getElementById('mh-mult-chart')?.getContext('2d');
+  if(!priceCtx||!multCtx)return;
+  if(window._mhPriceChart)window._mhPriceChart.destroy();
+  if(window._mhMultChart)window._mhMultChart.destroy();
+
+  const dispLabels=labels.map(d=>{const dt=new Date(d);return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'});});
+
+  window._mhPriceChart=new Chart(priceCtx,{
+    type:'line',
+    data:{labels:dispLabels,datasets:[{label:'Price',data:priceSeries,borderColor:'rgba(79,195,247,0.9)',borderWidth:1.5,pointRadius:0,spanGaps:false,tension:0.1}]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.parsed.y?.toFixed(2)}}},
+      scales:{x:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:6},grid:{display:false}},
+        y:{ticks:{color:'#555870',font:{size:8},callback:v=>'$'+v},grid:{color:'#2a2e38'}}}}
+  });
+  window._mhMultChart=new Chart(multCtx,{
+    type:'line',
+    data:{labels:dispLabels,datasets:[
+      {label:'TTM P/E',data:ttmSeries,borderColor:'rgba(0,212,170,0.9)',borderWidth:1.5,pointRadius:ttmPointRadius,pointBackgroundColor:'rgba(0,212,170,1)',spanGaps:false,tension:0},
+      {label:'Forward P/E',data:fwdSeries,borderColor:'rgba(255,165,2,0.8)',borderWidth:1.5,borderDash:[4,3],pointRadius:0,spanGaps:false,tension:0}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:true,labels:{color:'#8b8fa8',font:{size:9},boxWidth:10}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.parsed.y?.toFixed(1)+'x'}}},
+      scales:{x:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:6},grid:{display:false}},
+        y:{ticks:{color:'#555870',font:{size:8},callback:v=>v+'x'},grid:{color:'#2a2e38'}}}}
+  });
 }
 
 function buildUpgradeTable(upgrades){
@@ -861,12 +1089,14 @@ HVR (Historical Volatility Rank): where current 30-day realized volatility sits 
   ${upgradesData&&upgradesData.length?buildUpgradeTable(upgradesData):''}
   ${snap.ptMean?buildPriceTargetCard(snap):''}
   ${snap.earningsTrend&&snap.earningsTrend.length?buildEarningsTrendCard(snap.earningsTrend):''}
+  ${snap.earningsTrend&&snap.earningsTrend.length?_buildMultipleHistoryCard(snap.ticker):''}
   ${snap.recTrend&&snap.recTrend.length?buildRecTrendCard(snap.recTrend):''}`;
   if(bbData)renderBBChart(bbData,hist);
   renderVolChart(hist,hist1y,hist2y,currentBBSpan||'6m',avgVol20);
   renderHVRChart(snap.ticker,currentBBSpan||'6m',hist2y);
   if(hist1y)renderVPChart(hist1y,snap.price,_w52h,_w52l);
   if(hist2y&&hist2ySP)_initRelPerfChart(snap.ticker,hist2y,hist2ySP,earningsHistory,currentRPSpan||'2y');
+  if(snap.earningsTrend&&snap.earningsTrend.length&&hist2y)_renderMultipleHistoryChart(snap.ticker,hist2y);
 }
 
 function renderBBChart(bbData,hist){
@@ -2253,6 +2483,9 @@ async function refreshSingleTicker(){
     // prefetch.js does it independently) guarantees it always runs on an
     // individual ticker refresh, not just during Prefetch All.
     _buildEarningsHistory(t);
+    // Multiple History (TTM & forward P/E) -- same ordering requirement as
+    // loadTicker: must run after both hist2y_ and earnings_hist_ are current.
+    _updateMultipleHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
     // Step 4: News
     setP(50,'Fetching '+t+' news...');
     try{const newsData=await fetchNews(t);S.set('news_'+t,{items:(newsData||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}

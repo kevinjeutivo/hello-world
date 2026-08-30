@@ -511,16 +511,18 @@ function _updateMultipleHistory(ticker,snap,hist2yCache){
 // line (steps = permanent quarterly anchors) and the forward line (steps =
 // the nearest tracked quarter's dense revisions), so both share one
 // piecewise-constant-EPS-over-dense-price algorithm.
-function _mhPiecewiseMultiple(steps,labels,priceByLabel){
+function _mhPiecewiseMultiple(steps,labels,priceByLabel,withSource){
   const sorted=(steps||[]).filter(s=>s.eps>0&&s.date).sort((a,b)=>a.date.localeCompare(b.date));
-  if(!sorted.length)return labels.map(()=>null);
-  let si=0;
-  return labels.map(d=>{
-    if(d<sorted[0].date)return null;
+  if(!sorted.length)return withSource?{values:labels.map(()=>null),sources:labels.map(()=>null)}:labels.map(()=>null);
+  let si=0;const values=[],sources=[];
+  labels.forEach(d=>{
+    if(d<sorted[0].date){values.push(null);sources.push(null);return;}
     while(si+1<sorted.length&&sorted[si+1].date<=d)si++;
     const price=priceByLabel[d];
-    return price!=null?price/sorted[si].eps:null;
+    values.push(price!=null?price/sorted[si].eps:null);
+    sources.push(sorted[si].source||null);
   });
+  return withSource?{values,sources}:values;
 }
 
 function _buildMultipleHistoryCard(ticker){
@@ -530,7 +532,7 @@ function _buildMultipleHistoryCard(ticker){
   const body=hasAny
     ?'<div class="chart-wrap" style="height:140px"><canvas id="mh-price-chart"></canvas></div>'
      +'<div class="chart-wrap" style="height:140px;margin-top:4px"><canvas id="mh-mult-chart"></canvas></div>'
-     +'<div class="commentary" style="margin-top:10px">TTM P/E (solid): trailing-12mo multiple, dense since the most recent earnings report, sparse further back until more quarters accumulate. Fwd P/E TTM-basis (dashed): projected multiple for the nearest upcoming quarter, on the same trailing-twelve-month basis as TTM P/E so the two lines are directly comparable to <em>each other</em>. Deliberately NOT the same figure as the "P/E (Forward)" tile above -- that one uses Yahoo\'s standard next-twelve-months estimate (a different, annual basis), so the two numbers will often differ, sometimes by a lot for a fast-growing stock.</div>'
+     +'<div class="commentary" style="margin-top:10px">One continuous multiple line: realized TTM P/E from past earnings reports, switching seamlessly to the current quarter\'s forward-estimate basis (still trailing-twelve-month, so no visual seam) as it develops. Solid = known or currently tracked. Dashed, past the "now" line = a projection assuming today\'s multiple holds flat through the next expected report -- not a forecast, just a what-if baseline. Deliberately NOT the same figure as the "P/E (Forward)" tile above, which uses Yahoo\'s own next-fiscal-year estimate (a different, purely forward basis) -- the two numbers will often differ, sometimes by a lot for a fast-growing stock. Tap a point for whether it\'s realized, estimated, or projected.</div>'
      +'<div id="mh-debug" style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text3);white-space:pre-wrap"></div>'
     :'<div class="commentary" style="margin-top:4px">Building history -- check back after the next earnings report. This chart accumulates from today forward; historical forward estimates can\'t be backfilled.</div>'
      +(()=>{
@@ -556,35 +558,76 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   const perm=S.get('multiple_hist_'+ticker)||[];
   const track=S.get('fwdpe_track_'+ticker)||[];
   if(!perm.length&&!track.some(g=>g.entries.length))return;
+  const snap=S.get('snap_'+ticker);
 
   // Labels: permanent-record dates that fall before hist2y's dense window,
-  // plus every hist2y date (dense). Sparse points beyond the dense window
-  // stay sparse by design -- no daily price exists for them beyond our own
-  // stored anchors.
+  // plus every hist2y date (dense), plus ONE appended future label (the
+  // projection boundary) -- see below. Sparse points beyond the dense
+  // window stay sparse by design -- no daily price exists for them beyond
+  // our own stored anchors.
   const histLabels=(hist2y?.timestamps||[]).map(d=>_tkDateStr(d)).filter(Boolean);
   const earliestDense=histLabels[0]||null;
   const sparseLabels=perm.map(r=>r.reportDate||r.quarterEndDate).filter(d=>d&&(!earliestDense||d<earliestDense));
-  const labels=[...new Set([...sparseLabels,...histLabels])].sort();
+  const nowLabel=histLabels[histLabels.length-1]||null; // most recent real trading day, not literal calendar-today
 
-  // Price series: dense close where available, else the stored priceAtReport.
+  // Nearest tracked quarter (soonest targetQuarterEnd) -- the further-out
+  // quarter's dense data is still stored for future use, just not plotted
+  // alongside this one in this pass.
+  const nearestGroup=track.slice().sort((a,b)=>a.targetQuarterEnd.localeCompare(b.targetQuarterEnd))[0];
+
+  // Future projection boundary: the next expected announcement date if
+  // known (Finnhub-sourced, an actual announcement-date estimate), falling
+  // back to the tracked quarter's fiscal period-end if that's missing.
+  // Skipped entirely (no future zone drawn) if neither is available.
+  const boundaryDate=snap?.earningsDate||nearestGroup?.targetQuarterEnd||null;
+  const futureLabel=(boundaryDate&&nowLabel&&boundaryDate>nowLabel)?boundaryDate:null;
+
+  const labels=[...new Set([...sparseLabels,...histLabels,...(futureLabel?[futureLabel]:[])])].sort();
+  const nowIdx=nowLabel?labels.indexOf(nowLabel):-1;
+  const futureIdx=futureLabel?labels.indexOf(futureLabel):-1;
+
+  // Price series: dense close where available, else the stored
+  // priceAtReport. The future point (if any) is set explicitly below,
+  // held flat at "now"'s price -- holding the multiple and the EPS basis
+  // both constant makes price constant too, by construction, so no
+  // separate projection math is needed here.
   const denseByLabel={};histLabels.forEach((d,i)=>{denseByLabel[d]=hist2y.closes[i];});
   const sparsePriceByLabel={};perm.forEach(r=>{const d=r.reportDate||r.quarterEndDate;if(d)sparsePriceByLabel[d]=r.priceAtReport;});
   const priceSeries=labels.map(d=>denseByLabel[d]??sparsePriceByLabel[d]??null);
+  if(futureIdx>=0&&nowIdx>=0)priceSeries[futureIdx]=priceSeries[nowIdx];
   const priceByLabel={};labels.forEach((d,i)=>{priceByLabel[d]=priceSeries[i];});
 
-  // TTM line: piecewise-constant using each permanent record's realized EPS.
-  const ttmSteps=perm.filter(r=>r.ttmEpsAsOfReport>0).map(r=>({date:r.reportDate||r.quarterEndDate,eps:r.ttmEpsAsOfReport}));
-  const ttmSeries=_mhPiecewiseMultiple(ttmSteps,labels,priceByLabel);
-  // Anchor dots get a visible point; the dense fill in between doesn't.
-  const ttmAnchorDates=new Set(perm.map(r=>r.reportDate||r.quarterEndDate));
-  const ttmPointRadius=labels.map(d=>ttmAnchorDates.has(d)?4:0);
+  // ONE continuous multiple line -- realized TTM steps (from permanent
+  // records) and the current quarter's forward-estimate steps (from dense
+  // tracking) merged into a single sorted step list, so the line switches
+  // basis at each earnings date without a visual seam. `source` on each
+  // step (tagged below) flows through to the tooltip so a point can still
+  // say whether it's realized or estimated, without needing two datasets.
+  const ttmSteps=perm.filter(r=>r.ttmEpsAsOfReport>0).map(r=>({date:r.reportDate||r.quarterEndDate,eps:r.ttmEpsAsOfReport,source:'realized'}));
+  const fwdSteps=(nearestGroup?.entries||[]).filter(e=>e.projTtmEps>0).map(e=>({date:e.date,eps:e.projTtmEps,source:'estimate'}));
+  const combinedSteps=[...ttmSteps,...fwdSteps];
+  const {values:multSeries,sources:multSources}=_mhPiecewiseMultiple(combinedSteps,labels,priceByLabel,true);
+  if(futureIdx>=0&&nowIdx>=0){multSeries[futureIdx]=multSeries[nowIdx];multSources[futureIdx]='projected';}
 
-  // Forward line: nearest tracked quarter only (soonest targetQuarterEnd) --
-  // the further-out quarter's dense data is still stored for future use,
-  // just not plotted alongside this one in this pass.
-  const nearestGroup=track.slice().sort((a,b)=>a.targetQuarterEnd.localeCompare(b.targetQuarterEnd))[0];
-  const fwdSteps=(nearestGroup?.entries||[]).filter(e=>e.projTtmEps>0).map(e=>({date:e.date,eps:e.projTtmEps}));
-  const fwdSeries=fwdSteps.length?_mhPiecewiseMultiple(fwdSteps,labels,priceByLabel):labels.map(()=>null);
+  // Anchor dots at realized report dates get a bigger, solid-colored
+  // point; the future (projected) point gets its own smaller, distinct
+  // marker so it reads as "manufactured," not real data. Everything else
+  // (the dense fill in between) stays undotted.
+  const ttmAnchorDates=new Set(perm.map(r=>r.reportDate||r.quarterEndDate));
+  const multPointRadius=labels.map((d,i)=>ttmAnchorDates.has(d)?4:(i===futureIdx?3:0));
+  const multPointColor=labels.map((d,i)=>ttmAnchorDates.has(d)?'rgba(0,212,170,1)':(i===futureIdx?'rgba(139,143,168,0.9)':'rgba(0,212,170,1)'));
+
+  // A point with no non-null neighbor on either side gets a small visible
+  // dot -- otherwise Chart.js draws nothing for it at all (no line segment
+  // to connect, and pointRadius:0 hides the dot too). This is the normal
+  // state right after this feature starts tracking a ticker, before a
+  // second nearby point exists to form a line.
+  multSeries.forEach((v,i)=>{
+    if(v==null||multPointRadius[i]>0)return;
+    const prevNull=i===0||multSeries[i-1]==null;
+    const nextNull=i===multSeries.length-1||multSeries[i+1]==null;
+    if(prevNull&&nextNull)multPointRadius[i]=3;
+  });
 
   // Self-diagnostic: always dump raw stored state, not just when the
   // forward line looks broken. Screenshotting this is the fastest way to
@@ -593,14 +636,14 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   // reliable enough to keep debugging blind.
   const debugEl=document.getElementById('mh-debug');
   if(debugEl){
-    const snapForDebug=S.get('snap_'+ticker);
-    const histForDebug=snapForDebug?.earningsHistoryYahoo||[];
-    const trendForDebug=snapForDebug?.earningsTrend||[];
+    const histForDebug=snap?.earningsHistoryYahoo||[];
+    const trendForDebug=snap?.earningsTrend||[];
     const tqe=nearestGroup?.targetQuarterEnd;
     const priorCount=tqe?histForDebug.filter(h=>h.epsActual!=null&&h.date&&h.date<tqe).length:null;
     debugEl.textContent='RAW STATE (for debugging):\n'
-      +'snap.tsEpoch: '+(snapForDebug?.tsEpoch?new Date(snapForDebug.tsEpoch).toISOString():'null')+'\n'
-      +'snap.peForward (Yahoo\'s own, top-of-page figure): '+snapForDebug?.peForward+'\n'
+      +'snap.tsEpoch: '+(snap?.tsEpoch?new Date(snap.tsEpoch).toISOString():'null')+'\n'
+      +'snap.peForward (Yahoo\'s own, top-of-page figure): '+snap?.peForward+'\n'
+      +'snap.earningsDate (used as the future boundary, if present): '+snap?.earningsDate+'\n'
       +'earningsTrend (all 4 periods):\n'
       +trendForDebug.filter(p=>p).map(p=>'  '+p.period+': endDate='+JSON.stringify(p.endDate)+' epsMean='+p.epsMean+' growth='+p.growth+' revenueAvg='+p.revenueAvg).join('\n')+'\n'
       +'earningsHistoryYahoo ('+histForDebug.length+' entries):\n'
@@ -610,20 +653,9 @@ function _renderMultipleHistoryChart(ticker,hist2y){
       +'multiple_hist_'+ticker+' ('+perm.length+' records):\n'
       +perm.map(r=>'  '+JSON.stringify(r)).join('\n')+'\n'
       +'nearestGroup targetQuarterEnd: '+JSON.stringify(tqe)+'\n'
-      +'fwdSteps computed: '+JSON.stringify(fwdSteps)+'\n'
+      +'boundaryDate used: '+JSON.stringify(boundaryDate)+'\n'
       +(tqe?'prior actuals for nearestGroup (need 3): '+priorCount:'');
   }
-  // A point with no non-null neighbor on either side gets a small visible
-  // dot -- otherwise Chart.js draws nothing for it at all (no line segment
-  // to connect, and pointRadius:0 hides the dot too). This is the normal
-  // state right after this feature starts tracking a ticker, before a
-  // second nearby point exists to form a line.
-  const fwdPointRadius=fwdSeries.map((v,i)=>{
-    if(v==null)return 0;
-    const prevNull=i===0||fwdSeries[i-1]==null;
-    const nextNull=i===fwdSeries.length-1||fwdSeries[i+1]==null;
-    return(prevNull&&nextNull)?3:0;
-  });
 
   const priceCtx=document.getElementById('mh-price-chart')?.getContext('2d');
   const multCtx=document.getElementById('mh-mult-chart')?.getContext('2d');
@@ -634,41 +666,47 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   const dispLabels=labels.map(d=>{const dt=new Date(d);return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'});});
 
   // "Now" marker -- a gentle vertical reference line shared by both panels
-  // so it's obvious, at a glance, where realized/tracked history ends and
-  // today sits. Falls back to the last available label (e.g. a weekend,
-  // when there's no exact "today" trading day) rather than not drawing at
-  // all. Same afterDraw technique already used for the earnings-date and
-  // RSI threshold lines elsewhere on this page -- see renderRelPerfChart.
-  const todayStr=_tkDateStr(Date.now());
-  const todayIdx=labels.indexOf(todayStr)>=0?labels.indexOf(todayStr):labels.length-1;
+  // so it's obvious, at a glance, where real data ends and the flat
+  // projection begins. Same afterDraw technique already used for the
+  // earnings-date and RSI threshold lines elsewhere on this page -- see
+  // renderRelPerfChart.
   const _mhNowLinePlugin={
     id:'mhNowLine',
     afterDraw(chart){
-      if(todayIdx<0)return;
+      if(nowIdx<0)return;
       const c=chart.ctx,xs=chart.scales.x,ys=chart.scales.y;
-      const xPx=xs.getPixelForValue(todayIdx);
+      const xPx=xs.getPixelForValue(nowIdx);
       c.save();
       c.setLineDash([3,3]);c.lineWidth=1;c.strokeStyle='rgba(139,143,168,0.35)';
       c.beginPath();c.moveTo(xPx,ys.top);c.lineTo(xPx,ys.bottom);c.stroke();
       c.setLineDash([]);
       c.font='8px DM Mono,monospace';c.fillStyle='rgba(139,143,168,0.6)';
-      // "now" almost always sits at the rightmost label while this
-      // feature is still building history (the live tracked point has
-      // nowhere else to go yet) -- drawing the label to the right of the
-      // line in that position pushes text past the canvas edge, where it
-      // gets clipped. Flip to right-aligned, drawn to the LEFT of the
-      // line, whenever there isn't enough room to the right.
+      // With a future point now almost always present past "now", there's
+      // usually room to the right -- but keep the edge-overflow guard for
+      // the case where boundaryDate is missing and "now" is still the
+      // rightmost label.
       if(xs.right-xPx<24){c.textAlign='right';c.fillText('now',xPx-4,ys.top+9);}
       else{c.textAlign='left';c.fillText('now',xPx+3,ys.top+9);}
       c.restore();
     }
   };
 
+  // Segment dashing: only the final segment (now -> future point) is
+  // dashed, marking it as a projection rather than real data. Same
+  // segment-callback technique already used in renderHVRChart.
+  const _dashPastNow=ctx=>(nowIdx>=0&&ctx.p0DataIndex>=nowIdx)?[4,3]:undefined;
+
+  const priceSourceLabel=i=>i===futureIdx?' (projected, flat multiple)':'';
+  const multSourceLabel=i=>{
+    const s=multSources[i];
+    return s==='realized'?' (realized)':s==='estimate'?' (estimate)':s==='projected'?' (projected)':'';
+  };
+
   window._mhPriceChart=new Chart(priceCtx,{
     type:'line',
-    data:{labels:dispLabels,datasets:[{label:'Price',data:priceSeries,borderColor:'rgba(79,195,247,0.9)',borderWidth:1.5,pointRadius:0,spanGaps:false,tension:0.1}]},
+    data:{labels:dispLabels,datasets:[{label:'Price',data:priceSeries,borderColor:'rgba(79,195,247,0.9)',borderWidth:1.5,pointRadius:labels.map((d,i)=>i===futureIdx?3:0),pointBackgroundColor:'rgba(79,195,247,0.9)',spanGaps:false,tension:0.1,segment:{borderDash:_dashPastNow}}]},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.parsed.y?.toFixed(2)}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.parsed.y?.toFixed(2)+priceSourceLabel(c.dataIndex)}}},
       scales:{x:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:6},grid:{display:false}},
         y:{ticks:{color:'#555870',font:{size:8},callback:v=>'$'+v},grid:{color:'#2a2e38'}}}},
     plugins:[_mhNowLinePlugin]
@@ -676,11 +714,10 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   window._mhMultChart=new Chart(multCtx,{
     type:'line',
     data:{labels:dispLabels,datasets:[
-      {label:'TTM P/E',data:ttmSeries,borderColor:'rgba(0,212,170,0.9)',borderWidth:1.5,pointRadius:ttmPointRadius,pointBackgroundColor:'rgba(0,212,170,1)',spanGaps:false,tension:0},
-      {label:'Fwd P/E (TTM-basis)',data:fwdSeries,borderColor:'rgba(255,165,2,0.8)',borderWidth:1.5,borderDash:[4,3],pointRadius:fwdPointRadius,pointBackgroundColor:'rgba(255,165,2,1)',spanGaps:false,tension:0}
+      {label:'P/E',data:multSeries,borderColor:'rgba(0,212,170,0.9)',borderWidth:1.5,pointRadius:multPointRadius,pointBackgroundColor:multPointColor,spanGaps:false,tension:0,segment:{borderDash:_dashPastNow}}
     ]},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-      plugins:{legend:{display:true,labels:{color:'#8b8fa8',font:{size:9},boxWidth:10}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.parsed.y?.toFixed(1)+'x'}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'P/E: '+c.parsed.y?.toFixed(1)+'x'+multSourceLabel(c.dataIndex)}}},
       scales:{x:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:6},grid:{display:false}},
         y:{ticks:{color:'#555870',font:{size:8},callback:v=>v+'x'},grid:{color:'#2a2e38'}}}},
     plugins:[_mhNowLinePlugin]
@@ -2698,3 +2735,4 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
+                            

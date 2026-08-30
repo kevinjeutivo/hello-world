@@ -582,19 +582,37 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   const boundaryDate=snap?.earningsDate||nearestGroup?.targetQuarterEnd||null;
   const futureLabel=(boundaryDate&&nowLabel&&boundaryDate>nowLabel)?boundaryDate:null;
 
-  const labels=[...new Set([...sparseLabels,...histLabels,...(futureLabel?[futureLabel]:[])])].sort();
+  // The chart uses a category (equally-spaced) x-axis, same as every other
+  // chart in this app -- fine for dense daily data, but a SINGLE label
+  // placed 2+ months past "now" would get exactly one tick of width, the
+  // same as one trading day, visually erasing the gap and making "now"
+  // and the projected point look like they're at the same spot even
+  // though their indices are genuinely different. Filling in one label
+  // per calendar day between "now" and the boundary date gives the
+  // projected segment width proportionate to how far out it actually is.
+  let futureLabels=[];
+  if(futureLabel&&nowLabel){
+    const start=new Date(nowLabel+'T12:00:00Z'),end=new Date(futureLabel+'T12:00:00Z');
+    const totalDays=Math.round((end-start)/86400000);
+    for(let d=1;d<=totalDays;d++)futureLabels.push(_tkDateStr(new Date(start.getTime()+d*86400000)));
+  }
+
+  const labels=[...new Set([...sparseLabels,...histLabels,...futureLabels])].sort();
   const nowIdx=nowLabel?labels.indexOf(nowLabel):-1;
-  const futureIdx=futureLabel?labels.indexOf(futureLabel):-1;
+  const futureIdx=futureLabel?labels.indexOf(futureLabel):-1; // last of futureLabels == boundaryDate itself
 
   // Price series: dense close where available, else the stored
-  // priceAtReport. The future point (if any) is set explicitly below,
-  // held flat at "now"'s price -- holding the multiple and the EPS basis
-  // both constant makes price constant too, by construction, so no
-  // separate projection math is needed here.
+  // priceAtReport. Every label past "now" (all the spacer days plus the
+  // boundary date) is held flat at "now"'s price -- holding the multiple
+  // and the EPS basis both constant makes price constant too, by
+  // construction, so no separate projection math is needed here.
   const denseByLabel={};histLabels.forEach((d,i)=>{denseByLabel[d]=hist2y.closes[i];});
   const sparsePriceByLabel={};perm.forEach(r=>{const d=r.reportDate||r.quarterEndDate;if(d)sparsePriceByLabel[d]=r.priceAtReport;});
   const priceSeries=labels.map(d=>denseByLabel[d]??sparsePriceByLabel[d]??null);
-  if(futureIdx>=0&&nowIdx>=0)priceSeries[futureIdx]=priceSeries[nowIdx];
+  if(nowIdx>=0){
+    const flatPrice=priceSeries[nowIdx];
+    for(let i=nowIdx+1;i<labels.length;i++)priceSeries[i]=flatPrice;
+  }
   const priceByLabel={};labels.forEach((d,i)=>{priceByLabel[d]=priceSeries[i];});
 
   // ONE continuous multiple line -- realized TTM steps (from permanent
@@ -607,12 +625,21 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   const fwdSteps=(nearestGroup?.entries||[]).filter(e=>e.projTtmEps>0).map(e=>({date:e.date,eps:e.projTtmEps,source:'estimate'}));
   const combinedSteps=[...ttmSteps,...fwdSteps];
   const {values:multSeries,sources:multSources}=_mhPiecewiseMultiple(combinedSteps,labels,priceByLabel,true);
-  if(futureIdx>=0&&nowIdx>=0){multSeries[futureIdx]=multSeries[nowIdx];multSources[futureIdx]='projected';}
+  // The piecewise fill already produces a flat multiple across this whole
+  // stretch on its own (constant price / the same last-known eps), but the
+  // tag override still matters -- otherwise every spacer day would read as
+  // "estimate" in the tooltip, indistinguishable from the real current
+  // estimate at "now" itself.
+  if(nowIdx>=0){
+    const flatMult=multSeries[nowIdx];
+    for(let i=nowIdx+1;i<labels.length;i++){multSeries[i]=flatMult;multSources[i]='projected';}
+  }
 
   // Anchor dots at realized report dates get a bigger, solid-colored
   // point; the future (projected) point gets its own smaller, distinct
-  // marker so it reads as "manufactured," not real data. Everything else
-  // (the dense fill in between) stays undotted.
+  // marker so it reads as "manufactured," not real data. Every spacer day
+  // in between stays undotted -- only the true boundary date (futureIdx)
+  // gets a visible marker, not all the days leading up to it.
   const ttmAnchorDates=new Set(perm.map(r=>r.reportDate||r.quarterEndDate));
   const multPointRadius=labels.map((d,i)=>ttmAnchorDates.has(d)?4:(i===futureIdx?3:0));
   const multPointColor=labels.map((d,i)=>ttmAnchorDates.has(d)?'rgba(0,212,170,1)':(i===futureIdx?'rgba(139,143,168,0.9)':'rgba(0,212,170,1)'));
@@ -2735,4 +2762,4 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
-                            
+    

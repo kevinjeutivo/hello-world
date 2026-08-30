@@ -530,7 +530,7 @@ function _buildMultipleHistoryCard(ticker){
   const body=hasAny
     ?'<div class="chart-wrap" style="height:140px"><canvas id="mh-price-chart"></canvas></div>'
      +'<div class="chart-wrap" style="height:140px;margin-top:4px"><canvas id="mh-mult-chart"></canvas></div>'
-     +'<div class="commentary" style="margin-top:10px">TTM P/E (solid): trailing-12mo multiple, dense since the most recent earnings report, sparse further back until more quarters accumulate. Forward P/E (dashed): projected multiple for the nearest upcoming quarter, on the same trailing-twelve-month basis so the two lines are directly comparable.</div>'
+     +'<div class="commentary" style="margin-top:10px">TTM P/E (solid): trailing-12mo multiple, dense since the most recent earnings report, sparse further back until more quarters accumulate. Fwd P/E TTM-basis (dashed): projected multiple for the nearest upcoming quarter, on the same trailing-twelve-month basis as TTM P/E so the two lines are directly comparable to <em>each other</em>. Deliberately NOT the same figure as the "P/E (Forward)" tile above -- that one uses Yahoo\'s standard next-twelve-months estimate (a different, annual basis), so the two numbers will often differ, sometimes by a lot for a fast-growing stock.</div>'
      +'<div id="mh-debug" style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text3);white-space:pre-wrap"></div>'
     :'<div class="commentary" style="margin-top:4px">Building history -- check back after the next earnings report. This chart accumulates from today forward; historical forward estimates can\'t be backfilled.</div>'
      +(()=>{
@@ -650,7 +650,14 @@ function _renderMultipleHistoryChart(ticker,hist2y){
       c.beginPath();c.moveTo(xPx,ys.top);c.lineTo(xPx,ys.bottom);c.stroke();
       c.setLineDash([]);
       c.font='8px DM Mono,monospace';c.fillStyle='rgba(139,143,168,0.6)';
-      c.fillText('now',xPx+3,ys.top+9);
+      // "now" almost always sits at the rightmost label while this
+      // feature is still building history (the live tracked point has
+      // nowhere else to go yet) -- drawing the label to the right of the
+      // line in that position pushes text past the canvas edge, where it
+      // gets clipped. Flip to right-aligned, drawn to the LEFT of the
+      // line, whenever there isn't enough room to the right.
+      if(xs.right-xPx<24){c.textAlign='right';c.fillText('now',xPx-4,ys.top+9);}
+      else{c.textAlign='left';c.fillText('now',xPx+3,ys.top+9);}
       c.restore();
     }
   };
@@ -668,7 +675,7 @@ function _renderMultipleHistoryChart(ticker,hist2y){
     type:'line',
     data:{labels:dispLabels,datasets:[
       {label:'TTM P/E',data:ttmSeries,borderColor:'rgba(0,212,170,0.9)',borderWidth:1.5,pointRadius:ttmPointRadius,pointBackgroundColor:'rgba(0,212,170,1)',spanGaps:false,tension:0},
-      {label:'Forward P/E',data:fwdSeries,borderColor:'rgba(255,165,2,0.8)',borderWidth:1.5,borderDash:[4,3],pointRadius:fwdPointRadius,pointBackgroundColor:'rgba(255,165,2,1)',spanGaps:false,tension:0}
+      {label:'Fwd P/E (TTM-basis)',data:fwdSeries,borderColor:'rgba(255,165,2,0.8)',borderWidth:1.5,borderDash:[4,3],pointRadius:fwdPointRadius,pointBackgroundColor:'rgba(255,165,2,1)',spanGaps:false,tension:0}
     ]},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
       plugins:{legend:{display:true,labels:{color:'#8b8fa8',font:{size:9},boxWidth:10}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.parsed.y?.toFixed(1)+'x'}}},

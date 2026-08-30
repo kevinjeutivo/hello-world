@@ -402,18 +402,34 @@ function _mhFindReportInfo(ticker,quarterEndDate){
 // AMC: report lands after this close, so it's still the last clean price.
 // BMO, or hour unknown (defaults to the more conservative BMO convention):
 // the report lands before this day opens, so the PRIOR close is last clean.
-function _mhPriceAtReport(priceMap,reportInfo){
-  if(!reportInfo?.date)return null;
-  if(reportInfo.hour==='amc')return priceMap[reportInfo.date]??_mhPriorTradingDayPrice(priceMap,reportInfo.date);
-  return _mhPriorTradingDayPrice(priceMap,reportInfo.date);
+// withCandidates=true also returns BOTH raw candidates the choice was made
+// between (not just the winner) -- cheap to keep permanently, and it means
+// a future BMO/AMC convention bug can be re-derived from what's already
+// stored, without needing hist2y_ to still cover that date years later.
+function _mhPriceAtReport(priceMap,reportInfo,withCandidates){
+  if(!reportInfo?.date)return withCandidates?{price:null,sameDayClose:null,priorDayClose:null}:null;
+  const sameDayClose=priceMap[reportInfo.date]??null;
+  const priorDayClose=_mhPriorTradingDayPrice(priceMap,reportInfo.date);
+  const price=reportInfo.hour==='amc'?(sameDayClose??priorDayClose):priorDayClose;
+  return withCandidates?{price,sameDayClose,priorDayClose}:price;
 }
 // Realized TTM EPS as of a given quarter: sum of the 4 most recent actuals
 // with quarter-end date <= throughDate. Null (not partial) below 4 actuals.
-function _mhTtmEpsFromHistory(earningsHistoryYahoo,throughDate){
+// withComponents=true also returns the 4 individual {date,epsActual,
+// epsEstimate} quarters behind the sum -- Yahoo's earningsHistoryYahoo is
+// only ever a rolling ~4-quarter window, never an archive, so once a
+// quarter ages out of it there's no way to recover the ingredients behind
+// an old total unless we kept them ourselves at the time.
+function _mhTtmEpsFromHistory(earningsHistoryYahoo,throughDate,withComponents){
   const actuals=(earningsHistoryYahoo||[])
     .filter(h=>h.epsActual!=null&&h.date&&(!throughDate||h.date<=throughDate))
     .sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4);
-  return actuals.length<4?null:actuals.reduce((s,h)=>s+h.epsActual,0);
+  if(actuals.length<4)return withComponents?{eps:null,components:null}:null;
+  const eps=actuals.reduce((s,h)=>s+h.epsActual,0);
+  if(!withComponents)return eps;
+  const components=actuals.slice().sort((a,b)=>a.date.localeCompare(b.date))
+    .map(h=>({date:h.date,epsActual:h.epsActual,epsEstimate:h.epsEstimate??null}));
+  return{eps,components};
 }
 // Projected TTM EPS for a not-yet-reported quarter: its own current
 // estimate + the 3 actual quarters immediately preceding it. Null (not
@@ -424,6 +440,17 @@ function _mhProjectedTtmEps(earningsHistoryYahoo,quarterEndDate,estimateEps){
     .filter(h=>h.epsActual!=null&&h.date&&h.date<quarterEndDate)
     .sort((a,b)=>b.date.localeCompare(a.date)).slice(0,3);
   return priorActuals.length<3?null:estimateEps+priorActuals.reduce((s,h)=>s+h.epsActual,0);
+}
+// Yahoo's own annual estimates (0y/+1y) plus its native forward P/E,
+// snapshotted alongside our own TTM-basis figures -- not used by any
+// current chart computation, but cheap to keep, and it's exactly the kind
+// of thing worth having on hand if a "why don't these two numbers match"
+// question like the one worked through this session ever comes up again
+// for a past quarter instead of today's.
+function _mhYahooAnnualSnapshot(trendArr,peForward){
+  const p0y=(trendArr||[]).find(p=>p?.period==='0y');
+  const p1y=(trendArr||[]).find(p=>p?.period==='+1y');
+  return{epsMean0y:p0y?.epsMean??null,epsMean1y:p1y?.epsMean??null,peForward:peForward??null};
 }
 
 // Called once per fresh fetch (loadTicker, refreshSingleTicker, prefetch.js),
@@ -449,6 +476,36 @@ function _updateMultipleHistory(ticker,snap,hist2yCache){
     let track=S.get(trackKey)||[];
     let perm=S.get(permKey)||[];
 
+    // Step 0: reconcile any already-consolidated record whose report date
+    // was corrected -- or un-corrected -- via a manual override AFTER the
+    // fact. A deliberate, narrow exception to "permanent records are
+    // immutable" -- immutability exists to prevent silent algorithmic
+    // drift, not to resist a person explicitly asserting the original
+    // guess was wrong (in either direction: adding a correction, or later
+    // deciding it wasn't needed and clearing it back to the default).
+    // Reconciles when EITHER the record currently sits on a live override
+    // (isOverride) OR it was previously corrected by one that's since been
+    // removed (reportDateWasOverride, stamped at the time -- otherwise a
+    // cleared override would leave the record stuck on the old correction
+    // forever, unable to revert). Never triggered by the algorithm simply
+    // changing its own guess on its own, which should never retroactively
+    // touch a permanent record -- and gated by the same price catch-up
+    // check as Step 1, so a correction to a very recent date doesn't bake
+    // in a stale price either.
+    perm.forEach(r=>{
+      const freshInfo=_mhFindReportInfo(ticker,r.quarterEndDate);
+      if(!freshInfo?.date)return;
+      if(!freshInfo.isOverride&&!r.reportDateWasOverride)return;
+      if(freshInfo.date===r.reportDate&&freshInfo.hour===r.reportHour)return;
+      const caughtUp=priceMap[freshInfo.date]!=null||(latestPriceDate&&latestPriceDate>freshInfo.date);
+      if(!caughtUp)return; // try again once price data for the corrected date exists
+      const {price:priceAtReport,sameDayClose,priorDayClose}=_mhPriceAtReport(priceMap,freshInfo,true);
+      r.reportDate=freshInfo.date;r.reportHour=freshInfo.hour;
+      r.reportDateSource=freshInfo.source||null;r.reportDateWasOverride=!!freshInfo.isOverride;
+      r.priceAtReport=priceAtReport;r.priceCandidates={sameDayClose,priorDayClose};
+      r.ttmPE=(priceAtReport!=null&&r.ttmEpsAsOfReport>0)?priceAtReport/r.ttmEpsAsOfReport:null;
+    });
+
     // Step 1: consolidate any tracked group whose quarter has now reported.
     (histArr||[]).forEach(h=>{
       if(h.epsActual==null||!h.date)return;
@@ -471,16 +528,19 @@ function _updateMultipleHistory(ticker,snap,hist2yCache){
       // _mhPriceAtReport is legitimately correct here, not a data lag).
       const priceCaughtUp=priceMap[reportInfo?.date]!=null||(reportInfo?.date&&latestPriceDate&&latestPriceDate>reportInfo.date);
       if(reportInfo?.date&&!priceCaughtUp)return; // try again next refresh
-      const priceAtReport=_mhPriceAtReport(priceMap,reportInfo);
-      const ttmEps=_mhTtmEpsFromHistory(histArr,h.date);
+      const {price:priceAtReport,sameDayClose,priorDayClose}=_mhPriceAtReport(priceMap,reportInfo,true);
+      const {eps:ttmEps,components:ttmComponents}=_mhTtmEpsFromHistory(histArr,h.date,true);
       const first=g.entries[0],last=g.entries[g.entries.length-1];
       perm.push({
         quarterEndDate:h.date,reportDate:reportInfo?.date||null,reportHour:reportInfo?.hour||null,
-        priceAtReport,ttmEpsAsOfReport:ttmEps,
+        reportDateSource:reportInfo?.source||null,reportDateWasOverride:!!reportInfo?.isOverride,
+        priceAtReport,priceCandidates:{sameDayClose,priorDayClose},
+        ttmEpsAsOfReport:ttmEps,ttmComponents,
         ttmPE:(priceAtReport!=null&&ttmEps>0)?priceAtReport/ttmEps:null,
         epsActual:h.epsActual,epsEstimateQuarterly:h.epsEstimate,
-        firstSeen:{date:first.date,price:first.price,quarterlyEpsEst:first.quarterlyEpsEst,projTtmEps:first.projTtmEps,forwardPE:first.forwardPE},
-        lastSeen:{date:last.date,price:last.price,quarterlyEpsEst:last.quarterlyEpsEst,projTtmEps:last.projTtmEps,forwardPE:last.forwardPE}
+        yahooAnnual:_mhYahooAnnualSnapshot(trendArr,snap?.peForward),
+        firstSeen:{date:first.date,price:first.price,quarterlyEpsEst:first.quarterlyEpsEst,projTtmEps:first.projTtmEps,forwardPE:first.forwardPE,yahooAnnualFwdEps:first.yahooAnnualFwdEps,yahooForwardPE:first.yahooForwardPE},
+        lastSeen:{date:last.date,price:last.price,quarterlyEpsEst:last.quarterlyEpsEst,projTtmEps:last.projTtmEps,forwardPE:last.forwardPE,yahooAnnualFwdEps:last.yahooAnnualFwdEps,yahooForwardPE:last.yahooForwardPE}
       });
       track.splice(gi,1);
     });
@@ -510,8 +570,11 @@ function _updateMultipleHistory(ticker,snap,hist2yCache){
       if(lastEntry&&lastEntry.quarterlyEpsEst===p.epsMean&&!lastEntryMisaligned)return; // no change, already correctly anchored
       const price=priceMap[today]??snap.price??null;
       const projTtmEps=_mhProjectedTtmEps(histArr,p.endDate,p.epsMean);
+      const yahooSnap=_mhYahooAnnualSnapshot(trendArr,snap?.peForward);
       const newEntry={date:today,price,quarterlyEpsEst:p.epsMean,projTtmEps,
-        forwardPE:(price!=null&&projTtmEps>0)?price/projTtmEps:null};
+        forwardPE:(price!=null&&projTtmEps>0)?price/projTtmEps:null,
+        yahooAnnualFwdEps:p.period==='0q'?yahooSnap.epsMean0y:yahooSnap.epsMean1y,
+        yahooForwardPE:yahooSnap.peForward};
       if(lastEntry&&lastEntryMisaligned&&lastEntry.quarterlyEpsEst===p.epsMean){
         // Same estimate as before, just needed its anchor corrected --
         // replace in place rather than growing the array with a duplicate.
@@ -2805,4 +2868,4 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
-    
+                                                                                                                                                                                                        

@@ -305,15 +305,24 @@ async function fetchFedFundsFutures(){
     const mo=now.getMonth(); // 0-indexed
     // Month codes for futures contracts
     const codes=['F','G','H','J','K','M','N','Q','U','V','X','Z'];
-    // Build tickers for next 6 months starting from current month
+    // Build tickers for the prior month plus the next 6, starting one
+    // month BEFORE the current one. The prior month exists specifically to
+    // supply a baseline rate when the current month itself is a meeting
+    // month with nothing meeting-free earlier in a forward-only window --
+    // e.g. Sep/Oct 2026 are back-to-back FOMC months, and once "now" rolls
+    // into September, a forward-only fetch has nothing before it to
+    // bootstrap from. Whether Yahoo still returns a usable settlement
+    // price for an already-expired CBT contract is genuinely untested;
+    // if it doesn't, this degrades to exactly the prior behavior (that
+    // month just lands in failedMonths, same as any other bad quote).
     const tickers=[];
-    for(let i=0;i<6;i++){
+    for(let i=-1;i<6;i++){
       const d=new Date(yr,mo+i,1);
       const y=d.getFullYear().toString().slice(2);
       const c=codes[d.getMonth()];
       tickers.push(`ZQ${c}${y}.CBT`);
     }
-    // Fetch quotes for all 6 contracts in parallel
+    // Fetch quotes for all 7 contracts in parallel
     const _fft=Date.now();
     const results=await Promise.all(tickers.map(t=>
       fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(t)}&type=quote&_t=${_fft}`)
@@ -323,7 +332,7 @@ async function fetchFedFundsFutures(){
     const contracts=[];
     const failedMonths=[];
     results.forEach((d,i)=>{
-      const contractDate=new Date(yr,mo+i,1);
+      const contractDate=new Date(yr,mo+i-1,1);
       const monthLabel=contractDate.toLocaleDateString('en-US',{month:'short',year:'numeric'});
       const q=d?.quoteResponse?.result?.[0];
       if(!q){failedMonths.push(monthLabel);return;}

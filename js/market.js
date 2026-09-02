@@ -138,7 +138,7 @@ function _computeFedMeetingProbabilities(fedFutures){
   return results;
 }
 
-function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFutures,tbill3m,tbill5y,tbill10y,marketNews,derived}){
+function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,tbill3m,tbill5y,tbill10y,marketNews,derived}){
   const{tb3Current,tb5yCurrent,tb10yCurrent,tb3Yr,tb5yYr,tb10yYr,spread35,spread310,spread510,spreadStr35,spreadStr310,spreadStr510,spyiYield,nbosYield,vixCurrent,spCurrent,spChg,spChgPct,nqCurrent,nqChg,nqChgPct,spLabels,spData}=derived;
 
   el.innerHTML=`
@@ -214,6 +214,7 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
         +'<thead><tr><th style="text-align:left">Month</th><th>Price</th><th>Implied Rate</th><th>Δ vs Now</th></tr></thead>'
         +'<tbody>'+rows+'</tbody></table></div>'
         +'<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:8px">'+summary+' (next '+fedFutures.length+' months, '+Math.abs(totalBps)+'bp total)</div>'
+        +(fedFuturesFailedMonths&&fedFuturesFailedMonths.length?'<div style="font-family:var(--mono);font-size:9px;color:var(--warn);margin-top:4px">Data unavailable for: '+fedFuturesFailedMonths.join(', ')+' -- that contract didn\'t return a usable quote this fetch, so those meetings (if any fall in these months) are missing below, not intentionally excluded.</div>':'')
         +(probRows?'<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--surface3)"><div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:2px">Meeting-by-meeting odds (simplified -- assumes at most one 25bp step per meeting):</div>'+probRows+'</div>':'')
         +'</div>';
     })()}
@@ -352,10 +353,12 @@ async function loadMarketTab(){
     if(!spLivePrice){const c=S.get('mkt_sp_live');if(c){spLivePrice=c.price;spPrevClose=c.prevClose;}}
     if(!nqLivePrice){const c=S.get('mkt_nq_live');if(c){nqLivePrice=c.price;nqPrevClose=c.prevClose;}}
     // Fetch CME Fed Funds futures for rate probability display
-    let fedFutures=null;
-    try{fedFutures=await _mktTimeout(fetchFedFundsFutures(),12000,'fed futures');if(fedFutures)S.set('fed_futures',{data:fedFutures,ts:mktTs,tsEpoch:mktTsEpoch});}
-    catch{}
-    if(!fedFutures){const cf=S.get('fed_futures');if(cf)fedFutures=cf.data;}
+    let fedFutures=null,fedFuturesFailedMonths=[];
+    try{
+      const fedResult=await _mktTimeout(fetchFedFundsFutures(),12000,'fed futures');
+      if(fedResult){fedFutures=fedResult.contracts;fedFuturesFailedMonths=fedResult.failedMonths||[];S.set('fed_futures',{data:fedFutures,failedMonths:fedFuturesFailedMonths,ts:mktTs,tsEpoch:mktTsEpoch});}
+    }catch{}
+    if(!fedFutures){const cf=S.get('fed_futures');if(cf){fedFutures=cf.data;fedFuturesFailedMonths=cf.failedMonths||[];}}
     // Treasury yields via Yahoo Finance (^IRX/^FVX/^TNX), routed through
     // the Worker. Previously this comment referenced Treasury FiscalData --
     // that was abandoned for SSL failures on Cloudflare Workers; Yahoo has
@@ -374,7 +377,7 @@ async function loadMarketTab(){
     let marketNews=await _fetchMarketNews();
 
     const derived=_computeMarketDerivedValues(sp500,nasdaq,spLivePrice,spPrevClose,nqLivePrice,nqPrevClose,tbill3m,tbill5y,tbill10y);
-    _renderMarketContent(el,{ts:mktTs,isLive,tsEpoch:mktTsEpoch,fredTs,fredTsEpoch,fedFutures,tbill3m,tbill5y,tbill10y,marketNews,derived});
+    _renderMarketContent(el,{ts:mktTs,isLive,tsEpoch:mktTsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,tbill3m,tbill5y,tbill10y,marketNews,derived});
 
     S.set('market_ts',{ts:nowPT(),tsEpoch:Date.now()});
   }catch(err){el.innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
@@ -491,6 +494,7 @@ function _renderMarketFromCache(){
 
   const cf=S.get('fed_futures');
   const fedFutures=cf?.data||null;
+  const fedFuturesFailedMonths=cf?.failedMonths||[];
 
   const cd=S.get('tbills_cache');
   const tbill3m=cd?.tbill3m||[];
@@ -503,7 +507,7 @@ function _renderMarketFromCache(){
   const marketNews=cnews?.items||[];
 
   const derived=_computeMarketDerivedValues(sp500,nasdaq,spLivePrice,spPrevClose,nqLivePrice,nqPrevClose,tbill3m,tbill5y,tbill10y);
-  _renderMarketContent(el,{ts:cachedTs,isLive:false,tsEpoch:mktTsEpoch,fredTs,fredTsEpoch,fedFutures,tbill3m,tbill5y,tbill10y,marketNews,derived});
+  _renderMarketContent(el,{ts:cachedTs,isLive:false,tsEpoch:mktTsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,tbill3m,tbill5y,tbill10y,marketNews,derived});
 
   setTimeout(refreshTsChipAges,200);
 }

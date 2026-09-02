@@ -571,6 +571,13 @@ const EXPORT_KEYS_STATIC=[
   'dashboard_notes','bb_gap_overlay','gap_list_filter',
   'tax_state','state_tax_rate',
   'fomc_meeting_dates_override',
+  // Self-healing baseline for the meeting-probability calculation -- the
+  // most recently resolved post-meeting rate. Not re-derivable from a
+  // fresh fetch if lost right when it's needed (the exact scenario that
+  // motivated it): losing it just means falling back to the honest
+  // "insufficient baseline" placeholder until the next natural resolution,
+  // rather than a correctness problem, but worth preserving the continuity.
+  'fomc_last_known_rate',
 ];
 
 function _buildExportData(){

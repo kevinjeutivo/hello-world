@@ -321,16 +321,18 @@ async function fetchFedFundsFutures(){
         .catch(()=>null)
     ));
     const contracts=[];
+    const failedMonths=[];
     results.forEach((d,i)=>{
-      const q=d?.quoteResponse?.result?.[0];
-      if(!q)return;
-      const price=q.regularMarketPrice||null;
-      if(!price||price<90)return; // sanity check -- valid futures are 95-100
-      const impliedRate=parseFloat((100-price).toFixed(3));
       const contractDate=new Date(yr,mo+i,1);
+      const monthLabel=contractDate.toLocaleDateString('en-US',{month:'short',year:'numeric'});
+      const q=d?.quoteResponse?.result?.[0];
+      if(!q){failedMonths.push(monthLabel);return;}
+      const price=q.regularMarketPrice||null;
+      if(!price||price<90){failedMonths.push(monthLabel);return;} // sanity check -- valid futures are 95-100
+      const impliedRate=parseFloat((100-price).toFixed(3));
       contracts.push({
         ticker:tickers[i],
-        month:contractDate.toLocaleDateString('en-US',{month:'short',year:'numeric'}),
+        month:monthLabel,
         price,
         impliedRate
       });
@@ -338,7 +340,13 @@ async function fetchFedFundsFutures(){
     if(!contracts.length)return null;
     // Compute implied cut/hike probabilities between consecutive months
     // Current effective fed funds rate from most recent contract or ^IRX
-    return contracts;
+    // failedMonths is surfaced (not silently dropped) specifically because
+    // a partial failure here looks identical to "there just weren't more
+    // meetings to show" otherwise -- any month whose contract simply
+    // didn't return usable data (a Yahoo quote hiccup, an illiquid
+    // far-dated CME contract, etc.) previously vanished from both this
+    // list and the meeting-probability breakdown with zero trace anywhere.
+    return{contracts,failedMonths};
   }catch{return null;}
 }
 

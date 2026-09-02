@@ -115,10 +115,21 @@ function _computeFedMeetingProbabilities(fedFutures){
     const daysAfter=daysInMonth-daysBefore;
     if(currentRate==null||daysAfter<=0){
       // Can't cleanly establish a pre-meeting baseline for this specific
-      // meeting (e.g. it falls in the very first fetched month, before any
-      // meeting-free month has given us a starting rate) -- skip just this
-      // one meeting rather than guess. Later meetings still get a chance to
-      // resolve once/if a baseline becomes available.
+      // meeting -- most commonly, it falls in the very first fetched
+      // month, with no earlier meeting-free month in the 6-month window
+      // to supply a starting rate (a real, if unusual, case: most months
+      // have a meeting-free gap before the next meeting, but some years'
+      // schedules -- 2026's Sep/Oct is one -- have two meeting months in
+      // a row, and if "now" rolls into the first of that pair, there's
+      // nothing before it in the window to bootstrap from). Surfaced as
+      // an honest placeholder rather than silently dropped -- previously
+      // this just vanished from the list with zero trace, indistinguishable
+      // from "there wasn't a meeting," which is exactly what prompted this
+      // fix. If this meeting's own month is itself meeting-free (the
+      // daysAfter<=0 case, a meeting on a month's last day), the note
+      // wording below is slightly imprecise but still non-silent, which
+      // matters more here than being perfectly worded for a rare edge case.
+      results.push({month:c.month,meetingDate:meetingDateStr,insufficientBaseline:true});
       continue;
     }
     // Day-weighted average: the contract's implied rate for the whole month
@@ -202,6 +213,9 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
       const meetingProbs=_computeFedMeetingProbabilities(fedFutures);
       const probRows=meetingProbs.map(p=>{
         const dateLabel=new Date(p.meetingDate+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+        if(p.insufficientBaseline){
+          return '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:3px 0">'+dateLabel+' meeting: odds unavailable -- no earlier meeting-free month in this window to establish a baseline rate</div>';
+        }
         const parts=[];
         if(p.pHold>0)parts.push(p.pHold+'% hold');
         if(p.pCut25>0)parts.push(p.pCut25+'% cut 25bp');

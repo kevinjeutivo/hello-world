@@ -94,6 +94,17 @@ function _computeFedMeetingProbabilities(fedFutures){
   const meetingDates=_effectiveFomcDates();
   const results=[];
   let currentRate=null;
+  // Self-healing fallback: the app already computes a real, known
+  // post-meeting rate every time this succeeds (below). If a meeting still
+  // can't bootstrap a baseline even with the prior-month fetch (see
+  // fetchFedFundsFutures) -- most commonly when Yahoo doesn't return usable
+  // data for an expired contract, or a rarer 3-consecutive-meeting-month
+  // schedule -- and the immediately-preceding meeting on the calendar is
+  // exactly the one we last successfully resolved, that resolved rate is
+  // still valid: the rate only ever moves at a meeting, so nothing could
+  // have changed it in between.
+  const lastKnown=S.get('fomc_last_known_rate'); // {rate,meetingDate} or null
+  let latestResolved=lastKnown;
   for(let i=0;i<fedFutures.length;i++){
     const c=fedFutures[i];
     const[mAbbr,yStr]=(c.month||'').split(' ');
@@ -109,6 +120,11 @@ function _computeFedMeetingProbabilities(fedFutures){
       // this month's implied rate IS the baseline (nothing moves it).
       if(currentRate==null)currentRate=c.impliedRate;
       continue;
+    }
+    if(currentRate==null&&lastKnown){
+      const idx=meetingDates.indexOf(meetingDateStr);
+      const priorMeetingDate=idx>0?meetingDates[idx-1]:null;
+      if(priorMeetingDate&&lastKnown.meetingDate===priorMeetingDate)currentRate=lastKnown.rate;
     }
     const meetingDay=new Date(meetingDateStr+'T12:00:00Z').getDate();
     const daysBefore=meetingDay-1;
@@ -145,7 +161,11 @@ function _computeFedMeetingProbabilities(fedFutures){
       pHold:Math.round(pHold*100),pCut25:Math.round(pCut*100),pHike25:Math.round(pHike*100),
     });
     currentRate=postMeetingRate; // chain forward -- next meeting's baseline is this one's outcome
+    if(!latestResolved||meetingDateStr>latestResolved.meetingDate)
+      latestResolved={rate:postMeetingRate,meetingDate:meetingDateStr};
   }
+  if(latestResolved&&(!lastKnown||latestResolved.meetingDate!==lastKnown.meetingDate))
+    S.set('fomc_last_known_rate',latestResolved);
   return results;
 }
 
@@ -180,11 +200,23 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
     ${(()=>{
       // CME Fed Funds Futures -- implied rate path
       if(!fedFutures||!fedFutures.length)return'';
-      const firstRate=fedFutures[0]?.impliedRate;
+      // Deltas anchor to the CURRENT month's own contract specifically,
+      // not fedFutures[0] -- that used to be a safe assumption when the
+      // array was purely forward-looking, but now that a prior month can
+      // occupy index 0 (see fetchFedFundsFutures), and that prior month's
+      // own fetch can independently succeed or fail, position alone no
+      // longer reliably identifies "now." Matched by month label instead,
+      // with a same-position fallback only if the current month's own
+      // contract somehow isn't present at all.
+      const _nowD=new Date();
+      const _nowLabel=new Date(_nowD.getFullYear(),_nowD.getMonth(),1).toLocaleDateString('en-US',{month:'short',year:'numeric'});
+      const _nowFutIdx=fedFutures.findIndex(c=>c.month===_nowLabel);
+      const refIdx=_nowFutIdx>=0?_nowFutIdx:0;
+      const firstRate=fedFutures[refIdx]?.impliedRate;
       const lastRate=fedFutures[fedFutures.length-1]?.impliedRate;
-      // Compute cumulative cut/hike vs first contract
+      // Compute cumulative cut/hike vs the current-month contract
       const rows=fedFutures.map((c,i)=>{
-        const delta=i===0?0:parseFloat((c.impliedRate-fedFutures[0].impliedRate).toFixed(3));
+        const delta=i===refIdx?0:parseFloat((c.impliedRate-fedFutures[refIdx].impliedRate).toFixed(3));
         const bps=Math.round(delta*100);
         const col=bps<-5?'var(--green)':bps>5?'var(--red)':'var(--text2)';
         const sign=bps>0?'+':'';
@@ -192,7 +224,7 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
           +'<td style="color:var(--text2)">'+c.month+'</td>'
           +'<td style="font-family:var(--mono)">'+c.price.toFixed(3)+'</td>'
           +'<td style="font-family:var(--mono)">'+c.impliedRate.toFixed(3)+'%</td>'
-          +'<td style="color:'+col+';font-family:var(--mono)">'+(i===0?'—':sign+bps+'bp')+'</td>'
+          +'<td style="color:'+col+';font-family:var(--mono)">'+(i===refIdx?'—':sign+bps+'bp')+'</td>'
           +'</tr>';
       }).join('');
       const totalBps=Math.round((lastRate-firstRate)*100);
@@ -227,7 +259,7 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
         +'<div class="options-table-wrap"><table class="options-table">'
         +'<thead><tr><th style="text-align:left">Month</th><th>Price</th><th>Implied Rate</th><th>Δ vs Now</th></tr></thead>'
         +'<tbody>'+rows+'</tbody></table></div>'
-        +'<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:8px">'+summary+' (next '+fedFutures.length+' months, '+Math.abs(totalBps)+'bp total)</div>'
+        +'<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:8px">'+summary+' ('+fedFutures.length+' months tracked, '+Math.abs(totalBps)+'bp total)</div>'
         +(fedFuturesFailedMonths&&fedFuturesFailedMonths.length?'<div style="font-family:var(--mono);font-size:9px;color:var(--warn);margin-top:4px">Data unavailable for: '+fedFuturesFailedMonths.join(', ')+' -- that contract didn\'t return a usable quote this fetch, so those meetings (if any fall in these months) are missing below, not intentionally excluded.</div>':'')
         +(probRows?'<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--surface3)"><div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:2px">Meeting-by-meeting odds (simplified -- assumes at most one 25bp step per meeting):</div>'+probRows+'</div>':'')
         +'</div>';

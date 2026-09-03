@@ -236,6 +236,7 @@ async function loadTicker(){
     // and earnings_hist_ (just above) are current, since it needs both a
     // dense price map and confirmed BMO/AMC report timing.
     _updateMultipleHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
+    _updateNextFYHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
     try{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}
     catch{const cn=S.get('news_'+t);if(cn)news=cn.items;}
     const upgradesData=S.get('upgrades_'+t)?.data||[];
@@ -599,7 +600,80 @@ function _updateMultipleHistory(ticker,snap,hist2yCache){
   }catch(e){console.warn('Multiple history update failed:',ticker,e?.message);}
 }
 
-// Given ascending {date,eps} steps, returns price[t]/eps(t) for each label
+// ── Next-FY Multiple & Price Target (a second, separate card) ──────────────
+// Tracks the mainstream "next fiscal year" forward multiple -- the figure
+// Cramer and most analyst coverage actually mean by "next year's earnings
+// multiple" -- as its own thing, deliberately not merged into the Multiple
+// History card above. That card is a TTM-composite basis (3 trailing
+// actuals + the current quarter's estimate); this one is always price ÷
+// next-FY consensus EPS, full stop. They're genuinely different metrics,
+// not two views of the same one, so keeping them as separate cards avoids
+// reintroducing the exact seam we worked to eliminate within card 1.
+//
+// Storage is simpler than card 1's: no BMO/AMC precision needed (nothing
+// here anchors to a specific announcement), no price-catch-up deferral (no
+// official report moment to wait on -- archive immediately using today's
+// price the moment a rollover is detected), no override reconciliation
+// (nothing here ties to the earnings-date cache at all). And since a
+// fiscal year naturally produces far fewer real revisions than a single
+// quarter does in a shorter window, the whole year's tracked series can be
+// kept permanently once it resolves, not compressed to first/last the way
+// card 1's quarterly tracking needed to be.
+//
+//  nextfy_track_<ticker>: {targetFYEnd, entries:[{date,price,nextFYEps,
+//    multiple}]} -- dense, temporary, ONE series (unlike card 1's up-to-2
+//    groups, since there's only ever one "+1y" period at a time).
+//  nextfy_hist_<ticker>: [{fyEndDate,resolvedDate,entries:[...]}] --
+//    permanent, one record per completed fiscal year, keeping the FULL
+//    series (not just first/last -- see storage-size reasoning above).
+
+function _updateNextFYHistory(ticker,snap,hist2yCache){
+  try{
+    const trendArr=snap?.earningsTrend;
+    if(!trendArr?.length)return;
+    const p1y=trendArr.find(p=>p&&p.period==='+1y'&&p.endDate&&p.epsMean!=null);
+    if(!p1y)return;
+    const priceMap=_mhPriceMap(hist2yCache); // reused: generic date->price lookup, not card-1-specific logic
+    const latestPriceDate=Object.keys(priceMap).sort().pop()||null;
+    const today=latestPriceDate||_tkDateStr(Math.floor(Date.now()/1000));
+    const trackKey='nextfy_track_'+ticker,histKey='nextfy_hist_'+ticker;
+    let track=S.get(trackKey)||null;
+    let hist=S.get(histKey)||[];
+
+    // Rollover: the fiscal year "+1y" now points to is different from the
+    // one we were tracking -- archive what we have (if anything was ever
+    // captured) and start fresh for the new year.
+    if(track&&track.targetFYEnd!==p1y.endDate){
+      if(track.entries.length){
+        hist.push({fyEndDate:track.targetFYEnd,resolvedDate:today,entries:track.entries});
+        hist.sort((a,b)=>a.fyEndDate.localeCompare(b.fyEndDate));
+      }
+      track=null;
+    }
+    if(!track)track={targetFYEnd:p1y.endDate,entries:[]};
+
+    const lastEntry=track.entries[track.entries.length-1];
+    // Same self-heal as card 1's fwdpe_track_: an entry anchored to a
+    // non-trading date is unplottable until corrected, regardless of
+    // whether the estimate itself has also changed.
+    const lastEntryMisaligned=lastEntry&&Object.keys(priceMap).length>0&&priceMap[lastEntry.date]==null;
+    if(!(lastEntry&&lastEntry.nextFYEps===p1y.epsMean&&!lastEntryMisaligned)){
+      const price=priceMap[today]??snap.price??null;
+      const newEntry={date:today,price,nextFYEps:p1y.epsMean,
+        multiple:(price!=null&&p1y.epsMean>0)?price/p1y.epsMean:null};
+      if(lastEntry&&lastEntryMisaligned&&lastEntry.nextFYEps===p1y.epsMean){
+        track.entries[track.entries.length-1]=newEntry;
+      }else{
+        track.entries.push(newEntry);
+      }
+    }
+
+    S.set(trackKey,track);
+    S.set(histKey,hist);
+  }catch(e){console.warn('Next-FY history update failed:',ticker,e?.message);}
+}
+
+
 // in `labels` (most recent step with date<=t) -- null before the first
 // step or where a price isn't known for that date. Used for both the TTM
 // line (steps = permanent quarterly anchors) and the forward line (steps =
@@ -1014,6 +1088,257 @@ function _mhOnSliderInput(ticker){
   }
   state.sliderVal=sliderVal;state.targetPrice=targetPrice;
   const label=document.getElementById('mh-slider-label');
+  if(label)label.textContent=sliderVal.toFixed(1)+'x \u2192 $'+targetPrice.toFixed(2);
+  priceChart.update('none');
+  multChart.update('none');
+}
+
+function _buildNextFYCard(ticker){
+  const track=S.get('nextfy_track_'+ticker);
+  const hist=S.get('nextfy_hist_'+ticker)||[];
+  const hasAny=(track&&track.entries.length)||hist.length;
+  const debugToggle=
+    '<div class="gs-header" onclick="_nextFYToggleDebug()" style="margin-top:8px">'
+    +'<span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Raw data (for verification)</span>'
+    +'<span class="gs-chevron" id="nextfy-debug-chevron">&#9658;</span>'
+    +'</div>';
+  const body=hasAny
+    ?'<div class="chart-wrap" style="height:140px"><canvas id="nextfy-price-chart"></canvas></div>'
+     +'<div class="chart-wrap" style="height:140px;margin-top:4px"><canvas id="nextfy-mult-chart"></canvas></div>'
+     +'<div id="nextfy-slider-container" style="margin-top:10px"></div>'
+     +'<div class="commentary" style="margin-top:10px">Price divided by next fiscal year\'s consensus EPS estimate -- the mainstream "next year\'s earnings multiple" figure most analyst coverage actually means, deliberately kept separate from the TTM-composite basis in the Multiple History card above (a different metric, not another view of the same one). Drag the slider to explore what price a different multiple implies by fiscal year-end, holding the next-FY EPS estimate fixed. Rolls to a new fiscal year automatically once this one\'s "+1y" target advances, archiving the prior year\'s full tracked series permanently.</div>'
+     +debugToggle
+     +'<div class="gs-body" id="nextfy-debug-body"><div id="nextfy-debug" style="font-family:var(--mono);font-size:10px;color:var(--text3);white-space:pre-wrap"></div></div>'
+    :'<div class="commentary" style="margin-top:4px">Building history -- this accumulates from today forward as the next fiscal year\'s estimate gets revised; historical values can\'t be backfilled.</div>'
+     +debugToggle
+     +'<div class="gs-body" id="nextfy-debug-body">'
+     +(()=>{
+       const snapForDebug=S.get('snap_'+ticker);
+       const trendForDebug=snapForDebug?.earningsTrend||[];
+       return '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);white-space:pre-wrap">RAW STATE (for debugging):\n'
+         +'snap.tsEpoch: '+(snapForDebug?.tsEpoch?new Date(snapForDebug.tsEpoch).toISOString():'null')+'\n'
+         +'snap.peForward (Yahoo\'s own figure, for cross-check): '+snapForDebug?.peForward+'\n'
+         +'earningsTrend +1y period: '+JSON.stringify(trendForDebug.find(p=>p?.period==='+1y'))+'\n'
+         +'nextfy_track_'+ticker+': '+JSON.stringify(track)+'\n'
+         +'nextfy_hist_'+ticker+': '+JSON.stringify(hist)+'</div>';
+     })()
+     +'</div>';
+  return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Next-FY Multiple &amp; Price Target</div>'+body+'</div>';
+}
+
+function _nextFYToggleDebug(){
+  const bodyEl=document.getElementById('nextfy-debug-body');
+  const chev=document.getElementById('nextfy-debug-chevron');
+  if(!bodyEl)return;
+  const isOpen=bodyEl.classList.contains('open');
+  bodyEl.classList.toggle('open',!isOpen);
+  if(chev)chev.classList.toggle('open',!isOpen);
+}
+
+function _renderNextFYChart(ticker,hist2y){
+  const track=S.get('nextfy_track_'+ticker);
+  const hist=S.get('nextfy_hist_'+ticker)||[];
+  if(!(track&&track.entries.length)&&!hist.length)return;
+
+  const histLabels=(hist2y?.timestamps||[]).map(d=>_tkDateStr(d)).filter(Boolean);
+  const earliestDense=histLabels[0]||null;
+  const nowLabel=histLabels[histLabels.length-1]||null;
+
+  const pastEntries=hist.flatMap(h=>h.entries);
+  const sparseLabels=pastEntries.map(e=>e.date).filter(d=>d&&(!earliestDense||d<earliestDense));
+
+  const boundaryDate=track?.targetFYEnd||null;
+  const futureLabel=(boundaryDate&&nowLabel&&boundaryDate>nowLabel)?boundaryDate:null;
+  let futureLabels=[];
+  if(futureLabel&&nowLabel){
+    const start=new Date(nowLabel+'T12:00:00Z'),end=new Date(futureLabel+'T12:00:00Z');
+    const totalDays=Math.round((end-start)/86400000);
+    for(let d=1;d<=totalDays;d++)futureLabels.push(_tkDateStr(new Date(start.getTime()+d*86400000)));
+  }
+
+  const labels=[...new Set([...sparseLabels,...histLabels,...futureLabels])].sort();
+  const nowIdx=nowLabel?labels.indexOf(nowLabel):-1;
+  const futureIdx=futureLabel?labels.indexOf(futureLabel):-1;
+
+  const denseByLabel={};histLabels.forEach((d,i)=>{denseByLabel[d]=hist2y.closes[i];});
+  const sparsePriceByLabel={};pastEntries.forEach(e=>{if(e.date)sparsePriceByLabel[e.date]=e.price;});
+  const priceSeries=labels.map(d=>denseByLabel[d]??sparsePriceByLabel[d]??null);
+  const nowPriceValue=nowIdx>=0?priceSeries[nowIdx]:null;
+
+  const currentEps=track?.entries?.length?track.entries[track.entries.length-1].nextFYEps:null;
+  const currentMultiple=(nowPriceValue!=null&&currentEps>0)?nowPriceValue/currentEps:null;
+  const sliderApplicable=futureIdx>nowIdx&&nowIdx>=0&&currentEps>0&&currentMultiple>0;
+  const defaultSliderVal=sliderApplicable?Math.round(currentMultiple*2)/2:null;
+  const defaultTargetPrice=sliderApplicable?defaultSliderVal*currentEps:null;
+
+  if(nowIdx>=0){
+    if(sliderApplicable){
+      for(let i=nowIdx+1;i<labels.length;i++){
+        const t=(i-nowIdx)/(futureIdx-nowIdx);
+        priceSeries[i]=nowPriceValue+t*(defaultTargetPrice-nowPriceValue);
+      }
+    }else{
+      const flatPrice=priceSeries[nowIdx];
+      for(let i=nowIdx+1;i<labels.length;i++)priceSeries[i]=flatPrice;
+    }
+  }
+  const priceByLabel={};labels.forEach((d,i)=>{priceByLabel[d]=priceSeries[i];});
+
+  // Single basis throughout (no realized/estimate merge -- everything here,
+  // past years included, is an archived next-FY ESTIMATE from when it was
+  // current, not a realized actual).
+  const allSteps=[
+    ...pastEntries.filter(e=>e.multiple>0).map(e=>({date:e.date,eps:e.nextFYEps})),
+    ...(track?.entries||[]).filter(e=>e.multiple>0).map(e=>({date:e.date,eps:e.nextFYEps}))
+  ];
+  const multSeries=_mhPiecewiseMultiple(allSteps,labels,priceByLabel);
+  if(nowIdx>=0){
+    if(sliderApplicable){
+      for(let i=nowIdx+1;i<labels.length;i++)multSeries[i]=priceSeries[i]/currentEps;
+    }else{
+      const flatMult=multSeries[nowIdx];
+      for(let i=nowIdx+1;i<labels.length;i++)multSeries[i]=flatMult;
+    }
+  }
+
+  const yearEndAnchorDates=new Set(hist.map(h=>h.entries[h.entries.length-1]?.date).filter(Boolean));
+  const multPointRadius=labels.map((d,i)=>yearEndAnchorDates.has(d)?4:(i===futureIdx?3:0));
+  const multPointColor=labels.map((d,i)=>yearEndAnchorDates.has(d)?'rgba(0,212,170,1)':(i===futureIdx?'rgba(139,143,168,0.9)':'rgba(0,212,170,1)'));
+  multSeries.forEach((v,i)=>{
+    if(v==null||multPointRadius[i]>0)return;
+    const prevNull=i===0||multSeries[i-1]==null;
+    const nextNull=i===multSeries.length-1||multSeries[i+1]==null;
+    if(prevNull&&nextNull)multPointRadius[i]=3;
+  });
+
+  const debugEl=document.getElementById('nextfy-debug');
+  if(debugEl){
+    const snap=S.get('snap_'+ticker);
+    debugEl.textContent='RAW STATE (for debugging):\n'
+      +'snap.tsEpoch: '+(snap?.tsEpoch?new Date(snap.tsEpoch).toISOString():'null')+'\n'
+      +'snap.peForward (Yahoo\'s own figure, for cross-check): '+snap?.peForward+'\n'
+      +'nextfy_track_'+ticker+': '+JSON.stringify(track)+'\n'
+      +'nextfy_hist_'+ticker+' ('+hist.length+' archived years): '+JSON.stringify(hist)+'\n'
+      +'boundaryDate used: '+JSON.stringify(boundaryDate);
+  }
+
+  const sliderEl=document.getElementById('nextfy-slider-container');
+  if(sliderEl){
+    if(sliderApplicable){
+      sliderEl.innerHTML=
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">'
+        +'<span style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">What-if: multiple at fiscal year-end</span>'
+        +'<span id="nextfy-slider-label" style="font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600">'+defaultSliderVal.toFixed(1)+'x &rarr; $'+defaultTargetPrice.toFixed(2)+'</span>'
+        +'</div>'
+        +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">Next-FY EPS (est.), held constant: $'+currentEps.toFixed(2)+'</div>'
+        +'<input type="range" id="nextfy-mult-slider" min="'+(Math.max(0.5,Math.round(currentMultiple*0.5*2)/2))+'" max="'+(Math.round(currentMultiple*1.5*2)/2)+'" step="0.5" value="'+defaultSliderVal+'" style="width:100%" oninput="_nextFYOnSliderInput(&quot;'+ticker+'&quot;)">';
+    }else{
+      sliderEl.innerHTML='';
+    }
+  }
+  window._nextfySliderState=sliderApplicable?{
+    ticker,nowIdx,futureIdx,currentEps,
+    basePriceSeries:priceSeries.slice(),
+    sliderVal:defaultSliderVal,targetPrice:defaultTargetPrice
+  }:null;
+
+  const priceCtx=document.getElementById('nextfy-price-chart')?.getContext('2d');
+  const multCtx=document.getElementById('nextfy-mult-chart')?.getContext('2d');
+  if(!priceCtx||!multCtx)return;
+  if(window._nextfyPriceChart)window._nextfyPriceChart.destroy();
+  if(window._nextfyMultChart)window._nextfyMultChart.destroy();
+
+  const dispLabels=labels.map(d=>{const dt=new Date(d);return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'});});
+
+  const _nextfyNowLinePlugin={
+    id:'nextfyNowLine',
+    afterDraw(chart){
+      if(nowIdx<0)return;
+      const c=chart.ctx,xs=chart.scales.x,ys=chart.scales.y;
+      const xPx=xs.getPixelForValue(nowIdx);
+      c.save();
+      c.setLineDash([3,3]);c.lineWidth=1;c.strokeStyle='rgba(139,143,168,0.35)';
+      c.beginPath();c.moveTo(xPx,ys.top);c.lineTo(xPx,ys.bottom);c.stroke();
+      c.setLineDash([]);
+      c.font='8px DM Mono,monospace';c.fillStyle='rgba(139,143,168,0.6)';
+      if(xs.right-xPx<24){c.textAlign='right';c.fillText('now',xPx-4,ys.top+9);}
+      else{c.textAlign='left';c.fillText('now',xPx+3,ys.top+9);}
+      c.restore();
+    }
+  };
+  const _dashPastNow=ctx=>(nowIdx>=0&&ctx.p0DataIndex>=nowIdx)?[4,3]:undefined;
+
+  function _nextfyTargetLabelPlugin(getPointValue,formatText){
+    return{id:'nextfyTargetLabel',afterDraw(chart){
+      const state=window._nextfySliderState;
+      if(!state||state.futureIdx<0)return;
+      const pointVal=getPointValue(state);
+      if(pointVal==null)return;
+      const c=chart.ctx,xs=chart.scales.x,ys=chart.scales.y;
+      const xPx=xs.getPixelForValue(state.futureIdx);
+      const yPoint=ys.getPixelForValue(pointVal);
+      const text=formatText(state);
+      c.save();
+      c.font='bold 10px DM Mono,monospace';
+      const textW=c.measureText(text).width;
+      const labelY=ys.top+14;
+      const labelX=xs.right-textW-8;
+      c.setLineDash([2,2]);c.strokeStyle='rgba(139,143,168,0.4)';c.lineWidth=1;
+      c.beginPath();c.moveTo(xPx,yPoint);c.lineTo(labelX+textW/2,labelY+8);c.stroke();
+      c.setLineDash([]);
+      c.fillStyle='rgba(139,143,168,0.95)';
+      c.beginPath();c.arc(xPx,yPoint,3,0,Math.PI*2);c.fill();
+      c.fillRect(labelX-4,labelY-3,textW+8,15);
+      c.fillStyle='#0a0b0f';c.textAlign='left';
+      c.fillText(text,labelX,labelY+8);
+      c.restore();
+    }};
+  }
+  const _nextfyPriceTargetPlugin=_nextfyTargetLabelPlugin(s=>s.targetPrice,s=>'$'+s.targetPrice.toFixed(2));
+  const _nextfyMultTargetPlugin=_nextfyTargetLabelPlugin(s=>s.sliderVal,s=>s.sliderVal.toFixed(1)+'x');
+
+  window._nextfyPriceChart=new Chart(priceCtx,{
+    type:'line',
+    data:{labels:dispLabels,datasets:[{label:'Price',data:priceSeries,borderColor:'rgba(79,195,247,0.9)',borderWidth:1.5,pointRadius:labels.map((d,i)=>i===futureIdx?3:0),pointBackgroundColor:'rgba(79,195,247,0.9)',spanGaps:false,tension:0.1,segment:{borderDash:_dashPastNow}}]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.parsed.y?.toFixed(2)+(c.dataIndex===futureIdx?' (projected)':'')}}},
+      scales:{x:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:6},grid:{display:false}},
+        y:{ticks:{color:'#555870',font:{size:8},callback:v=>'$'+v},grid:{color:'#2a2e38'}}}},
+    plugins:sliderApplicable?[_nextfyNowLinePlugin,_nextfyPriceTargetPlugin]:[_nextfyNowLinePlugin]
+  });
+  window._nextfyMultChart=new Chart(multCtx,{
+    type:'line',
+    data:{labels:dispLabels,datasets:[
+      {label:'P/E',data:multSeries,borderColor:'rgba(0,212,170,0.9)',borderWidth:1.5,pointRadius:multPointRadius,pointBackgroundColor:multPointColor,spanGaps:false,tension:0,segment:{borderDash:_dashPastNow}}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'P/E: '+c.parsed.y?.toFixed(2)+'x'+(c.dataIndex===futureIdx?' (projected)':yearEndAnchorDates.has(labels[c.dataIndex])?' (archived FY)':'')}}},
+      scales:{x:{ticks:{color:'#555870',font:{size:8},maxTicksLimit:6},grid:{display:false}},
+        y:{ticks:{color:'#555870',font:{size:8},callback:v=>(Math.round(v*100)/100)+'x'},grid:{color:'#2a2e38'}}}},
+    plugins:sliderApplicable?[_nextfyNowLinePlugin,_nextfyMultTargetPlugin]:[_nextfyNowLinePlugin]
+  });
+}
+
+function _nextFYOnSliderInput(ticker){
+  const state=window._nextfySliderState;
+  const slider=document.getElementById('nextfy-mult-slider');
+  const priceChart=window._nextfyPriceChart,multChart=window._nextfyMultChart;
+  if(!state||state.ticker!==ticker||!slider||!priceChart||!multChart)return;
+  const{nowIdx,futureIdx,currentEps,basePriceSeries}=state;
+  if(nowIdx<0||futureIdx<=nowIdx||currentEps==null)return;
+  const sliderVal=Math.round(parseFloat(slider.value)*2)/2;
+  const nowPrice=basePriceSeries[nowIdx];
+  const targetPrice=sliderVal*currentEps;
+  const priceData=priceChart.data.datasets[0].data;
+  const multData=multChart.data.datasets[0].data;
+  for(let i=nowIdx;i<=futureIdx;i++){
+    const t=(i-nowIdx)/(futureIdx-nowIdx);
+    const p=nowPrice+t*(targetPrice-nowPrice);
+    priceData[i]=p;
+    multData[i]=p/currentEps;
+  }
+  state.sliderVal=sliderVal;state.targetPrice=targetPrice;
+  const label=document.getElementById('nextfy-slider-label');
   if(label)label.textContent=sliderVal.toFixed(1)+'x \u2192 $'+targetPrice.toFixed(2);
   priceChart.update('none');
   multChart.update('none');
@@ -1588,6 +1913,7 @@ HVR (Historical Volatility Rank): where current 30-day realized volatility sits 
   ${snap.ptMean?buildPriceTargetCard(snap):''}
   ${snap.earningsTrend&&snap.earningsTrend.length?buildEarningsTrendCard(snap.earningsTrend):''}
   ${snap.earningsTrend&&snap.earningsTrend.length?_buildMultipleHistoryCard(snap.ticker):''}
+  ${snap.earningsTrend&&snap.earningsTrend.length?_buildNextFYCard(snap.ticker):''}
   ${snap.recTrend&&snap.recTrend.length?buildRecTrendCard(snap.recTrend):''}`;
   if(bbData)renderBBChart(bbData,{closes:bbData.bufferedCloses||hist.closes});
   renderVolChart(hist,hist1y,hist2y,currentBBSpan||'6m',avgVol20);
@@ -1595,6 +1921,7 @@ HVR (Historical Volatility Rank): where current 30-day realized volatility sits 
   if(hist1y)renderVPChart(hist1y,snap.price,_w52h,_w52l);
   if(hist2y&&hist2ySP)_initRelPerfChart(snap.ticker,hist2y,hist2ySP,earningsHistory,currentRPSpan||'2y');
   if(snap.earningsTrend&&snap.earningsTrend.length&&hist2y)_renderMultipleHistoryChart(snap.ticker,hist2y);
+  if(snap.earningsTrend&&snap.earningsTrend.length&&hist2y)_renderNextFYChart(snap.ticker,hist2y);
 }
 
 function renderBBChart(bbData,hist){
@@ -3007,6 +3334,7 @@ async function refreshSingleTicker(){
     // Multiple History (TTM & forward P/E) -- same ordering requirement as
     // loadTicker: must run after both hist2y_ and earnings_hist_ are current.
     _updateMultipleHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
+    _updateNextFYHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
     // Step 4: News
     setP(50,'Fetching '+t+' news...');
     try{const newsData=await fetchNews(t);S.set('news_'+t,{items:(newsData||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}
@@ -3107,4 +3435,4 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
-                                        
+        

@@ -178,6 +178,7 @@ async function prefetchAll(){
     // loadTicker/refreshSingleTicker in ticker.js: must run after both
     // hist2y_ and earnings_hist_ are current for this ticker.
     _updateMultipleHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
+    _updateNextFYHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
     // Per-expiry options fetch (parallel -- skip only if main options fetch failed)
     const _savedOpts=S.get('options_'+t);
     if(_savedOpts&&_opts){

@@ -1057,37 +1057,78 @@ function toggleGapOverlay(){
   toggleBBSpan(currentBBSpan||'6m');
 }
 
+// Single source of truth mapping each BB-toggle span to its trading-day
+// count -- shared by all four charts below it (BB, RSI, Volume, HVR) so
+// adding a future span only means adding one entry here. null means "use
+// everything available" (the 2Y case).
+const BB_SPAN_DAYS={'1m':21,'3m':63,'6m':126,'1y':252,'2y':null};
+
+// Bollinger Bands need a 20-day lookback (19 days before the first day
+// shown) to compute a valid SMA/band. For any span narrower than the full
+// 2-year cache, that lookback is borrowed from just outside the display
+// window -- computed there, never shown there -- so every visible day
+// gets a real band instead of the first ~19 showing blank. displaySliceN
+// null means "2Y" (the full cache): there's nothing left just outside
+// that window to borrow from, so a residual ~19-day gap there (under 4%
+// of a 2-year view) is a genuine boundary of available data, not
+// something this buffer can paper over.
+//
+// Preserves an existing quirk rather than silently changing it: sma20/
+// upper/lower are computed on null-FILTERED closes, while the returned
+// closes/timestamps stay unfiltered (matching the length relationship the
+// original inline computation already had) -- if a mid-window null close
+// ever occurs, the indicator arrays could end up shorter than
+// closes/timestamps. Rare in practice; not something this fix introduces
+// or was asked to change.
+function _computeBBData(h2,displaySliceN){
+  const total=h2.closes.length;
+  const dispN=displaySliceN==null?total:Math.min(displaySliceN,total);
+  const bufN=displaySliceN==null?total:Math.min(dispN+19,total);
+  const startIdx=total-bufN;
+  const bufferedCloses=h2.closes.slice(startIdx);
+  const bufferedTimestamps=h2.timestamps.slice(startIdx).map(d=>new Date(typeof d==='number'?d*1000:d));
+  const filteredCloses=bufferedCloses.filter(c=>c!==null);
+  const sma20=filteredCloses.map((_,i)=>i<19?null:avg(filteredCloses.slice(i-19,i+1)));
+  const stdDevArr=filteredCloses.map((_,i)=>{if(i<19)return null;const sl=filteredCloses.slice(i-19,i+1);const m=avg(sl);return Math.sqrt(sl.reduce((s,v)=>s+(v-m)**2,0)/20);});
+  const upper=sma20.map((m,i)=>m?m+2*stdDevArr[i]:null);
+  const lower=sma20.map((m,i)=>m?m-2*stdDevArr[i]:null);
+  const trim=bufN-dispN; // buffer-only days to drop from the front before returning
+  return{
+    timestamps:bufferedTimestamps.slice(trim),
+    closes:bufferedCloses.slice(trim),
+    sma20:sma20.slice(trim),
+    upper:upper.slice(trim),
+    lower:lower.slice(trim),
+    // Untrimmed -- RSI (14-day lookback, comfortably covered by the same
+    // 19-day buffer) is computed from this in renderBBChart, not from the
+    // display-only closes above, for the identical reason.
+    bufferedCloses
+  };
+}
+
 function toggleBBSpan(span){
   currentBBSpan=span; // persist selected span globally
-  const btn6=document.getElementById('bb-btn-6m');
-  const btn1=document.getElementById('bb-btn-1y');
-  const btn2=document.getElementById('bb-btn-2y');
-  if(btn6)btn6.style.opacity=span==='6m'?'1':'0.4';
-  if(btn1)btn1.style.opacity=span==='1y'?'1':'0.4';
-  if(btn2)btn2.style.opacity=span==='2y'?'1':'0.4';
+  ['1m','3m','6m','1y','2y'].forEach(s=>{
+    const btn=document.getElementById('bb-btn-'+s);
+    if(btn)btn.style.opacity=s===span?'1':'0.4';
+  });
   const t=document.getElementById('ticker-select').value;
   if(!t)return;
   const h2=S.get('hist2y_'+t);
   if(!h2){toast('History not cached -- run full refresh',2500);return;}
-  const sliceN=span==='6m'?126:span==='1y'?252:h2.timestamps.length;
+  const sliceN=BB_SPAN_DAYS[span]??h2.timestamps.length;
   const h={
     timestamps:h2.timestamps.slice(-sliceN).map(d=>new Date(typeof d==='number'?d*1000:d)),
     closes:h2.closes.slice(-sliceN),
     volumes:(h2.volumes||[]).slice(-sliceN)
   };
-  // Recompute Bollinger Band data from history (same logic as renderTickerContent)
-  let bbData=null;
-  if(h.closes&&h.closes.length>20){
-    const closes=h.closes.filter(c=>c!==null);
-    const sma20=closes.map((_,i)=>i<19?null:avg(closes.slice(i-19,i+1)));
-    const stdDev=closes.map((_,i)=>{if(i<19)return null;const sl=closes.slice(i-19,i+1);const m=avg(sl);return Math.sqrt(sl.reduce((s,v)=>s+(v-m)**2,0)/20);});
-    const upper=sma20.map((m,i)=>m?m+2*stdDev[i]:null);
-    const lower=sma20.map((m,i)=>m?m-2*stdDev[i]:null);
-    // Align with timestamps (filter nulls from front)
-    const fullCloses=h.closes;
-    bbData={timestamps:h.timestamps,closes:fullCloses,sma20,upper,lower};
-  }
-  if(bbData)renderBBChart(bbData,h);
+  // Buffered BB computation -- see _computeBBData above for why this reads
+  // from the full h2 cache (BB_SPAN_DAYS[span], which is null for 2Y) and
+  // not from the already-truncated `h` built above (h is still built and
+  // used for the price/volume line beneath the bands, which doesn't need
+  // a lookback buffer the same way).
+  const bbData=_computeBBData(h2,BB_SPAN_DAYS[span]);
+  if(bbData)renderBBChart(bbData,{closes:bbData.bufferedCloses});
   // Re-render volume chart for new span
   const _vt=currentTicker;
   // _vt and t are normally the same ticker (both driven by the same
@@ -1382,12 +1423,25 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
   if(hist&&hist.closes&&hist.closes.length>20){
     const closes=hist.closes.filter(c=>c!==null);const rsi=computeRSI(closes);
     rsiStr=rsi.length?rsi[rsi.length-1].toFixed(1):'N/A';
-    const sma20=closes.map((_,i)=>i<19?null:avg(closes.slice(i-19,i+1)));
-    const std20=closes.map((_,i)=>i<19?null:stdDev(closes.slice(i-19,i+1)));
-    const upper=sma20.map((s,i)=>s?s+2*std20[i]:null);const lower=sma20.map((s,i)=>s?s-2*std20[i]:null);
-    const last=closes.length-1;
-    bbStr=`SMA20 $${sma20[last]?.toFixed(2)} | Upper $${upper[last]?.toFixed(2)} | Lower $${lower[last]?.toFixed(2)}`;
-    bbData={timestamps:hist.timestamps,closes,sma20,upper,lower};
+    // Buffered BB computation (see _computeBBData) -- reads the raw
+    // hist2y_ cache directly by ticker rather than the hist2y parameter,
+    // since that parameter can be total-return/adjclose-based when the
+    // Relative Performance chart's TR toggle is on, which would silently
+    // feed adjusted prices into a standard technical indicator that
+    // should always use raw trading price. Falls back to the old
+    // unbuffered computation (a real, if minor, ~19-day gap up front)
+    // only if the raw cache isn't available for some reason.
+    const _rawH2=S.get('hist2y_'+snap.ticker);
+    if(_rawH2?.closes?.length){
+      bbData=_computeBBData(_rawH2,BB_SPAN_DAYS[currentBBSpan||'6m']);
+    }else{
+      const sma20=closes.map((_,i)=>i<19?null:avg(closes.slice(i-19,i+1)));
+      const std20=closes.map((_,i)=>i<19?null:stdDev(closes.slice(i-19,i+1)));
+      const upper=sma20.map((s,i)=>s?s+2*std20[i]:null);const lower=sma20.map((s,i)=>s?s-2*std20[i]:null);
+      bbData={timestamps:hist.timestamps,closes,sma20,upper,lower};
+    }
+    const last=bbData.closes.length-1;
+    bbStr=`SMA20 $${bbData.sma20[last]?.toFixed(2)} | Upper $${bbData.upper[last]?.toFixed(2)} | Lower $${bbData.lower[last]?.toFixed(2)}`;
   }
   const rsiVal=parseFloat(rsiStr);
   const rsiColor=rsiVal>=70?'var(--red)':rsiVal<=30?'var(--green)':'var(--text)';
@@ -1519,7 +1573,7 @@ return`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarke
     </div>
     ${earningsStr}
   </div>
-  ${hist?`<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;align-items:center"><span><span class="dot"></span>Bollinger Bands + RSI + Volume + HVR</span><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${getGapOverlayToggle()?'1':'0.4'}" id="bb-gap-toggle-btn" onclick="toggleGapOverlay()">Gaps</button></div><div style="display:flex;gap:6px;margin-bottom:4px"><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" id="bb-btn-6m" onclick="toggleBBSpan(\'6m\')">6M</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-1y" onclick="toggleBBSpan(\'1y\')">1Y</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-2y" onclick="toggleBBSpan(\'2y\')">2Y</button></div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div class="chart-wrap" style="height:70px;margin-top:4px"><canvas id="vol-chart"></canvas></div><div class="chart-wrap" style="height:60px;margin-top:4px"><canvas id="hvr-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility.
+  ${hist?`<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;align-items:center"><span><span class="dot"></span>Bollinger Bands + RSI + Volume + HVR</span><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:${getGapOverlayToggle()?'1':'0.4'}" id="bb-gap-toggle-btn" onclick="toggleGapOverlay()">Gaps</button></div><div style="display:flex;gap:6px;margin-bottom:4px"><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-1m" onclick="toggleBBSpan(\'1m\')">1M</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-3m" onclick="toggleBBSpan(\'3m\')">3M</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px" id="bb-btn-6m" onclick="toggleBBSpan(\'6m\')">6M</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-1y" onclick="toggleBBSpan(\'1y\')">1Y</button><button class="btn btn-secondary" style="font-size:10px;padding:2px 8px;opacity:0.4" id="bb-btn-2y" onclick="toggleBBSpan(\'2y\')">2Y</button></div><div class="chart-wrap" style="height:180px"><canvas id="bb-chart"></canvas></div><div class="chart-wrap" style="height:90px"><canvas id="rsi-chart"></canvas></div><div class="chart-wrap" style="height:70px;margin-top:4px"><canvas id="vol-chart"></canvas></div><div class="chart-wrap" style="height:60px;margin-top:4px"><canvas id="hvr-chart"></canvas></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px">${bbStr}</div><div class="commentary" style="margin-top:10px">Bollinger Bands: upper band touch = statistically extended, overbought. Lower band touch = oversold. Narrow bands signal compressed volatility.
 
 RSI (14): below 30 (green shading) = oversold, favorable for puts. Above 70 (red shading) = overbought, favorable for covered calls.
 
@@ -1535,7 +1589,7 @@ HVR (Historical Volatility Rank): where current 30-day realized volatility sits 
   ${snap.earningsTrend&&snap.earningsTrend.length?buildEarningsTrendCard(snap.earningsTrend):''}
   ${snap.earningsTrend&&snap.earningsTrend.length?_buildMultipleHistoryCard(snap.ticker):''}
   ${snap.recTrend&&snap.recTrend.length?buildRecTrendCard(snap.recTrend):''}`;
-  if(bbData)renderBBChart(bbData,hist);
+  if(bbData)renderBBChart(bbData,{closes:bbData.bufferedCloses||hist.closes});
   renderVolChart(hist,hist1y,hist2y,currentBBSpan||'6m',avgVol20);
   renderHVRChart(snap.ticker,currentBBSpan||'6m',hist2y);
   if(hist1y)renderVPChart(hist1y,snap.price,_w52h,_w52l);
@@ -1591,10 +1645,17 @@ function renderBBChart(bbData,hist){
   }
   const rsiCtx=document.getElementById('rsi-chart')?.getContext('2d');
   if(rsiCtx&&rsiVals.length>0){
-    const rsiLabels=labels.slice(labels.length-rsiVals.length);
-    const ob=rsiVals.map(v=>v>=70?v:null),os=rsiVals.map(v=>v<=30?v:null);
+    // rsiVals can now be LONGER than labels when hist carries lookback
+    // buffer (see _computeBBData/toggleBBSpan) -- the old assumption here
+    // was that rsiVals could only ever be shorter (computeRSI eating into
+    // an unbuffered window), so it only trimmed labels down to match.
+    // Handles both directions now: whichever side has extra gets trimmed
+    // to match the other, always keeping the most recent values.
+    const rsiTrimmed=rsiVals.length>labels.length?rsiVals.slice(rsiVals.length-labels.length):rsiVals;
+    const rsiLabels=rsiVals.length>labels.length?labels:labels.slice(labels.length-rsiVals.length);
+    const ob=rsiTrimmed.map(v=>v>=70?v:null),os=rsiTrimmed.map(v=>v<=30?v:null);
     if(window._rsiChart)window._rsiChart.destroy();
-    window._rsiChart=new Chart(rsiCtx,{type:'line',data:{labels:rsiLabels,datasets:[{data:ob,borderColor:'transparent',backgroundColor:'rgba(255,71,87,0.25)',fill:{target:{value:70},above:'rgba(255,71,87,0.25)',below:'transparent'},pointRadius:0,tension:0.2,spanGaps:false},{data:os,borderColor:'transparent',backgroundColor:'rgba(0,200,150,0.25)',fill:{target:{value:30},above:'transparent',below:'rgba(0,200,150,0.25)'},pointRadius:0,tension:0.2,spanGaps:false},{label:'RSI',data:rsiVals,borderColor:'#7c6af7',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{display:false},grid:{color:'#2a2e38'}},y:{min:0,max:100,ticks:{color:'#555870',font:{size:9},stepSize:30},grid:{color:'#2a2e38'}}}},plugins:[{id:'rsiLines',afterDraw(chart){const c=chart.ctx,x=chart.scales.x,y=chart.scales.y;const y70=y.getPixelForValue(70),y30=y.getPixelForValue(30);c.save();c.setLineDash([4,3]);c.lineWidth=1;c.strokeStyle='rgba(255,71,87,0.7)';c.beginPath();c.moveTo(x.left,y70);c.lineTo(x.right,y70);c.stroke();c.strokeStyle='rgba(0,200,150,0.7)';c.beginPath();c.moveTo(x.left,y30);c.lineTo(x.right,y30);c.stroke();c.setLineDash([]);c.font='9px DM Mono,monospace';c.fillStyle='rgba(255,71,87,0.9)';c.fillText('70',x.right+3,y70+3);c.fillStyle='rgba(0,200,150,0.9)';c.fillText('30',x.right+3,y30+3);c.restore();}}]});
+    window._rsiChart=new Chart(rsiCtx,{type:'line',data:{labels:rsiLabels,datasets:[{data:ob,borderColor:'transparent',backgroundColor:'rgba(255,71,87,0.25)',fill:{target:{value:70},above:'rgba(255,71,87,0.25)',below:'transparent'},pointRadius:0,tension:0.2,spanGaps:false},{data:os,borderColor:'transparent',backgroundColor:'rgba(0,200,150,0.25)',fill:{target:{value:30},above:'transparent',below:'rgba(0,200,150,0.25)'},pointRadius:0,tension:0.2,spanGaps:false},{label:'RSI',data:rsiTrimmed,borderColor:'#7c6af7',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{display:false},grid:{color:'#2a2e38'}},y:{min:0,max:100,ticks:{color:'#555870',font:{size:9},stepSize:30},grid:{color:'#2a2e38'}}}},plugins:[{id:'rsiLines',afterDraw(chart){const c=chart.ctx,x=chart.scales.x,y=chart.scales.y;const y70=y.getPixelForValue(70),y30=y.getPixelForValue(30);c.save();c.setLineDash([4,3]);c.lineWidth=1;c.strokeStyle='rgba(255,71,87,0.7)';c.beginPath();c.moveTo(x.left,y70);c.lineTo(x.right,y70);c.stroke();c.strokeStyle='rgba(0,200,150,0.7)';c.beginPath();c.moveTo(x.left,y30);c.lineTo(x.right,y30);c.stroke();c.setLineDash([]);c.font='9px DM Mono,monospace';c.fillStyle='rgba(255,71,87,0.9)';c.fillText('70',x.right+3,y70+3);c.fillStyle='rgba(0,200,150,0.9)';c.fillText('30',x.right+3,y30+3);c.restore();}}]});
   }
 }
 
@@ -2513,6 +2574,20 @@ function renderVolChart(hist6m,hist1y,hist2y,span,avgVol20){
       if(!(d instanceof Date))d=new Date(typeof d==='number'&&d<1e10?d*1000:d);
       return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
     });
+  }else if((span==='3m'||span==='1m')&&hist6m?.volumes?.length){
+    // 1M/3M -- both fit comfortably within hist6m's 126-day window, so no
+    // separately pre-built object is needed, just a shorter slice of it.
+    // Previously these two spans had no explicit branch at all and fell
+    // through to the plain "else" below, which always sliced 126 days
+    // regardless of what was actually requested -- a real, silent bug,
+    // not just a missing feature.
+    const n=span==='3m'?63:21;
+    vols=hist6m.volumes.slice(-n);
+    labels=hist6m.timestamps.slice(-n).map(d=>{
+      if(d instanceof Date)return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      const ms=typeof d==='number'&&d<1e10?d*1000:d;
+      return new Date(ms).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    });
   }else if(hist6m?.volumes?.length){
     // 6M -- use last 126 bars
     vols=hist6m.volumes.slice(-126);
@@ -2574,8 +2649,10 @@ function renderHVRChart(ticker,span,preloadedHist2y){
   const series=computeHVRSeries(ticker,preloadedHist2y);
   if(!series||!series.values.length)return;
 
-  // Slice to match span
-  const n=span==='2y'?series.values.length:span==='1y'?252:126;
+  // Slice to match span -- HVR's own lookback is already computed over
+  // the full cache inside computeHVRSeries, so extending this ternary is
+  // all that's needed; unlike BB/RSI/Volume, no buffering fix required.
+  const n=span==='2y'?series.values.length:span==='1y'?252:span==='3m'?63:span==='1m'?21:126;
   const start=Math.max(0,series.values.length-n);
   const vals=series.values.slice(start);
   const tss=series.timestamps.slice(start);
@@ -3030,4 +3107,4 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
-    
+                                        

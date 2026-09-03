@@ -605,6 +605,15 @@ function _buildExportData(){
       const v=S.get(_k);
       if(v!=null&&(!Array.isArray(v)||v.length>0))data.keys[_k]=v;
     }
+    // Next-FY Multiple & Price Target: same reasoning as Multiple History
+    // above -- Yahoo has no historical forward-estimate endpoint, so
+    // nextfy_hist_ (permanent, one full series per completed fiscal year)
+    // and nextfy_track_ (the in-flight current-year series) are both
+    // genuinely irreplaceable if lost.
+    if(_k.startsWith('nextfy_hist_')||_k.startsWith('nextfy_track_')){
+      const v=S.get(_k);
+      if(v!=null&&(!Array.isArray(v)||v.length>0))data.keys[_k]=v;
+    }
     // All per-account income keys: income_ACCTID_*
     if(_k.startsWith('income_acct_')){
       const v=S.get(_k);

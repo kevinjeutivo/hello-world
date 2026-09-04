@@ -827,13 +827,14 @@ function renderWatchlist(){
     const volBadge=_volBadgeHtml(_checkVolumeBadge(t));
     const ivrBadge=_ivrBadgeHtml(t);
     const rsiTransBadge=_rsiTransitionBadgeHtml(t);
+    const distBadge=_distBadgeHtml(t);
     const gapBadge=_gapBadgeHtml(t);
     const note=S.get('watchlist_note_'+t)||'';
     const expanded=_expandedNotes.has(t);
     return '<div class="watchlist-item" style="flex-direction:column;align-items:stretch;'+bgStyle+'" onclick="navigateToTicker(\''+t+'\')">'+
       '<div style="display:flex;align-items:center;justify-content:space-between;width:100%">'+
         '<div style="min-width:0;flex-shrink:1">'+
-          '<div class="watchlist-ticker">'+t+ivrBadge+volBadge+'</div>'+
+          '<div class="watchlist-ticker">'+t+ivrBadge+volBadge+distBadge+'</div>'+
           (c?'<div class="watchlist-ts">'+c.ts+(age?' ('+age+')':'')+'</div>':'')+
         '</div>'+
         '<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:0 8px">'+

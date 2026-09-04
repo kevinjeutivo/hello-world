@@ -8,6 +8,23 @@ function _tkTimeout(p,ms,label){return Promise.race([p,new Promise((_,rej)=>setT
 // closures here had three slightly different (one incomplete) versions
 // of this same check.
 function _tkDateStr(d){const parsed=_parseHist2yDate(d);return parsed?parsed.toISOString().split('T')[0]:null;}
+
+// Yahoo's dividendYield/trailingAnnualDividendYield fields are
+// inconsistently formatted across different tickers -- most return a
+// decimal fraction (0.025 = 2.5%), but some (observed: VXUS) return an
+// already-computed percentage (2.51 meaning 2.51%), which an unconditional
+// *100 conversion then doubles into a nonsensical number (251.00%). No
+// real security's raw decimal yield is ever remotely close to 100%, so a
+// raw value above 1 is treated as already being a percentage rather than
+// multiplied further. A second, looser safety net (30%) catches whatever
+// this doesn't anticipate -- an implausible result is shown as
+// unavailable rather than a wrong-looking number, since this feeds real
+// income-strategy decisions, not just a cosmetic display.
+function _normalizeDividendYield(raw){
+  if(raw==null)return null;
+  const pct=raw>1?raw:raw*100;
+  return pct<=30?pct:null;
+}
 // Ticker tab: load, render, restore from cache, chart functions.
 // Globals used: currentTicker, WORKER_URL, S, offlineMode
 // Dependencies: helpers.js, api.js, storage.js
@@ -102,7 +119,7 @@ async function loadTicker(){
         peRatio:ah.peRatio||null,
         peForward:ah.forwardPE||null,
         epsTTM:ah.trailingEps||null,
-        dividendYield:ah.dividendYield!=null?ah.dividendYield*100:null, // convert decimal→%
+        dividendYield:_normalizeDividendYield(ah.dividendYield), // handles Yahoo's inconsistent decimal-vs-percentage units
         marketState:_pmFields.marketState,
         intradayVolume:ah.intradayVolume||null,
         postMarketPrice:_pmFields.postMarketPrice,
@@ -1843,7 +1860,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
     </div>`;
   }
   el.innerHTML=`<div class="card">
-    <div class="card-title"><span class="dot"></span>${snap.ticker} -- ${snap.name} <span id="ticker-star-icon" data-ticker="${snap.ticker}" style="flex-shrink:0">${_starIconHtml(snap.ticker,15)}</span></div>
+    <div class="card-title"><span class="dot"></span>${snap.ticker} -- ${snap.name} <span id="ticker-star-icon" data-ticker="${snap.ticker}" style="flex-shrink:0">${_starIconHtml(snap.ticker,15)}</span>${_distBadgeHtml(snap.ticker)}</div>
     ${tsChip(snap.ts,isLive,snap.tsEpoch)}
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><span style="font-family:var(--mono);font-size:28px;font-weight:500">$${snap.price?.toFixed(2)||'N/A'}</span>${_sparklineHtml(snap.ticker)}</div>
     <div style="font-family:var(--mono);font-size:13px;color:${chgColor};margin-bottom:6px">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>
@@ -3245,7 +3262,7 @@ async function refreshSingleTicker(){
       peRatio:ah.peRatio||null,
       peForward:ah.forwardPE||null,
       epsTTM:ah.trailingEps||null,
-      dividendYield:ah.dividendYield!=null?ah.dividendYield*100:null,
+      dividendYield:_normalizeDividendYield(ah.dividendYield),
       marketState:_rPmFields.marketState,
       intradayVolume:ah.intradayVolume||null,
       postMarketPrice:_rPmFields.postMarketPrice,
@@ -3435,4 +3452,3 @@ async function refreshSingleTicker(){
     setTimeout(()=>{prog.style.display='none';bar.style.width='0%';},2000);
   }
 }
-        

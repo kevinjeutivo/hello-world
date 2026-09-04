@@ -3,6 +3,63 @@
 // Globals used: WORKER_URL, S
 // Dependencies: helpers.js, storage.js
 
+// Hardcoded income-ETF tracking list -- was previously only an inline
+// literal inside loadETFTab() below, meaning no other file could check
+// "is this ticker one of the ones the ETF tab tracks" without duplicating
+// the list (and risking drift if a third one is ever added). Extracted
+// here as the single source of truth; loadETFTab() below now references
+// it instead of its own copy.
+const HARDCODED_ETF_TICKERS=['SPYI','NBOS'];
+const HARDCODED_ETF_META={
+  SPYI:{name:'NEOS S&P 500 High Income ETF',strategy:'Covered calls on S&P 500 components. Targets high monthly income while maintaining equity-like upside participation. Monthly distributions.',color:'#00d4aa'},
+  NBOS:{name:'Neuberger Berman Options Strategy Fund',strategy:'Put-write strategy that sells cash-secured puts on broad equity indices to generate option premium income. Monthly distributions. Retains more upside participation than covered-call funds.',color:'#ff6b35'}
+};
+
+// Recent-distribution lookup, shared by every surface that shows a ticker
+// card (Watchlist, Dashboard, Ticker page, and the ETF tab's own cards).
+// Only returns data for a ticker the ETF tab actually tracks -- either
+// hardcoded above, or user-added to the sandbox (etf_research_tickers) --
+// since that's the only condition under which distribution data is ever
+// fetched at all (the regular per-ticker watchlist refresh never touches
+// it). Returns {date, daysSince} for the most recent distribution, or
+// null if the ticker isn't tracked or has no cached distribution data yet.
+function _getRecentDistribution(ticker){
+  const isHardcoded=HARDCODED_ETF_TICKERS.includes(ticker);
+  const isSandbox=(S.get('etf_research_tickers')||[]).includes(ticker);
+  if(!isHardcoded&&!isSandbox)return null;
+  let distributions=null;
+  if(isHardcoded){
+    distributions=S.get('div_etf_'+ticker)?.distributions||null;
+  }else{
+    distributions=S.get('etf_research_'+ticker)?.distributions||null;
+  }
+  if(!distributions?.length)return null;
+  // Both caches sort most-recent-first already, but re-sort defensively
+  // rather than assume -- cheap, and protects against this helper being
+  // called against a cache shape that changes later.
+  const sorted=distributions.filter(d=>d?.date).slice().sort((a,b)=>b.date.localeCompare(a.date));
+  if(!sorted.length)return null;
+  const mostRecent=sorted[0].date;
+  const daysSince=Math.round((Date.now()-new Date(mostRecent+'T12:00:00Z').getTime())/86400000);
+  return{date:mostRecent,daysSince};
+}
+
+// Compact badge, same visual convention as _ivrBadgeHtml/_volBadgeHtml
+// (small colored pill, inline next to a ticker symbol). Only renders
+// within a "still a fresh entry candidate" window -- roughly a third of a
+// typical monthly distribution cycle -- past that, showing "18d ago" adds
+// clutter without adding decision-relevant signal for the specific
+// buy-soon-after-distribution pattern this exists to surface.
+const _DIST_BADGE_WINDOW_DAYS=10;
+function _distBadgeHtml(ticker){
+  const rec=_getRecentDistribution(ticker);
+  if(!rec||rec.daysSince<0||rec.daysSince>_DIST_BADGE_WINDOW_DAYS)return'';
+  return'<span style="display:inline-flex;align-items:center;gap:2px;background:rgba(0,212,170,0.85);'
+    +'color:#0a0b0f;font-family:var(--mono);font-size:9px;font-weight:700;'
+    +'padding:2px 5px;border-radius:4px;margin-left:5px;vertical-align:middle;'
+    +'letter-spacing:0.3px" title="Distribution paid '+rec.date+'">Ex-div '+rec.daysSince+'d</span>';
+}
+
 function renderEtfChart(ticker,color,labels,data,totalReturn){
   const ctx=document.getElementById('etf-chart-'+ticker)?.getContext('2d');
   if(!ctx||!labels||!labels.length)return;
@@ -110,10 +167,7 @@ async function loadETFTab(){
   const el=document.getElementById('etf-content');
   el.innerHTML='<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading ETF data...</div></div>';
   const etfChartQueue=[];
-  const etfs=[
-    {ticker:'SPYI',name:'NEOS S&P 500 High Income ETF',strategy:'Covered calls on S&P 500 components. Targets high monthly income while maintaining equity-like upside participation. Monthly distributions.',color:'#00d4aa'},
-    {ticker:'NBOS',name:'Neuberger Berman Options Strategy Fund',strategy:'Put-write strategy that sells cash-secured puts on broad equity indices to generate option premium income. Monthly distributions. Retains more upside participation than covered-call funds.',color:'#ff6b35'}
-  ];
+  const etfs=HARDCODED_ETF_TICKERS.map(t=>({ticker:t,...HARDCODED_ETF_META[t]}));
   let html='';
   for(const etf of etfs){
     try{
@@ -188,7 +242,7 @@ async function loadETFTab(){
       const chgSign=snap?(snap.change>=0?'+':''):'';
       html+=`<div class="card" style="border-left:4px solid ${etf.color}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
-          <div><div style="font-family:var(--sans);font-size:20px;font-weight:700;color:${etf.color}">${etf.ticker}</div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px">${etf.name}</div></div>
+          <div><div style="font-family:var(--sans);font-size:20px;font-weight:700;color:${etf.color}">${etf.ticker}${_distBadgeHtml(etf.ticker)}</div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px">${etf.name}</div></div>
           <div style="text-align:right">${snap?`<div style="font-family:var(--mono);font-size:18px;font-weight:500">$${snap.price.toFixed(2)}</div><div style="font-family:var(--mono);font-size:11px;color:${chgColor}">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>`:'<div style="font-family:var(--mono);color:var(--text3)">No data</div>'}</div>
         </div>
         ${tsChip(snap?.ts||'',isLive,snap?.tsEpoch)}
@@ -516,7 +570,7 @@ function _sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,isLive,fun
     </div>
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
       <div>
-        <div style="font-family:var(--sans);font-size:20px;font-weight:700;color:${color}">${ticker}</div>
+        <div style="font-family:var(--sans);font-size:20px;font-weight:700;color:${color}">${ticker}${_distBadgeHtml(ticker)}</div>
         <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px">${fundName!==ticker?fundName:''}</div>
       </div>
       <div style="text-align:right">

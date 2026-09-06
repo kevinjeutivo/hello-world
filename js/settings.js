@@ -984,6 +984,22 @@ function openRefreshHealthModal(){
   const allOk=ok===total;
   const elapsed=h.elapsedLabel||null;
 
+  // Timing instrumentation -- temporary, added to answer a specific
+  // question (is news on Finnhub's slow tier like earnings/upgrades, or
+  // its fast tier?) before deciding whether to throttle it too. Shown
+  // only when present, so this doesn't clutter the modal once removed.
+  const ts=h.timingSummary;
+  const _fmtTiming=(label,stat)=>stat?'<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">'+label+'</span><span style="color:var(--text3)">avg '+stat.avg+'ms &middot; '+stat.min+'-'+stat.max+'ms &middot; n='+stat.n+'</span></div>':'';
+  const timingHtml=ts&&(ts.earnings||ts.upgrades||ts.news||ts.yahooBatch)
+    ?'<div style="font-family:var(--mono);font-size:10px;background:var(--surface2);border-radius:6px;padding:8px;margin-bottom:10px">'
+     +'<div style="color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;font-size:9px;margin-bottom:4px">Endpoint timing (this run)</div>'
+     +_fmtTiming('Finnhub earnings',ts.earnings)
+     +_fmtTiming('Finnhub upgrades',ts.upgrades)
+     +_fmtTiming('Finnhub news',ts.news)
+     +_fmtTiming('Yahoo batch (whole)',ts.yahooBatch)
+     +'</div>'
+    :'';
+
   const tickerRows=Object.entries(h.tickers||{}).map(([t,v])=>{
     const coreOk=v.snap&&v.hist&&v.finnhub;
     const isDegraded=coreOk&&v.summaryDegraded;
@@ -1016,6 +1032,7 @@ function openRefreshHealthModal(){
       Completed: ${h.completedTs||h.ts||'unknown'}${elapsed?' &nbsp;·&nbsp; <span style="color:var(--text2)">'+elapsed+'</span>':''}<br>
       Result: <span style="color:${allOk?'var(--green)':'var(--warn)'}">${ok}/${total} tickers fully refreshed</span>${degraded.length?'<br>Valuation data (sector/beta/PEG/price targets) stale on <span style="color:#64b5f6">'+degraded.length+' ticker'+(degraded.length===1?'':'s')+'</span> -- quoteSummary failed as a whole for those, so nothing on this run was mixed fresh/stale within a single ticker.':''}
     </div>
+    ${timingHtml}
     ${allOk?'':`<button class="btn btn-secondary" id="retry-failed-btn" style="width:100%;margin-bottom:10px" onclick="retryFailedTickers()">&#x21BB; Retry ${failed.length} Failed</button>`}
     <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">Tap any row to jump to that ticker</div>
     <div style="margin-bottom:12px">${tickerRows}</div>

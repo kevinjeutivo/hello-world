@@ -803,6 +803,9 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   // Skipped entirely (no future zone drawn) if neither is available.
   const boundaryDate=snap?.earningsDate||nearestGroup?.targetQuarterEnd||null;
   const futureLabel=(boundaryDate&&nowLabel&&boundaryDate>nowLabel)?boundaryDate:null;
+  // Computed once, early, so both the slider's text and the chart's
+  // boundary marker can reference the same value without ordering issues.
+  const boundaryDateLabel=futureLabel?new Date(futureLabel+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):null;
 
   // The chart uses a category (equally-spaced) x-axis, same as every other
   // chart in this app -- fine for dense daily data, but a SINGLE label
@@ -968,7 +971,7 @@ function _renderMultipleHistoryChart(ticker,hist2y){
       sliderEl.innerHTML=
         '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:6px">Drag to see the price at a different multiple -- this quarter\'s earnings estimate stays fixed.</div>'
         +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">'
-        +'<span style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">What-if: multiple at next report</span>'
+        +'<span style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">What-if: multiple at next report ('+boundaryDateLabel+')</span>'
         +'<span id="mh-slider-label" style="font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600">'+defaultSliderVal.toFixed(1)+'x &rarr; $'+defaultTargetPrice.toFixed(2)+'</span>'
         +'</div>'
         +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">Fwd qtr EPS (est.): $'+(currentQuarterlyEps!=null?currentQuarterlyEps.toFixed(2):'N/A')+' &middot; TTM-basis EPS held constant: $'+currentEps.toFixed(2)+'</div>'
@@ -990,10 +993,7 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   if(window._mhMultChart)window._mhMultChart.destroy();
 
   const dispLabels=labels.map(d=>{const dt=new Date(d);return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'});});
-  // Formatted once here (not per-frame) -- the boundary marker below draws
-  // this same string on every afterDraw call, but the date itself is fixed
-  // for the life of this render, so no reason to reformat it repeatedly.
-  const boundaryDateLabel=futureIdx>=0&&boundaryDate?new Date(boundaryDate+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):null;
+  // (boundaryDateLabel computed earlier, alongside boundaryDate/futureLabel)
 
   // "Now" marker -- a gentle vertical reference line shared by both panels
   // so it's obvious, at a glance, where real data ends and the flat
@@ -1029,7 +1029,7 @@ function _renderMultipleHistoryChart(ticker,hist2y){
         c.beginPath();c.moveTo(bxPx,ys.top);c.lineTo(bxPx,ys.bottom);c.stroke();
         c.setLineDash([]);
         c.textAlign='right';
-        c.fillText(boundaryDateLabel,bxPx-4,ys.top+20);
+        c.fillText(boundaryDateLabel,bxPx-4,ys.top+38);
       }
       c.restore();
     }
@@ -1201,6 +1201,7 @@ function _renderNextFYChart(ticker,hist2y){
 
   const boundaryDate=track?.targetFYEnd||null;
   const futureLabel=(boundaryDate&&nowLabel&&boundaryDate>nowLabel)?boundaryDate:null;
+  const boundaryDateLabel=futureLabel?new Date(futureLabel+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):null;
   let futureLabels=[];
   if(futureLabel&&nowLabel){
     const start=new Date(nowLabel+'T12:00:00Z'),end=new Date(futureLabel+'T12:00:00Z');
@@ -1280,7 +1281,7 @@ function _renderNextFYChart(ticker,hist2y){
       sliderEl.innerHTML=
         '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:6px">Drag to see the price at a different multiple -- next-FY earnings estimate stays fixed.</div>'
         +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">'
-        +'<span style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">What-if: multiple at fiscal year-end</span>'
+        +'<span style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">What-if: multiple at fiscal year-end ('+boundaryDateLabel+')</span>'
         +'<span id="nextfy-slider-label" style="font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600">'+defaultSliderVal.toFixed(1)+'x &rarr; $'+defaultTargetPrice.toFixed(2)+'</span>'
         +'</div>'
         +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">Next-FY EPS (est.), held constant: $'+currentEps.toFixed(2)+'</div>'
@@ -1302,7 +1303,7 @@ function _renderNextFYChart(ticker,hist2y){
   if(window._nextfyMultChart)window._nextfyMultChart.destroy();
 
   const dispLabels=labels.map(d=>{const dt=new Date(d);return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'});});
-  const boundaryDateLabel=futureIdx>=0&&boundaryDate?new Date(boundaryDate+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):null;
+  // (boundaryDateLabel computed earlier, alongside boundaryDate/futureLabel)
 
   const _nextfyNowLinePlugin={
     id:'nextfyNowLine',
@@ -1326,7 +1327,7 @@ function _renderNextFYChart(ticker,hist2y){
         c.beginPath();c.moveTo(bxPx,ys.top);c.lineTo(bxPx,ys.bottom);c.stroke();
         c.setLineDash([]);
         c.textAlign='right';
-        c.fillText(boundaryDateLabel,bxPx-4,ys.top+20);
+        c.fillText(boundaryDateLabel,bxPx-4,ys.top+38);
       }
       c.restore();
     }

@@ -725,8 +725,14 @@ function _buildMultipleHistoryCard(ticker){
     +'<span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Raw data (for verification)</span>'
     +'<span class="gs-chevron" id="mh-debug-chevron">&#9658;</span>'
     +'</div>';
+  const legendHtml=hasAny
+    ?'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">'
+     +'<span style="border-bottom:2px solid var(--accent);padding-bottom:1px">&nbsp;&nbsp;&nbsp;</span> Actual/tracked'
+     +'&nbsp;&nbsp;&nbsp;<span style="border-bottom:2px dashed var(--text3);padding-bottom:1px">&nbsp;&nbsp;&nbsp;</span> Projected'
+     +'</div>'
+    :'';
   const body=hasAny
-    ?'<div class="chart-wrap" style="height:140px"><canvas id="mh-price-chart"></canvas></div>'
+    ?legendHtml+'<div class="chart-wrap" style="height:140px"><canvas id="mh-price-chart"></canvas></div>'
      +'<div class="chart-wrap" style="height:140px;margin-top:4px"><canvas id="mh-mult-chart"></canvas></div>'
      +'<div id="mh-slider-container" style="margin-top:10px"></div>'
      +'<div class="commentary" style="margin-top:10px">One continuous multiple line: realized TTM P/E from past earnings reports, switching seamlessly to the current quarter\'s forward-estimate basis (still trailing-twelve-month, so no visual seam) as it develops. Solid = known or currently tracked. Dashed, past the "now" line = a projection -- drag the slider above to explore what price a different multiple implies at the next report, holding this quarter\'s EPS estimate fixed. Deliberately NOT the same figure as the "P/E (Forward)" tile above, which uses Yahoo\'s own next-fiscal-year estimate (a different, purely forward basis) -- the two numbers will often differ, sometimes by a lot for a fast-growing stock. Tap a point for whether it\'s realized, estimated, or projected.</div>'
@@ -752,7 +758,9 @@ function _buildMultipleHistoryCard(ticker){
          +'multiple_hist_'+ticker+': '+JSON.stringify(perm)+'</div>';
      })()
      +'</div>';
-  return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent)"></span>Multiple History (TTM &amp; Forward P/E)</div>'+body+'</div>';
+  return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent)"></span>Multiple History (TTM &amp; Forward P/E)</div>'
+    +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">TTM-composite basis -- trailing quarters + this quarter\'s estimate</div>'
+    +body+'</div>';
 }
 
 // Simple show/hide toggle for the Multiple History card's raw-data section
@@ -958,7 +966,8 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   if(sliderEl){
     if(sliderApplicable){
       sliderEl.innerHTML=
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">'
+        '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:6px">Drag to see the price at a different multiple -- this quarter\'s earnings estimate stays fixed.</div>'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">'
         +'<span style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">What-if: multiple at next report</span>'
         +'<span id="mh-slider-label" style="font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600">'+defaultSliderVal.toFixed(1)+'x &rarr; $'+defaultTargetPrice.toFixed(2)+'</span>'
         +'</div>'
@@ -981,6 +990,10 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   if(window._mhMultChart)window._mhMultChart.destroy();
 
   const dispLabels=labels.map(d=>{const dt=new Date(d);return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'});});
+  // Formatted once here (not per-frame) -- the boundary marker below draws
+  // this same string on every afterDraw call, but the date itself is fixed
+  // for the life of this render, so no reason to reformat it repeatedly.
+  const boundaryDateLabel=futureIdx>=0&&boundaryDate?new Date(boundaryDate+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):null;
 
   // "Now" marker -- a gentle vertical reference line shared by both panels
   // so it's obvious, at a glance, where real data ends and the flat
@@ -1004,6 +1017,20 @@ function _renderMultipleHistoryChart(ticker,hist2y){
       // rightmost label.
       if(xs.right-xPx<24){c.textAlign='right';c.fillText('now',xPx-4,ys.top+9);}
       else{c.textAlign='left';c.fillText('now',xPx+3,ys.top+9);}
+      // Boundary-date marker at the right edge, mirroring "now" on the
+      // opposite end of the projected segment -- states explicitly what
+      // calendar date the chart's right edge represents, rather than
+      // leaving it to be inferred from the auto-generated x-axis ticks
+      // (maxTicksLimit thins them out, and isn't guaranteed to land
+      // exactly on this specific date).
+      if(boundaryDateLabel){
+        const bxPx=xs.getPixelForValue(futureIdx);
+        c.setLineDash([3,3]);c.strokeStyle='rgba(139,143,168,0.35)';
+        c.beginPath();c.moveTo(bxPx,ys.top);c.lineTo(bxPx,ys.bottom);c.stroke();
+        c.setLineDash([]);
+        c.textAlign='right';
+        c.fillText(boundaryDateLabel,bxPx-4,ys.top+20);
+      }
       c.restore();
     }
   };
@@ -1119,8 +1146,14 @@ function _buildNextFYCard(ticker){
     +'<span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Raw data (for verification)</span>'
     +'<span class="gs-chevron" id="nextfy-debug-chevron">&#9658;</span>'
     +'</div>';
+  const legendHtml=hasAny
+    ?'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">'
+     +'<span style="border-bottom:2px solid var(--accent2);padding-bottom:1px">&nbsp;&nbsp;&nbsp;</span> Actual/tracked'
+     +'&nbsp;&nbsp;&nbsp;<span style="border-bottom:2px dashed var(--text3);padding-bottom:1px">&nbsp;&nbsp;&nbsp;</span> Projected'
+     +'</div>'
+    :'';
   const body=hasAny
-    ?'<div class="chart-wrap" style="height:140px"><canvas id="nextfy-price-chart"></canvas></div>'
+    ?legendHtml+'<div class="chart-wrap" style="height:140px"><canvas id="nextfy-price-chart"></canvas></div>'
      +'<div class="chart-wrap" style="height:140px;margin-top:4px"><canvas id="nextfy-mult-chart"></canvas></div>'
      +'<div id="nextfy-slider-container" style="margin-top:10px"></div>'
      +'<div class="commentary" style="margin-top:10px">Price divided by next fiscal year\'s consensus EPS estimate -- the mainstream "next year\'s earnings multiple" figure most analyst coverage actually means, deliberately kept separate from the TTM-composite basis in the Multiple History card above (a different metric, not another view of the same one). Drag the slider to explore what price a different multiple implies by fiscal year-end, holding the next-FY EPS estimate fixed. Rolls to a new fiscal year automatically once this one\'s "+1y" target advances, archiving the prior year\'s full tracked series permanently.</div>'
@@ -1140,7 +1173,9 @@ function _buildNextFYCard(ticker){
          +'nextfy_hist_'+ticker+': '+JSON.stringify(hist)+'</div>';
      })()
      +'</div>';
-  return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Next-FY Multiple &amp; Price Target</div>'+body+'</div>';
+  return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Next-FY Multiple &amp; Price Target</div>'
+    +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">Next fiscal year basis -- the figure most analyst coverage means by "next year\'s multiple"</div>'
+    +body+'</div>';
 }
 
 function _nextFYToggleDebug(){
@@ -1243,7 +1278,8 @@ function _renderNextFYChart(ticker,hist2y){
   if(sliderEl){
     if(sliderApplicable){
       sliderEl.innerHTML=
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">'
+        '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:6px">Drag to see the price at a different multiple -- next-FY earnings estimate stays fixed.</div>'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">'
         +'<span style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">What-if: multiple at fiscal year-end</span>'
         +'<span id="nextfy-slider-label" style="font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600">'+defaultSliderVal.toFixed(1)+'x &rarr; $'+defaultTargetPrice.toFixed(2)+'</span>'
         +'</div>'
@@ -1266,6 +1302,7 @@ function _renderNextFYChart(ticker,hist2y){
   if(window._nextfyMultChart)window._nextfyMultChart.destroy();
 
   const dispLabels=labels.map(d=>{const dt=new Date(d);return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'});});
+  const boundaryDateLabel=futureIdx>=0&&boundaryDate?new Date(boundaryDate+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):null;
 
   const _nextfyNowLinePlugin={
     id:'nextfyNowLine',
@@ -1280,6 +1317,17 @@ function _renderNextFYChart(ticker,hist2y){
       c.font='8px DM Mono,monospace';c.fillStyle='rgba(139,143,168,0.6)';
       if(xs.right-xPx<24){c.textAlign='right';c.fillText('now',xPx-4,ys.top+9);}
       else{c.textAlign='left';c.fillText('now',xPx+3,ys.top+9);}
+      // Boundary-date marker at the fiscal year-end, mirroring "now" on
+      // the opposite end -- states explicitly which date the right edge
+      // represents, rather than leaving it to auto-generated axis ticks.
+      if(boundaryDateLabel){
+        const bxPx=xs.getPixelForValue(futureIdx);
+        c.setLineDash([3,3]);c.strokeStyle='rgba(139,143,168,0.35)';
+        c.beginPath();c.moveTo(bxPx,ys.top);c.lineTo(bxPx,ys.bottom);c.stroke();
+        c.setLineDash([]);
+        c.textAlign='right';
+        c.fillText(boundaryDateLabel,bxPx-4,ys.top+20);
+      }
       c.restore();
     }
   };

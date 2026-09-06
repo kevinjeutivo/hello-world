@@ -38,6 +38,13 @@ async function prefetchAll(){
   // Initialize health record
   const _pfStartMs=Date.now();
   const _health={ts:nowPT(),tickers:{},global:{}};
+  // Timing instrumentation -- temporary, for measuring whether news is
+  // ALSO on Finnhub's slow backend tier (like earnings/upgrades) or its
+  // fast tier (like quote/candle), before deciding whether throttling
+  // news the same way earnings will be throttled is even worth doing.
+  // Kept lightweight (just push a duration number per call) so it can
+  // stay in place without meaningfully affecting the run it's measuring.
+  const _timing={earnings:[],upgrades:[],news:[],yahooBatch:[]};
   const _pfSleepMs=parseInt(S.get('prefetch_sleep_ms'))||100;
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];if(barEl)barEl.style.width=Math.round((i/watchlist.length)*100)+'%';if(labelEl)labelEl.textContent=`Fetching ${t} (${i+1}/${watchlist.length})...`;
@@ -61,17 +68,22 @@ async function prefetchAll(){
       // the same instant is the likely cause of the intermittent 403s seen during
       // prefetch, not inter-ticker timing (raising the inter-ticker sleep didn't
       // help, which pointed away from a rate-limit explanation).
+      const _yahooBatchStart=Date.now();
       const _yahooBatch=Promise.all([
         _pfTimeout(fetchAfterHoursPrice(t),10000,t+' Yahoo quote').catch(()=>null),
         _pfTimeout(fetchQuoteSummary(t),10000,t+' quoteSummary').catch(()=>null),
         _pfTimeout(yahooHistory(t,'2y','1d'),15000,t+' hist2y').catch(e=>{console.warn('hist2y failed:',t,e?.message);return null;}),
         _pfTimeout(yahooOptionsViaProxy(t),15000,t+' options').catch(e=>{console.warn('options failed:',t,e?.message);return null;}),
         _pfTimeout(yahooHistory(t,'1d','5m'),10000,t+' intraday').catch(e=>{console.warn('intraday failed:',t,e?.message);return null;})
-      ]);
+      ]).then(r=>{_timing.yahooBatch.push(Date.now()-_yahooBatchStart);return r;});
       let _earningsErr=null,_upgradesErr=null;
       const _finnhubSeq=(async()=>{
+        const _t0=Date.now();
         const _e=await _pfTimeout(fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),10000,t+' earnings').catch(e=>{_earningsErr=e?.message||'failed';return null;});
+        _timing.earnings.push(Date.now()-_t0);
+        const _t1=Date.now();
         const _u=_needUpgrades?await _pfTimeout(fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`),8000,t+' upgrades').catch(e=>{_upgradesErr=e?.message||'failed';return null;}):null;
+        if(_needUpgrades)_timing.upgrades.push(Date.now()-_t1);
         return[_e,_u];
       })();
       const [[_ahQ,_qs,_h2res,_optsRes,_idRes],[_earningsRes,upgrades2]]=await Promise.all([_yahooBatch,_finnhubSeq]);
@@ -211,7 +223,7 @@ async function prefetchAll(){
           }
         });
     }
-    try{const news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}
+    {const _tNews=Date.now();try{const news=await fetchNews(t);_timing.news.push(Date.now()-_tNews);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}}
     if(i<watchlist.length-1)await sleep(_pfSleepMs);
   }
   try{const[vh,v3h]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vh.timestamps.map(d=>d.toISOString()),closes:vh.closes,ts:nowPT()});S.set('vix3m_hist',{timestamps:v3h.timestamps.map(d=>d.toISOString()),closes:v3h.closes,ts:nowPT()});const vc=vh.closes.filter(c=>c!==null);updateVIXIndicator(vc[vc.length-1]);}catch{}
@@ -260,6 +272,21 @@ async function prefetchAll(){
   // came back from a previous fetch, not this one -- degraded, not failed.
   const _degradedT=watchlist.filter(t=>_health.tickers[t]?.snap&&_health.tickers[t]?.hist&&_health.tickers[t]?.finnhub&&_health.tickers[t]?.summaryDegraded);
   _health.summary={total:_totalT,ok:_okT,failed:_failedT,degraded:_degradedT};
+  // Timing summary -- avg/min/max per endpoint category across this run,
+  // not the raw per-call numbers (53+ raw timestamps isn't something
+  // anyone needs to read; the shape of the distribution is). Temporary
+  // instrumentation, kept lightweight and non-intrusive to the run itself.
+  function _summarize(arr){
+    if(!arr.length)return null;
+    const sum=arr.reduce((a,b)=>a+b,0);
+    return{avg:Math.round(sum/arr.length),min:Math.min(...arr),max:Math.max(...arr),n:arr.length};
+  }
+  _health.timingSummary={
+    earnings:_summarize(_timing.earnings),
+    upgrades:_summarize(_timing.upgrades),
+    news:_summarize(_timing.news),
+    yahooBatch:_summarize(_timing.yahooBatch)
+  };
   S.set('last_refresh_health',_health);
   _updateRefreshHealthBadge();
   if(btn)btn.disabled=false;renderWatchlist();toast('All data cached for offline use');

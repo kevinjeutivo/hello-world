@@ -44,7 +44,7 @@ async function prefetchAll(){
   // news the same way earnings will be throttled is even worth doing.
   // Kept lightweight (just push a duration number per call) so it can
   // stay in place without meaningfully affecting the run it's measuring.
-  const _timing={earnings:[],upgrades:[],news:[],yahooBatch:[]};
+  const _timing={earnings:[],upgrades:[],news:[],yahooBatch:[],expiryChains:[]};
   const _pfSleepMs=parseInt(S.get('prefetch_sleep_ms'))||100;
   for(let i=0;i<watchlist.length;i++){
     const t=watchlist[i];if(barEl)barEl.style.width=Math.round((i/watchlist.length)*100)+'%';if(labelEl)labelEl.textContent=`Fetching ${t} (${i+1}/${watchlist.length})...`;
@@ -201,11 +201,13 @@ async function prefetchAll(){
         if(monthlyPairs2.length===0){const tw=Date.now()+14*86400000;monthlyPairs2=allExpPairs2.filter(p=>p.ts*1000>=tw).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);}
         if(monthlyPairs2.length===0)monthlyPairs2=allExpPairs2.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
         // Parallel: fetch all monthly expiry chains simultaneously (independent Yahoo calls)
+        const _expStart=Date.now();
         const _expResults=await Promise.all(monthlyPairs2.map(pair=>
           _pfTimeout(yahooOptionsViaProxy(t,String(pair.ts)),12000,t+' exp '+pair.date)
             .then(d=>({pair,data:d,err:null}))
             .catch(e=>({pair,data:null,err:e?.message||'failed'}))
         ));
+        _timing.expiryChains.push(Date.now()-_expStart);
         _expResults.forEach(({pair,data,err})=>{
           if(err||!data){console.warn(t+' '+pair.date+': exp fetch failed:',err);return;}
           const _pExpKey='options_exp_'+t+'_'+pair.date;
@@ -285,7 +287,8 @@ async function prefetchAll(){
     earnings:_summarize(_timing.earnings),
     upgrades:_summarize(_timing.upgrades),
     news:_summarize(_timing.news),
-    yahooBatch:_summarize(_timing.yahooBatch)
+    yahooBatch:_summarize(_timing.yahooBatch),
+    expiryChains:_summarize(_timing.expiryChains)
   };
   S.set('last_refresh_health',_health);
   _updateRefreshHealthBadge();

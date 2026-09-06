@@ -990,13 +990,14 @@ function openRefreshHealthModal(){
   // only when present, so this doesn't clutter the modal once removed.
   const ts=h.timingSummary;
   const _fmtTiming=(label,stat)=>stat?'<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">'+label+'</span><span style="color:var(--text3)">avg '+stat.avg+'ms &middot; '+stat.min+'-'+stat.max+'ms &middot; n='+stat.n+'</span></div>':'';
-  const timingHtml=ts&&(ts.earnings||ts.upgrades||ts.news||ts.yahooBatch)
+  const timingHtml=ts&&(ts.earnings||ts.upgrades||ts.news||ts.yahooBatch||ts.expiryChains)
     ?'<div style="font-family:var(--mono);font-size:10px;background:var(--surface2);border-radius:6px;padding:8px;margin-bottom:10px">'
      +'<div style="color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;font-size:9px;margin-bottom:4px">Endpoint timing (this run)</div>'
      +_fmtTiming('Finnhub earnings',ts.earnings)
      +_fmtTiming('Finnhub upgrades',ts.upgrades)
      +_fmtTiming('Finnhub news',ts.news)
      +_fmtTiming('Yahoo batch (whole)',ts.yahooBatch)
+     +_fmtTiming('Yahoo expiry chains',ts.expiryChains)
      +'</div>'
     :'';
 

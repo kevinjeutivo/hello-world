@@ -578,6 +578,16 @@ const EXPORT_KEYS_STATIC=[
   // "insufficient baseline" placeholder until the next natural resolution,
   // rather than a correctness problem, but worth preserving the continuity.
   'fomc_last_known_rate',
+  // The raw Fed Funds Futures contract data itself (not just the derived
+  // self-healing rate above) -- exportable specifically so a successful
+  // fetch on one device/instance can be transplanted into another that's
+  // stuck on a failed fetch for the same month, via a trimmed-down import
+  // containing just this one key. Previously only treated as a routine,
+  // re-fetchable market-data cache (eligible for the Clear Market Data
+  // Cache sweep), which is still correct for ROUTINE refreshes -- this
+  // addition is specifically about enabling manual cross-instance repair
+  // when a fetch has been failing consistently, not about the normal case.
+  'fed_futures',
 ];
 
 function _buildExportData(){

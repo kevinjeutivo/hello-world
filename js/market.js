@@ -169,7 +169,7 @@ function _computeFedMeetingProbabilities(fedFutures){
   return results;
 }
 
-function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,tbill3m,tbill5y,tbill10y,marketNews,derived}){
+function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,fedFuturesStaleMonths,tbill3m,tbill5y,tbill10y,marketNews,derived}){
   const{tb3Current,tb5yCurrent,tb10yCurrent,tb3Yr,tb5yYr,tb10yYr,spread35,spread310,spread510,spreadStr35,spreadStr310,spreadStr510,spyiYield,nbosYield,vixCurrent,spCurrent,spChg,spChgPct,nqCurrent,nqChg,nqChgPct,spLabels,spData}=derived;
 
   el.innerHTML=`
@@ -221,7 +221,7 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
         const col=bps<-5?'var(--green)':bps>5?'var(--red)':'var(--text2)';
         const sign=bps>0?'+':'';
         return '<tr>'
-          +'<td style="color:var(--text2)">'+c.month+'</td>'
+          +'<td style="color:var(--text2)">'+c.month+(c.stale?' <span style="color:#64b5f6;font-size:8px" title="Carried forward -- this contract did not return a usable quote this fetch">&#9679;</span>':'')+'</td>'
           +'<td style="font-family:var(--mono)">'+c.price.toFixed(3)+'</td>'
           +'<td style="font-family:var(--mono)">'+c.impliedRate.toFixed(3)+'%</td>'
           +'<td style="color:'+col+';font-family:var(--mono)">'+(i===refIdx?'—':sign+bps+'bp')+'</td>'
@@ -260,7 +260,8 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
         +'<thead><tr><th style="text-align:left">Month</th><th>Price</th><th>Implied Rate</th><th>Δ vs Now</th></tr></thead>'
         +'<tbody>'+rows+'</tbody></table></div>'
         +'<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:8px">'+summary+' ('+fedFutures.length+' months tracked, '+Math.abs(totalBps)+'bp total)</div>'
-        +(fedFuturesFailedMonths&&fedFuturesFailedMonths.length?'<div style="font-family:var(--mono);font-size:9px;color:var(--warn);margin-top:4px">Data unavailable for: '+fedFuturesFailedMonths.join(', ')+' -- that contract didn\'t return a usable quote this fetch, so those meetings (if any fall in these months) are missing below, not intentionally excluded.</div>':'')
+        +(fedFuturesFailedMonths&&fedFuturesFailedMonths.length?'<div style="font-family:var(--mono);font-size:9px;color:var(--warn);margin-top:4px">Data unavailable for: '+fedFuturesFailedMonths.join(', ')+' -- that contract didn\'t return a usable quote this fetch (and no prior successful value exists to fall back on), so those meetings (if any fall in these months) are missing below, not intentionally excluded.</div>':'')
+        +(fedFuturesStaleMonths&&fedFuturesStaleMonths.length?'<div style="font-family:var(--mono);font-size:9px;color:#64b5f6;margin-top:4px">Using last known data for: '+fedFuturesStaleMonths.join(', ')+' -- that contract didn\'t return a usable quote this fetch, so the most recent successful value is shown instead of nothing.</div>':'')
         +(probRows?'<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--surface3)"><div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:2px">Meeting-by-meeting odds (simplified -- assumes at most one 25bp step per meeting):</div>'+probRows+'</div>':'')
         +'</div>';
     })()}
@@ -399,10 +400,45 @@ async function loadMarketTab(){
     if(!spLivePrice){const c=S.get('mkt_sp_live');if(c){spLivePrice=c.price;spPrevClose=c.prevClose;}}
     if(!nqLivePrice){const c=S.get('mkt_nq_live');if(c){nqLivePrice=c.price;nqPrevClose=c.prevClose;}}
     // Fetch CME Fed Funds futures for rate probability display
-    let fedFutures=null,fedFuturesFailedMonths=[];
+    let fedFutures=null,fedFuturesFailedMonths=[],fedFuturesStaleMonths=[];
     try{
       const fedResult=await _mktTimeout(fetchFedFundsFutures(),12000,'fed futures');
-      if(fedResult){fedFutures=fedResult.contracts;fedFuturesFailedMonths=fedResult.failedMonths||[];S.set('fed_futures',{data:fedFutures,failedMonths:fedFuturesFailedMonths,ts:mktTs,tsEpoch:mktTsEpoch});}
+      if(fedResult){
+        fedFutures=fedResult.contracts;
+        fedFuturesFailedMonths=fedResult.failedMonths||[];
+        // Carry forward a previously-successful value for any month that
+        // failed THIS SPECIFIC fetch -- an implied Fed Funds rate barely
+        // moves day to day, so a slightly-stale prior value is far more
+        // useful than nothing. Previously, a partial fetch failure (some
+        // months fine, one or two not) silently dropped those months
+        // entirely, even though a perfectly good recent value was still
+        // sitting in cache -- the fallback below only ever covered a
+        // TOTAL fetch failure, never a per-month gap within an otherwise
+        // successful one. Same seed-from-previous-cache principle already
+        // used elsewhere in this app (quoteSummary fields, ticker names).
+        if(fedFuturesFailedMonths.length){
+          const prevCache=S.get('fed_futures');
+          const prevContracts=prevCache?.data||[];
+          const stillMissing=[];
+          fedFuturesFailedMonths.forEach(monthLabel=>{
+            const prev=prevContracts.find(c=>c.month===monthLabel);
+            if(prev){fedFutures.push({...prev,stale:true,staleAsOf:prevCache.ts||null});fedFuturesStaleMonths.push(monthLabel);}
+            else stillMissing.push(monthLabel);
+          });
+          if(fedFuturesStaleMonths.length){
+            // Re-sort chronologically -- the carried-over entries were
+            // just appended, not inserted in order. Parses "Aug 2026"
+            // style labels rather than sorting the strings directly,
+            // since e.g. "Feb 2027" < "Jan 2027" alphabetically despite
+            // coming after it in time.
+            const _monthNames=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            const _toDate=lbl=>{const[m,y]=lbl.split(' ');return new Date(parseInt(y),_monthNames.indexOf(m),1);};
+            fedFutures.sort((a,b)=>_toDate(a.month)-_toDate(b.month));
+          }
+          fedFuturesFailedMonths=stillMissing; // only genuinely never-seen months remain "failed"
+        }
+        S.set('fed_futures',{data:fedFutures,failedMonths:fedFuturesFailedMonths,ts:mktTs,tsEpoch:mktTsEpoch});
+      }
     }catch{}
     if(!fedFutures){const cf=S.get('fed_futures');if(cf){fedFutures=cf.data;fedFuturesFailedMonths=cf.failedMonths||[];}}
     // Treasury yields via Yahoo Finance (^IRX/^FVX/^TNX), routed through
@@ -423,7 +459,7 @@ async function loadMarketTab(){
     let marketNews=await _fetchMarketNews();
 
     const derived=_computeMarketDerivedValues(sp500,nasdaq,spLivePrice,spPrevClose,nqLivePrice,nqPrevClose,tbill3m,tbill5y,tbill10y);
-    _renderMarketContent(el,{ts:mktTs,isLive,tsEpoch:mktTsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,tbill3m,tbill5y,tbill10y,marketNews,derived});
+    _renderMarketContent(el,{ts:mktTs,isLive,tsEpoch:mktTsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,fedFuturesStaleMonths,tbill3m,tbill5y,tbill10y,marketNews,derived});
 
     S.set('market_ts',{ts:nowPT(),tsEpoch:Date.now()});
   }catch(err){el.innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
@@ -541,6 +577,10 @@ function _renderMarketFromCache(){
   const cf=S.get('fed_futures');
   const fedFutures=cf?.data||null;
   const fedFuturesFailedMonths=cf?.failedMonths||[];
+  // Derived from the per-contract .stale flag rather than a separate cache
+  // field -- the flag already lives on each carried-over contract, so no
+  // need to persist the same information twice.
+  const fedFuturesStaleMonths=(fedFutures||[]).filter(c=>c.stale).map(c=>c.month);
 
   const cd=S.get('tbills_cache');
   const tbill3m=cd?.tbill3m||[];
@@ -553,7 +593,7 @@ function _renderMarketFromCache(){
   const marketNews=cnews?.items||[];
 
   const derived=_computeMarketDerivedValues(sp500,nasdaq,spLivePrice,spPrevClose,nqLivePrice,nqPrevClose,tbill3m,tbill5y,tbill10y);
-  _renderMarketContent(el,{ts:cachedTs,isLive:false,tsEpoch:mktTsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,tbill3m,tbill5y,tbill10y,marketNews,derived});
+  _renderMarketContent(el,{ts:cachedTs,isLive:false,tsEpoch:mktTsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,fedFuturesStaleMonths,tbill3m,tbill5y,tbill10y,marketNews,derived});
 
   setTimeout(refreshTsChipAges,200);
 }

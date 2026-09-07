@@ -764,6 +764,11 @@
   <div class="settings-sheet">
     <div class="settings-handle"></div>
     <div class="settings-title">Settings</div>
+    <div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:var(--accent)"></span>App Updates</div>
+    <div id="app-update-status" style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.6">Checking for updates...</div>
+    <button class="btn btn-secondary" onclick="forceAppRefresh()" style="width:100%">Force App Refresh</button>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Clears page cache, reloads latest version from GitHub. Your data is preserved.</div>
+    <hr class="divider">
     <div class="input-group"><label class="input-label">Finnhub API Key</label><input class="input" type="password" id="finnhub-key-input" placeholder="Paste your Finnhub API key"></div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Key stored locally on your device only. Get a free key at finnhub.io.</div>
     <div class="input-group"><label class="input-label">Server Address</label><input class="input" type="text" id="worker-fragment-settings-input" placeholder="the address you were given" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
@@ -963,10 +968,6 @@
       <button class="btn btn-primary" onclick="saveConvictionWeights()" style="flex:1">Save Weights</button>
       <button class="btn btn-secondary" onclick="resetConvictionWeights()" style="flex:1">Reset Defaults</button>
     </div>
-    <hr class="divider">
-    <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent)"></span>App Updates</div>
-    <button class="btn btn-secondary" onclick="forceAppRefresh()">Force App Refresh</button>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Clears page cache, reloads latest version from GitHub. Your data is preserved.</div>
     <hr class="divider">
     <div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:var(--accent)"></span>Last Refresh Status</div>
     <div id="refresh-health-badge-settings" onclick="openRefreshHealthModal()" style="font-family:var(--mono);font-size:10px;color:var(--text2);cursor:pointer;padding:6px 10px;border-radius:6px;border:1px solid var(--border);margin-bottom:4px">Tap to view last refresh health report</div>

@@ -571,13 +571,20 @@ const EXPORT_KEYS_STATIC=[
   'dashboard_notes','bb_gap_overlay','gap_list_filter',
   'tax_state','state_tax_rate',
   'fomc_meeting_dates_override',
-  // Self-healing baseline for the meeting-probability calculation -- the
-  // most recently resolved post-meeting rate. Not re-derivable from a
-  // fresh fetch if lost right when it's needed (the exact scenario that
-  // motivated it): losing it just means falling back to the honest
-  // "insufficient baseline" placeholder until the next natural resolution,
-  // rather than a correctness problem, but worth preserving the continuity.
-  'fomc_last_known_rate',
+  // Self-healing baseline for the meeting-probability calculation -- now a
+  // full history of every meeting ever successfully resolved, indexed by
+  // meeting date (replaces the old single-latest-value version, which had
+  // a real blind spot: it could only help a stuck meeting whose immediate
+  // predecessor happened to be the single most recent resolution overall,
+  // not any earlier one). Not re-derivable from a fresh fetch if lost --
+  // losing it just means falling back to the honest "insufficient
+  // baseline" placeholder for whatever specific meetings it would have
+  // covered, rather than a correctness problem, but worth preserving the
+  // continuity. Deliberately unbounded (no 2-year-style cap) -- the
+  // storage cost for keeping this indefinitely is a few KB even over
+  // decades, and unlike price history, there's no external data-provider
+  // ceiling forcing a cutoff here.
+  'fomc_meeting_history',
   // The raw Fed Funds Futures contract data itself (not just the derived
   // self-healing rate above) -- exportable specifically so a successful
   // fetch on one device/instance can be transplanted into another that's

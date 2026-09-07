@@ -429,6 +429,7 @@ function resetFomcDatesToDefault(){
 }
 
 function openSettings(){
+  _checkForAppUpdate();
   document.getElementById('finnhub-key-input').value=FINNHUB_KEY;
   document.getElementById('worker-fragment-settings-input').value=S.get('worker_fragment')||'';
   document.getElementById('default-watchlist-input').value=watchlist.join(',');
@@ -1096,6 +1097,41 @@ async function retryFailedTickers(){
   const _btn2=document.getElementById('retry-failed-btn');
   if(_btn2){_btn2.disabled=false;_btn2.textContent='\u21BB Retry Failed';}
   toast('Retry complete');
+}
+
+// Checks whether a newer build than the one currently running has been
+// deployed, by fetching the live sw.js directly (cache-busted, so this
+// specific check isn't fooled by a stale cached copy of the very file
+// it's inspecting) and comparing its APP_BUILD against whatever build the
+// active Cache Storage entry says this device is currently running --
+// the same source _updateBuildLabel already uses for the header's own
+// build display, so both stay consistent with each other.
+async function _checkForAppUpdate(){
+  const statusEl=document.getElementById('app-update-status');
+  if(!statusEl)return;
+  statusEl.textContent='Checking for updates...';
+  try{
+    const resp=await fetch('./sw.js?_t='+Date.now(),{cache:'no-store'});
+    const text=await resp.text();
+    const m=text.match(/const APP_BUILD\s*=\s*(\d+)/);
+    const remoteBuild=m?parseInt(m[1]):null;
+    if(!('caches'in window)||remoteBuild==null){
+      statusEl.textContent='Could not check for updates right now';
+      return;
+    }
+    const keys=await caches.keys();
+    const cn=keys.find(k=>k.startsWith('putseller-v'));
+    const localBuild=cn?parseInt(cn.replace('putseller-v','')):null;
+    if(localBuild==null){
+      statusEl.textContent='Currently on build unknown -- latest available is build '+remoteBuild;
+    }else if(remoteBuild>localBuild){
+      statusEl.innerHTML='<span style="color:var(--accent);font-weight:600">New version available -- build '+remoteBuild+'</span> (you\'re on build '+localBuild+'). Tap below to update.';
+    }else{
+      statusEl.textContent='You\'re on the latest version -- build '+localBuild;
+    }
+  }catch(e){
+    statusEl.textContent='Could not check for updates -- '+(e?.message||'network error');
+  }
 }
 
 function forceAppRefresh(){

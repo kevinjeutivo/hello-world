@@ -94,17 +94,31 @@ function _computeFedMeetingProbabilities(fedFutures){
   const meetingDates=_effectiveFomcDates();
   const results=[];
   let currentRate=null;
-  // Self-healing fallback: the app already computes a real, known
-  // post-meeting rate every time this succeeds (below). If a meeting still
-  // can't bootstrap a baseline even with the prior-month fetch (see
-  // fetchFedFundsFutures) -- most commonly when Yahoo doesn't return usable
-  // data for an expired contract, or a rarer 3-consecutive-meeting-month
-  // schedule -- and the immediately-preceding meeting on the calendar is
-  // exactly the one we last successfully resolved, that resolved rate is
-  // still valid: the rate only ever moves at a meeting, so nothing could
-  // have changed it in between.
-  const lastKnown=S.get('fomc_last_known_rate'); // {rate,meetingDate} or null
-  let latestResolved=lastKnown;
+  // Self-healing fallback, keyed by meeting date rather than remembering
+  // only the single most-recently-resolved meeting -- the earlier
+  // single-value version had a real blind spot: if a LATER meeting (say,
+  // January) resolved normally while an EARLIER one (September) stayed
+  // stuck on a bootstrap failure, remembering only "the latest" pointed at
+  // January, which is useless to September -- it needs its OWN specific
+  // predecessor's rate, not whichever meeting happened to resolve most
+  // recently. A full history, looked up by exact date, has no such gap:
+  // any stuck meeting can always find its own true predecessor if that
+  // meeting was ever successfully resolved at some point, however long
+  // ago. Storage cost for keeping every resolved meeting indefinitely is
+  // negligible (a few KB even over decades) -- no reason to cap this the
+  // way price history is capped, since that cap is an external Yahoo
+  // limit on what we can fetch, not a storage tradeoff we're choosing to
+  // make with data we're generating and storing ourselves.
+  const history=S.get('fomc_meeting_history')||{};
+  // One-time migration from the old single-value fallback, so whatever it
+  // had already resolved isn't silently discarded the first time this runs.
+  const oldSingle=S.get('fomc_last_known_rate');
+  let historyChanged=false;
+  if(oldSingle?.meetingDate&&!history[oldSingle.meetingDate]){
+    history[oldSingle.meetingDate]={rate:oldSingle.rate};
+    historyChanged=true;
+  }
+  if(oldSingle){S.del('fomc_last_known_rate');}
   for(let i=0;i<fedFutures.length;i++){
     const c=fedFutures[i];
     const[mAbbr,yStr]=(c.month||'').split(' ');
@@ -121,10 +135,10 @@ function _computeFedMeetingProbabilities(fedFutures){
       if(currentRate==null)currentRate=c.impliedRate;
       continue;
     }
-    if(currentRate==null&&lastKnown){
+    if(currentRate==null){
       const idx=meetingDates.indexOf(meetingDateStr);
       const priorMeetingDate=idx>0?meetingDates[idx-1]:null;
-      if(priorMeetingDate&&lastKnown.meetingDate===priorMeetingDate)currentRate=lastKnown.rate;
+      if(priorMeetingDate&&history[priorMeetingDate])currentRate=history[priorMeetingDate].rate;
     }
     const meetingDay=new Date(meetingDateStr+'T12:00:00Z').getDate();
     const daysBefore=meetingDay-1;
@@ -132,19 +146,16 @@ function _computeFedMeetingProbabilities(fedFutures){
     if(currentRate==null||daysAfter<=0){
       // Can't cleanly establish a pre-meeting baseline for this specific
       // meeting -- most commonly, it falls in the very first fetched
-      // month, with no earlier meeting-free month in the 6-month window
-      // to supply a starting rate (a real, if unusual, case: most months
-      // have a meeting-free gap before the next meeting, but some years'
-      // schedules -- 2026's Sep/Oct is one -- have two meeting months in
-      // a row, and if "now" rolls into the first of that pair, there's
-      // nothing before it in the window to bootstrap from). Surfaced as
-      // an honest placeholder rather than silently dropped -- previously
-      // this just vanished from the list with zero trace, indistinguishable
-      // from "there wasn't a meeting," which is exactly what prompted this
-      // fix. If this meeting's own month is itself meeting-free (the
-      // daysAfter<=0 case, a meeting on a month's last day), the note
-      // wording below is slightly imprecise but still non-silent, which
-      // matters more here than being perfectly worded for a rare edge case.
+      // month, with no earlier meeting-free month in the window to supply
+      // a starting rate, AND no historical resolution of its own true
+      // predecessor exists to fall back on either (both this feature's
+      // history and the backward-fetch itself are still relatively new,
+      // so older meetings may simply never have been captured). Surfaced
+      // as an honest placeholder rather than silently dropped. If this
+      // meeting's own month is itself meeting-free (the daysAfter<=0
+      // case, a meeting on a month's last day), the note wording below is
+      // slightly imprecise but still non-silent, which matters more here
+      // than being perfectly worded for a rare edge case.
       results.push({month:c.month,meetingDate:meetingDateStr,insufficientBaseline:true});
       continue;
     }
@@ -161,11 +172,12 @@ function _computeFedMeetingProbabilities(fedFutures){
       pHold:Math.round(pHold*100),pCut25:Math.round(pCut*100),pHike25:Math.round(pHike*100),
     });
     currentRate=postMeetingRate; // chain forward -- next meeting's baseline is this one's outcome
-    if(!latestResolved||meetingDateStr>latestResolved.meetingDate)
-      latestResolved={rate:postMeetingRate,meetingDate:meetingDateStr};
+    if(!history[meetingDateStr]||history[meetingDateStr].rate!==postMeetingRate){
+      history[meetingDateStr]={rate:postMeetingRate};
+      historyChanged=true;
+    }
   }
-  if(latestResolved&&(!lastKnown||latestResolved.meetingDate!==lastKnown.meetingDate))
-    S.set('fomc_last_known_rate',latestResolved);
+  if(historyChanged)S.set('fomc_meeting_history',history);
   return results;
 }
 

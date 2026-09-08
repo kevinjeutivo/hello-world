@@ -769,6 +769,7 @@
     <button class="btn btn-secondary" onclick="forceAppRefresh()" style="width:100%">Force App Refresh</button>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Clears page cache, reloads latest version from GitHub. Your data is preserved.</div>
     <hr class="divider">
+    <div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:var(--text3)"></span>General Settings</div>
     <div class="input-group"><label class="input-label">Finnhub API Key</label><input class="input" type="password" id="finnhub-key-input" placeholder="Paste your Finnhub API key"></div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Key stored locally on your device only. Get a free key at finnhub.io.</div>
     <div class="input-group"><label class="input-label">Server Address</label><input class="input" type="text" id="worker-fragment-settings-input" placeholder="the address you were given" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
@@ -984,16 +985,13 @@
       <button class="btn btn-secondary" style="flex:1;font-size:11px" onclick="resetFomcDatesToDefault()">Reset to Defaults</button>
     </div>
     <hr class="divider">
-    <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--danger)"></span>Danger Zone</div>
-    <button class="btn btn-secondary" onclick="clearMarketDataCache()" style="margin-bottom:8px;width:100%">Clear Market Data Cache</button>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px;line-height:1.5">Clears options chains, price history, and ticker snapshots only. Preserves your watchlist, positions, earnings overrides, income inputs, and all settings.</div>
-    <button class="btn btn-danger" onclick="clearAllDataWithGuard()">Clear All Cached Data</button>
-    <div style="margin-top:12px">
+    <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Diagnostics</div>
+    <div>
       <div class="card-title" style="font-size:12px;margin-bottom:6px"><span class="dot" style="background:var(--accent3)"></span>Storage Usage</div>
       <div id="storage-display" style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6">Tap Measure to see usage</div>
       <button class="btn btn-secondary" onclick="measureStorage()" style="margin-top:6px;width:100%">Measure Storage</button>
-      <button class="btn btn-secondary" id="storage-capacity-test-btn" onclick="measureRealStorageCapacity()" style="margin-top:6px;width:100%">Measure Real Storage Limit (optional, ~1 sec)</button>
-      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:4px">Writes and deletes temporary throwaway data to find this device's actual localStorage ceiling, since iOS Safari doesn't report it directly. Safe -- never touches your real data. Result is saved on this device only, not included in exports.</div>
+      <button class="btn btn-secondary" id="storage-capacity-test-btn" onclick="measureRealStorageCapacity()" style="margin-top:8px;width:100%;font-size:10px;padding:6px;opacity:0.75">Recalibrate Real Storage Limit (optional, ~1 sec)</button>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:4px">This runs automatically once per device already -- only needed again if you suspect it's stale (e.g. after an iOS update). Writes and deletes temporary throwaway data to find this device's actual localStorage ceiling, since iOS Safari doesn't report it directly. Safe -- never touches your real data. Result is saved on this device only, not included in exports.</div>
     </div>
     <div style="margin-top:12px">
       <div class="card-title" style="font-size:12px;margin-bottom:6px"><span class="dot" style="background:var(--green)"></span>Worker Health Check</div>
@@ -1194,6 +1192,11 @@ v1.7 -- 2026-04-29
       <button class="btn btn-secondary" style="flex:1" onclick="refreshDbgLogDisplay()">Refresh</button>
       <button class="btn btn-secondary" style="flex:1" onclick="clearDbgLog()">Clear</button>
     </div>
+    <hr class="divider">
+    <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--danger)"></span>Danger Zone</div>
+    <button class="btn btn-secondary" onclick="clearMarketDataCache()" style="margin-bottom:8px;width:100%">Clear Market Data Cache</button>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px;line-height:1.5">Clears options chains, price history, and ticker snapshots only. Preserves your watchlist, positions, earnings overrides, income inputs, and all settings.</div>
+    <button class="btn btn-danger" onclick="clearAllDataWithGuard()" style="width:100%">Clear All Cached Data</button>
   </div>
 </div>
 

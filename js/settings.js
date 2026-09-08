@@ -1114,6 +1114,9 @@ async function _checkForAppUpdate(){
     const resp=await fetch('./sw.js?_t='+Date.now(),{cache:'no-store'});
     const text=await resp.text();
     const m=text.match(/const APP_BUILD\s*=\s*(\d+)/);
+    // m[1] can only ever be actual digit characters (the regex's \d+
+    // guarantees that), so parseInt here can't itself produce NaN --
+    // remoteBuild is null (no match) or a clean integer, nothing between.
     const remoteBuild=m?parseInt(m[1]):null;
     if(!('caches'in window)||remoteBuild==null){
       statusEl.textContent='Could not check for updates right now';
@@ -1121,7 +1124,14 @@ async function _checkForAppUpdate(){
     }
     const keys=await caches.keys();
     const cn=keys.find(k=>k.startsWith('putseller-v'));
-    const localBuild=cn?parseInt(cn.replace('putseller-v','')):null;
+    // Unlike remoteBuild, this IS a real risk: cn.replace() can produce
+    // any string content, not just digits, so parseInt can genuinely
+    // return NaN here -- and NaN==null is false, so a plain null-check
+    // would miss it, then remoteBuild>NaN silently evaluates to false,
+    // which used to fall through to the "latest version" branch and
+    // display "build NaN" as if it were a normal, valid result.
+    const localBuildRaw=cn?parseInt(cn.replace('putseller-v','')):null;
+    const localBuild=(localBuildRaw==null||isNaN(localBuildRaw))?null:localBuildRaw;
     if(localBuild==null){
       statusEl.textContent='Currently on build unknown -- latest available is build '+remoteBuild;
     }else if(remoteBuild>localBuild){

@@ -105,13 +105,6 @@ function _getActiveAccount(){
   return accounts.find(a => a.id === _activeAccountId) || accounts[0] || null;
 }
 
-function _acctColor(account){
-  if(!account) return ACCT_COLORS[0];
-  const accounts = _getAccounts();
-  const idx = accounts.findIndex(a => a.id === account.id);
-  return ACCT_COLORS[Math.max(0, idx) % ACCT_COLORS.length];
-}
-
 function _genAcctId(){
   return 'acct_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
 }

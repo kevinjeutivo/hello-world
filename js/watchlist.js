@@ -879,11 +879,6 @@ function addTicker(){
   inp.value='';renderWatchlist();populateSelects();toast('Added '+t);
 }
 
-function removeTicker(e,t){
-  e.stopPropagation();
-  _openRemoveModal(t);
-}
-
 function populateSelects(){
   // Dropdowns always alphabetical regardless of watchlist chip sort order
   const sorted=[...watchlist].sort((a,b)=>a.localeCompare(b));

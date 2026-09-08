@@ -116,10 +116,18 @@ async function checkFlightModeReady(){
     status:snapStatus,
     detail:snapMissing>0?snapMissing+' tickers missing':snapStale>0?snapStale+' tickers stale':'All fresh'});
 
-  // 2. Price history
+  // 2. Price history -- checks hist2y_ specifically, the app's actual
+  // single source of truth for price history everywhere else (HVR,
+  // relative performance, Bollinger Bands, Multiple History). Previously
+  // checked a 'hist_'+ticker key that is never written by any code path
+  // in the current architecture (hist6mo is always a derived, in-memory
+  // slice of hist2y_, never its own persisted cache) -- meaning this
+  // check silently reported every ticker as missing, always, regardless
+  // of actual state, since it was auditing a key that structurally can't
+  // exist. Real, if quiet, bug: a Flight Mode check that could never pass.
   let histMissing=0;
-  wl.forEach(t=>{if(!S.get('hist_'+t))histMissing++;});
-  checks.push({label:'Price history (6M)',status:histMissing>0?'red':'green',
+  wl.forEach(t=>{if(!S.get('hist2y_'+t))histMissing++;});
+  checks.push({label:'Price history (2Y)',status:histMissing>0?'red':'green',
     detail:histMissing>0?histMissing+' missing':'All cached'});
 
   // 3. Options chains
@@ -520,7 +528,7 @@ function clearMarketDataCache(){
   const PRESERVE=new Set([
     'watchlist','tz_pref','font_size','vix_threshold','offline_mode',
     'watchlist_sort','heatmap_mode','watchlist_filter_mode','watchlist_starred','put_pos_sort','cc_pos_sort',
-    'options_cutoff_et','rp_earnings_toggle','rp_span','bb_span','earnings_view_mode','dashboard_view_mode',
+    'options_cutoff_et','rp_earnings_toggle','earnings_view_mode','dashboard_view_mode',
     'vol_badge_state','conviction_weights','last_ticker',
     'income_accounts_meta','income_active_account','income_migration_v1',
     'debug_options_fetch','prefetch_sleep_ms','fetch_upgrades_enabled',
@@ -545,12 +553,17 @@ function clearMarketDataCache(){
     // aren't re-fetchable market-data caches, they're accumulated history
     // (see _buildExportData below). Don't widen the prefixes above to catch
     // them; a "hist" or "mult" match here would silently destroy data a
-    // refresh can't restore.
+    // refresh can't restore. fed_futures used to be swept here too, but is
+    // no longer treated as purely routine -- it can genuinely fail to
+    // re-fetch cleanly (an expired CME contract not returning usable data),
+    // which is exactly why it now has its own carry-forward preservation
+    // and export support. Sweeping it here on every "routine" clear would
+    // undo that protection for no reason.
     if(k.startsWith('snap_')||k.startsWith('hist_')||k.startsWith('hist1y_')||
        k.startsWith('hist2y_')||k.startsWith('options_')||k.startsWith('news_')||
        k.startsWith('rec_')||k.startsWith('upgrades_')||
        k.startsWith('mkt_')||k.startsWith('tbills_')||k.startsWith('vix')||
-       k.startsWith('div_')||k==='market_news'||k==='fed_futures'||
+       k.startsWith('div_')||k==='market_news'||
        k==='hist2y_sp500'){
       toDelete.push(k);
     }
@@ -644,6 +657,14 @@ function _buildExportData(){
     }
     // Per-ticker watchlist notes
     if(_k.startsWith('watchlist_note_')){
+      const v=S.get(_k);
+      if(v)data.keys[_k]=v;
+    }
+    // Per-ticker Relative Performance comparison selections -- a genuine
+    // user choice (which ticker to benchmark against), not re-derivable
+    // from any fetch. Found missing during a full audit -- same category
+    // as watchlist_note_ just above, just never added.
+    if(_k.startsWith('rp_compare_')){
       const v=S.get(_k);
       if(v)data.keys[_k]=v;
     }

@@ -1709,7 +1709,15 @@ function init(){
 function _updateBuildLabel(){
   if(!('caches'in window))return;
   caches.keys().then(keys=>{
-    const cn=keys.find(k=>k.startsWith('income-engine-v'));
+    // Must match a PURELY NUMERIC suffix, not just the prefix -- a plain
+    // startsWith('income-engine-v') here also matches the separate vendor
+    // cache (income-engine-vendor-v1), since "vendor" itself starts with
+    // "v" right where a digit was assumed to follow. caches.keys() order
+    // isn't guaranteed, so which one .find() landed on before was pure
+    // luck -- when it picked the vendor cache, replace() stripped the
+    // prefix and left "endor-v1" on screen as the "build number". Real
+    // bug, caught directly from a screenshot, not a hypothetical.
+    const cn=keys.find(k=>/^income-engine-v\d+$/.test(k));
     if(cn){const el=document.getElementById('app-build-label');if(el)el.textContent='build '+cn.replace('income-engine-v','');}
   });
 }

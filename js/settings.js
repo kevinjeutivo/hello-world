@@ -1099,13 +1099,27 @@ async function retryFailedTickers(){
   toast('Retry complete');
 }
 
-// Checks whether a newer build than the one currently running has been
-// deployed, by fetching the live sw.js directly (cache-busted, so this
-// specific check isn't fooled by a stale cached copy of the very file
-// it's inspecting) and comparing its APP_BUILD against whatever build the
-// active Cache Storage entry says this device is currently running --
-// the same source _updateBuildLabel already uses for the header's own
-// build display, so both stay consistent with each other.
+// Reports the latest deployed build available on GitHub, by fetching
+// sw.js directly (cache-busted, so this isn't fooled by a stale cached
+// copy of the very file it's inspecting).
+//
+// Deliberately does NOT claim to know which build is currently running,
+// even though that seems like the obvious next step -- it isn't reliably
+// knowable client-side. The original version compared this against
+// caches.keys(), but Cache Storage answers "what caches exist," not
+// "what's actively controlling this page right now": a service worker
+// can silently install a newer cache in the background, well before that
+// new version actually takes over -- so a page still genuinely running
+// build 433 could see a 434 cache already sitting there and misreport
+// itself as current. That's a real, observed bug, not a hypothetical --
+// caught directly from a screenshot showing "latest version -- build 434"
+// while the header (a separate, simpler label) still correctly showed
+// 433. The only fully reliable fix is asking the actual controlling
+// service worker directly via postMessage, which sw.js doesn't support
+// yet -- deliberately not building that now. This simpler version reports
+// only what's genuinely knowable (what's latest available) and stays
+// silent on what's currently running, rather than risk repeating the
+// same false claim in a different form.
 async function _checkForAppUpdate(){
   const statusEl=document.getElementById('app-update-status');
   if(!statusEl)return;
@@ -1114,31 +1128,12 @@ async function _checkForAppUpdate(){
     const resp=await fetch('./sw.js?_t='+Date.now(),{cache:'no-store'});
     const text=await resp.text();
     const m=text.match(/const APP_BUILD\s*=\s*(\d+)/);
-    // m[1] can only ever be actual digit characters (the regex's \d+
-    // guarantees that), so parseInt here can't itself produce NaN --
-    // remoteBuild is null (no match) or a clean integer, nothing between.
     const remoteBuild=m?parseInt(m[1]):null;
-    if(!('caches'in window)||remoteBuild==null){
+    if(remoteBuild==null){
       statusEl.textContent='Could not check for updates right now';
       return;
     }
-    const keys=await caches.keys();
-    const cn=keys.find(k=>k.startsWith('putseller-v'));
-    // Unlike remoteBuild, this IS a real risk: cn.replace() can produce
-    // any string content, not just digits, so parseInt can genuinely
-    // return NaN here -- and NaN==null is false, so a plain null-check
-    // would miss it, then remoteBuild>NaN silently evaluates to false,
-    // which used to fall through to the "latest version" branch and
-    // display "build NaN" as if it were a normal, valid result.
-    const localBuildRaw=cn?parseInt(cn.replace('putseller-v','')):null;
-    const localBuild=(localBuildRaw==null||isNaN(localBuildRaw))?null:localBuildRaw;
-    if(localBuild==null){
-      statusEl.textContent='Currently on build unknown -- latest available is build '+remoteBuild;
-    }else if(remoteBuild>localBuild){
-      statusEl.innerHTML='<span style="color:var(--accent);font-weight:600">New version available -- build '+remoteBuild+'</span> (you\'re on build '+localBuild+'). Tap below to update.';
-    }else{
-      statusEl.textContent='You\'re on the latest version -- build '+localBuild;
-    }
+    statusEl.textContent='Latest available: build '+remoteBuild+'. If this differs from the header above, tap Force App Refresh below.';
   }catch(e){
     statusEl.textContent='Could not check for updates -- '+(e?.message||'network error');
   }

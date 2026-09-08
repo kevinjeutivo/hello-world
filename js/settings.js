@@ -1163,6 +1163,13 @@ async function _checkForAppUpdate(){
 function forceAppRefresh(){
   // reload() without true so the SW intercepts the reload and serves
   // files from its fresh cache. reload(true) bypasses the SW on iOS Safari.
-  if('caches'in window){caches.keys().then(keys=>{Promise.all(keys.map(k=>caches.delete(k))).then(()=>{toast('Cache cleared -- reloading...',2500);setTimeout(()=>window.location.reload(),2500);});});}
+  // Preserves the vendor cache (Chart.js, fonts) deliberately -- that's
+  // the entire point of splitting it out (see sw.js): a routine refresh
+  // shouldn't re-download files that never changed. Matched by prefix
+  // rather than an exact name, since this file can't see sw.js's own
+  // VENDOR_CACHE_NAME constant directly (different execution context) --
+  // same naming-convention approach already used elsewhere (e.g. the
+  // header's build-label parsing).
+  if('caches'in window){caches.keys().then(keys=>{Promise.all(keys.filter(k=>!k.startsWith('income-engine-vendor-')).map(k=>caches.delete(k))).then(()=>{toast('Cache cleared -- reloading...',2500);setTimeout(()=>window.location.reload(),2500);});});}
   else{window.location.reload();}
 }

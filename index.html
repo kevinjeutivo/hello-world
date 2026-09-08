@@ -1709,8 +1709,8 @@ function init(){
 function _updateBuildLabel(){
   if(!('caches'in window))return;
   caches.keys().then(keys=>{
-    const cn=keys.find(k=>k.startsWith('putseller-v'));
-    if(cn){const el=document.getElementById('app-build-label');if(el)el.textContent='build '+cn.replace('putseller-v','');}
+    const cn=keys.find(k=>k.startsWith('income-engine-v'));
+    if(cn){const el=document.getElementById('app-build-label');if(el)el.textContent='build '+cn.replace('income-engine-v','');}
   });
 }
 if(document.readyState==='loading'){

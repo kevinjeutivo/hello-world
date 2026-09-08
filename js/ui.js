@@ -199,11 +199,6 @@ function minsToHHMM(m){const h=Math.floor(m/60);const mm=m%60;return h>0?`${h}h 
 
 function secsToMMSS(s){return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;}
 
-function etTimeToDisplay(etHour,etMin){
-  // Signal to use minsLeft instead -- see updateMarketBanner
-  return null;
-}
-
 function updateMarketBanner(){
   const banner=document.getElementById('market-status-banner');
   const ms=getMarketState();

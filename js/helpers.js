@@ -123,16 +123,7 @@ function tsChip(ts,isLive,epoch){
   return `<div class="ts-chip ${cls}" data-ts-iso="${isoTs}" data-ts-display="${ts||''}"${epochAttr}>${isLive?'live':'cached'} ${ts||'unknown'}${ageStr}</div>`;
 }
 
-function fmtTS(ts,epoch){
-  if(!ts)return'unknown';
-  const age=relAge(ts,epoch);
-  const ageStr=age?` (${age})`:'';
-  return ts.replace(/ PT$| UTC$| local$/,'')+' '+ageLabel()+ageStr;
-}
-
 function tzLabel(){return tzPref==='PT'?'PT':tzPref==='UTC'?'UTC':'local';}
-
-function ageLabel(){return tzPref==='PT'?'PT':tzPref==='UTC'?'UTC':'local';}
 
 function relTime(ts){
   try{const d=new Date(typeof ts==='number'?ts*1000:ts);const diff=(Date.now()-d)/1000;if(diff<3600)return Math.round(diff/60)+'m ago';if(diff<86400)return Math.round(diff/3600)+'h ago';return Math.round(diff/86400)+'d ago';}catch{return String(ts);}
@@ -1089,18 +1080,6 @@ function _bsPutPrice(S,K,T,r,sigma){
   return K*Math.exp(-r*T)*_normCDF(-d2)-S*_normCDF(-d1);
 }
 
-function _bsCallDelta(S,K,T,r,sigma){
-  if(T<=0||sigma<=0)return S>K?1:0;
-  const{d1}=_bsD1D2(S,K,T,r,sigma);
-  return _normCDF(d1);
-}
-
-function _bsPutDelta(S,K,T,r,sigma){
-  if(T<=0||sigma<=0)return S<K?-1:0;
-  const{d1}=_bsD1D2(S,K,T,r,sigma);
-  return _normCDF(d1)-1;
-}
-
 // Solves for the strike matching a target delta magnitude (e.g. 0.30 for a
 // 30-delta put/call), via bisection. Delta is monotonic in K for both put
 // and call (confirmed: put delta decreases from 0 toward -1 as K rises;
@@ -1142,27 +1121,6 @@ function _solveStrikeForYieldFloor(S,T,r,sigma,targetFloorPct,optionType){
     }
   }
   return optionType==='put'?hi:lo;
-}
-
-function _solveStrikeForDelta(S,T,r,sigma,targetDeltaAbs,optionType){
-  if(S<=0||T<=0||sigma<=0||targetDeltaAbs<=0||targetDeltaAbs>=1)return null;
-  const deltaFn=optionType==='put'
-    ?(K)=>Math.abs(_bsPutDelta(S,K,T,r,sigma))
-    :(K)=>Math.abs(_bsCallDelta(S,K,T,r,sigma));
-  // |call delta| DECREASES as K rises (deep ITM near K=0 -> near 0 as K->inf).
-  // |put delta| INCREASES as K rises (opposite direction) -- the bisection
-  // step direction must flip between the two option types accordingly.
-  let lo=S*0.1,hi=S*3.0;
-  for(let i=0;i<60;i++){
-    const mid=(lo+hi)/2;
-    const d=deltaFn(mid);
-    if(optionType==='call'){
-      if(d>targetDeltaAbs)lo=mid;else hi=mid;
-    }else{
-      if(d>targetDeltaAbs)hi=mid;else lo=mid;
-    }
-  }
-  return(lo+hi)/2;
 }
 
 // Rolling annualized realized volatility as of a specific historical index

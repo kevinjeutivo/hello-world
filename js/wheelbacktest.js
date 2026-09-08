@@ -27,7 +27,7 @@
 // it requires a real, ticker-specific volatility term structure estimate,
 // not just more calendar time on a flat vol assumption.
 //
-// Globals used: S, _bsPutPrice, _bsCallPrice, _bsPutDelta, _bsCallDelta,
+// Globals used: S, _bsPutPrice, _bsCallPrice,
 // _solveStrikeForYieldFloor, _realizedVolAsOf, _getTBillYield
 
 // Strike selection targets a yield floor now (see _solveStrikeForYieldFloor

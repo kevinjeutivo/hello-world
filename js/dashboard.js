@@ -112,7 +112,7 @@ function renderDashTable(elId,results,ts,isLive){
       +'<div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;font-weight:600">'+r.signal.toUpperCase()+(sc!==''?' &middot; '+sc:'')+'</div>'+(r.ivrBadge||'')+'</div>'
       +'</div>'
       +renderCompBars(comps)
-      +(rs?'<div style="display:flex;gap:16px;margin-bottom:8px;font-family:var(--mono)"><div><span style="font-size:9px;color:var(--text3);display:block">REC STRIKE</span><span style="font-size:14px">'+rs+'</span></div>'+(exp?'<div><span style="font-size:9px;color:var(--text3);display:block">EXPIRY</span><span style="font-size:12px;color:var(--text2)">'+exp+'</span></div>':'')+(apy?'<div><span style="font-size:9px;color:var(--text3);display:block">EST APY</span><span style="font-size:14px;color:var(--accent)">'+apy+'</span></div>':'')+'</div>':'')
+      +(rs?'<div style="display:flex;gap:16px;margin-bottom:8px;font-family:var(--mono)"><div><span style="font-size:9px;color:var(--text3);display:block">REC STRIKE</span><span style="font-size:14px">'+rs+'</span></div>'+(exp?'<div><span style="font-size:9px;color:var(--text3);display:block">EXPIRY</span><span style="font-size:12px;color:var(--text2)">'+exp+'</span></div>':'')+(apy?'<div><span style="font-size:9px;color:var(--text3);display:block">EST APY</span><span style="font-size:14px;color:var(--accent)">'+apy+(r.belowFloor?' (below target)':'')+'</span></div>':'')+'</div>':'')
       +(r.earningsDate?'<div style="font-family:var(--mono);font-size:11px;color:var(--warn);margin-bottom:6px">Earnings '+r.earningsDate+'</div>':'')
       +(r.narrative?'<div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6;border-top:1px solid rgba(255,255,255,0.05);padding-top:8px;margin-top:4px">'+r.narrative+'</div>':'')
       +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px;text-align:right">Tap to analyze</div>'
@@ -172,29 +172,60 @@ function runDashboards(){
       const earningsTiming=earningsHour==='bmo'?' (before open)':earningsHour==='amc'?' (after close)':'';
       const earningsDisplay=earningsDate?earningsDate+earningsTiming:null;
 
-      // Options: best put and call strikes from cached per-expiry chains
-      let pRS=null,pExp=null,pApy=null,cRS=null,cExp=null,cApy=null;
+      // Options: best put and call strikes from cached per-expiry chains.
+      // Selection philosophy: among real, liquid, in-band candidates, prefer
+      // the most-conservative (furthest OTM) strike that still clears a full
+      // targetAPY floor -- not the nearest match to targetAPY. If nothing in
+      // the nearest qualifying expiry clears the floor, fall back to the best
+      // available candidate there (highest realizable APY) rather than
+      // showing nothing, flagged as below-target. A later expiry that DOES
+      // clear the floor overrides an earlier fallback. Scans the full
+      // expiration list within the DTE window, not just the first 3 dates.
+      let pRS=null,pExp=null,pApy=null,pBelowFloor=false,pQualified=false;
+      let cRS=null,cExp=null,cApy=null,cBelowFloor=false,cQualified=false;
       try{
         const oc=S.get('options_'+t);
         const yr=oc?.data?.optionChain?.result?.[0];
         if(yr&&price){
           const expDates=(yr.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]);
-          for(const exp of expDates.slice(0,3)){
+          for(const exp of expDates){
             const ec=S.get('options_exp_'+t+'_'+exp);
             const res=ec?.optionChain?.result?.[0];
             if(!res)continue;
             const expD=new Date(exp+'T12:00:00Z');
             const dte=Math.max(Math.round((expD-today)/86400000),1);
             if(dte<25||dte>100)continue;
-            if(!pRS&&res.options?.[0]?.puts){
-              const puts=res.options[0].puts.filter(p=>{const s=p.strike,bid=p.bid||0,last=p.lastPrice||0,prem=(bid>0?bid:last)*100,apy=prem/(s*100)*(365/dte)*100,pct=(price-s)/price*100;return s<price&&pct>=4&&pct<=18&&apy>=targetAPY*0.7&&(p.openInterest||0)>=50;});
-              if(puts.length){const best=puts.reduce((b,p)=>{const apyA=((p.bid||0)>0?p.bid:p.lastPrice||0)*100/(p.strike*100)*(365/dte)*100;const apyB=((b.bid||0)>0?b.bid:b.lastPrice||0)*100/(b.strike*100)*(365/dte)*100;return Math.abs(apyA-targetAPY)<Math.abs(apyB-targetAPY)?p:b;});const prem=((best.bid||0)>0?best.bid:best.lastPrice||0)*100;pRS='$'+formatStrike(best.strike);pExp=exp;pApy=(prem/(best.strike*100)*(365/dte)*100).toFixed(1)+'%';}
+            if(!pQualified&&res.options?.[0]?.puts){
+              const apyOfPut=p=>((p.bid||0)>0?p.bid:p.lastPrice||0)*100/(p.strike*100)*(365/dte)*100;
+              const candidates=res.options[0].puts.filter(p=>{const pct=(price-p.strike)/price*100;return p.strike<price&&pct>=4&&pct<=18&&(p.openInterest||0)>=50;});
+              if(candidates.length){
+                const floorClearing=candidates.filter(p=>apyOfPut(p)>=targetAPY);
+                if(floorClearing.length){
+                  // Most conservative = most OTM = lowest strike among those clearing the floor.
+                  const best=floorClearing.reduce((b,p)=>p.strike<b.strike?p:b);
+                  pRS='$'+formatStrike(best.strike);pExp=exp;pApy=apyOfPut(best).toFixed(1)+'%';pQualified=true;pBelowFloor=false;
+                }else if(!pRS){
+                  const best=candidates.reduce((b,p)=>apyOfPut(p)>apyOfPut(b)?p:b);
+                  pRS='$'+formatStrike(best.strike);pExp=exp;pApy=apyOfPut(best).toFixed(1)+'%';pBelowFloor=true;
+                }
+              }
             }
-            if(!cRS&&res.options?.[0]?.calls){
-              const calls=res.options[0].calls.filter(c=>{const s=c.strike,bid=c.bid||0,last=c.lastPrice||0,prem=(bid>0?bid:last)*100,apy=prem/(price*100)*(365/dte)*100,pct=(s-price)/price*100;return s>price&&pct>=4&&pct<=18&&apy>=targetAPY*0.7&&(c.openInterest||0)>=50;});
-              if(calls.length){const best=calls.reduce((b,c)=>{const apyA=((c.bid||0)>0?c.bid:c.lastPrice||0)*100/(price*100)*(365/dte)*100;const apyB=((b.bid||0)>0?b.bid:b.lastPrice||0)*100/(price*100)*(365/dte)*100;return Math.abs(apyA-targetAPY)<Math.abs(apyB-targetAPY)?c:b;});const prem=((best.bid||0)>0?best.bid:best.lastPrice||0)*100;cRS='$'+formatStrike(best.strike);cExp=exp;cApy=(prem/(price*100)*(365/dte)*100).toFixed(1)+'%';}
+            if(!cQualified&&res.options?.[0]?.calls){
+              const apyOfCall=c=>((c.bid||0)>0?c.bid:c.lastPrice||0)*100/(price*100)*(365/dte)*100;
+              const candidates=res.options[0].calls.filter(c=>{const pct=(c.strike-price)/price*100;return c.strike>price&&pct>=4&&pct<=18&&(c.openInterest||0)>=50;});
+              if(candidates.length){
+                const floorClearing=candidates.filter(c=>apyOfCall(c)>=targetAPY);
+                if(floorClearing.length){
+                  // Most conservative = most OTM = highest strike among those clearing the floor.
+                  const best=floorClearing.reduce((b,c)=>c.strike>b.strike?c:b);
+                  cRS='$'+formatStrike(best.strike);cExp=exp;cApy=apyOfCall(best).toFixed(1)+'%';cQualified=true;cBelowFloor=false;
+                }else if(!cRS){
+                  const best=candidates.reduce((b,c)=>apyOfCall(c)>apyOfCall(b)?c:b);
+                  cRS='$'+formatStrike(best.strike);cExp=exp;cApy=apyOfCall(best).toFixed(1)+'%';cBelowFloor=true;
+                }
+              }
             }
-            if(pRS&&cRS)break;
+            if(pQualified&&cQualified)break;
           }
         }
       }catch{}
@@ -212,6 +243,7 @@ function runDashboards(){
 
       const ps=scorePuts({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:pRS,expiration:pExp,estApy:pApy,ivrVal,ptMean:snap.ptMean||null,beta:snap.beta||null,oiGapPct});
       const cs=scoreCalls({price,rsiVal,ma50,ma200,rangePos,earningsDate:earningsDisplay,recStrike:cRS,expiration:cExp,estApy:cApy,ivrVal,ptMean:snap.ptMean||null,beta:snap.beta||null,oiGapPct:callOiGapPct});
+      ps.belowFloor=pBelowFloor;cs.belowFloor=cBelowFloor;
       const common={ticker:t,price,ivrBadge:ivr.badge,ivrVal,earningsDate:earningsDisplay};
       putResults.push({...common,...ps});ccResults.push({...common,...cs});
     }catch(err){

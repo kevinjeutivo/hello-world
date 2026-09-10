@@ -795,13 +795,23 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   // Nearest tracked quarter (soonest targetQuarterEnd) -- the further-out
   // quarter's dense data is still stored for future use, just not plotted
   // alongside this one in this pass.
-  const nearestGroup=track.slice().sort((a,b)=>a.targetQuarterEnd.localeCompare(b.targetQuarterEnd))[0];
+  const sortedGroups=track.slice().sort((a,b)=>a.targetQuarterEnd.localeCompare(b.targetQuarterEnd));
+  const nearestGroup=sortedGroups[0];
 
   // Future projection boundary: the next expected announcement date if
   // known (Finnhub-sourced, an actual announcement-date estimate), falling
   // back to the tracked quarter's fiscal period-end if that's missing.
-  // Skipped entirely (no future zone drawn) if neither is available.
-  const boundaryDate=snap?.earningsDate||nearestGroup?.targetQuarterEnd||null;
+  // On the ticker's own earnings day itself -- before the print has posted
+  // and the quarter has rolled over -- that boundary IS today, which would
+  // otherwise collapse the projection zone to zero width and silently hide
+  // the slider. In that case, fall back further to the NEXT tracked
+  // quarter's period-end, so there's still a real future point to project
+  // toward. Skipped entirely (no future zone drawn) only if nothing further
+  // out is available either.
+  let boundaryDate=snap?.earningsDate||nearestGroup?.targetQuarterEnd||null;
+  if(boundaryDate&&nowLabel&&boundaryDate<=nowLabel){
+    boundaryDate=sortedGroups[1]?.targetQuarterEnd||null;
+  }
   const futureLabel=(boundaryDate&&nowLabel&&boundaryDate>nowLabel)?boundaryDate:null;
   // Computed once, early, so both the slider's text and the chart's
   // boundary marker can reference the same value without ordering issues.

@@ -190,38 +190,43 @@ function runDashboards(){
           const expDates=(yr.expirationDates||[]).map(ts=>new Date(ts*1000).toISOString().split('T')[0]);
           for(const exp of expDates){
             const ec=S.get('options_exp_'+t+'_'+exp);
-            const res=ec?.optionChain?.result?.[0];
-            if(!res)continue;
+            if(!ec)continue;
             const expD=new Date(exp+'T12:00:00Z');
             const dte=Math.max(Math.round((expD-today)/86400000),1);
             if(dte<25||dte>100)continue;
-            if(!pQualified&&res.options?.[0]?.puts){
-              const apyOfPut=p=>((p.bid||0)>0?p.bid:p.lastPrice||0)*100/(p.strike*100)*(365/dte)*100;
-              const candidates=res.options[0].puts.filter(p=>{const pct=(price-p.strike)/price*100;return p.strike<price&&pct>=4&&pct<=18&&(p.openInterest||0)>=50;});
-              if(candidates.length){
-                const floorClearing=candidates.filter(p=>apyOfPut(p)>=targetAPY);
-                if(floorClearing.length){
-                  // Most conservative = most OTM = lowest strike among those clearing the floor.
-                  const best=floorClearing.reduce((b,p)=>p.strike<b.strike?p:b);
-                  pRS='$'+formatStrike(best.strike);pExp=exp;pApy=apyOfPut(best).toFixed(1)+'%';pQualified=true;pBelowFloor=false;
-                }else if(!pRS){
-                  const best=candidates.reduce((b,p)=>apyOfPut(p)>apyOfPut(b)?p:b);
-                  pRS='$'+formatStrike(best.strike);pExp=exp;pApy=apyOfPut(best).toFixed(1)+'%';pBelowFloor=true;
+            if(!pQualified){
+              const puts=_expPuts(ec);
+              if(puts.length){
+                const apyOfPut=p=>((p.bid||0)>0?p.bid:p.lastPrice||0)*100/(p.strike*100)*(365/dte)*100;
+                const candidates=puts.filter(p=>{const pct=(price-p.strike)/price*100;return p.strike<price&&pct>=4&&pct<=18&&(p.openInterest||0)>=50;});
+                if(candidates.length){
+                  const floorClearing=candidates.filter(p=>apyOfPut(p)>=targetAPY);
+                  if(floorClearing.length){
+                    // Most conservative = most OTM = lowest strike among those clearing the floor.
+                    const best=floorClearing.reduce((b,p)=>p.strike<b.strike?p:b);
+                    pRS='$'+formatStrike(best.strike);pExp=exp;pApy=apyOfPut(best).toFixed(1)+'%';pQualified=true;pBelowFloor=false;
+                  }else if(!pRS){
+                    const best=candidates.reduce((b,p)=>apyOfPut(p)>apyOfPut(b)?p:b);
+                    pRS='$'+formatStrike(best.strike);pExp=exp;pApy=apyOfPut(best).toFixed(1)+'%';pBelowFloor=true;
+                  }
                 }
               }
             }
-            if(!cQualified&&res.options?.[0]?.calls){
-              const apyOfCall=c=>((c.bid||0)>0?c.bid:c.lastPrice||0)*100/(price*100)*(365/dte)*100;
-              const candidates=res.options[0].calls.filter(c=>{const pct=(c.strike-price)/price*100;return c.strike>price&&pct>=4&&pct<=18&&(c.openInterest||0)>=50;});
-              if(candidates.length){
-                const floorClearing=candidates.filter(c=>apyOfCall(c)>=targetAPY);
-                if(floorClearing.length){
-                  // Most conservative = most OTM = highest strike among those clearing the floor.
-                  const best=floorClearing.reduce((b,c)=>c.strike>b.strike?c:b);
-                  cRS='$'+formatStrike(best.strike);cExp=exp;cApy=apyOfCall(best).toFixed(1)+'%';cQualified=true;cBelowFloor=false;
-                }else if(!cRS){
-                  const best=candidates.reduce((b,c)=>apyOfCall(c)>apyOfCall(b)?c:b);
-                  cRS='$'+formatStrike(best.strike);cExp=exp;cApy=apyOfCall(best).toFixed(1)+'%';cBelowFloor=true;
+            if(!cQualified){
+              const calls=_expCalls(ec);
+              if(calls.length){
+                const apyOfCall=c=>((c.bid||0)>0?c.bid:c.lastPrice||0)*100/(price*100)*(365/dte)*100;
+                const candidates=calls.filter(c=>{const pct=(c.strike-price)/price*100;return c.strike>price&&pct>=4&&pct<=18&&(c.openInterest||0)>=50;});
+                if(candidates.length){
+                  const floorClearing=candidates.filter(c=>apyOfCall(c)>=targetAPY);
+                  if(floorClearing.length){
+                    // Most conservative = most OTM = highest strike among those clearing the floor.
+                    const best=floorClearing.reduce((b,c)=>c.strike>b.strike?c:b);
+                    cRS='$'+formatStrike(best.strike);cExp=exp;cApy=apyOfCall(best).toFixed(1)+'%';cQualified=true;cBelowFloor=false;
+                  }else if(!cRS){
+                    const best=candidates.reduce((b,c)=>apyOfCall(c)>apyOfCall(b)?c:b);
+                    cRS='$'+formatStrike(best.strike);cExp=exp;cApy=apyOfCall(best).toFixed(1)+'%';cBelowFloor=true;
+                  }
                 }
               }
             }

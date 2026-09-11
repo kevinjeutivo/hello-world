@@ -350,6 +350,40 @@ function _todayET(){
   return new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 }
 
+// Given TODAY's ET wall-clock report-time boundary -- 9:30am ET (market
+// open) for a bmo report, 4:00pm ET (market close) for amc -- returns the
+// precise UTC epoch ms. Reuses the same live-offset-detection technique as
+// _todayETStart() below. Only ever called for TODAY's own earnings event
+// (see _earningsFreshnessLabel), never a past or future date, so using
+// "now"'s ET offset is always correct -- no DST-crossing risk the way
+// there would be for an arbitrary past date.
+function _todayReportBoundaryEpoch(hour){
+  if(hour!=='bmo'&&hour!=='amc')return null;
+  const dateStr=_todayET();
+  const offsetFmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',timeZoneName:'shortOffset'});
+  const offsetPart=offsetFmt.formatToParts(new Date()).find(p=>p.type==='timeZoneName')?.value||'GMT-5';
+  const offsetHours=parseInt(offsetPart.replace('GMT',''))||-5;
+  const offsetStr=(offsetHours<=0?'-':'+')+String(Math.abs(offsetHours)).padStart(2,'0')+':00';
+  const hhmm=hour==='bmo'?'09:30:00':'16:00:00';
+  return new Date(dateStr+'T'+hhmm+offsetStr).getTime();
+}
+
+// Plain-fact freshness label for quoteSummary-derived earnings figures (EPS
+// estimate, prior-quarter actual, Multiple History/Next-FY multiples) --
+// only meaningful on the ticker's own earnings day itself, the one window
+// where "how recently we fetched" and "does this reflect the report" can
+// actually diverge. Outside that window there's nothing ambiguous (report
+// hasn't happened yet, or the calendar has already rolled past it to the
+// next event), so this returns null and callers show no badge at all
+// rather than a label stating the obvious on every ordinary day.
+function _earningsFreshnessLabel(earningsDate,earningsHour,summaryTsEpoch){
+  if(!earningsDate||earningsDate!==_todayET())return null;
+  const boundary=_todayReportBoundaryEpoch(earningsHour);
+  if(boundary==null)return null; // timing not confirmed -- can't say either way
+  if(!summaryTsEpoch)return'Reflects pre-earnings data';
+  return summaryTsEpoch>=boundary?'Updated post-earnings':'Reflects pre-earnings data';
+}
+
 // Companion to _todayET() -- returns the same "today" as an actual Date
 // object (midnight ET, as a precise UTC instant), for comparisons that need
 // Date arithmetic rather than string equality. Correctly adapts to EST vs

@@ -348,12 +348,19 @@ async function loadEarningsTab(){
         ({beatStreak,missStreak}=_computeBeatMissStreak(actuals));
       }catch{}
       // Upcoming EPS estimate: Yahoo earningsTrend (forward-looking, already fetched via quoteSummary)
-      if(epsEst===null){try{const et=snap.earningsTrend;if(et&&et.length){const cur=et.find(p=>p.period==='0q')||et[0];if(cur?.epsMean!=null)epsEst=cur.epsMean;}}catch{}}
+      let epsEstEndDate=null;
+      if(epsEst===null){try{const et=snap.earningsTrend;if(et&&et.length){const cur=et.find(p=>p.period==='0q')||et[0];if(cur?.epsMean!=null){epsEst=cur.epsMean;epsEstEndDate=cur.endDate||null;}}}catch{}}
+      // Freshness, relative to THIS card's own earnings event -- only ever
+      // non-null on the event's actual report day itself (see
+      // _earningsFreshnessLabel), the one window where a same-day report
+      // could have already updated earningsTrend/earningsHistoryYahoo
+      // without any other visible signal that it happened.
+      const freshnessLabel=_earningsFreshnessLabel(_effEarningsDate,_effEarningsHour,snap.summaryTsEpoch);
       let news=[];try{const cn=S.get('news_'+t);if(cn)news=cn.items;else{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}}catch{}
       const ivrVal=computeIVR(t,snap.week52High,snap.week52Low,snap.price);const ivr=ivrInfo(ivrVal);
       let impliedMove=null;try{const oc=S.get('options_'+t);const res=oc?.data?.optionChain?.result?.[0];if(res&&snap.price){const opts=res.options?.[0];const atmP=(opts?.puts||[]).filter(p=>Math.abs(p.strike-snap.price)/snap.price<0.03);const atmC=(opts?.calls||[]).filter(c=>Math.abs(c.strike-snap.price)/snap.price<0.03);if(atmP.length&&atmC.length){const straddle=((atmP[0].bid+atmP[0].ask)/2)+((atmC[0].bid+atmC[0].ask)/2);impliedMove=(straddle/snap.price*100).toFixed(1);}}}catch{}
       const daysUntil=du; // already computed above via daysUntilDate
-      earningsAllData.push({ticker:t,snap,earningsDate:_effEarningsDate,earningsHour:_effEarningsHour,daysUntil,epsEst,epsActualPrev,surprisePrev,surpriseDollarPrev,beatStreak,missStreak,ivrVal,ivrBadge:ivr.badge,impliedMove,news:news.slice(0,3)});
+      earningsAllData.push({ticker:t,snap,earningsDate:_effEarningsDate,earningsHour:_effEarningsHour,daysUntil,epsEst,epsEstEndDate,epsActualPrev,surprisePrev,surpriseDollarPrev,beatStreak,missStreak,ivrVal,ivrBadge:ivr.badge,impliedMove,freshnessLabel,news:news.slice(0,3)});
     }catch{}
     if(i<watchlist.length-1)await sleep(400);
   }
@@ -389,8 +396,9 @@ function renderEarningsCards(isLive=false){
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">${e.ivrBadge||''}${e.impliedMove?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(124,106,247,0.2);color:#b39ddb">Implied +/-${e.impliedMove}%</span>`:''}${e.beatStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(0,200,150,0.2);color:var(--green)">Beat Streak: ${e.beatStreak}Qs</span>`:''}${e.missStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,71,87,0.2);color:var(--red)">Miss Streak: ${e.missStreak}Qs</span>`:''}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;font-family:var(--mono);font-size:11px">
-        <div><span style="color:var(--text3);font-size:9px;display:block">EPS ESTIMATE</span>${e.epsEst!==null?`$${e.epsEst.toFixed(2)}`:'N/A'}</div>
+        <div><span style="color:var(--text3);font-size:9px;display:block">EPS ESTIMATE${e.epsEstEndDate?' (period end '+e.epsEstEndDate+')':''}</span>${e.epsEst!==null?`$${e.epsEst.toFixed(2)}`:'N/A'}</div>
         <div><span style="color:var(--text3);font-size:9px;display:block">PRIOR ACTUAL</span>${e.epsActualPrev!==null?`$${e.epsActualPrev.toFixed(2)}`:'N/A'}</div>
+        ${e.freshnessLabel?`<div style="grid-column:span 2"><span style="color:var(--text2)">${e.freshnessLabel}</span></div>`:''}
         ${e.surprisePrev!==null?`<div style="grid-column:span 2"><span style="color:${e.surprisePrev>0?'var(--green)':'var(--red)'}">${e.surprisePrev>0?'+':''}${e.surprisePrev.toFixed(1)}% surprise last Q</span></div>`
           :e.surpriseDollarPrev!=null?`<div style="grid-column:span 2"><span style="color:${e.surpriseDollarPrev>0?'var(--green)':'var(--red)'}" title="Estimate too close to zero for a meaningful percentage">${e.surpriseDollarPrev>0?'+':''}$${e.surpriseDollarPrev.toFixed(2)} surprise last Q</span></div>`
           :''}

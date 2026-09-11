@@ -150,7 +150,7 @@ async function loadTicker(){
         // inside the qs-success branch below. Read directly off the saved
         // snap by the Refresh Health tracking and the Valuation dashboard
         // view -- one flag, one source of truth, no separate tracking.
-        summaryDegraded:true,summaryTs:_prevSnap?.summaryTs??null,
+        summaryDegraded:true,summaryTs:_prevSnap?.summaryTs??null,summaryTsEpoch:_prevSnap?.summaryTsEpoch??null,
         ts:nowPT(),tsEpoch:Date.now(),isLive:true
       };
       S.set('snap_'+t,snap);
@@ -166,7 +166,7 @@ async function loadTicker(){
       // -- qs was already fetched concurrently above, alongside the quote and hist2y calls
       try{
         if(qs){
-          snap.summaryDegraded=false;snap.summaryTs=nowPT();
+          snap.summaryDegraded=false;snap.summaryTs=nowPT();snap.summaryTsEpoch=Date.now();
           if(qs.sector!=null)snap.sector=qs.sector;
           if(qs.industry!=null)snap.industry=qs.industry;
           if(qs.beta!=null)snap.beta=qs.beta;
@@ -759,7 +759,9 @@ function _buildMultipleHistoryCard(ticker){
      })()
      +'</div>';
   return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent)"></span>Multiple History (TTM &amp; Forward P/E)</div>'
-    +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">TTM-composite basis -- trailing quarters + this quarter\'s estimate</div>'
+    +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">TTM-composite basis -- trailing quarters + this quarter\'s estimate'
+    +(()=>{const snap=S.get('snap_'+ticker);const fl=snap?_earningsFreshnessLabel(snap.earningsDate,snap.earningsHour,snap.summaryTsEpoch):null;return fl?' &middot; <span style="color:var(--text2)">'+fl+'</span>':'';})()
+    +'</div>'
     +body+'</div>';
 }
 
@@ -1184,7 +1186,9 @@ function _buildNextFYCard(ticker){
      })()
      +'</div>';
   return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Next-FY Multiple &amp; Price Target</div>'
-    +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">Next fiscal year basis -- the figure most analyst coverage means by "next year\'s multiple"</div>'
+    +'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">Next fiscal year basis -- the figure most analyst coverage means by "next year\'s multiple"'
+    +(()=>{const snap=S.get('snap_'+ticker);const fl=snap?_earningsFreshnessLabel(snap.earningsDate,snap.earningsHour,snap.summaryTsEpoch):null;return fl?' &middot; <span style="color:var(--text2)">'+fl+'</span>':'';})()
+    +'</div>'
     +body+'</div>';
 }
 
@@ -3375,7 +3379,7 @@ async function refreshSingleTicker(){
       ptMean:_rPrevSnap?.ptMean??null,ptHigh:_rPrevSnap?.ptHigh??null,ptLow:_rPrevSnap?.ptLow??null,ptAnalysts:_rPrevSnap?.ptAnalysts??null,
       earningsTrend:_rPrevSnap?.earningsTrend??null,recTrend:_rPrevSnap?.recTrend??null,earningsHistoryYahoo:_rPrevSnap?.earningsHistoryYahoo??null,
       revenueGrowthYahoo:_rPrevSnap?.revenueGrowthYahoo??null,operatingMarginsYahoo:_rPrevSnap?.operatingMarginsYahoo??null,fcfMarginYahoo:_rPrevSnap?.fcfMarginYahoo??null,
-      summaryDegraded:true,summaryTs:_rPrevSnap?.summaryTs??null,
+      summaryDegraded:true,summaryTs:_rPrevSnap?.summaryTs??null,summaryTsEpoch:_rPrevSnap?.summaryTsEpoch??null,
       ts:nowPT(),tsEpoch:Date.now(),isLive:true
     };
     // Save pending earnings date + promote passed dates to confirmed
@@ -3391,7 +3395,7 @@ async function refreshSingleTicker(){
     // Step 2: Yahoo quoteSummary (beta, short interest, R40 inputs, price targets, trends)
     setP(20,'Fetching '+t+' extended data...');
       try{const qs=await fetchQuoteSummary(t);if(qs){
-        snap.summaryDegraded=false;snap.summaryTs=nowPT();
+        snap.summaryDegraded=false;snap.summaryTs=nowPT();snap.summaryTsEpoch=Date.now();
         if(qs.sector!=null)snap.sector=qs.sector;
         if(qs.industry!=null)snap.industry=qs.industry;
         if(qs.beta!=null)snap.beta=qs.beta;

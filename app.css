@@ -15,7 +15,7 @@
 html,body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:var(--base-font);min-height:100vh;overscroll-behavior:none}
 #app{display:flex;flex-direction:column;min-height:100vh}
 /* Market status banner */
-#market-status-banner{font-family:var(--mono);font-size:12px;font-weight:600;padding:6px 16px;text-align:center;position:sticky;top:0;z-index:200;transition:background 0.5s}
+#market-status-banner{font-family:var(--mono);font-size:12px;font-weight:600;padding:6px 6px;text-align:center;position:sticky;top:0;z-index:200;transition:background 0.5s}
 .mkt-open{background:rgb(0,200,150);color:#000}
 .mkt-prepost{background:rgb(255,165,2);color:#000}
 .mkt-closed{background:rgb(255,71,87);color:#fff}

@@ -422,6 +422,62 @@ function stdDev(arr){const a=avg(arr);if(a===null)return null;const v=arr.filter
 // given caller remembers to do.
 function computeRSI(closes,period=14){const filtered=closes.filter(c=>c!=null);const result=[];for(let i=0;i<filtered.length;i++){if(i<period){result.push(null);continue;}const sl=filtered.slice(i-period,i+1);let g=0,l=0;for(let j=1;j<sl.length;j++){const d=sl[j]-sl[j-1];if(d>0)g+=d;else l-=d;}const ag=g/period,al=l/period;if(al===0){result.push(100);continue;}result.push(100-100/(1+ag/al));}return result.filter(v=>v!==null);}
 
+// EMA seeded with a simple moving average of the first `period` values (the
+// conventional seeding method), then computed recursively forward. Unlike
+// Bollinger Bands' fixed-lookback SMA, EMA carries decaying memory of ALL
+// prior values -- so callers should always pass the full available closes
+// history, not a small display-window buffer, and let early convergence
+// imprecision decay away before the actually-displayed window starts,
+// rather than needing a fixed lookback-buffer constant the way a bounded
+// SMA/stddev computation does.
+function computeEMA(closes,period){
+  const filtered=closes.filter(c=>c!=null);
+  const result=new Array(filtered.length).fill(null);
+  if(filtered.length<period)return result;
+  const k=2/(period+1);
+  result[period-1]=avg(filtered.slice(0,period));
+  for(let i=period;i<filtered.length;i++)result[i]=filtered[i]*k+result[i-1]*(1-k);
+  return result;
+}
+
+// MACD: fast EMA minus slow EMA (the MACD line), a signal line (EMA of that
+// difference), and the histogram (their gap). Always pass the full
+// available closes history -- see computeEMA's comment on why.
+function computeMACD(closes,fast=12,slow=26,signalPeriod=9){
+  const filtered=closes.filter(c=>c!=null);
+  const emaFast=computeEMA(filtered,fast),emaSlow=computeEMA(filtered,slow);
+  const macdLine=filtered.map((_,i)=>(emaFast[i]!=null&&emaSlow[i]!=null)?emaFast[i]-emaSlow[i]:null);
+  const firstValidIdx=macdLine.findIndex(v=>v!=null);
+  const signalLine=new Array(macdLine.length).fill(null);
+  if(firstValidIdx>=0){
+    const signalOnly=computeEMA(macdLine.slice(firstValidIdx),signalPeriod);
+    for(let i=0;i<signalOnly.length;i++)signalLine[firstValidIdx+i]=signalOnly[i];
+  }
+  const histogram=macdLine.map((v,i)=>(v!=null&&signalLine[i]!=null)?v-signalLine[i]:null);
+  return{macdLine,signalLine,histogram};
+}
+
+// Plain-fact status line for the MACD chart -- deliberately states only
+// directly-observable facts (zero-line side, days since the current
+// MACD-vs-signal relationship began, histogram momentum direction), never
+// a synthesized buy/sell verdict. MACD is prone to false crossovers in
+// sideways/choppy conditions, which is exactly the kind of judgment call
+// that shouldn't be automated into a confident-sounding conclusion.
+function _macdStatusText(macdLine,signalLine,histogram){
+  let i=macdLine.length-1;
+  while(i>=0&&(macdLine[i]==null||signalLine[i]==null))i--;
+  if(i<0)return'';
+  const aboveZero=macdLine[i]>=0;
+  const bullish=macdLine[i]>signalLine[i];
+  let daysSince=0,j=i;
+  while(j>0&&macdLine[j-1]!=null&&signalLine[j-1]!=null&&((macdLine[j-1]>signalLine[j-1])===bullish)){daysSince++;j--;}
+  const crossoverText=(j===0&&macdLine[0]!=null)?`${bullish?'bullish':'bearish'} bias since chart start`:`${bullish?'bullish':'bearish'} crossover ${daysSince===0?'today':daysSince+'d ago'}`;
+  let histTrend='';
+  const h0=histogram[i],hPrior=histogram[Math.max(i-3,0)];
+  if(h0!=null&&hPrior!=null&&i>0)histTrend=Math.abs(h0)>Math.abs(hPrior)?'histogram momentum strengthening':'histogram momentum fading';
+  return`${aboveZero?'Above':'Below'} zero, ${crossoverText}${histTrend?', '+histTrend:''}`;
+}
+
 // Backtests RSI as a signal: for each historical episode where RSI crossed
 // into oversold (<30) or overbought (>70) territory, computes the stock's
 // forward return over several windows, compared against a baseline of the

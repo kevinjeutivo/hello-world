@@ -329,9 +329,17 @@ function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r
 // Clamped to a modest range so a thin/noisy sample can't produce an
 // extreme adjustment; returns 1.0 (flat, no adjustment) if there isn't
 // enough history yet to estimate anything.
-function _estimateTermStructureSlope(hist2y){
+// asOfIdx bounds this to data available at-or-before a given point in the
+// 2-year history -- required for use inside a backtest simulation loop,
+// where using the FULL 2-year array regardless of a cycle's own simulated
+// entry date would be look-ahead bias (a cycle "trading" a year ago would
+// be informed by realized vol that, from its own vantage point, hasn't
+// happened yet). Defaults to the full array when omitted, which is correct
+// for a live (non-backtest) caller reasoning about "today" -- there is no
+// look-ahead risk when "now" genuinely is the most recent data point.
+function _estimateTermStructureSlope(hist2y,asOfIdx){
   const closes=hist2y.closes;
-  const n=closes.length;
+  const n=asOfIdx!=null?Math.min(asOfIdx+1,closes.length):closes.length;
   const ratios=[];
   for(let refIdx=63;refIdx+63<=n-1;refIdx+=21){
     const vol21=_realizedVolAsOf(closes,refIdx+21,21); // realized vol over the 21 trading days after refIdx
@@ -381,7 +389,7 @@ function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFl
 // window's ~1 year is used up or the available price history runs out.
 const WHEELBT_MAX_MONTHS_OUT=3; // matches the app's existing 3-expiry data-fetch cap elsewhere
 
-function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlope,maxTradingDays,earningsDates,earningsAvoidTypes){
+function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTradingDays,earningsDates,earningsAvoidTypes){
   const closes=hist2y.closes;
   const startPrice=closes[startIdx];
   if(startPrice==null||startPrice<=0)return null;
@@ -401,7 +409,13 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlo
     // earningsAvoidTypes=null, so this is always null there, and the
     // check inside _simulateOneCycle is skipped entirely -- Default's
     // output is untouched by any of this).
+    // Term-structure slope, recomputed fresh for THIS cycle's own entry
+    // point (curIdx) rather than once per ticker -- using the full 2-year
+    // history regardless of where a cycle falls within the simulated
+    // window would let a cycle "trading" a year ago see realized vol from
+    // its own future. See _estimateTermStructureSlope's asOfIdx comment.
     const applyEarnings=hasEarningsDates&&earningsAvoidTypes&&earningsAvoidTypes.includes(mode);
+    const termSlope=_estimateTermStructureSlope(hist2y,curIdx);
     const cyc=_findFloorClearingCycle(hist2y,curIdx,monthsOut,targetFloorPct,mode,r,WHEELBT_MAX_MONTHS_OUT,termSlope,applyEarnings?earningsDates:null);
     if(!cyc)break; // couldn't clear the floor at any DTE, at any remaining entry day -- stop here
     cyc.cyclePosition=trades.length+1; // 1-indexed position in the FULL sequence -- lets a truncated display show "cycle N of M" even when the shown slice doesn't start at the window's own true beginning
@@ -411,7 +425,13 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,termSlo
 
     if(mode==='put'){
       if(cyc.assigned){
-        costBasis=cyc.strike-cyc.premium;
+        // Cost basis is the raw strike, NOT strike-minus-premium -- the put
+        // premium is already counted once via cumPremium above. Subtracting
+        // it again here would double-count it a second time through the
+        // resulting share-sale gain once the shares are later called away
+        // (or through the unrealized mark if the window ends while still
+        // holding them, below).
+        costBasis=cyc.strike;
         mode='call';
       }
     }else{ // mode === 'call'
@@ -554,12 +574,11 @@ function _computeWheelBacktestFullHistory(ticker,monthsOut,targetFloorPct,strate
   if(!h2?.closes?.length||!h2.timestamps||!h2.opens||!h2.highs||!h2.lows)return null;
   const rRaw=_getTBillYield();
   const r=(rRaw!=null?rRaw:4.0)/100;
-  const termSlope=_estimateTermStructureSlope(h2);
   const earningsAvoidTypes=_wheelBacktestEarningsAvoidTypes(strategy);
   const earningsDates=earningsAvoidTypes?_getEarningsAvoidDates(ticker):null;
   const starts=_enumerateMonthlyStartIndices(h2);
   if(!starts.length)return null;
-  const win=_simulateWheelWindow(h2,starts[0],monthsOut,targetFloorPct,r,termSlope,Infinity,earningsDates,earningsAvoidTypes);
+  const win=_simulateWheelWindow(h2,starts[0],monthsOut,targetFloorPct,r,Infinity,earningsDates,earningsAvoidTypes);
   if(!win||!win.trades.length)return null;
   return{
     ticker,trades:win.trades,startIdx:win.startIdx,endIdx:win.endIdx,
@@ -577,13 +596,12 @@ function _computeWheelBacktest(ticker,monthsOut,targetFloorPct,strategy){
   const rRaw=_getTBillYield();
   const r=(rRaw!=null?rRaw:4.0)/100; // fallback if T-bill cache unavailable; rate has a small effect on BS price relative to sigma
   const MIN_COMPLETE_DAYS=300; // ~a full year, allowing some slack for real monthly spacing not being perfectly uniform
-  const termSlope=_estimateTermStructureSlope(h2); // once per ticker, applied uniformly across every window below
   const earningsAvoidTypes=_wheelBacktestEarningsAvoidTypes(strategy);
   const earningsDates=earningsAvoidTypes?_getEarningsAvoidDates(ticker):null;
 
   const windows=[];
   _enumerateMonthlyStartIndices(h2).forEach(startIdx=>{
-    const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,termSlope,undefined,earningsDates,earningsAvoidTypes);
+    const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,undefined,earningsDates,earningsAvoidTypes);
     if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS)windows.push(win);
   });
   if(!windows.length)return null;
@@ -642,12 +660,11 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
   tickers.forEach(t=>{
     const h2=S.get('hist2y_'+t);
     if(!h2?.closes?.length||!h2.timestamps||!h2.opens||!h2.highs||!h2.lows)return;
-    const termSlope=_estimateTermStructureSlope(h2);
     const earningsDates=earningsAvoidTypes?_getEarningsAvoidDates(t):null;
     let gotAny=false;
     perTickerReturns[t]=[];
     _enumerateMonthlyStartIndices(h2).forEach(startIdx=>{
-      const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,termSlope,undefined,earningsDates,earningsAvoidTypes);
+      const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,undefined,earningsDates,earningsAvoidTypes);
       if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS){
         allReturns.push(win.annualizedReturnPct);
         allAssignmentRates.push(win.assignmentRatePct);

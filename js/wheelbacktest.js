@@ -36,7 +36,33 @@
 // same number the results get compared against, rather than two
 // independently-chosen values that happened to both be "12" by
 // coincidence.
+// Cash-held (not reinvested) dividend sum for the buy-and-hold comparison
+// -- consistent with the wheel side's own simple, non-compounded premium
+// accounting (cumPremium is never treated as capital that buys more
+// contracts), so both sides of the comparison use the same convention. At
+// the ~1-year window lengths this backtest uses, reinvestment would barely
+// move the number anyway -- the gap only compounds meaningfully over much
+// longer horizons than these windows cover.
+function _sumDividendsInRange(dividends,startDate,endDate){
+  if(!dividends||!dividends.length)return 0;
+  return dividends.reduce((s,d)=>{
+    if(!d?.date||d.amount==null)return s;
+    const dDate=new Date(d.date+'T12:00:00Z');
+    return(dDate>=startDate&&dDate<=endDate)?s+d.amount:s;
+  },0);
+}
+
 const WHEELBT_DEFAULT_TARGET_APY=12; // matches _calcIncome's own fallback default
+
+// Correct median for an array already sorted ascending -- averages the two
+// center elements when the count is even, rather than picking one side of
+// them (a small but real upward bias on evenly-sized samples otherwise).
+function _medianOfSorted(sorted){
+  const n=sorted.length;
+  if(!n)return null;
+  const mid=Math.floor(n/2);
+  return n%2===0?(sorted[mid-1]+sorted[mid])/2:sorted[mid];
+}
 
 // ── Real monthly-expiration calendar mechanics ──────────────────────────
 // Earlier version used a fixed trading-day offset (e.g. "45 days later")
@@ -389,7 +415,7 @@ function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFl
 // window's ~1 year is used up or the available price history runs out.
 const WHEELBT_MAX_MONTHS_OUT=3; // matches the app's existing 3-expiry data-fetch cap elsewhere
 
-function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTradingDays,earningsDates,earningsAvoidTypes){
+function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTradingDays,earningsDates,earningsAvoidTypes,dividends){
   const closes=hist2y.closes;
   const startPrice=closes[startIdx];
   if(startPrice==null||startPrice<=0)return null;
@@ -443,7 +469,11 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
       }
     }
 
-    curIdx=cyc.exitIdx;
+    // Next cycle starts the trading day AFTER this one's expiration, not on
+    // the expiration day itself -- hist2y's arrays only contain actual
+    // trading days, so +1 here always lands on a real next trading day, no
+    // further date resolution needed. Matches your actual stated practice.
+    curIdx=cyc.exitIdx+1;
     if(curIdx>=startIdx+tradingDaysInYear)break; // let the in-progress cycle finish naturally, then stop
   }
 
@@ -503,7 +533,7 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
   const assignedCount=trades.filter(t=>t.assigned).length;
   const assignmentRatePct=trades.length?assignedCount/trades.length*100:0;
 
-  const buyHoldReturn=(endPrice-startPrice)/startPrice;
+  const buyHoldReturn=(endPrice-startPrice+_sumDividendsInRange(dividends,startDate,endDate))/startPrice;
   const buyHoldAnnualizedPct=buyHoldReturn*(365/elapsedCalendarDaysApprox)*100;
 
   return{
@@ -576,9 +606,10 @@ function _computeWheelBacktestFullHistory(ticker,monthsOut,targetFloorPct,strate
   const r=(rRaw!=null?rRaw:4.0)/100;
   const earningsAvoidTypes=_wheelBacktestEarningsAvoidTypes(strategy);
   const earningsDates=earningsAvoidTypes?_getEarningsAvoidDates(ticker):null;
+  const dividends=S.get('div_hist_'+ticker)?.distributions||null;
   const starts=_enumerateMonthlyStartIndices(h2);
   if(!starts.length)return null;
-  const win=_simulateWheelWindow(h2,starts[0],monthsOut,targetFloorPct,r,Infinity,earningsDates,earningsAvoidTypes);
+  const win=_simulateWheelWindow(h2,starts[0],monthsOut,targetFloorPct,r,Infinity,earningsDates,earningsAvoidTypes,dividends);
   if(!win||!win.trades.length)return null;
   return{
     ticker,trades:win.trades,startIdx:win.startIdx,endIdx:win.endIdx,
@@ -598,16 +629,17 @@ function _computeWheelBacktest(ticker,monthsOut,targetFloorPct,strategy){
   const MIN_COMPLETE_DAYS=300; // ~a full year, allowing some slack for real monthly spacing not being perfectly uniform
   const earningsAvoidTypes=_wheelBacktestEarningsAvoidTypes(strategy);
   const earningsDates=earningsAvoidTypes?_getEarningsAvoidDates(ticker):null;
+  const dividends=S.get('div_hist_'+ticker)?.distributions||null;
 
   const windows=[];
   _enumerateMonthlyStartIndices(h2).forEach(startIdx=>{
-    const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,undefined,earningsDates,earningsAvoidTypes);
+    const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,undefined,earningsDates,earningsAvoidTypes,dividends);
     if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS)windows.push(win);
   });
   if(!windows.length)return null;
 
   const annReturns=windows.map(w=>w.annualizedReturnPct).sort((a,b)=>a-b);
-  const median=annReturns[Math.floor(annReturns.length/2)];
+  const median=_medianOfSorted(annReturns);
   const worst=annReturns[0];
   const best=annReturns[annReturns.length-1];
   const avgAssignmentRate=windows.reduce((s,w)=>s+w.assignmentRatePct,0)/windows.length;
@@ -661,10 +693,11 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
     const h2=S.get('hist2y_'+t);
     if(!h2?.closes?.length||!h2.timestamps||!h2.opens||!h2.highs||!h2.lows)return;
     const earningsDates=earningsAvoidTypes?_getEarningsAvoidDates(t):null;
+    const dividends=S.get('div_hist_'+t)?.distributions||null;
     let gotAny=false;
     perTickerReturns[t]=[];
     _enumerateMonthlyStartIndices(h2).forEach(startIdx=>{
-      const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,undefined,earningsDates,earningsAvoidTypes);
+      const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,undefined,earningsDates,earningsAvoidTypes,dividends);
       if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS){
         allReturns.push(win.annualizedReturnPct);
         allAssignmentRates.push(win.assignmentRatePct);
@@ -683,7 +716,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
 
   if(!allReturns.length)return null;
   allReturns.sort((a,b)=>a-b);
-  const median=allReturns[Math.floor(allReturns.length/2)];
+  const median=_medianOfSorted(allReturns);
   const worst=allReturns[0];
   const best=allReturns[allReturns.length-1];
   const avgAnnReturn=allReturns.reduce((s,v)=>s+v,0)/allReturns.length;
@@ -703,7 +736,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
       const sorted=[...arr].sort((a,b)=>a-b);
       return{
         ticker:t,sampleSize:sorted.length,
-        worst:sorted[0],median:sorted[Math.floor(sorted.length/2)],best:sorted[sorted.length-1],
+        worst:sorted[0],median:_medianOfSorted(sorted),best:sorted[sorted.length-1],
       };
     })
     .sort((a,b)=>b.median-a.median);
@@ -957,9 +990,10 @@ function _renderWheelBacktestFromResult(result,isAggregate,isStarredMode,selecte
     <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
       <span style="color:var(--text2)">vs. Buy &amp; Hold (same windows)</span><span style="color:${vsColor}">${result.vsBuyHold>=0?'+':''}${result.vsBuyHold.toFixed(1)}pp avg</span>
     </div>
-    <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3);margin-bottom:12px">
-      <span style="color:var(--text2)">Premium source</span><span style="color:var(--warn)">Realized vol + est. term structure</span>
+    <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
+      <span style="color:var(--text2)">Premium source</span><span style="color:var(--warn)">Modeled &mdash; realized vol + est. term structure</span>
     </div>
+    <div style="font-size:9px;color:var(--text3);line-height:1.4;padding-bottom:5px;margin-bottom:12px">Not real historical option quotes. Realized vol typically runs below implied vol (the volatility risk premium), so modeled premiums here likely skew somewhat low versus what was actually available &mdash; a conservative bias, not an optimistic one.</div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
       <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Example Run${exampleTicker?' ('+exampleTicker+')':''}</div>
       <div style="display:flex;gap:4px">
@@ -1185,7 +1219,8 @@ function _renderWheelBacktestRankingFromResult(result,target){
   // Renumbered relative to whatever's actually shown -- when filtered to
   // Starred, "#1" means "your best-ranked starred ticker," not its
   // original rank among the whole watchlist.
-  content.innerHTML=list.map((r,i)=>_wheelBacktestRankingRowHtml(r,i+1,target,starred)).join('');
+  content.innerHTML='<div style="font-size:9px;color:var(--text3);line-height:1.4;padding:0 2px 10px">Modeled from realized volatility, not real historical option quotes -- a rough scenario model, not a live-tradeable backtest. Rankings can shift meaningfully once real option-chain data is used.</div>'
+    +list.map((r,i)=>_wheelBacktestRankingRowHtml(r,i+1,target,starred)).join('');
 }
 
 // ── Coordinator ──────────────────────────────────────────────────────────

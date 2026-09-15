@@ -59,6 +59,12 @@ async function prefetchAll(){
       const _fetchUpgrades=S.get('fetch_upgrades_enabled')==='true';
       const _upgradesAge=(Date.now()-(S.get('upgrades_'+t)?.ts?new Date(S.get('upgrades_'+t).ts).getTime():0))/3600000;
       const _needUpgrades=_fetchUpgrades&&_upgradesAge>=24;
+      // Dividend history for the wheel backtest's buy-and-hold comparison --
+      // changes at most quarterly, so a 24h gate (same convention as
+      // upgrades above) avoids re-fetching this on every single prefetch
+      // run for no benefit.
+      const _divAge=(Date.now()-(S.get('div_hist_'+t)?.ts?new Date(S.get('div_hist_'+t).ts).getTime():0))/3600000;
+      const _needDiv=_divAge>=24;
       // Yahoo batch (quote, quoteSummary, hist2y, main options chain, intraday) fires
       // concurrently with the Finnhub sequence below -- independent providers, no
       // dependency between them. Within the Finnhub side, earnings and upgrades now
@@ -74,7 +80,8 @@ async function prefetchAll(){
         _pfTimeout(fetchQuoteSummary(t),10000,t+' quoteSummary').catch(()=>null),
         _pfTimeout(yahooHistory(t,'2y','1d'),15000,t+' hist2y').catch(e=>{console.warn('hist2y failed:',t,e?.message);return null;}),
         _pfTimeout(yahooOptionsViaProxy(t),15000,t+' options').catch(e=>{console.warn('options failed:',t,e?.message);return null;}),
-        _pfTimeout(yahooHistory(t,'1d','5m'),10000,t+' intraday').catch(e=>{console.warn('intraday failed:',t,e?.message);return null;})
+        _pfTimeout(yahooHistory(t,'1d','5m'),10000,t+' intraday').catch(e=>{console.warn('intraday failed:',t,e?.message);return null;}),
+        _needDiv?_pfTimeout(fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(t)}&type=dividends&range=3y`).then(r=>r.ok?r.json():null),10000,t+' dividends').catch(e=>{console.warn('dividends failed:',t,e?.message);return null;}):Promise.resolve(null)
       ]).then(r=>{_timing.yahooBatch.push(Date.now()-_yahooBatchStart);return r;});
       let _earningsErr=null,_upgradesErr=null;
       const _finnhubSeq=(async()=>{
@@ -86,7 +93,7 @@ async function prefetchAll(){
         if(_needUpgrades)_timing.upgrades.push(Date.now()-_t1);
         return[_e,_u];
       })();
-      const [[_ahQ,_qs,_h2res,_optsRes,_idRes],[_earningsRes,upgrades2]]=await Promise.all([_yahooBatch,_finnhubSeq]);
+      const [[_ahQ,_qs,_h2res,_optsRes,_idRes,_divRes],[_earningsRes,upgrades2]]=await Promise.all([_yahooBatch,_finnhubSeq]);
       earnings=_earningsRes;
       // Finnhub health: earnings call must succeed; upgrades must succeed if it was
       // attempted (skipped calls due to <24h cache don't count against health)
@@ -152,6 +159,20 @@ async function prefetchAll(){
         const _now=nowPT();
         S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,adjcloses:_ac2,opens:_op2,highs:_hi2,lows:_lo2,ts:_now,tsEpoch:Date.now()});
         _health.tickers[t].hist=true;_h2ok=true;
+      }
+      // Process dividend history (used by the wheel backtest's
+      // buy-and-hold comparison). Only overwrite the cache on an actual
+      // fetch attempt this run -- on the 24h-gated skip (_needDiv=false),
+      // _divRes is null by construction and the existing cache is left
+      // alone, same preserve-on-no-fetch discipline as everything else
+      // here, not a fetch failure being silently masked.
+      if(_needDiv&&_divRes){
+        const _divEvents=_divRes.chart?.result?.[0]?.events?.dividends;
+        if(_divEvents){
+          const _divList=Object.values(_divEvents).sort((a,b)=>b.date-a.date).slice(0,24)
+            .map(d=>({date:new Date(d.date*1000).toISOString().split('T')[0],amount:d.amount}));
+          S.set('div_hist_'+t,{distributions:_divList,ts:nowPT()});
+        }
       }
       // Process options
       if(_optsRes){

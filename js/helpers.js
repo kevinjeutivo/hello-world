@@ -1196,14 +1196,21 @@ function _annualizedYieldPct(premium,S,T){
 function _solveStrikeForYieldFloor(S,T,r,sigma,targetFloorPct,optionType){
   const bsPriceFn=optionType==='put'?_bsPutPrice:_bsCallPrice;
   const atmPremium=bsPriceFn(S,S,T,r,sigma);
-  const atmYield=_annualizedYieldPct(atmPremium,S,T);
+  const atmYield=_annualizedYieldPct(atmPremium,S,T); // strike==spot at the money, so this line is convention-agnostic either way
   if(atmYield<targetFloorPct)return null; // not reachable at this DTE, even at the money
 
   let lo,hi;
   if(optionType==='put'){lo=S*0.3;hi=S;}else{lo=S;hi=S*2.0;}
   for(let i=0;i<60;i++){
     const mid=(lo+hi)/2;
-    const yieldPct=_annualizedYieldPct(bsPriceFn(S,mid,T,r,sigma),S,T);
+    // Puts: yield on actual committed capital is premium/strike (the cash
+    // reserved to secure the put), matching how a real CSP position's
+    // notional is valued elsewhere in this app -- not premium/spot, which
+    // is unrelated to what's actually tied up for this specific trade.
+    // Calls keep spot as the denominator (premium relative to the value of
+    // shares already held), which is the standard covered-call convention.
+    const yieldDenom=optionType==='put'?mid:S;
+    const yieldPct=_annualizedYieldPct(bsPriceFn(S,mid,T,r,sigma),yieldDenom,T);
     if(optionType==='put'){
       if(yieldPct>=targetFloorPct)hi=mid;else lo=mid; // converge toward the smallest feasible (most OTM) K
     }else{

@@ -52,7 +52,50 @@ function _sumDividendsInRange(dividends,startDate,endDate){
   },0);
 }
 
-const WHEELBT_DEFAULT_TARGET_APY=12; // matches _calcIncome's own fallback default
+// Finds the most recent ^IRX close at-or-before a given date (epoch ms),
+// via binary search over its ascending daily timestamps -- called once per
+// trading day per capital segment across a full backtest run, so O(log n)
+// matters here versus a linear scan. Returns a decimal rate (^IRX quotes
+// as a percent, e.g. 5.25, so /100), or null if no data covers that date
+// (before the cache existed, or predates ^IRX's own fetched range).
+function _irxRateAsOf(irxHist2y,targetEpochMs){
+  if(!irxHist2y?.timestamps?.length)return null;
+  const ts=irxHist2y.timestamps,closes=irxHist2y.closes;
+  let lo=0,hi=ts.length-1,ans=-1;
+  while(lo<=hi){
+    const mid=(lo+hi)>>1;
+    if(ts[mid]*1000<=targetEpochMs){ans=mid;lo=mid+1;}
+    else hi=mid-1;
+  }
+  if(ans===-1)return null;
+  const v=closes[ans];
+  return v!=null&&v>0?v/100:null;
+}
+
+// Time-weighted average capital deployed across a list of regime segments
+// (see _simulateWheelWindow) -- 'cash' segments contribute a constant
+// dollar amount for their span (strike-based collateral, full cash-secured,
+// no margin reduction); 'shares' segments contribute the day-by-day marked
+// value of the shares actually held, since that moves with the stock price
+// throughout the holding period rather than staying fixed at whatever
+// price prevailed when the shares were first acquired.
+function _timeWeightedCapitalBase(segments,closes){
+  let totalDollarDays=0,totalDays=0;
+  for(const seg of segments){
+    const days=seg.endIdx-seg.startIdx+1;
+    if(days<=0)continue;
+    if(seg.type==='cash'){
+      totalDollarDays+=seg.capital*days;
+    }else{ // 'shares'
+      for(let i=seg.startIdx;i<=seg.endIdx;i++){
+        const px=closes[i];
+        if(px!=null)totalDollarDays+=px; // per-share, matching cumPremium/realizedShareGainLoss's own convention -- NOT per-contract (*100), which would create a unit mismatch against the P&L side of the ratio
+      }
+    }
+    totalDays+=days;
+  }
+  return totalDays>0?totalDollarDays/totalDays:null;
+}
 
 // Correct median for an array already sorted ascending -- averages the two
 // center elements when the count is even, rather than picking one side of
@@ -415,7 +458,7 @@ function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFl
 // window's ~1 year is used up or the available price history runs out.
 const WHEELBT_MAX_MONTHS_OUT=3; // matches the app's existing 3-expiry data-fetch cap elsewhere
 
-function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTradingDays,earningsDates,earningsAvoidTypes,dividends){
+function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTradingDays,earningsDates,earningsAvoidTypes,dividends,irxHist2y){
   const closes=hist2y.closes;
   const startPrice=closes[startIdx];
   if(startPrice==null||startPrice<=0)return null;
@@ -428,6 +471,31 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
   let realizedShareGainLoss=0;
   const tradingDaysInYear=maxTradingDays||252; // callers omit this for the standard ~1-year window; Full History passes Infinity
   const hasEarningsDates=earningsDates&&earningsDates.length>0;
+
+  // Time-weighted capital ledger -- see _timeWeightedCapitalBase. 'cash'
+  // segments (full cash-secured, no margin reduction -- matches
+  // _posNotional in the Income tab and the strike-based yield fix already
+  // shipped) cover every stretch between a call-away (or window start) and
+  // the next assignment, including any days spent searching for a
+  // floor-clearing put to sell. 'shares' segments cover every stretch a
+  // position is actually held, from assignment through eventual
+  // call-away, INCLUDING any days spent searching for a covered call to
+  // write against those same already-held shares -- the shares don't stop
+  // being capital just because a call hasn't been sold against them yet.
+  const segments=[];
+  let regimeStartIdx=startIdx;
+  let lastFreedCapital=null; // dollars freed by the most recently completed cycle -- null until the first cycle resolves, in which case that cycle's own strike is used as a one-time bootstrap
+  let cashInterest=0;
+
+  const _accrueCashInterest=(fromIdx,toIdx,capital)=>{
+    if(!irxHist2y)return;
+    for(let i=fromIdx;i<=toIdx;i++){
+      const dateMs=hist2y.timestamps?.[i]!=null?hist2y.timestamps[i]*1000:null;
+      if(dateMs==null)continue;
+      const rate=_irxRateAsOf(irxHist2y,dateMs);
+      if(rate!=null)cashInterest+=capital*rate/365;
+    }
+  };
 
   while(true){
     // Only pass the earnings-date list through for leg types this
@@ -448,8 +516,12 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     trades.push(cyc);
     cumPremium+=cyc.premium;
     cyc.equityGainDollar=0; // default; only a called-away call leg realizes an equity gain/loss
+    cyc.legTotalDollar=cyc.premium; // updated below for an assigned call
 
     if(mode==='put'){
+      const cashAmt=lastFreedCapital!=null?lastFreedCapital:cyc.strike; // per-share, same reasoning as _timeWeightedCapitalBase's shares branch
+      segments.push({startIdx:regimeStartIdx,endIdx:cyc.exitIdx,type:'cash',capital:cashAmt});
+      _accrueCashInterest(regimeStartIdx,cyc.exitIdx,cashAmt);
       if(cyc.assigned){
         // Cost basis is the raw strike, NOT strike-minus-premium -- the put
         // premium is already counted once via cumPremium above. Subtracting
@@ -458,15 +530,27 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
         // (or through the unrealized mark if the window ends while still
         // holding them, below).
         costBasis=cyc.strike;
+        lastFreedCapital=null;
+        regimeStartIdx=cyc.exitIdx+1;
         mode='call';
+      }else{
+        lastFreedCapital=cashAmt; // same cash, freed again, ready for the next put
+        regimeStartIdx=cyc.exitIdx+1;
       }
     }else{ // mode === 'call'
       if(cyc.assigned){
         cyc.equityGainDollar=cyc.strike-costBasis;
+        cyc.legTotalDollar=cyc.premium+cyc.equityGainDollar;
         realizedShareGainLoss+=cyc.equityGainDollar;
+        segments.push({startIdx:regimeStartIdx,endIdx:cyc.exitIdx,type:'shares'});
+        lastFreedCapital=cyc.strike; // per-share
         costBasis=null;
+        regimeStartIdx=cyc.exitIdx+1;
         mode='put';
       }
+      // else: call expired worthless, still holding shares -- the shares
+      // regime stays open (regimeStartIdx unchanged), mode stays 'call',
+      // loop continues searching for another call against the same shares.
     }
 
     // Next cycle starts the trading day AFTER this one's expiration, not on
@@ -488,38 +572,79 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
   if(endPrice==null||elapsedCalendarDaysApprox<=0)return null;
 
   // If still holding shares (mid-CC-cycle) at window end, mark unrealized
-  // gain/loss vs cost basis so the total isn't silently missing that leg.
+  // gain/loss vs cost basis so the total isn't silently missing that leg,
+  // and close out the open shares segment through the window's actual end
+  // so its capital is counted in the time-weighted base below.
   const unrealizedShareGainLoss=costBasis!=null?(endPrice-costBasis):0;
-  const totalPnL=cumPremium+realizedShareGainLoss+unrealizedShareGainLoss;
+  if(mode==='call'&&costBasis!=null){
+    segments.push({startIdx:regimeStartIdx,endIdx,type:'shares'});
+  }
+  const totalPnL=cumPremium+realizedShareGainLoss+unrealizedShareGainLoss+cashInterest;
 
-  // Capital base: the AVERAGE of each cycle's own spot price at entry, not
-  // just the window's day-1 starting price. This matters a lot on a
-  // volatile underlying -- a stock that rallies hard during the window
-  // means real committed capital (the value of shares held, or the strike
-  // securing a new put) grows right along with it, but a fixed day-1
-  // denominator stays frozen, silently understating the true capital base
-  // for every later cycle and inflating the resulting annualized return.
-  // Averaging each cycle's actual entry price captures that a real trader
-  // would have had progressively more capital at risk as the stock rose
-  // (or less, if it fell), without introducing full compounding -- still
-  // one total P&L divided by one denominator, matching _calcIncome's own
-  // simple/linear convention so this stays directly comparable to a
-  // target APY input.
-  const avgCapitalBase=trades.reduce((s,t)=>s+t.spotAtEntry,0)/trades.length;
+  // Time-weighted capital base -- replaces a flat average of each cycle's
+  // entry-point spot price with the actual capital ledger built above:
+  // strike-based collateral while a put is open (matching how a real CSP
+  // position is valued in the Income tab), daily marked share value while
+  // holding (not frozen at the entry price), and idle cash properly
+  // counted rather than silently vanishing from the denominator during a
+  // multi-day search for a floor-clearing entry.
+  const avgCapitalBase=_timeWeightedCapitalBase(segments,closes);
+  if(avgCapitalBase==null||avgCapitalBase<=0)return null;
 
-  // Second pass, now that avgCapitalBase is known: tag each cycle with its
-  // own leg contribution and a RUNNING cumulative return, computed over
-  // the FULL trades array (not whatever slice ends up displayed) -- so if
-  // only the last 8 of a longer chain get shown, their cumulative values
-  // still correctly reflect everything that came before, not just the
-  // visible rows. Uses the same simple/linear (non-compounded) convention
-  // as the window's own headline return, so the last row's cumulative
-  // value reconciles exactly with the window's total realized P&L.
-  let runningDollar=0;
-  trades.forEach(t=>{
-    t.legTotalDollar=t.premium+t.equityGainDollar;
-    runningDollar+=t.legTotalDollar;
-    t.cumulativePct=(runningDollar/avgCapitalBase)*100;
+  // Second pass: replay the SAME cash/shares regime transitions over the
+  // now-complete trades array to compute a running, time-weighted-SO-FAR
+  // capital base and P&L at each cycle's own exit -- deliberately not the
+  // window's final average applied retroactively to an earlier point,
+  // which would let that point's displayed % reflect information (the
+  // eventual final average) that wasn't actually known yet at that point
+  // in time. Same "nothing sees its own future" principle as the
+  // term-structure fix, just showing up in a display context here. An
+  // in-progress (not-yet-assigned) shares regime is folded into a
+  // throwaway "as if closed right now" copy for this specific
+  // calculation, without touching the real segsSoFar array used for the
+  // next cycle's own accounting.
+  let runningPremium=0,runningShareGain=0,runningInterest=0;
+  const segsSoFar=[];
+  let rsIdx=startIdx,lastFreed=null,curMode='put';
+  trades.forEach((t,ti)=>{
+    runningPremium+=t.premium;
+    runningShareGain+=t.equityGainDollar;
+    let capSoFar;
+    if(curMode==='put'){
+      const cashAmt=lastFreed!=null?lastFreed:t.strike; // per-share, mirrors the main loop above
+      const thisSeg={startIdx:rsIdx,endIdx:t.exitIdx,type:'cash',capital:cashAmt};
+      for(let i=rsIdx;i<=t.exitIdx;i++){
+        const dateMs=hist2y.timestamps?.[i]!=null?hist2y.timestamps[i]*1000:null;
+        const rate=dateMs!=null&&irxHist2y?_irxRateAsOf(irxHist2y,dateMs):null;
+        if(rate!=null)runningInterest+=cashAmt*rate/365;
+      }
+      capSoFar=_timeWeightedCapitalBase([...segsSoFar,thisSeg],closes);
+      segsSoFar.push(thisSeg);
+      lastFreed=t.assigned?null:cashAmt;
+      rsIdx=t.exitIdx+1;
+      if(t.assigned)curMode='call';
+    }else{ // curMode==='call'
+      const thisSeg={startIdx:rsIdx,endIdx:t.exitIdx,type:'shares'};
+      capSoFar=_timeWeightedCapitalBase([...segsSoFar,thisSeg],closes);
+      if(t.assigned){
+        segsSoFar.push(thisSeg);
+        lastFreed=t.strike; // per-share
+        rsIdx=t.exitIdx+1;
+        curMode='put';
+      }
+      // else: stays open -- segsSoFar NOT pushed, rsIdx unchanged, so the
+      // NEXT cycle's temporary "as if closed now" copy still starts from
+      // the true beginning of this still-open holding stretch.
+    }
+    // At the window's own final trade, if shares are still held (mode
+    // never returned to 'put'), fold in the SAME unrealized mark the main
+    // pass already computed above -- otherwise the running curve's last
+    // entry would silently omit it and fail to reconcile with the
+    // window's own totalPnL/avgCapitalBase, which does include it.
+    const isLastTrade=ti===trades.length-1;
+    const unrealizedSoFar=(isLastTrade&&costBasis!=null)?unrealizedShareGainLoss:0;
+    const runningDollar=runningPremium+runningShareGain+runningInterest+unrealizedSoFar;
+    t.cumulativePct=capSoFar>0?(runningDollar/capSoFar)*100:null;
   });
 
   const simpleReturn=totalPnL/avgCapitalBase;
@@ -542,7 +667,7 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     elapsedCalendarDaysApprox,avgCapitalBase,
     simpleReturnPct:simpleReturn*100, // raw, unannualized total -- what the row-by-row cumulative actually adds up to
     stillHoldingShares:costBasis!=null,
-    unrealizedShareGainLoss,
+    unrealizedShareGainLoss,cashInterest,
   };
 }
 
@@ -607,9 +732,10 @@ function _computeWheelBacktestFullHistory(ticker,monthsOut,targetFloorPct,strate
   const earningsAvoidTypes=_wheelBacktestEarningsAvoidTypes(strategy);
   const earningsDates=earningsAvoidTypes?_getEarningsAvoidDates(ticker):null;
   const dividends=S.get('div_hist_'+ticker)?.distributions||null;
+  const irxHist2y=S.get('hist2y_irx')||null;
   const starts=_enumerateMonthlyStartIndices(h2);
   if(!starts.length)return null;
-  const win=_simulateWheelWindow(h2,starts[0],monthsOut,targetFloorPct,r,Infinity,earningsDates,earningsAvoidTypes,dividends);
+  const win=_simulateWheelWindow(h2,starts[0],monthsOut,targetFloorPct,r,Infinity,earningsDates,earningsAvoidTypes,dividends,irxHist2y);
   if(!win||!win.trades.length)return null;
   return{
     ticker,trades:win.trades,startIdx:win.startIdx,endIdx:win.endIdx,
@@ -630,10 +756,11 @@ function _computeWheelBacktest(ticker,monthsOut,targetFloorPct,strategy){
   const earningsAvoidTypes=_wheelBacktestEarningsAvoidTypes(strategy);
   const earningsDates=earningsAvoidTypes?_getEarningsAvoidDates(ticker):null;
   const dividends=S.get('div_hist_'+ticker)?.distributions||null;
+  const irxHist2y=S.get('hist2y_irx')||null;
 
   const windows=[];
   _enumerateMonthlyStartIndices(h2).forEach(startIdx=>{
-    const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,undefined,earningsDates,earningsAvoidTypes,dividends);
+    const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,undefined,earningsDates,earningsAvoidTypes,dividends,irxHist2y);
     if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS)windows.push(win);
   });
   if(!windows.length)return null;
@@ -688,6 +815,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
   // -- reused by the "Best Tickers" ranking view so it doesn't need its
   // own separate full computation pass over the whole watchlist.
   const perTickerReturns={};
+  const irxHist2y=S.get('hist2y_irx')||null; // shared across every ticker, read once rather than per-iteration
 
   tickers.forEach(t=>{
     const h2=S.get('hist2y_'+t);
@@ -697,7 +825,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
     let gotAny=false;
     perTickerReturns[t]=[];
     _enumerateMonthlyStartIndices(h2).forEach(startIdx=>{
-      const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,undefined,earningsDates,earningsAvoidTypes,dividends);
+      const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,undefined,earningsDates,earningsAvoidTypes,dividends,irxHist2y);
       if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS){
         allReturns.push(win.annualizedReturnPct);
         allAssignmentRates.push(win.assignmentRatePct);

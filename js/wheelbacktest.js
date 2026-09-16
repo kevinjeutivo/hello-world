@@ -316,7 +316,7 @@ function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r
   // specific entry/DTE genuinely can't be done with a real, valid strike
   // -- the caller's existing escalation/waiting logic handles this
   // exactly like any other infeasible attempt.
-  const actualYield=_annualizedYieldPct(premium,S0,T);
+  const actualYield=_annualizedYieldPct(premium,optionType==='put'?K:S0,T); // same strike-vs-spot convention as _solveStrikeForYieldFloor -- see its comment
   if(actualYield<targetFloorPct-0.01)return null;
 
   const priceAtExit=closes[exitIdx];

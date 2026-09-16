@@ -13,6 +13,27 @@
 <link rel="stylesheet" href="./app.css">
 </head>
 <body>
+<script>
+// TEMPORARY diagnostic scaffolding -- catches any uncaught error or
+// unhandled promise rejection anywhere on the page and shows it directly,
+// visible without needing a connected debugger. Placed as early as
+// possible (before any other script loads) so it catches errors from the
+// full initialization sequence, not just a specific feature. Remove once
+// the Wheel Backtest "stuck on Loading..." issue is diagnosed and fixed.
+window.addEventListener('error',function(e){
+  var d=document.createElement('div');
+  d.style.cssText='position:fixed;top:0;left:0;right:0;background:#ff2020;color:#fff;font-family:monospace;font-size:11px;padding:10px;z-index:999999;white-space:pre-wrap;max-height:50vh;overflow:auto';
+  d.textContent='JS ERROR: '+(e.message||e)+'\n'+(e.filename?e.filename+':'+e.lineno+':'+e.colno:'')+(e.error&&e.error.stack?'\n'+e.error.stack:'');
+  document.body.appendChild(d);
+});
+window.addEventListener('unhandledrejection',function(e){
+  var d=document.createElement('div');
+  d.style.cssText='position:fixed;top:0;left:0;right:0;background:#ff2020;color:#fff;font-family:monospace;font-size:11px;padding:10px;z-index:999999;white-space:pre-wrap;max-height:50vh;overflow:auto';
+  var r=e.reason;
+  d.textContent='UNHANDLED PROMISE REJECTION: '+((r&&r.message)||r)+(r&&r.stack?'\n'+r.stack:'');
+  document.body.appendChild(d);
+});
+</script>
 <div id="offline-mode-bar">OFFLINE MODE -- all data served from cache</div>
 <div id="app">
 <div id="sticky-chrome" style="position:sticky;top:0;z-index:200">

@@ -1066,20 +1066,29 @@ function renderWheelBacktest(){
   // deferred one tick so the "Computing..." state actually paints first
   // rather than the whole thing blocking in one frame.
   setTimeout(()=>{
-    let result,isAggregate=!selectedTicker;
-    if(isStarredMode){
-      const starredList=watchlist.filter(t=>_starredTickers().has(t));
-      if(!starredList.length){
-        content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>No starred tickers yet -- tap the star on a ticker in the Watchlist tab to add one.</div>';
-        return;
+    // Wrapped so a genuine bug in the computation surfaces as a visible,
+    // readable error instead of leaving "Computing..." frozen forever with
+    // no information -- silent hangs are worse than an ugly error message,
+    // since there's nothing to diagnose from a hang.
+    try{
+      let result,isAggregate=!selectedTicker;
+      if(isStarredMode){
+        const starredList=watchlist.filter(t=>_starredTickers().has(t));
+        if(!starredList.length){
+          content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>No starred tickers yet -- tap the star on a ticker in the Watchlist tab to add one.</div>';
+          return;
+        }
+        result=_computeWheelBacktestAggregate(starredList,monthsOut,target,strategy);
+      }else if(isAggregate){
+        result=_computeWheelBacktestAggregate(watchlist,monthsOut,target,strategy);
+      }else{
+        result=_computeWheelBacktest(selectedTicker,monthsOut,target,strategy);
       }
-      result=_computeWheelBacktestAggregate(starredList,monthsOut,target,strategy);
-    }else if(isAggregate){
-      result=_computeWheelBacktestAggregate(watchlist,monthsOut,target,strategy);
-    }else{
-      result=_computeWheelBacktest(selectedTicker,monthsOut,target,strategy);
+      _renderWheelBacktestFromResult(result,isAggregate,isStarredMode,selectedTicker,monthsOut,target);
+    }catch(err){
+      console.error('Wheel Backtest computation error:',err);
+      content.innerHTML=`<div class="empty"><div class="empty-icon">&#x26A0;&#xFE0F;</div>Computation error: ${(err&&err.message)||err}<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:8px;text-align:left;white-space:pre-wrap">${err&&err.stack?err.stack.split('\n').slice(0,4).join('\n'):''}</div></div>`;
     }
-    _renderWheelBacktestFromResult(result,isAggregate,isStarredMode,selectedTicker,monthsOut,target);
   },10);
 }
 
@@ -1301,10 +1310,15 @@ function renderWheelBacktestRanking(){
   content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Computing...</div>';
 
   setTimeout(()=>{
-    const result=_computeWheelBacktestAggregate(watchlist,monthsOut,target,strategy);
-    _wheelbtLastRankingResult=result;
-    _wheelbtLastRankingTarget=target;
-    _renderWheelBacktestRankingFromResult(result,target);
+    try{
+      const result=_computeWheelBacktestAggregate(watchlist,monthsOut,target,strategy);
+      _wheelbtLastRankingResult=result;
+      _wheelbtLastRankingTarget=target;
+      _renderWheelBacktestRankingFromResult(result,target);
+    }catch(err){
+      console.error('Wheel Backtest ranking computation error:',err);
+      content.innerHTML=`<div class="empty"><div class="empty-icon">&#x26A0;&#xFE0F;</div>Computation error: ${(err&&err.message)||err}<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:8px;text-align:left;white-space:pre-wrap">${err&&err.stack?err.stack.split('\n').slice(0,4).join('\n'):''}</div></div>`;
+    }
   },10);
 }
 
@@ -1403,24 +1417,35 @@ function refreshWheelBacktestViews(){
   if(rankingContent)rankingContent.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Computing...</div>';
 
   setTimeout(()=>{
-    const watchlistResult=_computeWheelBacktestAggregate(watchlist,monthsOut,target,strategy);
-    _wheelbtLastRankingResult=watchlistResult;
-    _wheelbtLastRankingTarget=target;
-    _renderWheelBacktestRankingFromResult(watchlistResult,target);
+    // Wrapped so a genuine bug in the computation surfaces as a visible,
+    // readable error on BOTH cards instead of leaving "Computing..."
+    // frozen forever with no information -- silent hangs are worse than an
+    // ugly error message, since there's nothing to diagnose from a hang.
+    try{
+      const watchlistResult=_computeWheelBacktestAggregate(watchlist,monthsOut,target,strategy);
+      _wheelbtLastRankingResult=watchlistResult;
+      _wheelbtLastRankingTarget=target;
+      _renderWheelBacktestRankingFromResult(watchlistResult,target);
 
-    if(isAggregateScope){
-      _renderWheelBacktestFromResult(watchlistResult,true,false,selectedTicker,monthsOut,target);
-    }else if(isStarredMode){
-      const starredList=watchlist.filter(t=>_starredTickers().has(t));
-      if(!starredList.length){
-        if(mainContent)mainContent.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>No starred tickers yet -- tap the star on a ticker in the Watchlist tab to add one.</div>';
+      if(isAggregateScope){
+        _renderWheelBacktestFromResult(watchlistResult,true,false,selectedTicker,monthsOut,target);
+      }else if(isStarredMode){
+        const starredList=watchlist.filter(t=>_starredTickers().has(t));
+        if(!starredList.length){
+          if(mainContent)mainContent.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>No starred tickers yet -- tap the star on a ticker in the Watchlist tab to add one.</div>';
+        }else{
+          const starredResult=_computeWheelBacktestAggregate(starredList,monthsOut,target,strategy);
+          _renderWheelBacktestFromResult(starredResult,true,true,selectedTicker,monthsOut,target);
+        }
       }else{
-        const starredResult=_computeWheelBacktestAggregate(starredList,monthsOut,target,strategy);
-        _renderWheelBacktestFromResult(starredResult,true,true,selectedTicker,monthsOut,target);
+        const tickerResult=_computeWheelBacktest(selectedTicker,monthsOut,target,strategy);
+        _renderWheelBacktestFromResult(tickerResult,false,false,selectedTicker,monthsOut,target);
       }
-    }else{
-      const tickerResult=_computeWheelBacktest(selectedTicker,monthsOut,target,strategy);
-      _renderWheelBacktestFromResult(tickerResult,false,false,selectedTicker,monthsOut,target);
+    }catch(err){
+      console.error('Wheel Backtest refresh error:',err);
+      const errHtml=`<div class="empty"><div class="empty-icon">&#x26A0;&#xFE0F;</div>Computation error: ${(err&&err.message)||err}<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:8px;text-align:left;white-space:pre-wrap">${err&&err.stack?err.stack.split('\n').slice(0,4).join('\n'):''}</div></div>`;
+      if(mainContent)mainContent.innerHTML=errHtml;
+      if(rankingContent)rankingContent.innerHTML=errHtml;
     }
     window.scrollTo(0,preservedScrollY);
   },10);

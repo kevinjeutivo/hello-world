@@ -488,6 +488,7 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
   let regimeStartIdx=startIdx;
   let lastFreedCapital=null; // dollars freed by the most recently completed cycle -- null until the first cycle resolves, in which case that cycle's own strike is used as a one-time bootstrap
   let cashInterest=0;
+  let shareDividends=0; // dividends actually received during a CLOSED (assignment-ended) shares-held stretch -- see unrealizedShareDividends below for a still-open stretch at window end
 
   const _accrueCashInterest=(fromIdx,toIdx,capital)=>{
     if(!irxHist2y)return;
@@ -497,6 +498,16 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
       const rate=_irxRateAsOf(irxHist2y,dateMs);
       if(rate!=null)cashInterest+=capital*rate/365;
     }
+  };
+  // Dividends received while actually holding shares -- distinct from the
+  // buy-and-hold comparison's own dividend credit below, and NOT the same
+  // thing: the wheel only holds shares intermittently (from assignment
+  // until called away), so it only earns a dividend whose ex-date falls
+  // inside one of THOSE specific stretches, never the window as a whole.
+  const _sharesDividendsFor=(fromIdx,toIdx)=>{
+    const s=hist2y.timestamps?.[fromIdx],e=hist2y.timestamps?.[toIdx];
+    if(s==null||e==null)return 0;
+    return _sumDividendsInRange(dividends,_parseHist2yDate(s),_parseHist2yDate(e));
   };
 
   while(true){
@@ -545,6 +556,7 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
         cyc.legTotalDollar=cyc.premium+cyc.equityGainDollar;
         realizedShareGainLoss+=cyc.equityGainDollar;
         segments.push({startIdx:regimeStartIdx,endIdx:cyc.exitIdx,type:'shares'});
+        shareDividends+=_sharesDividendsFor(regimeStartIdx,cyc.exitIdx);
         lastFreedCapital=cyc.strike; // per-share
         costBasis=null;
         regimeStartIdx=cyc.exitIdx+1;
@@ -578,10 +590,11 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
   // and close out the open shares segment through the window's actual end
   // so its capital is counted in the time-weighted base below.
   const unrealizedShareGainLoss=costBasis!=null?(endPrice-costBasis):0;
+  const unrealizedShareDividends=costBasis!=null?_sharesDividendsFor(regimeStartIdx,endIdx):0;
   if(mode==='call'&&costBasis!=null){
     segments.push({startIdx:regimeStartIdx,endIdx,type:'shares'});
   }
-  const totalPnL=cumPremium+realizedShareGainLoss+unrealizedShareGainLoss+cashInterest;
+  const totalPnL=cumPremium+realizedShareGainLoss+unrealizedShareGainLoss+cashInterest+shareDividends+unrealizedShareDividends;
 
   // Time-weighted capital base -- replaces a flat average of each cycle's
   // entry-point spot price with the actual capital ledger built above:
@@ -605,7 +618,7 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
   // throwaway "as if closed right now" copy for this specific
   // calculation, without touching the real segsSoFar array used for the
   // next cycle's own accounting.
-  let runningPremium=0,runningShareGain=0,runningInterest=0;
+  let runningPremium=0,runningShareGain=0,runningInterest=0,runningDividends=0;
   const segsSoFar=[];
   let rsIdx=startIdx,lastFreed=null,curMode='put';
   trades.forEach((t,ti)=>{
@@ -630,6 +643,7 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
       capSoFar=_timeWeightedCapitalBase([...segsSoFar,thisSeg],closes);
       if(t.assigned){
         segsSoFar.push(thisSeg);
+        runningDividends+=_sharesDividendsFor(rsIdx,t.exitIdx);
         lastFreed=t.strike; // per-share
         rsIdx=t.exitIdx+1;
         curMode='put';
@@ -645,7 +659,8 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     // window's own totalPnL/avgCapitalBase, which does include it.
     const isLastTrade=ti===trades.length-1;
     const unrealizedSoFar=(isLastTrade&&costBasis!=null)?unrealizedShareGainLoss:0;
-    const runningDollar=runningPremium+runningShareGain+runningInterest+unrealizedSoFar;
+    const unrealizedDivSoFar=(isLastTrade&&costBasis!=null)?unrealizedShareDividends:0;
+    const runningDollar=runningPremium+runningShareGain+runningInterest+runningDividends+unrealizedSoFar+unrealizedDivSoFar;
     t.cumulativePct=capSoFar>0?(runningDollar/capSoFar)*100:null;
   });
 
@@ -669,7 +684,7 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     elapsedCalendarDaysApprox,avgCapitalBase,
     simpleReturnPct:simpleReturn*100, // raw, unannualized total -- what the row-by-row cumulative actually adds up to
     stillHoldingShares:costBasis!=null,
-    unrealizedShareGainLoss,cashInterest,
+    unrealizedShareGainLoss,cashInterest,shareDividends,unrealizedShareDividends,
   };
 }
 

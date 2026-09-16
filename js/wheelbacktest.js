@@ -52,6 +52,8 @@ function _sumDividendsInRange(dividends,startDate,endDate){
   },0);
 }
 
+const WHEELBT_DEFAULT_TARGET_APY=12; // matches _calcIncome's own fallback default
+
 // Finds the most recent ^IRX close at-or-before a given date (epoch ms),
 // via binary search over its ascending daily timestamps -- called once per
 // trading day per capital segment across a full backtest run, so O(log n)

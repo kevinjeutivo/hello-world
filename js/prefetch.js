@@ -21,17 +21,25 @@ async function prefetchAll(){
     toast('Note: options data fetched outside market hours may have synthetic IV. Fetch again during market hours for accurate IVR.',6000);
   }
   const btn=document.getElementById('prefetch-btn');if(btn)btn.disabled=true;
-  // Fetch ^GSPC and ^SP500TR 2Y history once per prefetch run (shared across all tickers)
+  // Fetch ^GSPC, ^SP500TR, and ^IRX 2Y history once per prefetch run (shared across all tickers)
   // ^GSPC = price return; ^SP500TR = total return index (dividends reinvested, no expense ratio)
+  // ^IRX = 13-week T-bill discount rate, quoted as a percent (e.g. 5.25) --
+  // a real historical short-rate series for the wheel backtest's idle-cash
+  // interest calculation, so it isn't stuck applying today's rate uniformly
+  // across every historical window (same fetch mechanism already proven for
+  // ^GSPC/^SP500TR, just one more index symbol through the same pipeline).
   try{
     const cacheAge=(Date.now()-(S.get('hist2y_sp500')?.ts||0))/3600000;
     const cacheAgeTR=(Date.now()-(S.get('hist2y_sp500tr')?.ts||0))/3600000;
-    const [_gspc,_sp500tr]=await Promise.all([
+    const cacheAgeIRX=(Date.now()-(S.get('hist2y_irx')?.ts||0))/3600000;
+    const [_gspc,_sp500tr,_irx]=await Promise.all([
       cacheAge>4?_pfTimeout(yahooHistory('^GSPC','2y','1d'),15000,'GSPC').catch(()=>null):Promise.resolve(null),
-      cacheAgeTR>4?_pfTimeout(yahooHistory('^SP500TR','2y','1d'),15000,'SP500TR').catch(()=>null):Promise.resolve(null)
+      cacheAgeTR>4?_pfTimeout(yahooHistory('^SP500TR','2y','1d'),15000,'SP500TR').catch(()=>null):Promise.resolve(null),
+      cacheAgeIRX>4?_pfTimeout(yahooHistory('^IRX','2y','1d'),15000,'IRX').catch(()=>null):Promise.resolve(null)
     ]);
     if(_gspc)S.set('hist2y_sp500',{timestamps:_gspc.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:_gspc.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});
     if(_sp500tr)S.set('hist2y_sp500tr',{timestamps:_sp500tr.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:_sp500tr.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});
+    if(_irx)S.set('hist2y_irx',{timestamps:_irx.timestamps.map(d=>Math.floor(d.getTime()/1000)),closes:_irx.closes.map(v=>v!=null?Math.round(v*100)/100:null),ts:Date.now()});
   }catch{}
   const progressEl=document.getElementById('prefetch-progress');const barEl=document.getElementById('prefetch-progress-bar');const labelEl=document.getElementById('prefetch-label');
   if(progressEl)progressEl.style.display='block';

@@ -52,6 +52,36 @@ function _sumDividendsInRange(dividends,startDate,endDate){
   },0);
 }
 
+// Largest peak-to-trough decline within one window's own cumulative-%
+// curve (trades[i].cumulativePct, already time-weighted). Deliberately
+// NOT a cross-window figure -- the windows this backtest produces overlap
+// and aren't independent, so stitching them into one continuous curve
+// would be more misleading than informative. Returns 0 for a curve that
+// never dips below its own running peak.
+function _maxDrawdownPct(trades){
+  let peak=-Infinity,maxDD=0;
+  for(const t of trades){
+    if(t.cumulativePct==null)continue;
+    if(t.cumulativePct>peak)peak=t.cumulativePct;
+    const dd=peak-t.cumulativePct;
+    if(dd>maxDD)maxDD=dd;
+  }
+  return maxDD;
+}
+
+// Standard downside deviation -- root-mean-square of the shortfall below
+// zero, across a set of returns (e.g. the same per-window annualized
+// returns already computed for the worst/median/best figures). Only a
+// below-zero return contributes to the sum; a break-even or positive
+// window contributes zero, per the standard definition -- this measures
+// downside risk specifically, not overall variance around the mean the
+// way a plain standard deviation would.
+function _downsideDeviationPct(returns){
+  if(!returns.length)return 0;
+  const sumSq=returns.reduce((s,v)=>s+Math.pow(Math.min(0,v),2),0);
+  return Math.sqrt(sumSq/returns.length);
+}
+
 const WHEELBT_DEFAULT_TARGET_APY=12; // matches _calcIncome's own fallback default
 
 // Finds the most recent ^IRX close at-or-before a given date (epoch ms),
@@ -523,7 +553,18 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     // its own future. See _estimateTermStructureSlope's asOfIdx comment.
     const applyEarnings=hasEarningsDates&&earningsAvoidTypes&&earningsAvoidTypes.includes(mode);
     const termSlope=_estimateTermStructureSlope(hist2y,curIdx);
-    const cyc=_findFloorClearingCycle(hist2y,curIdx,monthsOut,targetFloorPct,mode,r,WHEELBT_MAX_MONTHS_OUT,termSlope,applyEarnings?earningsDates:null);
+    // Risk-free rate, looked up historically for THIS cycle's own entry
+    // date via the same ^IRX series already used for idle-cash interest --
+    // rather than a single current rate applied uniformly across every
+    // historical window. Falls back to the flat rate (today's, from
+    // _getTBillYield) only for a date ^IRX's own cached range doesn't
+    // cover. Computed once per cycle, at the search's own starting day --
+    // same accepted approximation as termSlope above, not re-fetched as
+    // _findFloorClearingCycle's escalation search advances internally.
+    const dateMsAtCurIdx=hist2y.timestamps?.[curIdx]!=null?hist2y.timestamps[curIdx]*1000:null;
+    const historicalR=dateMsAtCurIdx!=null&&irxHist2y?_irxRateAsOf(irxHist2y,dateMsAtCurIdx):null;
+    const cycleR=historicalR!=null?historicalR:r;
+    const cyc=_findFloorClearingCycle(hist2y,curIdx,monthsOut,targetFloorPct,mode,cycleR,WHEELBT_MAX_MONTHS_OUT,termSlope,applyEarnings?earningsDates:null);
     if(!cyc)break; // couldn't clear the floor at any DTE, at any remaining entry day -- stop here
     cyc.cyclePosition=trades.length+1; // 1-indexed position in the FULL sequence -- lets a truncated display show "cycle N of M" even when the shown slice doesn't start at the window's own true beginning
     trades.push(cyc);
@@ -791,12 +832,28 @@ function _computeWheelBacktest(ticker,monthsOut,targetFloorPct,strategy){
   const avgBuyHold=windows.reduce((s,w)=>s+w.buyHoldAnnualizedPct,0)/windows.length;
   const pctBeatTarget=(annReturns.filter(v=>v>=targetFloorPct).length/annReturns.length)*100;
 
+  // Win rate (% of windows with a positive return) and beat-buy-hold rate
+  // (% of windows where the wheel actually outperformed, not just the
+  // averaged delta -- a single average can be dominated by one or two
+  // extreme windows and hide that the wheel loses more often than it wins).
+  const winRatePct=(annReturns.filter(v=>v>0).length/annReturns.length)*100;
+  const beatBuyHoldPct=(windows.filter(w=>w.annualizedReturnPct>w.buyHoldAnnualizedPct).length/windows.length)*100;
+  const excessReturns=windows.map(w=>w.annualizedReturnPct-w.buyHoldAnnualizedPct).sort((a,b)=>a-b);
+  const medianExcessReturn=_medianOfSorted(excessReturns);
+  // Drawdown ordering is the OPPOSITE of the return worst/best above --
+  // here a LARGER number is worse (a deeper decline), so "worst" is the
+  // max of the sorted-ascending array, not the min.
+  const drawdowns=windows.map(w=>_maxDrawdownPct(w.trades)).sort((a,b)=>a-b);
+  const drawdown={best:drawdowns[0],median:_medianOfSorted(drawdowns),worst:drawdowns[drawdowns.length-1]};
+  const downsideDeviation=_downsideDeviationPct(annReturns);
+
   const mostRecentWindow=windows[windows.length-1];
 
   return{
     ticker,monthsOut,targetFloorPct,strategy:strategy||'default',sampleSize:windows.length,
     median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
+    winRatePct,beatBuyHoldPct,medianExcessReturn,drawdown,downsideDeviation,
     recentCycles:mostRecentWindow.trades,
     recentRunStartIdx:mostRecentWindow.startIdx,
     recentRunEndIdx:mostRecentWindow.endIdx,
@@ -820,6 +877,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
   let allReturns=[];
   let allAssignmentRates=[];
   let allBuyHold=[];
+  let allWindowTrades=[]; // retained (not just the return %) so drawdown can be computed per window below -- same data _simulateWheelWindow already produced, no new simulation
   let tickersWithData=0;
   // Tracks the single most CALENDAR-RECENT complete run across every
   // ticker in the list -- not just whichever ticker happens to be iterated
@@ -847,6 +905,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
         allReturns.push(win.annualizedReturnPct);
         allAssignmentRates.push(win.assignmentRatePct);
         allBuyHold.push(win.buyHoldAnnualizedPct);
+        allWindowTrades.push(win.trades);
         perTickerReturns[t].push(win.annualizedReturnPct);
         gotAny=true;
         const rawEndDate=h2.timestamps?.[win.endIdx];
@@ -860,6 +919,20 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
   });
 
   if(!allReturns.length)return null;
+
+  // Paired stats computed BEFORE allReturns gets sorted below (in place) --
+  // these need allReturns/allBuyHold/allWindowTrades to stay in their
+  // original, index-aligned push order to correctly match each window's
+  // return against that SAME window's own buy-hold result and trades.
+  const winRatePct=(allReturns.filter(v=>v>0).length/allReturns.length)*100;
+  const beatBuyHoldCount=allReturns.filter((v,i)=>v>allBuyHold[i]).length;
+  const beatBuyHoldPct=(beatBuyHoldCount/allReturns.length)*100;
+  const excessReturns=allReturns.map((v,i)=>v-allBuyHold[i]).sort((a,b)=>a-b);
+  const medianExcessReturn=_medianOfSorted(excessReturns);
+  const drawdowns=allWindowTrades.map(t=>_maxDrawdownPct(t)).sort((a,b)=>a-b);
+  const drawdown={best:drawdowns[0],median:_medianOfSorted(drawdowns),worst:drawdowns[drawdowns.length-1]};
+  const downsideDeviation=_downsideDeviationPct(allReturns);
+
   allReturns.sort((a,b)=>a-b);
   const median=_medianOfSorted(allReturns);
   const worst=allReturns[0];
@@ -890,6 +963,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
     monthsOut,targetFloorPct,strategy:strategy||'default',sampleSize:allReturns.length,tickersWithData,tickersTotal:tickers.length,
     median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
+    winRatePct,beatBuyHoldPct,medianExcessReturn,drawdown,downsideDeviation,
     recentCycles:bestRunCycles,recentCyclesTicker:bestRunTicker,
     recentRunStartIdx:bestRunStartIdx,recentRunEndIdx:bestRunEndIdx,recentRunTotalCycles:bestRunTotalCycles,
     recentRunSimpleReturnPct:bestRunSimpleReturnPct,recentRunStillHoldingShares:bestRunStillHoldingShares,
@@ -1143,6 +1217,21 @@ function _renderWheelBacktestFromResult(result,isAggregate,isStarredMode,selecte
     </div>
     <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
       <span style="color:var(--text2)">vs. Buy &amp; Hold (same windows)</span><span style="color:${vsColor}">${result.vsBuyHold>=0?'+':''}${result.vsBuyHold.toFixed(1)}pp avg</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
+      <span style="color:var(--text2)">Win rate</span><span style="color:${result.winRatePct>=50?'var(--green)':'var(--red)'}">${result.winRatePct.toFixed(0)}% of windows</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
+      <span style="color:var(--text2)">Beat Buy &amp; Hold</span><span style="color:${result.beatBuyHoldPct>=50?'var(--green)':'var(--red)'}">${result.beatBuyHoldPct.toFixed(0)}% of windows</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
+      <span style="color:var(--text2)">Median excess vs. Buy &amp; Hold</span><span style="color:${result.medianExcessReturn>=0?'var(--green)':'var(--red)'}">${result.medianExcessReturn>=0?'+':''}${result.medianExcessReturn.toFixed(1)}pp</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
+      <span style="color:var(--text2)">Max drawdown (worst &middot; median &middot; best)</span><span style="color:var(--text)">-${result.drawdown.worst.toFixed(1)}% &middot; -${result.drawdown.median.toFixed(1)}% &middot; -${result.drawdown.best.toFixed(1)}%</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
+      <span style="color:var(--text2)">Downside deviation</span><span style="color:var(--text)">${result.downsideDeviation.toFixed(1)}%</span>
     </div>
     <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
       <span style="color:var(--text2)">Premium source</span><span style="color:var(--warn)">Modeled &mdash; realized vol + est. term structure</span>

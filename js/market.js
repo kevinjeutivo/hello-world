@@ -163,6 +163,39 @@ function _computeFedMeetingProbabilities(fedFutures){
     // blends the known pre-meeting rate with the unknown post-meeting rate.
     const postMeetingRate=(c.impliedRate*daysInMonth-currentRate*daysBefore)/daysAfter;
     const impliedMove=postMeetingRate-currentRate;
+    // Once a meeting's own date is in the past, its outcome isn't a live
+    // probability anymore -- futures reprice almost immediately once a
+    // decision is public, so the SAME impliedMove figure already reflects
+    // the resolved result. Classify it directly (held / hiked / cut,
+    // rounded to the nearest standard 25bp step) instead of a hold/hike
+    // split framed as still undecided. Only when this specific month's
+    // contract was actually fresh this fetch (c.stale is the same flag
+    // already surfaced in the "Using last known data for" note) -- a
+    // carried-forward contract reflects whatever it last knew, not
+    // necessarily anything from after the meeting, so confidently stating
+    // an outcome from stale data would risk being flatly wrong rather than
+    // just imprecise.
+    const meetingIsPast=meetingDateStr<_todayET();
+    if(meetingIsPast){
+      if(c.stale){
+        results.push({month:c.month,meetingDate:meetingDateStr,outcomePending:true});
+        currentRate=postMeetingRate;
+        if(!history[meetingDateStr]||history[meetingDateStr].rate!==postMeetingRate){
+          history[meetingDateStr]={rate:postMeetingRate};
+          historyChanged=true;
+        }
+        continue;
+      }
+      const steps=Math.round(impliedMove/STEP);
+      const outcome=steps===0?'hold':(steps>0?'hike'+(steps*25):'cut'+(-steps*25));
+      results.push({month:c.month,meetingDate:meetingDateStr,resolved:true,outcome});
+      currentRate=postMeetingRate;
+      if(!history[meetingDateStr]||history[meetingDateStr].rate!==postMeetingRate){
+        history[meetingDateStr]={rate:postMeetingRate};
+        historyChanged=true;
+      }
+      continue;
+    }
     let pCut=0,pHike=0;
     if(impliedMove<0)pCut=Math.min(Math.abs(impliedMove)/STEP,1);
     else if(impliedMove>0)pHike=Math.min(impliedMove/STEP,1);
@@ -259,6 +292,13 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
         const dateLabel=new Date(p.meetingDate+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric'});
         if(p.insufficientBaseline){
           return '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);padding:3px 0">'+dateLabel+' meeting: odds unavailable -- no earlier meeting-free month in this window to establish a baseline rate</div>';
+        }
+        if(p.outcomePending){
+          return '<div style="font-family:var(--mono);font-size:10px;color:#64b5f6;padding:3px 0">'+dateLabel+' meeting: already occurred, outcome pending fresher data (this month\'s contract is using a carried-forward value)</div>';
+        }
+        if(p.resolved){
+          const outcomeLabel=p.outcome==='hold'?'HELD':(p.outcome.startsWith('hike')?'HIKED '+p.outcome.slice(4)+'bp':'CUT '+p.outcome.slice(3)+'bp');
+          return '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);padding:3px 0">'+dateLabel+' meeting: <span style="color:var(--accent)">'+outcomeLabel+'</span> (resolved)</div>';
         }
         const parts=[];
         if(p.pHold>0)parts.push(p.pHold+'% hold');

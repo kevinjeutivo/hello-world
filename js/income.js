@@ -2486,7 +2486,15 @@ function _computeAssignmentRisk(){
   const processPos=(pos,isCall,acct)=>{
     try{
       const status=_posExpiryStatus(pos);
-      if(status==='remove')return; // past the lingering window, not relevant anymore
+      // Exclude BOTH 'remove' and 'expired-linger' -- matching the same
+      // convention already used everywhere else in this file (notional
+      // totals, the active-position lists). A freshly-rolled position
+      // enters 'expired-linger' immediately, not 'remove' (that's only
+      // after the full linger window), so excluding just 'remove' here
+      // left a rolled-but-still-ITM position visible in this ranking --
+      // exactly the position most likely to be ITM, since that's usually
+      // why it got rolled in the first place.
+      if(status==='remove'||status==='expired-linger')return;
       const pricing=_getPosPricing(pos,isCall);
       if(pricing.currentPrice==null||!pricing.itm)return; // only rank positions currently ITM
 

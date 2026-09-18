@@ -400,7 +400,7 @@ function _confirmRemove(){
   // every removed ticker orphaned in localStorage forever (a real storage leak).
   ['options_','hist2y_','intraday_','news_','upgrades_',
    'earnings_hist_','earnings_confirmed_','earnings_pending_',
-   'rp_compare_','watchlist_note_'].forEach(prefix=>S.del(prefix+ticker));
+   'rp_compare_','watchlist_note_','div_hist_'].forEach(prefix=>S.del(prefix+ticker));
   // options_exp_<ticker>_<date> has a date suffix, so it needs a prefix scan
   try{
     const _expPrefix='options_exp_'+ticker+'_';

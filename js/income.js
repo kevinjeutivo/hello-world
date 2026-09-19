@@ -1961,6 +1961,7 @@ function _renderPositionList(){
     ? '<button class="btn btn-secondary" style="font-size:10px;padding:4px 10px;margin-top:6px" onclick="_clearExpiredPositions()">Clear Expired</button>'
     : '';
 
+  let _posListMutated = false;
   const rows = sorted.map(pos => {
     const status = _posExpiryStatus(pos);
     const ss = STATUS_STYLE[status];
@@ -1969,6 +1970,23 @@ function _renderPositionList(){
     const today = new Date(); today.setHours(0,0,0,0);
     const exp = new Date(pos.expDate + 'T12:00:00Z');
     const daysUntil = Math.round((exp - today) / 86400000);
+    // True the moment market close has actually passed on the position's
+    // own expiration day -- distinct from the calendar-date-only 'expired'
+    // status above, which doesn't flip until the NEXT day. Without this,
+    // a position that closed worthless (or ITM) hours ago still read as
+    // "Expires today", present tense, for the rest of the day.
+    const closedToday = !pos.rolledAt && pos.expDate === _todayET() &&
+      Date.now() >= (_todayReportBoundaryEpoch('amc') || Infinity);
+    // Worthless/ITM at expiration is captured ONCE, the first render after
+    // it actually closes, and frozen on the position from then on --
+    // deliberately NOT recomputed live on every render, since the stock's
+    // price can drift back and forth across the strike during the 7-day
+    // linger window and would otherwise flip the celebration on and off
+    // misleadingly. _getPosPricing's live itm check is suppressed once
+    // 'expired-linger' (see below), so this has to run at the one moment
+    // it's still available: closedToday, or the position's very first
+    // render after crossing into expired-linger with nothing captured yet.
+    const needsWorthlessCapture = !pos.rolledAt && pos.expiredWorthless === undefined && (closedToday || expired);
     // A manually-rolled position shares the same visual treatment as a
     // naturally expired one (same status, same graying), but the label and
     // "days ago" figure should reflect the roll, not the real (possibly
@@ -1979,9 +1997,15 @@ function _renderPositionList(){
       ? 'Rolled ' + Math.max(0, Math.round((today - new Date(pos.rolledAt)) / 86400000)) + 'd ago'
       : expired
         ? 'Expired ' + Math.abs(daysUntil) + 'd ago'
+        : closedToday ? 'Expired today'
         : daysUntil === 0 ? 'Expires today' : 'Exp in ' + daysUntil + 'd';
 
-    const pricing = expired ? { currentPrice: null, itm: null, timeValue: null } : _getPosPricing(pos);
+    const pricing = (expired && !needsWorthlessCapture) ? { currentPrice: null, itm: null, timeValue: null } : _getPosPricing(pos);
+    if(needsWorthlessCapture){
+      pos.expiredWorthless = !pricing.itm;
+      _posListMutated = true;
+    }
+    const celebrateTag = pos.expiredWorthless === true ? ' <span title="Expired worthless">&#x1F389;</span>' : '';
     const priceStr = pricing.currentPrice != null ? ' · now $' + pricing.currentPrice.toFixed(2) : '';
     const itmTag = pricing.itm
       ? '<span style="color:var(--red)">&#x26A0; ITM</span>'
@@ -1998,6 +2022,7 @@ function _renderPositionList(){
         '<div style="font-family:var(--mono);font-size:13px;font-weight:700;color:'+(expired?'var(--text3)':'var(--accent)')+'">'+
           pos.ticker+' $'+(pos.strike%1===0?pos.strike.toFixed(0):pos.strike.toFixed(2))+
           (rolledLabel?'<span style="font-size:9px;color:'+ss.labelColor+';margin-left:6px;font-weight:400">'+rolledLabel+'</span>':'')+
+          celebrateTag+
           (itmTag&&!expired?' <span style="font-size:9px;margin-left:4px">'+itmTag+'</span>':'')+
           ' <span onclick="event.stopPropagation();navigateToTicker(\''+pos.ticker+'\')" style="font-size:10px;color:var(--accent3);cursor:pointer;margin-left:4px" title="Go to Ticker tab">&#8599;</span>'+
         '</div>'+
@@ -2015,6 +2040,7 @@ function _renderPositionList(){
       (expired?'':_rollCandidatesSectionHtml(pos,false,'put'))+
     '</div>';
   }).join('');
+  if(_posListMutated) _savePositions(keep);
 
   const emptyMsg = keep.length === 0
     ? '<div style="font-family:var(--mono);font-size:11px;color:var(--text3);text-align:center;padding:12px 0">No positions entered. Tap Add Position to begin.</div>'
@@ -2374,6 +2400,7 @@ function _renderCCPositionList(){
 
   const sorted = _sortCCPositions(keep);
 
+  let _posListMutated = false;
   const rows = sorted.map(pos => {
     const status = _posExpiryStatus(pos);
     const ss = STATUS_STYLE[status];
@@ -2382,10 +2409,17 @@ function _renderCCPositionList(){
     const today = new Date(); today.setHours(0,0,0,0);
     const exp = new Date(pos.expDate+'T12:00:00Z');
     const daysUntil = Math.round((exp-today)/86400000);
+    // See the put-position renderer's matching comment for why this and
+    // the worthless-capture below exist as a separate, time-of-day-aware
+    // check rather than relying on the calendar-date-only 'expired' status.
+    const closedToday = !pos.rolledAt && pos.expDate===_todayET() &&
+      Date.now() >= (_todayReportBoundaryEpoch('amc')||Infinity);
+    const needsWorthlessCapture = !pos.rolledAt && pos.expiredWorthless===undefined && (closedToday||expired);
     const daysStr = pos.rolledAt
       ? 'Rolled '+Math.max(0,Math.round((today-new Date(pos.rolledAt))/86400000))+'d ago'
       : expired
         ? 'Expired '+Math.abs(daysUntil)+'d ago'
+        : closedToday ? 'Expired today'
         : daysUntil===0?'Expires today':'Exp in '+daysUntil+'d';
     const rolledLabel = pos.rolledAt ? 'Rolled' : ss.label;
     const snap = S.get('snap_'+pos.ticker);
@@ -2396,7 +2430,12 @@ function _renderCCPositionList(){
     const nearStrike = currentPrice&&pos.strike
       ? ((pos.strike-currentPrice)/currentPrice*100)
       : null;
-    const pricing = expired ? { itm: null, timeValue: null } : _getPosPricing(pos, true);
+    const pricing = (expired && !needsWorthlessCapture) ? { itm: null, timeValue: null } : _getPosPricing(pos, true);
+    if(needsWorthlessCapture){
+      pos.expiredWorthless = !pricing.itm;
+      _posListMutated = true;
+    }
+    const celebrateTag = pos.expiredWorthless===true ? ' <span title="Expired worthless">&#x1F389;</span>' : '';
     const timeValueLine = pricing.timeValue != null
       ? '<div style="font-family:var(--mono);font-size:9px;color:'+(pricing.itm?'var(--warn)':'var(--text3)')+'">'+
           'Time value: '+_fmtDollar(pricing.timeValue)+(pos.contracts>1?' ('+_fmtDollar(pricing.timeValue/pos.contracts)+'/contract)':'')+(pricing.itm?' remaining &mdash; consider rolling':'')+
@@ -2409,6 +2448,7 @@ function _renderCCPositionList(){
           '<div style="font-family:var(--mono);font-size:13px;font-weight:700;color:'+(expired?'var(--text3)':L2_TEXT)+'">'+
             pos.ticker+' $'+(pos.strike%1===0?pos.strike.toFixed(0):pos.strike.toFixed(2))+' call'+
             (rolledLabel?'<span style="font-size:9px;color:'+ss.labelColor+';margin-left:6px;font-weight:400">'+rolledLabel+'</span>':'')+
+            celebrateTag+
             ' <span onclick="event.stopPropagation();navigateToTicker(\''+pos.ticker+'\')" style="font-size:10px;color:var(--accent3);cursor:pointer;margin-left:4px" title="Go to Ticker tab">&#8599;</span>'+
           '</div>'+
           '<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">'+
@@ -2433,6 +2473,7 @@ function _renderCCPositionList(){
       (expired?'':_rollCandidatesSectionHtml(pos,true,'cc'))+
     '</div>';
   }).join('');
+  if(_posListMutated) _saveCCPositions(keep);
 
   const emptyMsg = keep.length===0
     ? '<div style="font-family:var(--mono);font-size:11px;color:var(--text3);text-align:center;padding:12px 0">No CC positions entered. Tap Add CC Position to begin.</div>'

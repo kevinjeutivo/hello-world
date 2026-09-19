@@ -854,7 +854,22 @@ function _renderMultipleHistoryChart(ticker,hist2y){
   // means the initial line already reflects where the slider will sit,
   // rather than snapping to a slightly different value the moment it's
   // first touched.
-  const currentEps=nearestGroup?.entries?.length?nearestGroup.entries[nearestGroup.entries.length-1].projTtmEps:null;
+  // Falls back through progressively older tracked entries to find the
+  // most recent one with a genuinely positive EPS, rather than strictly
+  // the literal last entry -- a single bad/missing value on the newest
+  // entry (a real estimate swing, or a data hiccup) shouldn't silently
+  // disable the slider when perfectly good data sits one entry back. Most
+  // tickers never need more than one step back; this only matters for a
+  // name whose forward EPS is thin enough that one revision can tip a
+  // single point to zero or negative.
+  const currentEps=(()=>{
+    const entries=nearestGroup?.entries;
+    if(!entries?.length)return null;
+    for(let i=entries.length-1;i>=0;i--){
+      if(entries[i].projTtmEps>0)return entries[i].projTtmEps;
+    }
+    return null;
+  })();
   // The single upcoming quarter's own estimate, distinct from currentEps
   // above (which is the TTM-basis figure -- 3 trailing actuals + this
   // estimate -- actually used in the multiple/price math throughout this
@@ -1232,7 +1247,16 @@ function _renderNextFYChart(ticker,hist2y){
   const priceSeries=labels.map(d=>denseByLabel[d]??sparsePriceByLabel[d]??null);
   const nowPriceValue=nowIdx>=0?priceSeries[nowIdx]:null;
 
-  const currentEps=track?.entries?.length?track.entries[track.entries.length-1].nextFYEps:null;
+  // See the Multiple History chart's matching comment -- same fallback,
+  // same reasoning, using this chart's own field name.
+  const currentEps=(()=>{
+    const entries=track?.entries;
+    if(!entries?.length)return null;
+    for(let i=entries.length-1;i>=0;i--){
+      if(entries[i].nextFYEps>0)return entries[i].nextFYEps;
+    }
+    return null;
+  })();
   const currentMultiple=(nowPriceValue!=null&&currentEps>0)?nowPriceValue/currentEps:null;
   const sliderApplicable=futureIdx>nowIdx&&nowIdx>=0&&currentEps>0&&currentMultiple>0;
   const defaultSliderVal=sliderApplicable?Math.round(currentMultiple*2)/2:null;

@@ -209,10 +209,10 @@ async function loadETFTab(){
       }catch{const cd=S.get(divKey);if(cd){distributions=cd.distributions||[];const total=distributions.slice(0,12).reduce((s,d)=>s+(d.amount||0),0);if(snap?.price&&total>0)trailingYield=(total/snap.price*100).toFixed(2);}}
       // Top holdings (24h cache gate)
       let holdings=[],alloc=null,bond=null,ratings=[];
-      const _holdAge=(Date.now()-(S.get(holdKey)?.ts?new Date(S.get(holdKey).ts).getTime():0))/3600000;
+      const _holdAge=_recAgeHrs(S.get(holdKey)); // Infinity when missing/unparseable => refetch
       if(_holdAge>=24){
         const _h=await fetchTopHoldings(etf.ticker).catch(()=>null);
-        if(_h){holdings=_h.holdings||[];alloc=_h.alloc||null;bond=_h.bond||null;ratings=_h.ratings||[];S.set(holdKey,{holdings,alloc,bond,ratings,ts:nowPT()});}
+        if(_h){holdings=_h.holdings||[];alloc=_h.alloc||null;bond=_h.bond||null;ratings=_h.ratings||[];S.set(holdKey,{holdings,alloc,bond,ratings,ts:nowPT(),tsEpoch:Date.now()});}
       }else{const _hc=S.get(holdKey);if(_hc){holdings=_hc.holdings||[];alloc=_hc.alloc||null;bond=_hc.bond||null;ratings=_hc.ratings||[];}}
       const chartLabels=hist6mo?hist6mo.timestamps.slice(-126).map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});}):[];
       const chartData=hist6mo?hist6mo.closes.slice(-126):[];
@@ -487,10 +487,10 @@ async function _sbFetch(ticker){
   // Top holdings (24h cache gate)
   let holdings=[],alloc=null,bond=null,ratings=[];
   const _sbHoldKey='etf_holdings_'+ticker;
-  const _sbHoldAge=(Date.now()-(S.get(_sbHoldKey)?.ts?new Date(S.get(_sbHoldKey).ts).getTime():0))/3600000;
+  const _sbHoldAge=_recAgeHrs(S.get(_sbHoldKey)); // Infinity when missing/unparseable => refetch
   if(_sbHoldAge>=24){
     const _h=await fetchTopHoldings(ticker).catch(()=>null);
-    if(_h){holdings=_h.holdings||[];alloc=_h.alloc||null;bond=_h.bond||null;ratings=_h.ratings||[];S.set(_sbHoldKey,{holdings,alloc,bond,ratings,ts:nowPT()});}
+    if(_h){holdings=_h.holdings||[];alloc=_h.alloc||null;bond=_h.bond||null;ratings=_h.ratings||[];S.set(_sbHoldKey,{holdings,alloc,bond,ratings,ts:nowPT(),tsEpoch:Date.now()});}
   }else{const _hc=S.get(_sbHoldKey);if(_hc){holdings=_hc.holdings||[];alloc=_hc.alloc||null;bond=_hc.bond||null;ratings=_hc.ratings||[];}}
 
   // Persist cache

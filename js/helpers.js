@@ -1152,22 +1152,25 @@ function _normCDF(x){
   return x>=0?cdf:1-cdf;
 }
 
-function _bsD1D2(S,K,T,r,sigma){
-  const d1=(Math.log(S/K)+(r+sigma*sigma/2)*T)/(sigma*Math.sqrt(T));
+function _bsD1D2(S,K,T,r,sigma,q){
+  q=q||0;
+  const d1=(Math.log(S/K)+(r-q+sigma*sigma/2)*T)/(sigma*Math.sqrt(T));
   const d2=d1-sigma*Math.sqrt(T);
   return{d1,d2};
 }
 
-function _bsCallPrice(S,K,T,r,sigma){
+function _bsCallPrice(S,K,T,r,sigma,q){
   if(T<=0||sigma<=0)return Math.max(S-K,0);
-  const{d1,d2}=_bsD1D2(S,K,T,r,sigma);
-  return S*_normCDF(d1)-K*Math.exp(-r*T)*_normCDF(d2);
+  q=q||0;
+  const{d1,d2}=_bsD1D2(S,K,T,r,sigma,q);
+  return S*Math.exp(-q*T)*_normCDF(d1)-K*Math.exp(-r*T)*_normCDF(d2);
 }
 
-function _bsPutPrice(S,K,T,r,sigma){
+function _bsPutPrice(S,K,T,r,sigma,q){
   if(T<=0||sigma<=0)return Math.max(K-S,0);
-  const{d1,d2}=_bsD1D2(S,K,T,r,sigma);
-  return K*Math.exp(-r*T)*_normCDF(-d2)-S*_normCDF(-d1);
+  q=q||0;
+  const{d1,d2}=_bsD1D2(S,K,T,r,sigma,q);
+  return K*Math.exp(-r*T)*_normCDF(-d2)-S*Math.exp(-q*T)*_normCDF(-d1);
 }
 
 // Solves for the strike matching a target delta magnitude (e.g. 0.30 for a
@@ -1193,9 +1196,9 @@ function _annualizedYieldPct(premium,S,T){
   return(premium/S)*(365/(T*365))*100;
 }
 
-function _solveStrikeForYieldFloor(S,T,r,sigma,targetFloorPct,optionType){
+function _solveStrikeForYieldFloor(S,T,r,sigma,targetFloorPct,optionType,q){
   const bsPriceFn=optionType==='put'?_bsPutPrice:_bsCallPrice;
-  const atmPremium=bsPriceFn(S,S,T,r,sigma);
+  const atmPremium=bsPriceFn(S,S,T,r,sigma,q);
   const atmYield=_annualizedYieldPct(atmPremium,S,T); // strike==spot at the money, so this line is convention-agnostic either way
   if(atmYield<targetFloorPct)return null; // not reachable at this DTE, even at the money
 
@@ -1210,7 +1213,7 @@ function _solveStrikeForYieldFloor(S,T,r,sigma,targetFloorPct,optionType){
     // Calls keep spot as the denominator (premium relative to the value of
     // shares already held), which is the standard covered-call convention.
     const yieldDenom=optionType==='put'?mid:S;
-    const yieldPct=_annualizedYieldPct(bsPriceFn(S,mid,T,r,sigma),yieldDenom,T);
+    const yieldPct=_annualizedYieldPct(bsPriceFn(S,mid,T,r,sigma,q),yieldDenom,T);
     if(optionType==='put'){
       if(yieldPct>=targetFloorPct)hi=mid;else lo=mid; // converge toward the smallest feasible (most OTM) K
     }else{

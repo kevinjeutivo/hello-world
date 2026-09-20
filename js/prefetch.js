@@ -65,13 +65,13 @@ async function prefetchAll(){
     let earnings=null,_opts=null,_h2ok=false;
     try{
       const _fetchUpgrades=S.get('fetch_upgrades_enabled')==='true';
-      const _upgradesAge=(Date.now()-(S.get('upgrades_'+t)?.ts?new Date(S.get('upgrades_'+t).ts).getTime():0))/3600000;
+      const _upgradesAge=_recAgeHrs(S.get('upgrades_'+t)); // Infinity when missing/unparseable => refetch
       const _needUpgrades=_fetchUpgrades&&_upgradesAge>=24;
       // Dividend history for the wheel backtest's buy-and-hold comparison --
       // changes at most quarterly, so a 24h gate (same convention as
       // upgrades above) avoids re-fetching this on every single prefetch
       // run for no benefit.
-      const _divAge=(Date.now()-(S.get('div_hist_'+t)?.ts?new Date(S.get('div_hist_'+t).ts).getTime():0))/3600000;
+      const _divAge=_recAgeHrs(S.get('div_hist_'+t)); // Infinity when missing/unparseable => refetch
       const _needDiv=_divAge>=24;
       // Yahoo batch (quote, quoteSummary, hist2y, main options chain, intraday) fires
       // concurrently with the Finnhub sequence below -- independent providers, no
@@ -147,7 +147,7 @@ async function prefetchAll(){
         if(_qs){_sn2.summaryDegraded=false;_sn2.summaryTs=nowPT();_sn2.summaryTsEpoch=Date.now();if(_qs.sector!=null)_sn2.sector=_qs.sector;if(_qs.industry!=null)_sn2.industry=_qs.industry;if(_qs.beta!=null)_sn2.beta=_qs.beta;if(_qs.ptMean){_sn2.ptMean=_qs.ptMean;_sn2.ptHigh=_qs.ptHigh||null;_sn2.ptLow=_qs.ptLow||null;_sn2.ptAnalysts=_qs.ptAnalysts||null;}if(_qs.pegRatio!=null)_sn2.pegRatio=_qs.pegRatio;if(_qs.evToEbitda!=null)_sn2.evToEbitda=_qs.evToEbitda;if(_qs.shortPctFloat!=null){_sn2.shortPctFloat=_qs.shortPctFloat;_sn2.shortRatioYahoo=_qs.shortRatioYahoo;}if(_qs.totalAssets!=null)_sn2.totalAssets=_qs.totalAssets;if(_qs.earningsTrend&&_qs.earningsTrend.length)_sn2.earningsTrend=_qs.earningsTrend;if(_qs.recTrend&&_qs.recTrend.length)_sn2.recTrend=_qs.recTrend;if(_qs.earningsHistoryYahoo&&_qs.earningsHistoryYahoo.length)_sn2.earningsHistoryYahoo=_qs.earningsHistoryYahoo;if(_qs.revenueGrowthYahoo!=null)_sn2.revenueGrowthYahoo=_qs.revenueGrowthYahoo;if(_qs.operatingMarginsYahoo!=null)_sn2.operatingMarginsYahoo=_qs.operatingMarginsYahoo;if(_qs.freeCashflowYahoo!=null&&_qs.totalRevenueYahoo!=null&&_qs.totalRevenueYahoo!==0)_sn2.fcfMarginYahoo=_qs.freeCashflowYahoo/_qs.totalRevenueYahoo;}
         S.set('snap_'+t,_sn2);_health.tickers[t].snap=true;
         _health.tickers[t].summaryDegraded=_sn2.summaryDegraded;
-        if(_fetchUpgrades&&upgrades2!==null)S.set('upgrades_'+t,{data:upgrades2.slice(0,6),ts:nowPT()});
+        if(_fetchUpgrades&&upgrades2!==null)S.set('upgrades_'+t,{data:upgrades2.slice(0,6),ts:nowPT(),tsEpoch:Date.now()});
       }
       // Process intraday sparkline data
       if(_idRes && _idRes.closes && _idRes.closes.length >= 2){
@@ -179,7 +179,7 @@ async function prefetchAll(){
         if(_divEvents){
           const _divList=Object.values(_divEvents).sort((a,b)=>b.date-a.date).slice(0,24)
             .map(d=>({date:new Date(d.date*1000).toISOString().split('T')[0],amount:d.amount}));
-          S.set('div_hist_'+t,{distributions:_divList,ts:nowPT()});
+          S.set('div_hist_'+t,{distributions:_divList,ts:nowPT(),tsEpoch:Date.now()});
         }
       }
       // Process options
@@ -189,11 +189,11 @@ async function prefetchAll(){
         const _pHasSameDay=_hasGoodSameDayCache('options_'+t);
         const _pv=_validateOptionsData(_opts);
         if(_pv.valid){
-          S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT()});_health.tickers[t].options=true;
+          S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),tsEpoch:Date.now()});_health.tickers[t].options=true;
         }else if(!_pInWindow&&_pHasSameDay){
           console.log(t+': outside live window, fetch INVALID ('+_pv.reason+') -- preserving same-day options cache');
         }else if(!S.get('options_'+t)){
-          S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),synthetic:true});
+          S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),tsEpoch:Date.now(),synthetic:true});
         }else{
           console.warn(t+': rejecting options ('+_pv.reason+'), preserving cache');
         }
@@ -244,11 +244,11 @@ async function prefetchAll(){
           const _pExpHasSameDay=_hasGoodSameDayCache(_pExpKey);
           const _ev=_validateOptionsData(data);
           if(_ev.valid){
-            const _ps=slimExpData(data);if(_ps)S.set(_pExpKey,{..._ps,ts:nowPT()});
+            const _ps=slimExpData(data);if(_ps)S.set(_pExpKey,{..._ps,ts:nowPT(),tsEpoch:Date.now()});
           }else if(!_pExpInWindow&&_pExpHasSameDay){
             console.log(t+' '+pair.date+': outside live window, fetch INVALID ('+_ev.reason+') -- preserving same-day exp cache');
           }else if(!S.get(_pExpKey)){
-            const _ps=slimExpData(data);if(_ps)S.set(_pExpKey,{..._ps,ts:nowPT(),synthetic:true});
+            const _ps=slimExpData(data);if(_ps)S.set(_pExpKey,{..._ps,ts:nowPT(),tsEpoch:Date.now(),synthetic:true});
           }else{
             const _ex=S.get(_pExpKey);console.warn(t+' '+pair.date+': exp rejected ('+_ev.reason+'), preserving cache from '+(_ex?.ts||'unknown ts'));
           }
@@ -257,7 +257,7 @@ async function prefetchAll(){
     {const _tNews=Date.now();try{const news=await fetchNews(t);_timing.news.push(Date.now()-_tNews);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}}
     if(i<watchlist.length-1)await sleep(_pfSleepMs);
   }
-  try{const[vh,v3h]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vh.timestamps.map(d=>d.toISOString()),closes:vh.closes,ts:nowPT()});S.set('vix3m_hist',{timestamps:v3h.timestamps.map(d=>d.toISOString()),closes:v3h.closes,ts:nowPT()});const vc=vh.closes.filter(c=>c!==null);updateVIXIndicator(vc[vc.length-1]);}catch{}
+  try{const[vh,v3h]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vh.timestamps.map(d=>d.toISOString()),closes:vh.closes,ts:nowPT(),tsEpoch:Date.now()});S.set('vix3m_hist',{timestamps:v3h.timestamps.map(d=>d.toISOString()),closes:v3h.closes,ts:nowPT()});const vc=vh.closes.filter(c=>c!==null);updateVIXIndicator(vc[vc.length-1]);}catch{}
   if(barEl)barEl.style.width='100%';if(labelEl)labelEl.textContent='Prefetch complete!';
   setTimeout(()=>{if(progressEl)progressEl.style.display='none';},2000);
   // Refresh sandbox ETF data

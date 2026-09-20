@@ -135,7 +135,8 @@ async function checkFlightModeReady(){
   wl.forEach(t=>{
     const o=S.get('options_'+t);
     if(!o){optsMissing++;return;}
-    const puts=o.data?.optionChain?.result?.[0]?.options?.[0]?.puts||[];
+    const nearEntry=_nearestExpEntry(t);
+    const puts=nearEntry?_expPuts(nearEntry):[];
     const totalOI=puts.reduce((s,p)=>s+(p.openInterest||0),0);
     if(totalOI===0)optsZeroOI++;
   });

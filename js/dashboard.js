@@ -238,11 +238,11 @@ function runDashboards(){
       // OI gravity gap
       let oiGapPct=null,callOiGapPct=null;
       try{
-        const opts=S.get('options_'+t)?.data?.optionChain?.result?.[0];
-        if(opts&&price>0){
-          const near=opts.options?.[0];
-          if(near?.puts?.length){const maxP=near.puts.reduce((b,p)=>(!b||(p.openInterest||0)>(b.openInterest||0))?p:b,null);if(maxP?.strike)oiGapPct=(price-maxP.strike)/price*100;}
-          if(near?.calls?.length){const maxC=near.calls.filter(c=>c.strike>price).reduce((b,c)=>(!b||(c.openInterest||0)>(b.openInterest||0))?c:b,null);if(maxC?.strike)callOiGapPct=(maxC.strike-price)/price*100;}
+        const nearEntry=_nearestExpEntry(t);
+        if(nearEntry&&price>0){
+          const nearPuts=_expPuts(nearEntry),nearCalls=_expCalls(nearEntry);
+          if(nearPuts.length){const maxP=nearPuts.reduce((b,p)=>(!b||(p.openInterest||0)>(b.openInterest||0))?p:b,null);if(maxP?.strike)oiGapPct=(price-maxP.strike)/price*100;}
+          if(nearCalls.length){const maxC=nearCalls.filter(c=>c.strike>price).reduce((b,c)=>(!b||(c.openInterest||0)>(b.openInterest||0))?c:b,null);if(maxC?.strike)callOiGapPct=(maxC.strike-price)/price*100;}
         }
       }catch{}
 

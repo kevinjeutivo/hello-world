@@ -42,34 +42,24 @@ async function yahooHistory(symbol,range='6mo',interval='1d'){
 }
 
 function slimOptionsData(json){
-  // Strip Yahoo options response to only fields needed by buildOptionsTable and renderOIChart
-  // Raw response can be 500KB+; slimmed version is ~50KB, well within localStorage limits
+  // Strip Yahoo options response down to ticker-level metadata only --
+  // expiration dates, strikes, and the underlying quote. Does NOT embed
+  // per-expiration contract data (puts/calls) here; that lives exclusively
+  // in the options_exp_<ticker>_<date> caches (see slimExpData in
+  // options.js), which is where every reader now looks it up via
+  // _nearestExpEntry() in helpers.js. Previously this embedded a full copy
+  // of the nearest expiration's contracts too, in a more verbose field
+  // shape than options_exp_ uses for the exact same data -- a real,
+  // confirmed duplication across every ticker, now eliminated at the
+  // source rather than cleaned up after the fact.
   const result=json?.optionChain?.result?.[0];
   if(!result)return json;
-  const slimContract=c=>({
-    strike:c.strike,
-    bid:c.bid,
-    ask:c.ask,
-    lastPrice:c.lastPrice,
-    openInterest:c.openInterest,
-    volume:c.volume,
-    impliedVolatility:c.impliedVolatility,
-    inTheMoney:c.inTheMoney,
-    expiration:c.expiration
-  });
-  const slimOptions=(result.options||[]).map(o=>({
-    expirationDate:o.expirationDate,
-    hasMiniOptions:o.hasMiniOptions,
-    puts:(o.puts||[]).map(slimContract),
-    calls:(o.calls||[]).map(slimContract)
-  }));
   return{optionChain:{result:[{
     underlyingSymbol:result.underlyingSymbol,
     expirationDates:result.expirationDates,
     strikes:result.strikes,
     hasMiniOptions:result.hasMiniOptions,
-    quote:{regularMarketPrice:result.quote?.regularMarketPrice},
-    options:slimOptions
+    quote:{regularMarketPrice:result.quote?.regularMarketPrice}
   }],error:null}};
 }
 

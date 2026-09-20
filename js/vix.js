@@ -15,14 +15,11 @@ function _vixEffectiveCacheMins(){
 
 // Returns the age in minutes of a stored timestamp string, or Infinity if
 // absent / unparseable.  Handles both bare strings and {ts:'...'} objects.
-function _vixCacheAgeMins(tsStr){
-  if(!tsStr)return Infinity;
-  try{
-    const clean=(typeof tsStr==='object'&&tsStr.ts)?tsStr.ts:tsStr;
-    const d=new Date(String(clean).replace(/ PT$| UTC$| local$/,'').trim());
-    if(isNaN(d.getTime()))return Infinity;
-    return(Date.now()-d.getTime())/60000;
-  }catch{return Infinity;}
+function _vixCacheAgeMins(rec){
+  // Pass the whole cache record ({ts,tsEpoch}) or a legacy bare ts string --
+  // tsEpoch is used when present (see _recEpoch in helpers.js).
+  const e=_recEpoch(rec);
+  return e==null?Infinity:(Date.now()-e)/60000;
 }
 
 function restoreVIXFromCache(){
@@ -47,7 +44,7 @@ function restoreVIXFromCache(){
   //   • Only when the cached data is stale (or absent).
   // loadVIX() has its own offline guards at the top and wraps every S.set()
   // in a try block — it never zeros the cache on a failed fetch.
-  const ageMins=_vixCacheAgeMins(cv?.ts);
+  const ageMins=_vixCacheAgeMins(cv);
   if(ageMins>=_vixEffectiveCacheMins()&&navigator.onLine&&!offlineMode){
     try{const ms=getMarketState().state;
       if((ms==='open'||ms==='afterhours')&&ageMins<30){

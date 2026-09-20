@@ -56,6 +56,22 @@ function _sumDividendsInRange(dividends,startDate,endDate){
   },0);
 }
 
+// Trailing-twelve-month dividend yield as of a specific historical date --
+// the dividend-yield input (q) for Black-Scholes-Merton pricing. Reuses
+// _sumDividendsInRange (already tested for the dividend-crediting work)
+// rather than a new date-range scan. Deliberately trailing, not forward:
+// using only what was already paid as of asOfDate avoids any look-ahead,
+// matching the same discipline already used for the historical rate and
+// term-structure calculations. Returns 0 (no adjustment) for a ticker with
+// no dividend history at all -- the common case for most wheel candidates,
+// where this has no effect either way.
+function _dividendYieldAsOf(dividends,asOfDate,spotAtAsOf){
+  if(!dividends||!dividends.length||!spotAtAsOf||spotAtAsOf<=0)return 0;
+  const oneYearBefore=new Date(asOfDate.getTime()-365*86400000);
+  const ttmDividends=_sumDividendsInRange(dividends,oneYearBefore,asOfDate);
+  return ttmDividends>0?ttmDividends/spotAtAsOf:0;
+}
+
 // Largest peak-to-trough decline within one window's own cumulative-%
 // curve (trades[i].cumulativePct, already time-weighted). Deliberately
 // NOT a cross-window figure -- the windows this backtest produces overlap
@@ -339,7 +355,7 @@ function _snapStrikeToRealistic(rawStrike,spot,optionType){
   return stillOTM?snapped:null;
 }
 
-function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r,termSlope,earningsAvoidDates){
+function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r,termSlope,earningsAvoidDates,q){
   const closes=hist2y.closes,timestamps=hist2y.timestamps;
   const n=closes.length;
   const S0=closes[entryIdx];
@@ -389,11 +405,11 @@ function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r
   // and pricing should reflect the real duration being simulated.
   const T=(exitDate-entryDate)/(365*86400000);
   if(T<=0)return null;
-  const K_raw=_solveStrikeForYieldFloor(S0,T,r,sigma,targetFloorPct,optionType);
+  const K_raw=_solveStrikeForYieldFloor(S0,T,r,sigma,targetFloorPct,optionType,q);
   if(K_raw==null||!isFinite(K_raw))return null; // floor not reachable at this DTE -- caller tries a different DTE or waits
   const K=_snapStrikeToRealistic(K_raw,S0,optionType);
   if(K==null)return null; // increment too coarse at this price level -- would cross the money, not a valid OTM strike
-  const premium=optionType==='put'?_bsPutPrice(S0,K,T,r,sigma):_bsCallPrice(S0,K,T,r,sigma);
+  const premium=optionType==='put'?_bsPutPrice(S0,K,T,r,sigma,q):_bsCallPrice(S0,K,T,r,sigma,q);
   if(!isFinite(premium)||premium<0)return null;
   // Snapping (especially the too-close-to-spot push-out above) can move
   // the strike further from the money than the continuous boundary was --
@@ -481,13 +497,13 @@ function _monthsOutSearchOrder(baseMonthsOut,maxMonthsOut){
   return all;
 }
 
-function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFloorPct,optionType,r,maxMonthsOut,termSlope,earningsAvoidDates){
+function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFloorPct,optionType,r,maxMonthsOut,termSlope,earningsAvoidDates,q){
   const n=hist2y.closes.length;
   const searchOrder=_monthsOutSearchOrder(baseMonthsOut,maxMonthsOut);
   let idx=candidateEntryIdx;
   while(idx<n){
     for(const m of searchOrder){
-      const cyc=_simulateOneCycle(hist2y,idx,m,targetFloorPct,optionType,r,termSlope,earningsAvoidDates);
+      const cyc=_simulateOneCycle(hist2y,idx,m,targetFloorPct,optionType,r,termSlope,earningsAvoidDates,q);
       if(cyc)return cyc;
     }
     idx+=1; // no DTE (shorter or longer) cleared the floor on this entry day, or all spanned an earnings date -- wait for the next trading day
@@ -573,7 +589,7 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     // window would let a cycle "trading" a year ago see realized vol from
     // its own future. See _estimateTermStructureSlope's asOfIdx comment.
     const applyEarnings=hasEarningsDates&&earningsAvoidTypes&&earningsAvoidTypes.includes(mode);
-    const termSlope=_estimateTermStructureSlope(hist2y,curIdx);
+    const termSlope=getTermStructureEnabled()?_estimateTermStructureSlope(hist2y,curIdx):null;
     // Risk-free rate, looked up historically for THIS cycle's own entry
     // date via the same ^IRX series already used for idle-cash interest --
     // rather than a single current rate applied uniformly across every
@@ -585,7 +601,14 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     const dateMsAtCurIdx=hist2y.timestamps?.[curIdx]!=null?hist2y.timestamps[curIdx]*1000:null;
     const historicalR=dateMsAtCurIdx!=null&&irxHist2y?_irxRateAsOf(irxHist2y,dateMsAtCurIdx):null;
     const cycleR=historicalR!=null?historicalR:r;
-    const cyc=_findFloorClearingCycle(hist2y,curIdx,monthsOut,targetFloorPct,mode,cycleR,WHEELBT_MAX_MONTHS_OUT,termSlope,applyEarnings?earningsDates:null);
+    // Dividend yield, looked up as-of this same cycle's entry date and
+    // price -- feeds the dividend-adjusted Black-Scholes pricing below.
+    // Same per-cycle, as-of-entry-day computation as cycleR above, not
+    // re-fetched as the escalation search advances. 0 for a ticker with no
+    // dividend history, which is the common case and has no effect either
+    // way; only matters for actual dividend payers.
+    const q=dateMsAtCurIdx!=null?_dividendYieldAsOf(dividends,new Date(dateMsAtCurIdx),closes[curIdx]):0;
+    const cyc=_findFloorClearingCycle(hist2y,curIdx,monthsOut,targetFloorPct,mode,cycleR,WHEELBT_MAX_MONTHS_OUT,termSlope,applyEarnings?earningsDates:null,q);
     if(!cyc)break; // couldn't clear the floor at any DTE, at any remaining entry day -- stop here
     cyc.cyclePosition=trades.length+1; // 1-indexed position in the FULL sequence -- lets a truncated display show "cycle N of M" even when the shown slice doesn't start at the window's own true beginning
     trades.push(cyc);
@@ -1027,6 +1050,11 @@ function _populateWheelBacktestDropdown(){
 function getWheelBacktestTargetAPY(){
   const stored=parseFloat(S.get('wheelbt_target_apy'));
   return(!isNaN(stored)&&stored>0)?stored:WHEELBT_DEFAULT_TARGET_APY;
+}
+// On by default -- explicit 'false' is the only way to disable, so an
+// unset value (the normal case) keeps today's behavior.
+function getTermStructureEnabled(){
+  return S.get('wheelbt_term_structure_enabled')!=='false';
 }
 function setWheelBacktestTargetAPY(){
   const input=document.getElementById('wheelbt-target-apy-input');

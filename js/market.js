@@ -520,14 +520,11 @@ async function loadMarketTab(){
 // ── Cache age helper (minutes) ──────────────────────────────────────────────
 // Returns how many minutes ago a stored timestamp string was, or Infinity if
 // the timestamp is absent / unparseable.
-function _mktCacheAgeMins(tsStr){
-  if(!tsStr)return Infinity;
-  try{
-    const clean=(typeof tsStr==='object'&&tsStr.ts)?tsStr.ts:tsStr;
-    const d=new Date(String(clean).replace(/ PT$| UTC$| local$/,'').trim());
-    if(isNaN(d.getTime()))return Infinity;
-    return(Date.now()-d.getTime())/60000;
-  }catch{return Infinity;}
+function _mktCacheAgeMins(rec){
+  // Pass the whole cache record ({ts,tsEpoch}) or a legacy bare ts string --
+  // tsEpoch is used when present (see _recEpoch in helpers.js).
+  const e=_recEpoch(rec);
+  return e==null?Infinity:(Date.now()-e)/60000;
 }
 
 // Fetches general market news and updates the cache. Used both by the full
@@ -573,12 +570,12 @@ async function restoreMarketFromCache(){
   //   offline (any cache age)     → loadMarketTab() handles offline path itself
 
   const mktTs=S.get('market_ts');
-  const dataAgeMins=_mktCacheAgeMins(mktTs?.ts||mktTs);
+  const dataAgeMins=_mktCacheAgeMins(mktTs);
   const dataTtlMins=_isMarketActiveWindow()?5:Infinity;
 
   if(dataAgeMins>=0&&dataAgeMins<dataTtlMins&&navigator.onLine){
     const cnews=S.get('market_news');
-    const newsAgeMins=_mktCacheAgeMins(cnews?.ts);
+    const newsAgeMins=_mktCacheAgeMins(cnews);
     if(!(newsAgeMins>=0&&newsAgeMins<MARKET_NEWS_FRESH_MINS)){
       await _fetchMarketNews();
     }

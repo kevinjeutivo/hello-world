@@ -346,6 +346,28 @@ function _resolvePostMarketFields(freshQuote,prevSnap){
 // comparisons, since UTC's calendar day rolls over hours before ET's,
 // silently breaking those comparisons during evening hours in any US
 // timezone west of UTC.
+// Returns the options_exp_ entry (the compact {puts,calls} shape) for the
+// nearest expiration currently cached for this ticker. Looks up which
+// dates exist via the ticker's own metadata cache (options_<ticker>,
+// expiration-dates list only as of the consolidation that removed its
+// embedded contract data -- see slimOptionsData in api.js), then tries
+// each date in chronological order until one actually has a per-expiration
+// cache entry, since the very nearest date isn't always the one that's
+// been fetched yet. Returns null if there's no metadata, or no matching
+// per-expiration entry for any listed date.
+function _nearestExpEntry(ticker){
+  const meta=S.get('options_'+ticker);
+  const expDates=meta?.data?.optionChain?.result?.[0]?.expirationDates;
+  if(!expDates||!expDates.length)return null;
+  const sorted=[...expDates].sort((a,b)=>a-b);
+  for(const ts of sorted){
+    const dateStr=new Date(ts*1000).toISOString().split('T')[0];
+    const entry=S.get('options_exp_'+ticker+'_'+dateStr);
+    if(entry)return entry;
+  }
+  return null;
+}
+
 function _todayET(){
   return new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 }
@@ -937,11 +959,9 @@ function computeIVR(ticker,w52h,w52l,price){
     if(!w52h||!w52l||w52h<=w52l)return null;
     const rangeVol=Math.min((w52h-w52l)/w52l,0.8);
     // Get current ATM IV from options chain for fallback
-    const cached=S.get('options_'+ticker);
-    const res=cached?.data?.optionChain?.result?.[0];
-    if(!res)return null;
-    const opts=res.options?.[0];if(!opts)return null;
-    const atm=[...(opts.puts||[]),...(opts.calls||[])]
+    const nearEntry=_nearestExpEntry(ticker);
+    if(!nearEntry)return null;
+    const atm=[..._expPuts(nearEntry),..._expCalls(nearEntry)]
       .filter(o=>Math.abs(o.strike-price)/price<0.05&&o.impliedVolatility>0);
     if(!atm.length)return null;
     const currentIV=avg(atm.map(o=>o.impliedVolatility));

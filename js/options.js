@@ -414,8 +414,13 @@ async function loadOptionsForTicker(){
     }).join('');
     document.getElementById('exp-section').style.display='block';
     loadOptionsPrefs();
-    // Check for OI data availability -- show amber box if missing
-    const hasOI=yr?.options?.[0]?.puts?.some(p=>(p.openInterest||0)>0)||yr?.options?.[0]?.calls?.some(c=>(c.openInterest||0)>0);
+    // Check for OI data availability -- show amber box if missing. Uses
+    // the per-expiration cache for the nearest just-fetched monthly date
+    // directly (monthly[0]), rather than yr's own embedded data -- the
+    // main chain cache no longer carries embedded contract data at all
+    // (see slimOptionsData), only ticker-level metadata.
+    const _nearCheck=monthly.length?S.get('options_exp_'+t+'_'+monthly[0]):null;
+    const hasOI=_nearCheck?(_expPuts(_nearCheck).some(p=>(p.openInterest||0)>0)||_expCalls(_nearCheck).some(c=>(c.openInterest||0)>0)):false;
     if(!hasOI){
       const lastGood=S.get('options_'+t);
       document.getElementById('options-content').innerHTML=`<div class="oi-empty-box">Open Interest data is currently unavailable. This is normal when markets are closed -- OI data typically refreshes when the market opens the following business day.${lastGood?.ts?` Last known data: ${lastGood.ts} (${relAge(lastGood.ts,lastGood.tsEpoch)}).`:''} Load the options chain and the table will still show strikes and premiums; OI will appear as 0 until data refreshes.</div>`;

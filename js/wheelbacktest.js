@@ -6,9 +6,13 @@
 // historical options-chain data. This is a real, documented simplification
 // (see the "Premium source" label always shown alongside results) with a
 // few known biases:
-//   - Realized vol typically understates implied vol (the volatility risk
-//     premium), so simulated premiums likely run somewhat LOW versus what
-//     was actually available historically -- a conservative bias.
+//   - Realized vol runs below implied vol (the volatility risk premium) on
+//     average, so simulated premiums often skew somewhat low versus what
+//     was actually available historically -- but this isn't universal.
+//     After a sharp move, trailing realized vol can exceed contemporaneous
+//     implied vol; skew and regime vary by ticker. Direction and size of
+//     the error aren't consistent enough to call this a reliably
+//     conservative bias.
 //   - No bid-ask spread, no volatility skew beyond the estimated term
 //     structure adjustment below, no early assignment around dividends
 //     (all explicitly out of scope for this version).
@@ -59,7 +63,14 @@ function _sumDividendsInRange(dividends,startDate,endDate){
 // would be more misleading than informative. Returns 0 for a curve that
 // never dips below its own running peak.
 function _maxDrawdownPct(trades){
-  let peak=-Infinity,maxDD=0;
+  // Starts at 0 -- the window's own true starting point, before any trades
+  // have happened -- not -Infinity. Starting from -Infinity meant the
+  // FIRST observed cumulativePct silently became the new "peak" regardless
+  // of its value, so a window whose very first cycle was itself a big loss
+  // reported zero drawdown (nothing to have fallen FROM). Starting at 0
+  // means an immediate loss correctly registers as a real decline from the
+  // window's actual beginning.
+  let peak=0,maxDD=0;
   for(const t of trades){
     if(t.cumulativePct==null)continue;
     if(t.cumulativePct>peak)peak=t.cumulativePct;
@@ -516,7 +527,6 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
   // being capital just because a call hasn't been sold against them yet.
   const segments=[];
   let regimeStartIdx=startIdx;
-  let lastFreedCapital=null; // dollars freed by the most recently completed cycle -- null until the first cycle resolves, in which case that cycle's own strike is used as a one-time bootstrap
   let cashInterest=0;
   let shareDividends=0; // dividends actually received during a CLOSED (assignment-ended) shares-held stretch -- see unrealizedShareDividends below for a still-open stretch at window end
 
@@ -526,7 +536,18 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
       const dateMs=hist2y.timestamps?.[i]!=null?hist2y.timestamps[i]*1000:null;
       if(dateMs==null)continue;
       const rate=_irxRateAsOf(irxHist2y,dateMs);
-      if(rate!=null)cashInterest+=capital*rate/365;
+      if(rate==null)continue;
+      // Weight by the actual CALENDAR-day gap to the next trading day (in
+      // the full history, not bounded to this segment) -- a trading day
+      // followed by a weekend or holiday accrues interest for those
+      // non-trading days too, not just itself. Without this, a full year
+      // of cash-holding only ever executes ~252 loop iterations (one per
+      // trading day) and undercounts interest by roughly 252/365. Summed
+      // across consecutive trading days, this telescopes to exactly the
+      // real calendar-day span, no double-counting or gaps.
+      const nextDateMs=hist2y.timestamps?.[i+1]!=null?hist2y.timestamps[i+1]*1000:null;
+      const daysWeight=nextDateMs!=null?Math.max(1,Math.round((nextDateMs-dateMs)/86400000)):1;
+      cashInterest+=capital*rate/365*daysWeight;
     }
   };
   // Dividends received while actually holding shares -- distinct from the
@@ -573,7 +594,12 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     cyc.legTotalDollar=cyc.premium; // updated below for an assigned call
 
     if(mode==='put'){
-      const cashAmt=lastFreedCapital!=null?lastFreedCapital:cyc.strike; // per-share, same reasoning as _timeWeightedCapitalBase's shares branch
+      // A cash-secured put's real collateral is ALWAYS its own strike --
+      // never a carried-over amount from an unrelated prior cycle. This
+      // model is explicitly single-position and non-compounding (see the
+      // capital-ledger comment above), so there's no persistent cash pool
+      // concept for a "leftover" amount to mean anything.
+      const cashAmt=cyc.strike; // per-share
       segments.push({startIdx:regimeStartIdx,endIdx:cyc.exitIdx,type:'cash',capital:cashAmt});
       _accrueCashInterest(regimeStartIdx,cyc.exitIdx,cashAmt);
       if(cyc.assigned){
@@ -584,11 +610,9 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
         // (or through the unrealized mark if the window ends while still
         // holding them, below).
         costBasis=cyc.strike;
-        lastFreedCapital=null;
         regimeStartIdx=cyc.exitIdx+1;
         mode='call';
       }else{
-        lastFreedCapital=cashAmt; // same cash, freed again, ready for the next put
         regimeStartIdx=cyc.exitIdx+1;
       }
     }else{ // mode === 'call'
@@ -598,7 +622,6 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
         realizedShareGainLoss+=cyc.equityGainDollar;
         segments.push({startIdx:regimeStartIdx,endIdx:cyc.exitIdx,type:'shares'});
         shareDividends+=_sharesDividendsFor(regimeStartIdx,cyc.exitIdx);
-        lastFreedCapital=cyc.strike; // per-share
         costBasis=null;
         regimeStartIdx=cyc.exitIdx+1;
         mode='put';
@@ -661,31 +684,35 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
   // next cycle's own accounting.
   let runningPremium=0,runningShareGain=0,runningInterest=0,runningDividends=0;
   const segsSoFar=[];
-  let rsIdx=startIdx,lastFreed=null,curMode='put';
+  let rsIdx=startIdx,curMode='put',replayCostBasis=null;
   trades.forEach((t,ti)=>{
     runningPremium+=t.premium;
     runningShareGain+=t.equityGainDollar;
     let capSoFar;
     if(curMode==='put'){
-      const cashAmt=lastFreed!=null?lastFreed:t.strike; // per-share, mirrors the main loop above
+      const cashAmt=t.strike; // per-share -- always this cycle's own strike, mirrors the main loop above
       const thisSeg={startIdx:rsIdx,endIdx:t.exitIdx,type:'cash',capital:cashAmt};
       for(let i=rsIdx;i<=t.exitIdx;i++){
         const dateMs=hist2y.timestamps?.[i]!=null?hist2y.timestamps[i]*1000:null;
-        const rate=dateMs!=null&&irxHist2y?_irxRateAsOf(irxHist2y,dateMs):null;
-        if(rate!=null)runningInterest+=cashAmt*rate/365;
+        if(dateMs==null)continue;
+        const rate=irxHist2y?_irxRateAsOf(irxHist2y,dateMs):null;
+        if(rate==null)continue;
+        // Same calendar-day weighting as _accrueCashInterest above.
+        const nextDateMs=hist2y.timestamps?.[i+1]!=null?hist2y.timestamps[i+1]*1000:null;
+        const daysWeight=nextDateMs!=null?Math.max(1,Math.round((nextDateMs-dateMs)/86400000)):1;
+        runningInterest+=cashAmt*rate/365*daysWeight;
       }
       capSoFar=_timeWeightedCapitalBase([...segsSoFar,thisSeg],closes);
       segsSoFar.push(thisSeg);
-      lastFreed=t.assigned?null:cashAmt;
       rsIdx=t.exitIdx+1;
-      if(t.assigned)curMode='call';
+      if(t.assigned){replayCostBasis=t.strike;curMode='call';}
     }else{ // curMode==='call'
       const thisSeg={startIdx:rsIdx,endIdx:t.exitIdx,type:'shares'};
       capSoFar=_timeWeightedCapitalBase([...segsSoFar,thisSeg],closes);
       if(t.assigned){
         segsSoFar.push(thisSeg);
         runningDividends+=_sharesDividendsFor(rsIdx,t.exitIdx);
-        lastFreed=t.strike; // per-share
+        replayCostBasis=null;
         rsIdx=t.exitIdx+1;
         curMode='put';
       }
@@ -693,14 +720,16 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
       // NEXT cycle's temporary "as if closed now" copy still starts from
       // the true beginning of this still-open holding stretch.
     }
-    // At the window's own final trade, if shares are still held (mode
-    // never returned to 'put'), fold in the SAME unrealized mark the main
-    // pass already computed above -- otherwise the running curve's last
-    // entry would silently omit it and fail to reconcile with the
-    // window's own totalPnL/avgCapitalBase, which does include it.
-    const isLastTrade=ti===trades.length-1;
-    const unrealizedSoFar=(isLastTrade&&costBasis!=null)?unrealizedShareGainLoss:0;
-    const unrealizedDivSoFar=(isLastTrade&&costBasis!=null)?unrealizedShareDividends:0;
+    // Unrealized mark, recomputed FRESH at every row where a shares regime
+    // is currently open -- not just the window's final row as before. A
+    // not-yet-assigned call sitting on a real paper gain or loss should
+    // show up in the running curve (and therefore in max drawdown) at the
+    // point it actually exists, not only once it's eventually realized via
+    // assignment or the window ends. Never accumulated into runningShareGain
+    // itself -- purely a transient add-back each time, replaced by the real
+    // realized equityGainDollar once the shares are actually called away.
+    const unrealizedSoFar=(curMode==='call'&&replayCostBasis!=null)?(closes[t.exitIdx]-replayCostBasis):0;
+    const unrealizedDivSoFar=(curMode==='call'&&replayCostBasis!=null)?_sharesDividendsFor(rsIdx,t.exitIdx):0;
     const runningDollar=runningPremium+runningShareGain+runningInterest+runningDividends+unrealizedSoFar+unrealizedDivSoFar;
     t.cumulativePct=capSoFar>0?(runningDollar/capSoFar)*100:null;
   });
@@ -1236,7 +1265,7 @@ function _renderWheelBacktestFromResult(result,isAggregate,isStarredMode,selecte
     <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
       <span style="color:var(--text2)">Premium source</span><span style="color:var(--warn)">Modeled &mdash; realized vol + est. term structure</span>
     </div>
-    <div style="font-size:9px;color:var(--text3);line-height:1.4;padding-bottom:5px;margin-bottom:12px">Not real historical option quotes. Realized vol typically runs below implied vol (the volatility risk premium), so modeled premiums here likely skew somewhat low versus what was actually available &mdash; a conservative bias, not an optimistic one.</div>
+    <div style="font-size:9px;color:var(--text3);line-height:1.4;padding-bottom:5px;margin-bottom:12px">Not real historical option quotes. Realized vol runs below implied vol (the volatility risk premium) on average, but not universally -- after a sharp move, trailing realized vol can exceed contemporaneous implied vol, and skew varies by ticker and regime. Modeled premiums may differ materially from tradable historical premiums; the direction and size of the error aren't consistent.</div>
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
       <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Example Run${exampleTicker?' ('+exampleTicker+')':''}</div>
       <div style="display:flex;gap:4px">

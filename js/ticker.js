@@ -3519,11 +3519,11 @@ async function refreshSingleTicker(){
             const _expKey='options_exp_'+t+'_'+pair.date;
             const _expv=_validateOptionsData(data);
             if(_expv.valid){
-              S.set(_expKey,{...data,ts:nowPT()});
+              {const _s=slimExpData(data);if(_s)S.set(_expKey,{..._s,ts:nowPT()});}
             }else if(!_rtInWindow&&_hasGoodSameDayCache(_expKey)){
               console.log(t+' '+pair.date+': outside live window, fetch INVALID ('+_expv.reason+') -- preserving same-day exp cache');
             }else if(!S.get(_expKey)){
-              S.set(_expKey,{...data,ts:nowPT(),synthetic:true});
+              {const _s=slimExpData(data);if(_s)S.set(_expKey,{..._s,ts:nowPT(),synthetic:true});}
             }else{
               console.warn(t+' '+pair.date+': exp rejected ('+_expv.reason+'), preserving cache');
             }

@@ -365,7 +365,7 @@ async function loadOptionsForTicker(){
       }catch(e){const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;fetchTsEpoch=cached.tsEpoch;showOfflineBanner(cached.ts,cached.tsEpoch);_debugPath='fetch threw ('+(e?.message||'unknown error')+') -- fell back to cache';}else throw new Error('No options data available');}
     }
     if(S.get('debug_options_fetch')==='true')toast(t+' options: '+_debugPath,6000);
-    currentOptionsData=data;
+    currentOptionsData=slimOptionsData(data);
     const yr=data?.optionChain?.result?.[0];
     // Keep original Unix timestamps alongside date strings so we can pass
     // the exact timestamp back to Yahoo when fetching per-expiration data.

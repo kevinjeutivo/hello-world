@@ -159,7 +159,7 @@ async function loadTicker(){
       // whatever was previously cached untouched, rather than overwriting it with an
       // empty array and a fresh timestamp (which previously masked real failures).
       if(_fetchUpgrades&&upgrades!==null){
-        S.set('upgrades_'+t,{data:upgrades&&upgrades.length?upgrades.slice(0,6):[],ts:nowPT()});
+        S.set('upgrades_'+t,{data:upgrades&&upgrades.length?upgrades.slice(0,6):[],ts:nowPT(),tsEpoch:Date.now()});
       }
 
       // Enrich with Yahoo quoteSummary (beta, short interest, R40 inputs, price targets, trends)
@@ -3439,7 +3439,7 @@ async function refreshSingleTicker(){
       if(priceTargetS&&priceTargetS.targetMean){snap.ptMean=priceTargetS.targetMean||null;snap.ptHigh=priceTargetS.targetHigh||null;snap.ptLow=priceTargetS.targetLow||null;}
     S.set('snap_'+t,snap);
     if(_fetchUpgrades&&upgrades!==null){
-      S.set('upgrades_'+t,{data:upgrades&&upgrades.length?upgrades.slice(0,6):[],ts:nowPT()});
+      S.set('upgrades_'+t,{data:upgrades&&upgrades.length?upgrades.slice(0,6):[],ts:nowPT(),tsEpoch:Date.now()});
     }
     // Step 3: Price history
     setP(35,'Fetching '+t+' price history...');
@@ -3490,9 +3490,9 @@ async function refreshSingleTicker(){
         // Validate before writing -- reject synthetic/zeroed post-cutoff data
         const _rtv=_validateOptionsData(opts);
         if(_rtv.valid){
-          S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT()});
+          S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),tsEpoch:Date.now()});
         }else if(!S.get('options_'+t)){
-          S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),synthetic:true});
+          S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),tsEpoch:Date.now(),synthetic:true});
         }
         // else preserve existing good cache
         // Only fetch per-expiry chains if main chain fetch was valid AND we're in live window
@@ -3519,11 +3519,11 @@ async function refreshSingleTicker(){
             const _expKey='options_exp_'+t+'_'+pair.date;
             const _expv=_validateOptionsData(data);
             if(_expv.valid){
-              {const _s=slimExpData(data);if(_s)S.set(_expKey,{..._s,ts:nowPT()});}
+              {const _s=slimExpData(data);if(_s)S.set(_expKey,{..._s,ts:nowPT(),tsEpoch:Date.now()});}
             }else if(!_rtInWindow&&_hasGoodSameDayCache(_expKey)){
               console.log(t+' '+pair.date+': outside live window, fetch INVALID ('+_expv.reason+') -- preserving same-day exp cache');
             }else if(!S.get(_expKey)){
-              {const _s=slimExpData(data);if(_s)S.set(_expKey,{..._s,ts:nowPT(),synthetic:true});}
+              {const _s=slimExpData(data);if(_s)S.set(_expKey,{..._s,ts:nowPT(),tsEpoch:Date.now(),synthetic:true});}
             }else{
               console.warn(t+' '+pair.date+': exp rejected ('+_expv.reason+'), preserving cache');
             }

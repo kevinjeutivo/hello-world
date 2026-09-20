@@ -94,9 +94,18 @@ function _isOptionsLiveWindow(){
     const now=new Date();
     const etFmt=new Intl.DateTimeFormat('en-US',{
       timeZone:'America/New_York',
-      hour:'numeric',minute:'numeric',hour12:false
+      weekday:'short',hour:'numeric',minute:'numeric',hour12:false
     });
     const parts=etFmt.formatToParts(now);
+    const etWeekday=parts.find(p=>p.type==='weekday').value;
+    // Markets are closed all day Saturday/Sunday regardless of clock time --
+    // without this check, a Sunday afternoon (or Saturday) falling within
+    // the normal 9:30am-cutoff window would be treated as a live trading
+    // window, when it never is. This doesn't change what gets WRITTEN
+    // (an invalid weekend fetch still correctly ends up preserving existing
+    // cache either way, just via a different branch/log message), but the
+    // function's own name should actually mean what it says.
+    if(etWeekday==='Sat'||etWeekday==='Sun')return false;
     const etHour=parseInt(parts.find(p=>p.type==='hour').value);
     const etMin=parseInt(parts.find(p=>p.type==='minute').value);
     const etMins=etHour*60+etMin;

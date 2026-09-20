@@ -114,6 +114,30 @@ function relAge(tsStr,epoch){
   }catch{return'';}
 }
 
+// Epoch-ms of a cache record's write time -- THE way freshness/age logic
+// should read a record's timestamp. Prefers tsEpoch (an absolute instant, so
+// immune to display-timezone preference, device timezone, travel and DST).
+// Falls back to parsing the display string `ts` only for legacy records
+// written before tsEpoch existed; that parse reads the wall-clock text in the
+// DEVICE's timezone, so it can be off by the tz difference for such records
+// (they age out on their own as they're rewritten). Accepts a record object,
+// a bare ts string, or null. Returns null when the time is unknown or
+// unparseable -- callers decide what "unknown" means for them.
+function _recEpoch(rec){
+  if(rec==null)return null;
+  if(typeof rec==='object'&&typeof rec.tsEpoch==='number'&&isFinite(rec.tsEpoch))return rec.tsEpoch;
+  const ts=typeof rec==='string'?rec:(typeof rec==='object'?rec.ts:null);
+  if(typeof ts!=='string'||!ts)return null;
+  const t=new Date(ts.replace(/ PT$| UTC$| local$/,'').trim()).getTime();
+  return isNaN(t)?null:t;
+}
+// Age in hours, or Infinity when unknown/unparseable -- the safe direction
+// for "is this stale enough to refetch?" gates (unknown age => refetch).
+function _recAgeHrs(rec){
+  const e=_recEpoch(rec);
+  return e==null?Infinity:(Date.now()-e)/3600000;
+}
+
 function tsChip(ts,isLive,epoch){
   const cls=isLive?'live':'stale';
   const age=relAge(ts,epoch);

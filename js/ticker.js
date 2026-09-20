@@ -1922,7 +1922,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
   // Persist IVR back to snap so watchlist/dashboard can read it without recomputing
   if(ivrVal!=null){snap.ivrVal=ivrVal;S.set('snap_'+snap.ticker,snap);}
   let impliedMoveStr='N/A';
-  try{const oc=S.get('options_'+snap.ticker);const res=oc?.data?.optionChain?.result?.[0];if(res&&snap.price){const opts=res.options?.[0];if(opts){const atmP=(opts.puts||[]).filter(p=>Math.abs(p.strike-snap.price)/snap.price<0.03);const atmC=(opts.calls||[]).filter(c=>Math.abs(c.strike-snap.price)/snap.price<0.03);if(atmP.length&&atmC.length){const straddle=((atmP[0].bid+atmP[0].ask)/2)+((atmC[0].bid+atmC[0].ask)/2);impliedMoveStr=`+/-${(straddle/snap.price*100).toFixed(1)}% ($${straddle.toFixed(2)} straddle)`;}}}}catch{}
+  try{const nearEntry=_nearestExpEntry(snap.ticker);if(nearEntry&&snap.price){const atmP=_expPuts(nearEntry).filter(p=>Math.abs(p.strike-snap.price)/snap.price<0.03);const atmC=_expCalls(nearEntry).filter(c=>Math.abs(c.strike-snap.price)/snap.price<0.03);if(atmP.length&&atmC.length){const straddle=((atmP[0].bid+atmP[0].ask)/2)+((atmC[0].bid+atmC[0].ask)/2);impliedMoveStr=`+/-${(straddle/snap.price*100).toFixed(1)}% ($${straddle.toFixed(2)} straddle)`;}}}catch{}
   // Short interest: prefer Yahoo quoteSummary (reliable on free tier)
   // Fall back to Finnhub fields if Yahoo not yet fetched
   let shortStr='N/A (not reported)';

@@ -447,6 +447,7 @@ function openSettings(){
   document.getElementById('offline-mode-input').checked=offlineMode;
   document.getElementById('debug-options-fetch-input').checked=S.get('debug_options_fetch')==='true';
   document.getElementById('fetch-upgrades-input').checked=S.get('fetch_upgrades_enabled')==='true';
+  document.getElementById('wheelbt-term-structure-input').checked=S.get('wheelbt_term_structure_enabled')!=='false';
   document.getElementById('font-size-input').value=fontSize;
   loadWeightSliders();
   _populateCutoffSelect();
@@ -479,6 +480,7 @@ function saveSettings(){
   S.set('offline_mode',String(offlineMode));
   S.set('debug_options_fetch',String(document.getElementById('debug-options-fetch-input').checked));
   S.set('fetch_upgrades_enabled',String(document.getElementById('fetch-upgrades-input').checked));
+  S.set('wheelbt_term_structure_enabled',String(document.getElementById('wheelbt-term-structure-input').checked));
   updateOfflineModeBar();
   fontSize=document.getElementById('font-size-input').value||'19';
   S.set('font_size',fontSize);
@@ -531,7 +533,7 @@ function clearMarketDataCache(){
     'options_cutoff_et','rp_earnings_toggle','earnings_view_mode','dashboard_view_mode',
     'vol_badge_state','conviction_weights','last_ticker',
     'income_accounts_meta','income_active_account','income_migration_v1',
-    'debug_options_fetch','prefetch_sleep_ms','fetch_upgrades_enabled',
+    'debug_options_fetch','prefetch_sleep_ms','fetch_upgrades_enabled','wheelbt_term_structure_enabled',
   ]);
   const toDelete=[];
   for(let i=0;i<localStorage.length;i++){
@@ -581,7 +583,7 @@ const EXPORT_KEYS_STATIC=[
   'vol_badge_state','last_ticker',
   'etf_research_tickers',
   'income_accounts_meta','income_active_account','income_migration_v1',
-  'debug_options_fetch','prefetch_sleep_ms','fetch_upgrades_enabled',
+  'debug_options_fetch','prefetch_sleep_ms','fetch_upgrades_enabled','wheelbt_term_structure_enabled',
   'dashboard_notes','bb_gap_overlay','gap_list_filter',
   'tax_state','state_tax_rate',
   'fomc_meeting_dates_override',

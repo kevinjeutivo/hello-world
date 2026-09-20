@@ -121,11 +121,10 @@ function _isOptionsLiveWindow(){
 function _hasGoodSameDayCache(cacheKey){
   const existing=S.get(cacheKey);
   if(!existing||existing.synthetic)return false;
-  const ts=existing.ts;
-  if(!ts)return false;
+  const _wEpoch=_recEpoch(existing);
+  if(_wEpoch==null)return false;
   try{
-    const written=new Date(String(ts).replace(/ PT$| UTC$| local$/,'').trim());
-    if(isNaN(written.getTime()))return false;
+    const written=new Date(_wEpoch);
     // Good cache is valid until the NEXT trading session's live window opens
     // (9:30am ET on the next trading day). Until then, preserve it.
     // Strategy: if we are currently outside the live window, the cache written
@@ -161,10 +160,9 @@ function _shouldSkipOptionsFetch(cacheKey){
   try{
     const existing=S.get(cacheKey);
     if(!existing||existing.synthetic)return false; // no cache or synthetic -- must fetch
-    const ts=existing.ts;
-    if(!ts)return false;
-    const written=new Date(String(ts).replace(/ PT$| UTC$| local$/,'').trim());
-    if(isNaN(written.getTime()))return false;
+    const _wEpoch=_recEpoch(existing);
+    if(_wEpoch==null)return false;
+    const written=new Date(_wEpoch);
 
     const now=new Date();
     const ageMs=now.getTime()-written.getTime();
@@ -442,8 +440,8 @@ async function loadOptionsForTicker(){
     if(isLive&&snapTs){
       try{
         const optAge=0;// just fetched
-        const snapD=new Date(snapTs.replace(/ PT$| UTC$| local$/,'').trim());
-        const snapAgeMins=isNaN(snapD.getTime())?0:(Date.now()-snapD.getTime())/60000;
+        const _snapEp=_recEpoch(S.get('snap_'+t));
+        const snapAgeMins=_snapEp==null?0:(Date.now()-_snapEp)/60000;
         if(snapAgeMins>30){
           document.getElementById('options-content').innerHTML+=
             '<div style="background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.3);border-radius:8px;padding:8px 12px;font-family:var(--mono);font-size:11px;color:var(--warn);margin-bottom:8px">'
@@ -625,9 +623,8 @@ function buildOptionsTable(){
     // itself guards against); falls back to string comparison only for
     // legacy entries written before tsEpoch existed.
     return _expEntries.reduce((oldest,e)=>{
-      if(oldest.tsEpoch!=null&&e.tsEpoch!=null)return e.tsEpoch<oldest.tsEpoch?e:oldest;
-      const _od=new Date((oldest.ts||'').replace(/ PT$| UTC$| local$/,'').trim());
-      const _td=new Date((e.ts||'').replace(/ PT$| UTC$| local$/,'').trim());
+      const _od=_recEpoch(oldest),_td=_recEpoch(e); // epoch when present, legacy string parse otherwise
+      if(_od==null||_td==null)return oldest;
       return _td<_od?e:oldest;
     });
   })();
@@ -654,9 +651,8 @@ function renderOIChart(rows,currentPrice,t){
       return{ts:cached?.ts||'',tsEpoch:cached?.tsEpoch};
     }
     return _expEntries.reduce((oldest,e)=>{
-      if(oldest.tsEpoch!=null&&e.tsEpoch!=null)return e.tsEpoch<oldest.tsEpoch?e:oldest;
-      const _od=new Date((oldest.ts||'').replace(/ PT$| UTC$| local$/,'').trim());
-      const _td=new Date((e.ts||'').replace(/ PT$| UTC$| local$/,'').trim());
+      const _od=_recEpoch(oldest),_td=_recEpoch(e); // epoch when present, legacy string parse otherwise
+      if(_od==null||_td==null)return oldest;
       return _td<_od?e:oldest;
     });
   })();

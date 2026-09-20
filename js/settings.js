@@ -84,15 +84,10 @@ async function checkFlightModeReady(){
   const checks=[];
 
   // Helper: age in hours
-  const ageHrs=ts=>{
-    if(!ts)return null;
-    try{
-      // Handle both string timestamps and {ts:string} objects
-      const tsStr=typeof ts==='object'&&ts.ts?ts.ts:(typeof ts==='string'?ts:null);
-      if(!tsStr)return null;
-      const d=new Date(tsStr.replace(/ PT$| UTC$| local$/,'').trim());
-      return isNaN(d.getTime())?null:(now-d.getTime())/3600000;
-    }catch{return null;}
+  const ageHrs=rec=>{
+    // Accepts a whole cache record ({ts,tsEpoch}) or a legacy bare ts string.
+    const e=_recEpoch(rec);
+    return e==null?null:(now-e)/3600000;
   };
   const ageStr=hrs=>{
     if(hrs===null)return'missing';
@@ -108,7 +103,7 @@ async function checkFlightModeReady(){
   wl.forEach(t=>{
     const sn=S.get('snap_'+t);
     if(!sn){snapMissing++;return;}
-    const hrs=ageHrs(sn.ts);
+    const hrs=ageHrs(sn);
     if(!ok(hrs))snapStale++;
   });
   const snapStatus=snapMissing>0?'red':snapStale>0?'amber':'green';
@@ -146,7 +141,7 @@ async function checkFlightModeReady(){
 
   // 4. VIX history
   const vixH=S.get('vix_hist');
-  const vixAge=vixH?.ts?ageHrs(vixH.ts):null;
+  const vixAge=vixH?.ts?ageHrs(vixH):null;
   checks.push({label:'VIX data',status:ok(vixAge)?'green':'red',
     detail:vixAge!==null?ageStr(vixAge):'not cached'});
 
@@ -159,7 +154,7 @@ async function checkFlightModeReady(){
 
   // 6. Market data
   const mktTsRaw=S.get('mkt_ts');
-  const mktAge=ageHrs(mktTsRaw?.ts||mktTsRaw);
+  const mktAge=ageHrs(mktTsRaw);
   checks.push({label:'Market data',status:ok(mktAge)?'green':'red',
     detail:mktAge!==null?ageStr(mktAge):'not cached'});
 

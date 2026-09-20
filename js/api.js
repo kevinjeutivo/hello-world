@@ -72,8 +72,12 @@ async function yahooOptionsViaProxy(symbol,expiration){
     const errText=await r.text().catch(()=>'');
     throw new Error(`Options proxy ${r.status}: ${errText.slice(0,80)}`);
   }
-  const json=await r.json();
-  return slimOptionsData(json);
+  // Return the RAW response. Callers validate first (_validateOptionsData needs
+  // result.options) and only then slim at write time: slimOptionsData() for the
+  // ticker-level options_<t> cache, slimExpData() for options_exp_<t>_<date>.
+  // (Build 472 wrongly slimmed here, which stripped result.options before
+  // validation and broke every options cache refresh -- fixed in 474.)
+  return await r.json();
 }
 
 async function fetchQuoteSummary(symbol){

@@ -363,6 +363,109 @@ function _resolvePostMarketFields(freshQuote,prevSnap){
   return{marketState:freshState,postMarketPrice:null,postMarketChange:null,postMarketChangePct:null};
 }
 
+// Cached per-expiration entries for a ticker, chronological:
+// [{date:'YYYY-MM-DD', entry}]. Which dates exist comes from the ticker's own
+// metadata cache (options_<ticker>'s expirationDates list -- metadata only as
+// of the consolidation that removed its embedded contract data, see
+// slimOptionsData in api.js); only dates that actually have an
+// options_exp_<ticker>_<date> entry are returned, since not every listed date
+// is fetched (roughly the next 3 monthlies are). `meta` may be passed to avoid
+// a second read.
+function _cachedExpEntries(ticker,meta){
+  if(meta===undefined)meta=S.get('options_'+ticker);
+  const expDates=meta?.data?.optionChain?.result?.[0]?.expirationDates;
+  const out=[];
+  if(!expDates||!expDates.length)return out;
+  for(const ts of [...expDates].sort((a,b)=>a-b)){
+    const date=new Date(ts*1000).toISOString().split('T')[0];
+    const entry=S.get('options_exp_'+ticker+'_'+date);
+    if(entry)out.push({date,entry});
+  }
+  return out;
+}
+
+// Compatibility for options_<ticker> entries written BEFORE build 472, which
+// embedded the nearest expiration's full contract data at
+// optionChain.result[0].options[0]. Newer writers store metadata only, but an
+// old entry can sit in storage until the next successful refresh rewrites it
+// (and until then no options_exp_ entries may exist for it). _expPuts /
+// _expCalls already read that shape, so the whole cached object works as an
+// entry. Returns {date,entry} -- date null if the embedded chain carries no
+// expirationDate -- or null when there is no usable embedded chain.
+function _legacyEmbeddedExp(meta){
+  const emb=meta?.data?.optionChain?.result?.[0]?.options?.[0];
+  if(!emb||!((emb.puts&&emb.puts.length)||(emb.calls&&emb.calls.length)))return null;
+  const date=Number.isFinite(emb.expirationDate)?new Date(emb.expirationDate*1000).toISOString().split('T')[0]:null;
+  return{date,entry:meta.data};
+}
+
+// The options_exp_ entry (compact {puts,calls} shape) for the nearest
+// expiration currently cached for this ticker -- the very nearest listed date
+// isn't always the one that's been fetched. Falls back to a pre-472 embedded
+// chain (see _legacyEmbeddedExp) only when there are no per-expiration entries
+// at all. Returns null when neither exists.
+function _nearestExpEntry(ticker){
+  const meta=S.get('options_'+ticker);
+  const list=_cachedExpEntries(ticker,meta);
+  if(list.length)return list[0].entry;
+  return _legacyEmbeddedExp(meta)?.entry??null;
+}
+
+// Does an option expiring on expDate ('YYYY-MM-DD') span an earnings report on
+// earnDate/earnHour? Options expire at the close, so an expiration strictly
+// AFTER the report date always spans it; one ON the report date spans it only
+// if the report comes before the close ('bmo' = before open, 'dmh' = during
+// market hours). 'amc' (after close) or an unknown hour does not count -- we
+// don't assume.
+function _expCoversEarnings(expDate,earnDate,earnHour){
+  if(typeof expDate!=='string'||typeof earnDate!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(earnDate))return false;
+  if(expDate>earnDate)return true;
+  return expDate===earnDate&&(earnHour==='bmo'||earnHour==='dmh');
+}
+
+// The first cached expiration that spans the given earnings report, as
+// {date,entry}, or null when none does (e.g. the report is beyond the last
+// cached expiration) -- callers then show nothing rather than a straddle that
+// doesn't contain the earnings move. Uses a DATED pre-472 embedded chain only
+// when there are no per-expiration entries at all.
+function _expEntryCovering(ticker,earnDate,earnHour){
+  const meta=S.get('options_'+ticker);
+  let list=_cachedExpEntries(ticker,meta);
+  if(!list.length){const lg=_legacyEmbeddedExp(meta);if(lg&&lg.date)list=[lg];}
+  return list.find(x=>_expCoversEarnings(x.date,earnDate,earnHour))||null;
+}
+
+// 'YYYY-MM-DD' -> 'Nov 20' for display.
+function _expLabel(dateStr){
+  const d=new Date(dateStr+'T12:00:00Z');
+  return isNaN(d.getTime())?String(dateStr):d.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'});
+}
+
+// At-the-money straddle from a cached per-expiration entry (see
+// _nearestExpEntry). Picks the strike CLOSEST TO SPOT that has a usable quote
+// on BOTH the put and the call (bid>0, ask>0, ask>=bid), so the two legs are
+// always the same strike -- a true straddle -- regardless of the order Yahoo
+// returned the chain in; ties go to the lower strike. Returns
+// {strike, straddle, offsetPct} (straddle = put mid + call mid, $/share), or
+// null when no such strike lies within maxOffsetPct of spot (callers then
+// show nothing rather than a misleading number).
+function _atmStraddle(entry,price,maxOffsetPct=3){
+  if(!entry||!Number.isFinite(price)||price<=0)return null;
+  const usable=q=>q&&Number.isFinite(q.strike)&&Number.isFinite(q.bid)&&Number.isFinite(q.ask)&&q.bid>0&&q.ask>0&&q.ask>=q.bid;
+  const callAt=new Map();
+  for(const c of _expCalls(entry))if(usable(c))callAt.set(c.strike,c);
+  let best=null;
+  for(const p of _expPuts(entry)){
+    if(!usable(p))continue;
+    const c=callAt.get(p.strike);
+    if(!c)continue;
+    const off=Math.abs(p.strike-price);
+    if(best===null||off<best.off||(off===best.off&&p.strike<best.p.strike))best={p,c,off};
+  }
+  if(!best||best.off/price>=maxOffsetPct/100)return null;
+  return{strike:best.p.strike,straddle:(best.p.bid+best.p.ask)/2+(best.c.bid+best.c.ask)/2,offsetPct:best.off/price*100};
+}
+
 // Returns today's date as 'YYYY-MM-DD' in US Eastern time -- the timezone
 // actual market/earnings events are anchored to (market open/close, BMO/AMC
 // timing). Used throughout the earnings pipeline in place of
@@ -370,28 +473,6 @@ function _resolvePostMarketFields(freshQuote,prevSnap){
 // comparisons, since UTC's calendar day rolls over hours before ET's,
 // silently breaking those comparisons during evening hours in any US
 // timezone west of UTC.
-// Returns the options_exp_ entry (the compact {puts,calls} shape) for the
-// nearest expiration currently cached for this ticker. Looks up which
-// dates exist via the ticker's own metadata cache (options_<ticker>,
-// expiration-dates list only as of the consolidation that removed its
-// embedded contract data -- see slimOptionsData in api.js), then tries
-// each date in chronological order until one actually has a per-expiration
-// cache entry, since the very nearest date isn't always the one that's
-// been fetched yet. Returns null if there's no metadata, or no matching
-// per-expiration entry for any listed date.
-function _nearestExpEntry(ticker){
-  const meta=S.get('options_'+ticker);
-  const expDates=meta?.data?.optionChain?.result?.[0]?.expirationDates;
-  if(!expDates||!expDates.length)return null;
-  const sorted=[...expDates].sort((a,b)=>a-b);
-  for(const ts of sorted){
-    const dateStr=new Date(ts*1000).toISOString().split('T')[0];
-    const entry=S.get('options_exp_'+ticker+'_'+dateStr);
-    if(entry)return entry;
-  }
-  return null;
-}
-
 function _todayET(){
   return new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 }

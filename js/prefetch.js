@@ -145,15 +145,14 @@ async function prefetchAll(){
           summaryDegraded:true,summaryTs:_pfPrevSnap?.summaryTs??null,summaryTsEpoch:_pfPrevSnap?.summaryTsEpoch??null,
           ts:nowPT(),tsEpoch:Date.now(),isLive:true};
         if(_qs){_sn2.summaryDegraded=false;_sn2.summaryTs=nowPT();_sn2.summaryTsEpoch=Date.now();if(_qs.sector!=null)_sn2.sector=_qs.sector;if(_qs.industry!=null)_sn2.industry=_qs.industry;if(_qs.beta!=null)_sn2.beta=_qs.beta;if(_qs.ptMean){_sn2.ptMean=_qs.ptMean;_sn2.ptHigh=_qs.ptHigh||null;_sn2.ptLow=_qs.ptLow||null;_sn2.ptAnalysts=_qs.ptAnalysts||null;}if(_qs.pegRatio!=null)_sn2.pegRatio=_qs.pegRatio;if(_qs.evToEbitda!=null)_sn2.evToEbitda=_qs.evToEbitda;if(_qs.shortPctFloat!=null){_sn2.shortPctFloat=_qs.shortPctFloat;_sn2.shortRatioYahoo=_qs.shortRatioYahoo;}if(_qs.totalAssets!=null)_sn2.totalAssets=_qs.totalAssets;if(_qs.earningsTrend&&_qs.earningsTrend.length)_sn2.earningsTrend=_qs.earningsTrend;if(_qs.recTrend&&_qs.recTrend.length)_sn2.recTrend=_qs.recTrend;if(_qs.earningsHistoryYahoo&&_qs.earningsHistoryYahoo.length)_sn2.earningsHistoryYahoo=_qs.earningsHistoryYahoo;if(_qs.revenueGrowthYahoo!=null)_sn2.revenueGrowthYahoo=_qs.revenueGrowthYahoo;if(_qs.operatingMarginsYahoo!=null)_sn2.operatingMarginsYahoo=_qs.operatingMarginsYahoo;if(_qs.freeCashflowYahoo!=null&&_qs.totalRevenueYahoo!=null&&_qs.totalRevenueYahoo!==0)_sn2.fcfMarginYahoo=_qs.freeCashflowYahoo/_qs.totalRevenueYahoo;}
-        S.set('snap_'+t,_sn2);_health.tickers[t].snap=true;
+        if(S.set('snap_'+t,_sn2))_health.tickers[t].snap=true; // only report success if it persisted
         _health.tickers[t].summaryDegraded=_sn2.summaryDegraded;
         if(_fetchUpgrades&&upgrades2!==null)S.set('upgrades_'+t,{data:upgrades2.slice(0,6),ts:nowPT(),tsEpoch:Date.now()});
       }
       // Process intraday sparkline data
       if(_idRes && _idRes.closes && _idRes.closes.length >= 2){
         const _idTs=_idRes.timestamps?_idRes.timestamps.map(d=>d instanceof Date?d.getTime():d):null;
-        S.set('intraday_'+t,{closes:_idRes.closes,timestamps:_idTs,ts:nowPT()});
-        _health.tickers[t].intraday=true;
+        if(S.set('intraday_'+t,{closes:_idRes.closes,timestamps:_idTs,ts:nowPT()}))_health.tickers[t].intraday=true;
       }
       // Process history
       if(_h2res){
@@ -165,8 +164,7 @@ async function prefetchAll(){
         const _hi2=_h2res.highs?_h2res.highs.map(v=>v!=null?Math.round(v*100)/100:null):null;
         const _lo2=_h2res.lows?_h2res.lows.map(v=>v!=null?Math.round(v*100)/100:null):null;
         const _now=nowPT();
-        S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,adjcloses:_ac2,opens:_op2,highs:_hi2,lows:_lo2,ts:_now,tsEpoch:Date.now()});
-        _health.tickers[t].hist=true;_h2ok=true;
+        if(S.set('hist2y_'+t,{timestamps:_ts2,closes:_cl2,volumes:_vl2,adjcloses:_ac2,opens:_op2,highs:_hi2,lows:_lo2,ts:_now,tsEpoch:Date.now()})){_health.tickers[t].hist=true;_h2ok=true;}
       }
       // Process dividend history (used by the wheel backtest's
       // buy-and-hold comparison). Only overwrite the cache on an actual
@@ -189,7 +187,7 @@ async function prefetchAll(){
         const _pHasSameDay=_hasGoodSameDayCache('options_'+t);
         const _pv=_validateOptionsData(_opts);
         if(_pv.valid){
-          S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),tsEpoch:Date.now()});_health.tickers[t].options=true;
+          if(S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),tsEpoch:Date.now()}))_health.tickers[t].options=true;
         }else if(!_pInWindow&&_pHasSameDay){
           console.log(t+': outside live window, fetch INVALID ('+_pv.reason+') -- preserving same-day options cache');
         }else if(!S.get('options_'+t)){

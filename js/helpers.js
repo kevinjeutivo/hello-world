@@ -343,7 +343,7 @@ function _buildEarningsHistory(ticker){
         sorted.push({date:old.override.date,hour:old.override.hour,gapPct:null,direction:null,source:'manual-override',override:old.override});
       });
       sorted.sort((a,b)=>a.date.localeCompare(b.date));
-      S.set('earnings_hist_'+t,{data:sorted,ts:nowPT()});
+      S.set('earnings_hist_'+t,{data:sorted,ts:nowPT(),tsEpoch:Date.now()});
     }
   }catch{}
 }

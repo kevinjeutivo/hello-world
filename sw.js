@@ -5,8 +5,8 @@
 // Version bump this string to force a refresh
 // of the cache when you deploy a new version.
 // ============================================
-const CACHE_NAME = 'income-engine-v486';
-const APP_BUILD = 486; // increment with every deploy, matches CACHE_NAME version
+const CACHE_NAME = 'income-engine-v487';
+const APP_BUILD = 487; // increment with every deploy, matches CACHE_NAME version
 
 // Third-party vendor assets (Chart.js, Google Fonts) live in their OWN,
 // separately-versioned cache, deliberately not tied to CACHE_NAME/APP_BUILD
@@ -73,7 +73,15 @@ self.addEventListener('install', event => {
         // file the way a single combined addAll() catch did.
         return Promise.all(APP_SHELL.map(url =>
           fetch(new Request(url, {cache: 'reload'}))
-            .then(response => cache.put(url, response))
+            .then(response => {
+              // A 404/500 response is still a "successful" fetch as far as
+              // the Promise is concerned -- without this check it gets
+              // cached and served as if it were real content, and a version
+              // bump could silently replace a working shell file with an
+              // error page.
+              if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+              return cache.put(url, response);
+            })
             .catch(err => console.warn('SW: failed to cache', url, err))
         ));
       }),
@@ -82,7 +90,10 @@ self.addEventListener('install', event => {
           cache.match(url).then(existing => {
             if (existing) return; // already cached, deliberately not re-fetched
             return fetch(url)
-              .then(response => cache.put(url, response))
+              .then(response => {
+                if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+                return cache.put(url, response);
+              })
               .catch(err => console.warn('SW: failed to cache vendor asset', url, err));
           })
         ));

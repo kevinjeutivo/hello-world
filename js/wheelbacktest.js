@@ -498,11 +498,26 @@ function _monthsOutSearchOrder(baseMonthsOut,maxMonthsOut){
   return all;
 }
 
-function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFloorPct,optionType,r,maxMonthsOut,termSlope,earningsAvoidDates,q){
+// r/q/termSlope used to be computed ONCE by the caller, at candidateEntryIdx,
+// and reused unchanged as this function walks forward through later trading
+// days looking for a floor-clearing entry. That's fine when the very first
+// day tried clears (the common case), but wrong when it doesn't: the
+// eventually-chosen entry day's price and volatility were always correct
+// (_simulateOneCycle reads spot/vol at its own idx), while the rate,
+// dividend yield and term-structure slope kept using the SEARCH's starting
+// day instead of the day actually traded. Now recomputed fresh for every
+// idx the search actually visits, same as _simulateWheelWindow's main loop
+// already does for the first day of each cycle.
+function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFloorPct,optionType,rFallback,maxMonthsOut,earningsAvoidDates,dividends,irxHist2y){
   const n=hist2y.closes.length;
   const searchOrder=_monthsOutSearchOrder(baseMonthsOut,maxMonthsOut);
   let idx=candidateEntryIdx;
   while(idx<n){
+    const dateMs=hist2y.timestamps?.[idx]!=null?hist2y.timestamps[idx]*1000:null;
+    const historicalR=dateMs!=null&&irxHist2y?_irxRateAsOf(irxHist2y,dateMs):null;
+    const r=historicalR!=null?historicalR:rFallback;
+    const q=dateMs!=null?_dividendYieldAsOf(dividends,new Date(dateMs),hist2y.closes[idx]):0;
+    const termSlope=getTermStructureEnabled()?_estimateTermStructureSlope(hist2y,idx):null;
     for(const m of searchOrder){
       const cyc=_simulateOneCycle(hist2y,idx,m,targetFloorPct,optionType,r,termSlope,earningsAvoidDates,q);
       if(cyc)return cyc;
@@ -590,26 +605,11 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     // window would let a cycle "trading" a year ago see realized vol from
     // its own future. See _estimateTermStructureSlope's asOfIdx comment.
     const applyEarnings=hasEarningsDates&&earningsAvoidTypes&&earningsAvoidTypes.includes(mode);
-    const termSlope=getTermStructureEnabled()?_estimateTermStructureSlope(hist2y,curIdx):null;
-    // Risk-free rate, looked up historically for THIS cycle's own entry
-    // date via the same ^IRX series already used for idle-cash interest --
-    // rather than a single current rate applied uniformly across every
-    // historical window. Falls back to the flat rate (today's, from
-    // _getTBillYield) only for a date ^IRX's own cached range doesn't
-    // cover. Computed once per cycle, at the search's own starting day --
-    // same accepted approximation as termSlope above, not re-fetched as
-    // _findFloorClearingCycle's escalation search advances internally.
-    const dateMsAtCurIdx=hist2y.timestamps?.[curIdx]!=null?hist2y.timestamps[curIdx]*1000:null;
-    const historicalR=dateMsAtCurIdx!=null&&irxHist2y?_irxRateAsOf(irxHist2y,dateMsAtCurIdx):null;
-    const cycleR=historicalR!=null?historicalR:r;
-    // Dividend yield, looked up as-of this same cycle's entry date and
-    // price -- feeds the dividend-adjusted Black-Scholes pricing below.
-    // Same per-cycle, as-of-entry-day computation as cycleR above, not
-    // re-fetched as the escalation search advances. 0 for a ticker with no
-    // dividend history, which is the common case and has no effect either
-    // way; only matters for actual dividend payers.
-    const q=dateMsAtCurIdx!=null?_dividendYieldAsOf(dividends,new Date(dateMsAtCurIdx),closes[curIdx]):0;
-    const cyc=_findFloorClearingCycle(hist2y,curIdx,monthsOut,targetFloorPct,mode,cycleR,WHEELBT_MAX_MONTHS_OUT,termSlope,applyEarnings?earningsDates:null,q);
+    // r/q/termSlope are now computed INSIDE _findFloorClearingCycle, fresh
+    // for whichever day it actually ends up trying (see its own comment) --
+    // this call only supplies the flat-rate fallback and the raw dividend/
+    // ^IRX series it needs to do that per-day lookup itself.
+    const cyc=_findFloorClearingCycle(hist2y,curIdx,monthsOut,targetFloorPct,mode,r,WHEELBT_MAX_MONTHS_OUT,applyEarnings?earningsDates:null,dividends,irxHist2y);
     if(!cyc)break; // couldn't clear the floor at any DTE, at any remaining entry day -- stop here
     cyc.cyclePosition=trades.length+1; // 1-indexed position in the FULL sequence -- lets a truncated display show "cycle N of M" even when the shown slice doesn't start at the window's own true beginning
     trades.push(cyc);

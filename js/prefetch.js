@@ -243,22 +243,41 @@ async function prefetchAll(){
         ));
         _timing.expiryChains.push(Date.now()-_expStart);
         _expResults.forEach(({pair,data,err})=>{
-          if(err||!data){console.warn(t+' '+pair.date+': exp fetch failed:',err);return;}
+          // _pExpTotal now counts every REQUESTED expiration, including ones
+          // whose fetch failed outright -- previously a fetch failure hit an
+          // early return before _pExpTotal++ ran at all, so a ticker whose
+          // every expiration failed to fetch showed as 0/0 ("fully healthy")
+          // rather than 0/3.
+          _pExpTotal++;
           const _pExpKey='options_exp_'+t+'_'+pair.date;
+          if(err||!data){
+            console.warn(t+' '+pair.date+': exp fetch failed:',err);
+            // A fetch failure still leaves the user with usable data if a
+            // genuinely good (non-synthetic) prior cache exists for this
+            // expiration -- same "is there something real to fall back on"
+            // question the validation-failure branches below already ask.
+            const _ex=S.get(_pExpKey);
+            if(_ex&&!_ex.synthetic)_pExpOk++;
+            return;
+          }
           const _pExpInWindow=_isOptionsLiveWindow();
           const _pExpHasSameDay=_hasGoodSameDayCache(_pExpKey);
           const _ev=_validateOptionsData(data);
-          _pExpTotal++;
           if(_ev.valid){
             const _ps=slimExpData(data);if(_ps&&S.set(_pExpKey,{..._ps,ts:nowPT(),tsEpoch:Date.now()}))_pExpOk++;
           }else if(!_pExpInWindow&&_pExpHasSameDay){
             console.log(t+' '+pair.date+': outside live window, fetch INVALID ('+_ev.reason+') -- preserving same-day exp cache');
-            _pExpOk++; // preserved existing good data -- not a failure
+            _pExpOk++; // preserved existing good data -- not a failure (_hasGoodSameDayCache already excludes synthetic entries)
           }else if(!S.get(_pExpKey)){
             const _ps=slimExpData(data);if(_ps)S.set(_pExpKey,{..._ps,ts:nowPT(),tsEpoch:Date.now(),synthetic:true});
           }else{
-            const _ex=S.get(_pExpKey);console.warn(t+' '+pair.date+': exp rejected ('+_ev.reason+'), preserving cache from '+(_ex?.ts||'unknown ts'));
-            _pExpOk++; // preserved existing good data -- not a failure
+            // Falling back to whatever's already cached here -- but only
+            // credit it as "ok" if that entry is real data, not a synthetic
+            // placeholder from an earlier failed fetch. This branch used to
+            // credit _pExpOk unconditionally.
+            const _ex=S.get(_pExpKey);
+            if(_ex&&!_ex.synthetic){console.warn(t+' '+pair.date+': exp rejected ('+_ev.reason+'), preserving cache from '+(_ex?.ts||'unknown ts'));_pExpOk++;}
+            else console.warn(t+' '+pair.date+': exp rejected ('+_ev.reason+'), no good prior cache to fall back on');
           }
         });
     }
@@ -315,12 +334,20 @@ async function prefetchAll(){
   _health.elapsedMs=_pfElapsedMs;
   _health.elapsedLabel=(_pfMins>0?_pfMins+'m ':'')+_pfSecs+'s';
   const _totalT=watchlist.length;
-  const _okT=Object.values(_health.tickers).filter(v=>v.snap&&v.hist&&v.finnhub).length;
-  const _failedT=watchlist.filter(t=>!(_health.tickers[t]?.snap&&_health.tickers[t]?.hist&&_health.tickers[t]?.finnhub));
+  // Options is now part of what "ok" means, not just snap/hist/finnhub --
+  // this drives both this function's own "N tickers not fully cached" toast
+  // and Full Refresh's, and for an app centered on options data, a ticker
+  // whose price/earnings data came through but whose option chains didn't
+  // isn't meaningfully "fully cached". A ticker with genuinely no options to
+  // fetch (0 expirations requested) still reads as healthy here -- see the
+  // options flag's own 0/0-is-ok convention.
+  const _coreOk=v=>v?.snap&&v?.hist&&v?.finnhub&&v?.options===true;
+  const _okT=Object.values(_health.tickers).filter(_coreOk).length;
+  const _failedT=watchlist.filter(t=>!_coreOk(_health.tickers[t]));
   // Separate from ok/failed: a ticker fully succeeds (snap/hist/finnhub) but
   // its quoteSummary-derived fields (sector/beta/PEG/price targets/etc.)
   // came back from a previous fetch, not this one -- degraded, not failed.
-  const _degradedT=watchlist.filter(t=>_health.tickers[t]?.snap&&_health.tickers[t]?.hist&&_health.tickers[t]?.finnhub&&_health.tickers[t]?.summaryDegraded);
+  const _degradedT=watchlist.filter(t=>_coreOk(_health.tickers[t])&&_health.tickers[t]?.summaryDegraded);
   _health.summary={total:_totalT,ok:_okT,failed:_failedT,degraded:_degradedT};
   // Timing summary -- avg/min/max per endpoint category across this run,
   // not the raw per-call numbers (53+ raw timestamps isn't something

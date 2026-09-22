@@ -3484,17 +3484,21 @@ async function refreshSingleTicker(){
     // Manual refresh always fetches options -- user explicitly requested fresh data.
     // Validation still guards against writing synthetic/zeroed data over good cache.
     const _rtInWindow=_isOptionsLiveWindow();
-    // Two separate flags, not one -- they answer different questions and
-    // the fallback check below needs to tell them apart:
-    // _tickerWriteFailed: did THIS RUN's own ticker-level metadata write fail?
-    //   If so, nothing fresh was persisted, so falling back to "is there any
-    //   usable (possibly older) cache" is the right safety net.
+    // Three flags, not one -- they answer different questions and the
+    // fallback check below needs to tell them apart:
+    // _tickerFetchFailed: did the live fetch ITSELF fail (network error,
+    //   timeout)? Nothing about this run's data can be trusted at all, so
+    //   falling back to "is there any usable (possibly older) cache" is the
+    //   right safety net -- same as build 480's original behavior.
+    // _tickerWriteFailed: did THIS RUN's own ticker-level metadata write fail
+    //   (fetch succeeded, but storage rejected it)? Same fallback applies --
+    //   nothing fresh was persisted either way.
     // _anyExpWriteFailed: did a per-expiration write fail even though the
-    //   ticker-level write succeeded? Here the ticker-level fallback check
-    //   would almost always find something (we just wrote it), which would
-    //   silently mask exactly the failure being tracked -- so it must NOT
-    //   be allowed to override this case.
-    let _tickerWriteFailed=false,_anyExpWriteFailed=false;
+    //   ticker-level write succeeded? Here the fallback check would almost
+    //   always find something (we just wrote it), which would silently mask
+    //   exactly the failure being tracked -- so it must NOT trigger the
+    //   fallback on its own.
+    let _tickerFetchFailed=false,_tickerWriteFailed=false,_anyExpWriteFailed=false;
     {
       try{
         const opts=await _tkTimeout(yahooOptionsViaProxy(t),15000,'options');
@@ -3544,15 +3548,16 @@ async function refreshSingleTicker(){
           // cache).
           optionsLoaded=!_tickerWriteFailed&&!_anyExpWriteFailed;
         }
-      }catch{}
-      // Fallback safety net -- but ONLY for the case where THIS RUN's own
-      // ticker-level write itself failed (nothing fresh was persisted, so
-      // falling back to "is there ANY usable, possibly-older cache" is the
-      // right question). If the ticker-level write succeeded and it was
-      // specifically a per-expiration write that failed, this check must be
-      // skipped: it would almost always find the metadata we just wrote and
-      // silently flip optionsLoaded back to true, masking that failure.
-      if(!optionsLoaded&&_tickerWriteFailed){
+      }catch{_tickerFetchFailed=true;}
+      // Fallback safety net -- runs for either a total fetch failure or a
+      // ticker-level write failure (nothing fresh was persisted in either
+      // case, so falling back to "is there ANY usable, possibly-older
+      // cache" is the right question). Does NOT run when it was specifically
+      // a per-expiration write that failed while the ticker-level write
+      // succeeded: that case would almost always find the metadata we just
+      // wrote and silently flip optionsLoaded back to true, masking exactly
+      // the failure being tracked.
+      if(!optionsLoaded&&(_tickerFetchFailed||_tickerWriteFailed)){
         const _fallback=S.get('options_'+t);
         if(_fallback&&!_fallback.synthetic)optionsLoaded=true;
       }

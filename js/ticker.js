@@ -1921,8 +1921,8 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
   const ivr=ivrInfo(ivrVal);
   // Persist IVR back to snap so watchlist/dashboard can read it without recomputing
   if(ivrVal!=null){snap.ivrVal=ivrVal;S.set('snap_'+snap.ticker,snap);}
-  let impliedMoveStr='N/A';
-  try{const nearEntry=_nearestExpEntry(snap.ticker);if(nearEntry&&snap.price){const _atm=_atmStraddle(nearEntry,snap.price);if(_atm)impliedMoveStr=`+/-${(_atm.straddle/snap.price*100).toFixed(1)}% ($${_atm.straddle.toFixed(2)} straddle)`;}}catch{}
+  let impliedMoveStr='N/A',impliedMoveExpDate=null;
+  try{const _near=_nearestExpEntryDated(snap.ticker);if(_near&&snap.price){const _atm=_atmStraddle(_near.entry,snap.price);if(_atm){impliedMoveStr=`+/-${(_atm.straddle/snap.price*100).toFixed(1)}% ($${_atm.straddle.toFixed(2)} straddle)`;impliedMoveExpDate=_near.date;}}}catch{}
   // Short interest: prefer Yahoo quoteSummary (reliable on free tier)
   // Fall back to Finnhub fields if Yahoo not yet fetched
   let shortStr='N/A (not reported)';
@@ -2011,7 +2011,7 @@ return`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarke
         ${todayVol==null?'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px">Refresh ticker to load today&#39;s volume</div>':''}
       </div>
       <div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Volatility Rank (HVR)</div><div style="margin-top:4px">${ivr.badge||'N/A'}</div><div class="metric-sub" style="margin-top:4px;font-size:10px;line-height:1.4">${ivr.guidance}</div></div>
-      ${impliedMoveStr!=='N/A'?`<div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Implied Move (from options)</div><div class="metric-value" style="font-size:13px">${impliedMoveStr}</div><div class="metric-sub">ATM straddle-implied move. Use to gauge how far OTM your strike should be.</div></div>`:''}
+      ${impliedMoveStr!=='N/A'?`<div class="metric-tile" style="grid-column:span 2"><div class="metric-label">Implied Move (from options)</div><div class="metric-value" style="font-size:13px">${impliedMoveStr}</div><div class="metric-sub">ATM straddle-implied move (${impliedMoveExpDate?_expLabel(impliedMoveExpDate)+' expiration':'nearest cached expiration'}). Use to gauge how far OTM your strike should be.</div></div>`:''}
     </div>
     ${earningsStr}
   </div>

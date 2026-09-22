@@ -1533,7 +1533,20 @@ const PROXY_SECRET='54170936711fd62a56ac6ad61b07e766c57f92c45c42d4ca259b8dd9e1b5
       const url=typeof input==='string'?input:(input&&input.url);
       if(url&&WORKER_URL&&url.indexOf(WORKER_URL)===0){
         init=init||{};
-        init.headers=Object.assign({},init.headers,{'X-Proxy-Secret':PROXY_SECRET});
+        // new Headers() correctly normalizes any of the three shapes fetch()
+        // accepts for `headers` -- a Headers instance, a plain object, or an
+        // array of [name,value] pairs -- and also picks up headers carried by
+        // an input Request object when init itself doesn't specify any,
+        // matching the Fetch spec's own precedence (init.headers wins when
+        // present). Object.assign({}, aHeadersInstance, {...}) silently
+        // dropped it, since Headers doesn't expose its entries as own
+        // enumerable properties -- this codebase's own call sites never pass
+        // one today (checked), so this is a correctness fix for future
+        // callers/libraries, not an active bug against current usage.
+        const _hdrSrc=init.headers!==undefined?init.headers:(input&&typeof input!=='string'&&input.headers);
+        const h=new Headers(_hdrSrc||undefined);
+        h.set('X-Proxy-Secret',PROXY_SECRET);
+        init.headers=h;
       }
     }catch(e){/* fall through to native fetch unmodified on any error */}
     return _nativeFetch(input,init);

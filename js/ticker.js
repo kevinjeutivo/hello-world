@@ -3530,8 +3530,17 @@ async function refreshSingleTicker(){
               .then(d=>({pair,data:d})).catch(()=>({pair,data:null}));
           }));
           _expPairs.forEach(({pair,data})=>{
-            if(!data)return;
             const _expKey='options_exp_'+t+'_'+pair.date;
+            if(!data){
+              // A fetch failure only counts as a real problem if there's no
+              // genuinely good (non-synthetic) prior cache to fall back on --
+              // previously this returned early without ever setting
+              // _anyExpWriteFailed, so a wholly-failed fetch could still show
+              // as "including options".
+              const _ex=S.get(_expKey);
+              if(!_ex||_ex.synthetic)_anyExpWriteFailed=true;
+              return;
+            }
             const _expv=_validateOptionsData(data);
             if(_expv.valid){
               {const _s=slimExpData(data);if(_s){if(!S.set(_expKey,{..._s,ts:nowPT(),tsEpoch:Date.now()}))_anyExpWriteFailed=true;}}
@@ -3540,7 +3549,12 @@ async function refreshSingleTicker(){
             }else if(!S.get(_expKey)){
               {const _s=slimExpData(data);if(_s){if(!S.set(_expKey,{..._s,ts:nowPT(),tsEpoch:Date.now(),synthetic:true}))_anyExpWriteFailed=true;}}
             }else{
-              console.warn(t+' '+pair.date+': exp rejected ('+_expv.reason+'), preserving cache');
+              // Same "is what's being preserved actually real" check as the
+              // fetch-failure branch above -- this used to preserve silently
+              // regardless of whether the existing entry was synthetic.
+              const _ex=S.get(_expKey);
+              if(_ex&&!_ex.synthetic)console.warn(t+' '+pair.date+': exp rejected ('+_expv.reason+'), preserving cache');
+              else{console.warn(t+' '+pair.date+': exp rejected ('+_expv.reason+'), no good prior cache to fall back on');_anyExpWriteFailed=true;}
             }
           });
           // A run with no failed writes counts as loaded even with zero

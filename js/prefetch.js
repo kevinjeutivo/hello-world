@@ -63,6 +63,10 @@ async function prefetchAll(){
     // down referenced it, silently throwing a ReferenceError that was swallowed
     // by that block's own catch{}. Declaring it here fixes that.
     let earnings=null,_opts=null,_h2ok=false;
+    // See the health-flag reassignment further below (after the per-expiration
+    // fetch block): these need to be readable there, outside the try block
+    // where the ticker-level write itself happens.
+    let _pMainWriteOk=false,_pExpOk=0,_pExpTotal=0;
     try{
       const _fetchUpgrades=S.get('fetch_upgrades_enabled')==='true';
       const _upgradesAge=_recAgeHrs(S.get('upgrades_'+t)); // Infinity when missing/unparseable => refetch
@@ -187,7 +191,7 @@ async function prefetchAll(){
         const _pHasSameDay=_hasGoodSameDayCache('options_'+t);
         const _pv=_validateOptionsData(_opts);
         if(_pv.valid){
-          if(S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),tsEpoch:Date.now()}))_health.tickers[t].options=true;
+          _pMainWriteOk=S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),tsEpoch:Date.now()});
         }else if(!_pInWindow&&_pHasSameDay){
           console.log(t+': outside live window, fetch INVALID ('+_pv.reason+') -- preserving same-day options cache');
         }else if(!S.get('options_'+t)){
@@ -219,6 +223,9 @@ async function prefetchAll(){
     _updateMultipleHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
     _updateNextFYHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
     // Per-expiry options fetch (parallel -- skip only if main options fetch failed)
+    // _pMainWriteOk/_pExpOk/_pExpTotal declared before the try block above
+    // (see its declaration) so they survive across both this block and
+    // the health-flag assignment further below.
     const _savedOpts=S.get('options_'+t);
     if(_savedOpts&&_opts){
       _pruneExpiredOptionExpiries(t);
@@ -241,16 +248,30 @@ async function prefetchAll(){
           const _pExpInWindow=_isOptionsLiveWindow();
           const _pExpHasSameDay=_hasGoodSameDayCache(_pExpKey);
           const _ev=_validateOptionsData(data);
+          _pExpTotal++;
           if(_ev.valid){
-            const _ps=slimExpData(data);if(_ps)S.set(_pExpKey,{..._ps,ts:nowPT(),tsEpoch:Date.now()});
+            const _ps=slimExpData(data);if(_ps&&S.set(_pExpKey,{..._ps,ts:nowPT(),tsEpoch:Date.now()}))_pExpOk++;
           }else if(!_pExpInWindow&&_pExpHasSameDay){
             console.log(t+' '+pair.date+': outside live window, fetch INVALID ('+_ev.reason+') -- preserving same-day exp cache');
+            _pExpOk++; // preserved existing good data -- not a failure
           }else if(!S.get(_pExpKey)){
             const _ps=slimExpData(data);if(_ps)S.set(_pExpKey,{..._ps,ts:nowPT(),tsEpoch:Date.now(),synthetic:true});
           }else{
             const _ex=S.get(_pExpKey);console.warn(t+' '+pair.date+': exp rejected ('+_ev.reason+'), preserving cache from '+(_ex?.ts||'unknown ts'));
+            _pExpOk++; // preserved existing good data -- not a failure
           }
         });
+    }
+    // Options health now reflects BOTH the ticker-level metadata write AND
+    // every attempted per-expiration write, not just the metadata alone (see
+    // build 481's identical fix for the single-ticker refresh path -- this
+    // is the same gap in Prefetch's separate code path). A ticker with valid
+    // metadata but a failed expiration-chain write used to still show as
+    // fully healthy. optionsExpDetail carries the count for display even
+    // when NOT fully successful (e.g. "2/3").
+    if(_pMainWriteOk){
+      _health.tickers[t].options=_pExpOk===_pExpTotal;
+      if(_pExpTotal>0)_health.tickers[t].optionsExpDetail={ok:_pExpOk,total:_pExpTotal};
     }
     {const _tNews=Date.now();try{const news=await fetchNews(t);_timing.news.push(Date.now()-_tNews);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT(),tsEpoch:Date.now()});}catch{}}
     if(i<watchlist.length-1)await sleep(_pfSleepMs);
@@ -345,6 +366,16 @@ async function fullRefreshEverything(){
   try{
     label.textContent='Step 1/6: Fetching all ticker data...';
     await prefetchAll();bar.style.width='50%';setTopBar(50);
+    // prefetchAll() doesn't throw on individual ticker failures -- it
+    // catches those internally and just records them in _health, so this
+    // try block always reaches here whether every ticker succeeded or not.
+    // Reading the health record it just saved is how this function's OWN
+    // completion message reflects that, rather than the unconditional
+    // "complete" a normal (no-throw) return used to imply. Without this,
+    // the person could see prefetchAll's own "partially complete" toast
+    // immediately overwritten by this function's unconditional success one.
+    const _frHealth=S.get('last_refresh_health');
+    const _frFailed=_frHealth?.summary?.failed?.length||0;
     label.textContent='Step 2/6: Running conviction dashboards...';
     try{runDashboards();}catch{}bar.style.width='65%';setTopBar(65);
     label.textContent='Step 3/6: Loading earnings calendar...';
@@ -361,7 +392,7 @@ async function fullRefreshEverything(){
     S.set('last_full_refresh_ts_epoch',Date.now());
     const lbl2=document.getElementById('last-full-refresh-label');
     if(lbl2)lbl2.textContent='Last full refresh: '+frTs;
-    toast('Full refresh complete',3000);
+    toast(_frFailed?`Full refresh partially complete -- ${_frFailed} ticker${_frFailed===1?'':'s'} not fully cached`:'Full refresh complete',_frFailed?4000:3000);
     markWheelbtDataStale();
   }catch(e){
     console.warn('Full refresh failed:',e?.message||e);

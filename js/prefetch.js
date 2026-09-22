@@ -288,7 +288,7 @@ async function prefetchAll(){
         if(!_sbQ||!_sbQ.price)throw new Error('no quote for '+_sbT);
         const _sbSnap={ticker:_sbT,price:_sbQ.price,change:_sbQ.price-(_sbQ.prevClose||_sbQ.price),changePct:((_sbQ.price-(_sbQ.prevClose||_sbQ.price))/(_sbQ.prevClose||_sbQ.price)*100),
           week52High:_sbQ.week52High||null,week52Low:_sbQ.week52Low||null,
-          dividendYield:_sbQ.dividendYield!=null?_sbQ.dividendYield*100:null,ts:nowPT()};
+          dividendYield:_sbQ.dividendYield!=null?_sbQ.dividendYield*100:null,ts:nowPT(),tsEpoch:Date.now()};
         const _sbH=await yahooHistory(_sbT,'1y','1d');
         const _sbR=await fetch(`${WORKER_URL}/?ticker=${encodeURIComponent(_sbT)}&type=dividends&range=3y`);
         let _sbDivs=[],_sbYield=null;

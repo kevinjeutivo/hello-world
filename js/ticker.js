@@ -254,7 +254,7 @@ async function loadTicker(){
     // dense price map and confirmed BMO/AMC report timing.
     _updateMultipleHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
     _updateNextFYHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
-    try{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}
+    try{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT(),tsEpoch:Date.now()});}
     catch{const cn=S.get('news_'+t);if(cn)news=cn.items;}
     const upgradesData=S.get('upgrades_'+t)?.data||[];
     // Re-read snap from localStorage to pick up fetchQuoteSummary enrichment
@@ -3459,7 +3459,7 @@ async function refreshSingleTicker(){
       S.set('hist2y_'+t,{timestamps:_rts,closes:_rcl,volumes:_rvl,adjcloses:_rac,opens:_rop,highs:_rhi,lows:_rlo,ts:_rn,tsEpoch:Date.now()});
       if(_idRes&&_idRes.closes&&_idRes.closes.length>=2){
         const _idTs=_idRes.timestamps?_idRes.timestamps.map(d=>d instanceof Date?d.getTime():d):null;
-        S.set('intraday_'+t,{closes:_idRes.closes,timestamps:_idTs,ts:_rn});
+        S.set('intraday_'+t,{closes:_idRes.closes,timestamps:_idTs,ts:_rn,tsEpoch:Date.now()});
       }
     }catch(e){console.warn('refreshSingle hist2y failed:',t,e?.message);}
     // Historical earnings dates for the chart markers. Called directly here
@@ -3477,7 +3477,7 @@ async function refreshSingleTicker(){
     _updateNextFYHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
     // Step 4: News
     setP(50,'Fetching '+t+' news...');
-    try{const newsData=await fetchNews(t);S.set('news_'+t,{items:(newsData||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}
+    try{const newsData=await fetchNews(t);S.set('news_'+t,{items:(newsData||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT(),tsEpoch:Date.now()});}catch{}
     // Step 5: Options chain top-level
     setP(65,'Fetching '+t+' options chain...');
     let optionsLoaded=false;

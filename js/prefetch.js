@@ -418,7 +418,12 @@ async function fullRefreshEverything(){
     S.set('last_full_refresh_ts',frTs);
     S.set('last_full_refresh_ts_epoch',Date.now());
     const lbl2=document.getElementById('last-full-refresh-label');
-    if(lbl2)lbl2.textContent='Last full refresh: '+frTs;
+    // "attempt" rather than "refresh" -- this timestamp gets written
+    // whether the run fully succeeded or was only partial (see _frFailed
+    // just below), so the label shouldn't imply success either way. Same
+    // wording used on redisplay in ui.js, since one stored timestamp can't
+    // otherwise distinguish which kind of run it was after the fact.
+    if(lbl2)lbl2.textContent='Last full refresh attempt: '+frTs;
     toast(_frFailed?`Full refresh partially complete -- ${_frFailed} ticker${_frFailed===1?'':'s'} not fully cached`:'Full refresh complete',_frFailed?4000:3000);
     markWheelbtDataStale();
   }catch(e){

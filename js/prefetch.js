@@ -152,7 +152,7 @@ async function prefetchAll(){
       // Process intraday sparkline data
       if(_idRes && _idRes.closes && _idRes.closes.length >= 2){
         const _idTs=_idRes.timestamps?_idRes.timestamps.map(d=>d instanceof Date?d.getTime():d):null;
-        if(S.set('intraday_'+t,{closes:_idRes.closes,timestamps:_idTs,ts:nowPT()}))_health.tickers[t].intraday=true;
+        if(S.set('intraday_'+t,{closes:_idRes.closes,timestamps:_idTs,ts:nowPT(),tsEpoch:Date.now()}))_health.tickers[t].intraday=true;
       }
       // Process history
       if(_h2res){
@@ -252,10 +252,10 @@ async function prefetchAll(){
           }
         });
     }
-    {const _tNews=Date.now();try{const news=await fetchNews(t);_timing.news.push(Date.now()-_tNews);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}catch{}}
+    {const _tNews=Date.now();try{const news=await fetchNews(t);_timing.news.push(Date.now()-_tNews);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT(),tsEpoch:Date.now()});}catch{}}
     if(i<watchlist.length-1)await sleep(_pfSleepMs);
   }
-  try{const[vh,v3h]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vh.timestamps.map(d=>d.toISOString()),closes:vh.closes,ts:nowPT(),tsEpoch:Date.now()});S.set('vix3m_hist',{timestamps:v3h.timestamps.map(d=>d.toISOString()),closes:v3h.closes,ts:nowPT()});const vc=vh.closes.filter(c=>c!==null);updateVIXIndicator(vc[vc.length-1]);}catch{}
+  try{const[vh,v3h]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vh.timestamps.map(d=>d.toISOString()),closes:vh.closes,ts:nowPT(),tsEpoch:Date.now()});S.set('vix3m_hist',{timestamps:v3h.timestamps.map(d=>d.toISOString()),closes:v3h.closes,ts:nowPT(),tsEpoch:Date.now()});const vc=vh.closes.filter(c=>c!==null);updateVIXIndicator(vc[vc.length-1]);}catch{}
   if(barEl)barEl.style.width='100%';if(labelEl)labelEl.textContent='Prefetch complete!';
   setTimeout(()=>{if(progressEl)progressEl.style.display='none';},2000);
   // Refresh sandbox ETF data
@@ -280,7 +280,7 @@ async function prefetchAll(){
         S.set('etf_research_'+_sbT,{
           snap:_sbSnap,fundName:_sbExCache.fundName||_sbT,fundDesc:_sbExCache.fundDesc||'',
           hist:_sbH?{timestamps:_sbH.timestamps.map(d=>d.toISOString()),closes:_sbH.closes}:null,
-          distributions:_sbDivs,trailingYield:_sbYield,ts:nowPT()
+          distributions:_sbDivs,trailingYield:_sbYield,ts:nowPT(),tsEpoch:Date.now()
         });
       }catch(e){console.warn('Sandbox prefetch failed for',_sbT,e);}
       await sleep(300);

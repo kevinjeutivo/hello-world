@@ -345,9 +345,17 @@ async function loadOptionsForTicker(){
           // The window check was designed to block synthetic after-hours placeholder
           // data, but _validateOptionsData already catches that. If validation passes,
           // the data is real and should always overwrite stale cache.
-          S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs,tsEpoch:fetchTsEpoch});
+          const _wrote=S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs,tsEpoch:fetchTsEpoch});
           _fetchedLive=true;
-          _debugPath='live fetch valid -- wrote fresh cache (ts: '+fetchTs+')';
+          // isLive drives the display: whether the "Cached options from..."
+          // banner shows, and whether the stale-underlying-price warning below
+          // is even checked. Was declared but never set true anywhere -- fresh
+          // data always showed as cached, and the price-staleness warning was
+          // dead code. Tied to the write actually succeeding, not just
+          // validation passing, so a quota failure still shows as cached
+          // rather than falsely claiming this render reflects fresh data.
+          isLive=_wrote;
+          _debugPath='live fetch valid -- wrote fresh cache (ts: '+fetchTs+')'+(_wrote?'':' [cache write failed -- see toast]');
         }else if(!_inWindow&&_hasSameDay){
           // Outside window AND validation failed -- preserve same-day cache
           // since the fresh fetch is synthetic/empty and we have something better.

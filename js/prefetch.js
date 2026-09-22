@@ -329,26 +329,38 @@ async function fullRefreshEverything(){
   document.getElementById('full-refresh-progress').style.display='block';
   const bar=document.getElementById('full-refresh-bar'),label=document.getElementById('full-refresh-label');
   setRefreshSpinner(true);setTopBar(5);
-  label.textContent='Step 1/6: Fetching all ticker data...';
-  await prefetchAll();bar.style.width='50%';setTopBar(50);
-  label.textContent='Step 2/6: Running conviction dashboards...';
-  try{runDashboards();}catch{}bar.style.width='65%';setTopBar(65);
-  label.textContent='Step 3/6: Loading earnings calendar...';
-  try{await loadEarningsTab();}catch{}bar.style.width='75%';setTopBar(75);
-  label.textContent='Step 4/6: Refreshing VIX...';
-  try{await loadVIX();}catch{}bar.style.width='85%';setTopBar(85);
-  label.textContent='Step 5/6: Refreshing ETF data...';
-  try{await loadETFTab();}catch{}bar.style.width='93%';setTopBar(93);
-  label.textContent='Step 6/6: Refreshing market data...';
-  try{await restoreMarketFromCache();}catch{}bar.style.width='100%';setTopBar(100);
-  label.textContent='All done!';
-  const frTs=nowPT();
-  S.set('last_full_refresh_ts',frTs);
-  S.set('last_full_refresh_ts_epoch',Date.now());
-  const lbl2=document.getElementById('last-full-refresh-label');
-  if(lbl2)lbl2.textContent='Last full refresh: '+frTs;
-  setRefreshSpinner(false);
-  setTimeout(()=>{document.getElementById('full-refresh-progress').style.display='none';},2000);
-  btn.disabled=false;renderWatchlist();toast('Full refresh complete',3000);
-  markWheelbtDataStale();
+  // Everything from here on is wrapped so an unexpected throw (prefetchAll is
+  // the one call below with no local try/catch of its own) can't strand the
+  // UI: button stuck disabled, spinner stuck spinning, progress bar stuck
+  // visible. All cleanup lives in finally, so it runs whether this finished,
+  // partially finished, or threw.
+  try{
+    label.textContent='Step 1/6: Fetching all ticker data...';
+    await prefetchAll();bar.style.width='50%';setTopBar(50);
+    label.textContent='Step 2/6: Running conviction dashboards...';
+    try{runDashboards();}catch{}bar.style.width='65%';setTopBar(65);
+    label.textContent='Step 3/6: Loading earnings calendar...';
+    try{await loadEarningsTab();}catch{}bar.style.width='75%';setTopBar(75);
+    label.textContent='Step 4/6: Refreshing VIX...';
+    try{await loadVIX();}catch{}bar.style.width='85%';setTopBar(85);
+    label.textContent='Step 5/6: Refreshing ETF data...';
+    try{await loadETFTab();}catch{}bar.style.width='93%';setTopBar(93);
+    label.textContent='Step 6/6: Refreshing market data...';
+    try{await restoreMarketFromCache();}catch{}bar.style.width='100%';setTopBar(100);
+    label.textContent='All done!';
+    const frTs=nowPT();
+    S.set('last_full_refresh_ts',frTs);
+    S.set('last_full_refresh_ts_epoch',Date.now());
+    const lbl2=document.getElementById('last-full-refresh-label');
+    if(lbl2)lbl2.textContent='Last full refresh: '+frTs;
+    toast('Full refresh complete',3000);
+    markWheelbtDataStale();
+  }catch(e){
+    console.warn('Full refresh failed:',e?.message||e);
+    toast('Full refresh failed -- some data may not have updated',4000);
+  }finally{
+    setRefreshSpinner(false);
+    setTimeout(()=>{const p=document.getElementById('full-refresh-progress');if(p)p.style.display='none';},2000);
+    btn.disabled=false;renderWatchlist();
+  }
 }

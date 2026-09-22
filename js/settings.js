@@ -1051,7 +1051,7 @@ function openRefreshHealthModal(){
     const detail=[
       v.snap?'':'snap failed',
       v.hist?'':'hist failed',
-      v.options===true?'':v.options==='skipped'?'options skipped (fresh)':'options failed',
+      v.options===true?'':v.options==='skipped'?'options skipped (fresh)':v.optionsExpDetail?`options ${v.optionsExpDetail.ok}/${v.optionsExpDetail.total} exp chains`:'options failed',
       v.finnhub?'':(v.finnhubDetail?v.finnhubDetail:'finnhub failed'),
       isDegraded?'valuation data (sector/beta/PEG/price targets) is from an earlier fetch, not this one':'',
     ].filter(Boolean).join(', ');

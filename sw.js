@@ -5,8 +5,8 @@
 // Version bump this string to force a refresh
 // of the cache when you deploy a new version.
 // ============================================
-const CACHE_NAME = 'income-engine-v489';
-const APP_BUILD = 489; // increment with every deploy, matches CACHE_NAME version
+const CACHE_NAME = 'income-engine-v490';
+const APP_BUILD = 490; // increment with every deploy, matches CACHE_NAME version
 
 // Third-party vendor assets (Chart.js, Google Fonts) live in their OWN,
 // separately-versioned cache, deliberately not tied to CACHE_NAME/APP_BUILD
@@ -71,6 +71,13 @@ self.addEventListener('install', event => {
         // files every time. As a side benefit, per-file .catch() also means
         // one bad file fetch no longer aborts caching of every other shell
         // file the way a single combined addAll() catch did.
+        // Every APP_SHELL file is load-bearing -- this is a single-page app
+        // where index.html loads all of these JS modules unconditionally, so
+        // a missing or stale one isn't a cosmetic gap, it's a broken feature.
+        // Each file still gets its own independent fetch attempt (one bad
+        // file doesn't stop the other 20 from being attempted and cached,
+        // same as before) but the outcome is now tracked instead of
+        // swallowed, so a failure can be surfaced after all attempts finish.
         return Promise.all(APP_SHELL.map(url =>
           fetch(new Request(url, {cache: 'reload'}))
             .then(response => {
@@ -82,8 +89,19 @@ self.addEventListener('install', event => {
               if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
               return cache.put(url, response);
             })
-            .catch(err => console.warn('SW: failed to cache', url, err))
-        ));
+            .then(() => true)
+            .catch(err => { console.warn('SW: failed to cache', url, err); return false; })
+        )).then(results => {
+          // If any app-shell file failed, throw so the whole install fails:
+          // per the Service Worker spec, a rejected event.waitUntil promise
+          // means the browser discards this install attempt and leaves
+          // whatever service worker (an older version, or none) was
+          // previously controlling the page in place, rather than activating
+          // a new one with an incomplete shell. It retries installation on
+          // the next visit. Files that DID succeed are still cached -- this
+          // only withholds skipWaiting(), it doesn't undo their caching.
+          if (results.some(ok => !ok)) throw new Error('SW install aborted: one or more app-shell files failed to cache');
+        });
       }),
       caches.open(VENDOR_CACHE_NAME).then(cache => {
         return Promise.all(VENDOR_SHELL.map(url =>

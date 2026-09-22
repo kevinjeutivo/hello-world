@@ -398,7 +398,7 @@ function updateHeaderStatus(){
   const lts=S.get('last_full_refresh_ts');
   const ltsEpoch=S.get('last_full_refresh_ts_epoch');
   const lbl=document.getElementById('last-full-refresh-label');
-  if(lbl&&lts){const age=relAge(lts,ltsEpoch);lbl.textContent='Last full refresh: '+lts+(age?' ('+age+')':'');}
+  if(lbl&&lts){const age=relAge(lts,ltsEpoch);lbl.textContent='Last full refresh attempt: '+lts+(age?' ('+age+')':'');}
 }
 
 function _explainHeaderStatus(){

@@ -179,7 +179,7 @@ async function loadETFTab(){
         snap={ticker:etf.ticker,price:_etfQ.price,change:_etfQ.price-(_etfQ.prevClose||_etfQ.price),changePct:((_etfQ.price-(_etfQ.prevClose||_etfQ.price))/(_etfQ.prevClose||_etfQ.price)*100),week52High:_etfQ.week52High||null,week52Low:_etfQ.week52Low||null,dividendYield:_etfQ.dividendYield!=null?_etfQ.dividendYield*100:null,ts:nowPT(),tsEpoch:Date.now()};
         S.set(snapKey,snap);
       }catch{const c=S.get(snapKey);if(c){snap=c;isLive=false;showOfflineBanner(c.ts,c.tsEpoch);}else snap=null;}
-      try{hist6mo=await yahooHistory(etf.ticker,'1y','1d');S.set(histKey,{timestamps:hist6mo.timestamps.map(d=>d.toISOString()),closes:hist6mo.closes,ts:nowPT()});}
+      try{hist6mo=await yahooHistory(etf.ticker,'1y','1d');S.set(histKey,{timestamps:hist6mo.timestamps.map(d=>d.toISOString()),closes:hist6mo.closes,ts:nowPT(),tsEpoch:Date.now()});}
       catch{const ch=S.get(histKey);if(ch)hist6mo={timestamps:ch.timestamps.map(d=>new Date(d)),closes:ch.closes};}
       try{
         // Fetch ETF distribution history from Yahoo Finance via Worker
@@ -198,7 +198,7 @@ async function loadETFTab(){
                 amount:d.amount
               }));
             distributions=divList;
-            S.set(divKey,{distributions,ts:nowPT()});
+            S.set(divKey,{distributions,ts:nowPT(),tsEpoch:Date.now()});
             // Trailing 12-month yield: sum last 12 distributions / current price
             const last12=divList.slice(0,12);
             const total=last12.reduce((s,d)=>s+(d.amount||0),0);
@@ -292,13 +292,13 @@ async function loadETFTab(){
         chartData6m:chartData,
         labels1y,data1y,tr1y:totalReturn1y,
         priceRetPct1y,totalRetPct1y,
-        ts:nowPT()
+        ts:nowPT(),tsEpoch:Date.now()
       });
       etfChartQueue.push({ticker:etf.ticker,color:etf.color,labels:chartLabels,data:chartData,totalReturn:totalReturnData,priceRetPct,totalRetPct,labels1y,data1y,tr1y:totalReturn1y,priceRetPct1y,totalRetPct1y});
     }catch(err){html+=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">${etf.ticker}: ${err.message}</div></div>`;}
   }
   el.innerHTML=html;
-  S.set('etf_rendered',{html,ts:nowPT()});
+  S.set('etf_rendered',{html,ts:nowPT(),tsEpoch:Date.now()});
   // Render all ETF charts after HTML is in DOM -- use requestAnimationFrame to ensure paint
   window._etfChartData=window._etfChartData||{};
 
@@ -497,7 +497,7 @@ async function _sbFetch(ticker){
   S.set('etf_research_'+ticker,{
     snap,fundName,fundDesc,
     hist:hist6mo?{timestamps:hist6mo.timestamps.map(d=>d instanceof Date?d.toISOString():d),closes:hist6mo.closes}:null,
-    distributions,trailingYield,ts:nowPT()
+    distributions,trailingYield,ts:nowPT(),tsEpoch:Date.now()
   });
 
   return{snap,hist6mo,distributions,trailingYield,fundName,fundDesc,holdings,alloc,bond,ratings};

@@ -425,7 +425,8 @@ function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r
   if(priceAtExit==null)return null;
   const assigned=optionType==='put'?(priceAtExit<K):(priceAtExit>K);
 
-  return{entryIdx,exitIdx,optionType,strike:K,premium,spotAtEntry:S0,priceAtExit,assigned,monthsUsed:monthsOut};
+  // pricingSigma/R/Q: the exact (term-adjusted) inputs this premium was priced with -- kept so the open option can be re-marked day by day for the daily drawdown (see _simulateWheelWindow)
+  return{entryIdx,exitIdx,optionType,strike:K,premium,spotAtEntry:S0,priceAtExit,assigned,monthsUsed:monthsOut,pricingSigma:sigma,pricingR:r,pricingQ:q||0};
 }
 
 // Given a candidate entry day and a preferred starting DTE, finds the
@@ -517,7 +518,7 @@ function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFl
 // window's ~1 year is used up or the available price history runs out.
 const WHEELBT_MAX_MONTHS_OUT=3; // matches the app's existing 3-expiry data-fetch cap elsewhere
 
-function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTradingDays,earningsDates,earningsAvoidTypes,dividends,irxHist2y){
+function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTradingDays,earningsDates,earningsAvoidTypes,dividends,irxHist2y,opts){
   const closes=hist2y.closes;
   const startPrice=closes[startIdx];
   if(startPrice==null||startPrice<=0)return null;
@@ -708,7 +709,92 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
   let runningPremium=0,runningShareGain=0,runningInterest=0,runningDividends=0;
   const segsSoFar=[];
   let rsIdx=startIdx,curMode='put',replayCostBasis=null;
+
+  // ── Daily mark-to-model drawdown ────────────────────────────────────────
+  // The cycle-exit rows below give the P&L curve only at option expirations.
+  // A stock can fall hard mid-cycle and recover before expiry, and an open
+  // short option carries a real (unrealized) liability the whole time. So for
+  // every trading day between one expiration and the next, compute the same
+  // P&L the exit rows use -- premium, share mark, dividends, interest -- plus
+  // the open option's MODELED liability (Black-Scholes with the same
+  // sigma/r/q/strike it was priced with at entry, and the calendar time
+  // actually left), over the same running time-weighted capital base as of
+  // that day (nothing sees its own future). On an expiration day itself the
+  // curve IS the exit row (t.cumulativePct), so it ties exactly to the
+  // reconciled ledger, and the daily max drawdown can never be smaller than
+  // the expiration-sampled one. Modeled, not real quotes: volatility is held
+  // at its entry value (no IV spikes), so a real crash would likely mark worse.
+  let lastCoveredIdx=startIdx-1,ddPeak=0,ddMax=0; // peak starts at 0 -- the window's own true starting point, same as _maxDrawdownPct
+  const dailyCurve=(opts&&opts.keepDailyCurve)?[]:null;
+  const _ddPoint=(idx,pct)=>{
+    if(pct==null||!isFinite(pct))return;
+    if(pct>ddPeak)ddPeak=pct;
+    if(ddPeak-pct>ddMax)ddMax=ddPeak-pct;
+    if(dailyCurve)dailyCurve.push({idx,pct});
+  };
+  // One day's cash interest, calendar-day weighted -- same formula as the
+  // interest loops above (kept as its own closure so those stay untouched).
+  const _dayInterest=(i,capital)=>{
+    const dateMs=hist2y.timestamps?.[i]!=null?hist2y.timestamps[i]*1000:null;
+    if(dateMs==null||!irxHist2y)return 0;
+    const rate=_irxRateAsOf(irxHist2y,dateMs);
+    if(rate==null)return 0;
+    const nextDateMs=hist2y.timestamps?.[i+1]!=null?hist2y.timestamps[i+1]*1000:null;
+    const daysWeight=nextDateMs!=null?Math.max(1,Math.round((nextDateMs-dateMs)/86400000)):1;
+    return capital*rate/365*daysWeight;
+  };
+  // Same value as _parseHist2yDate(raw).getTime() without allocating a Date
+  // (this runs once per trading day, so it matters).
+  const _rawMs=raw=>typeof raw==='number'?(raw<1e10?raw*1000:raw):_parseHist2yDate(raw).getTime();
+  // Dividend ex-dates parsed ONCE per window (identical values to what
+  // _sumDividendsInRange parses on every call) for the per-day share-dividend
+  // accrual; same inclusive [start,end] comparison.
+  const _divEvents=(dividends&&dividends.length)?dividends.filter(d=>d&&d.date&&d.amount!=null).map(d=>({ms:new Date(d.date+'T12:00:00Z').getTime(),amt:d.amount})):null;
+  const _divsBetweenMs=(sMs,eMs)=>{
+    if(!_divEvents)return 0;
+    let sum=0;
+    for(const d of _divEvents)if(d.ms>=sMs&&d.ms<=eMs)sum+=d.amt;
+    return sum;
+  };
+  // The open short option's modeled value on day i (what it would cost to
+  // buy back): dNowMs is today's date, expMs the option's expiration date.
+  const _optValueAt=(t,i,dNowMs,expMs)=>{
+    const S_i=closes[i];
+    const intrinsic=t.optionType==='put'?Math.max(t.strike-S_i,0):Math.max(S_i-t.strike,0);
+    if(i>=t.exitIdx)return intrinsic; // expiration day: settles at intrinsic
+    const T=Math.max((expMs-dNowMs)/(365*86400000),1e-9);
+    const v=t.optionType==='put'?_bsPutPrice(S_i,t.strike,T,t.pricingR,t.pricingSigma,t.pricingQ):_bsCallPrice(S_i,t.strike,T,t.pricingR,t.pricingSigma,t.pricingQ);
+    return isFinite(v)?v:intrinsic;
+  };
+
   trades.forEach((t,ti)=>{
+    // Daily points for every trading day since the previous expiration, using
+    // the PRE-trade state -- nothing below has been applied yet. The exit
+    // day is evaluated too, but only to tie out against the ledger row.
+    {
+      let intr=runningInterest;
+      const cashAmt=t.strike;
+      const expMs=_rawMs(hist2y.timestamps[t.exitIdx]);
+      const holdStartMs=(curMode==='call'&&replayCostBasis!=null&&hist2y.timestamps?.[rsIdx]!=null)?_rawMs(hist2y.timestamps[rsIdx]):null;
+      for(let i=lastCoveredIdx+1;i<=t.exitIdx;i++){
+        const px=closes[i];
+        if(px==null||hist2y.timestamps?.[i]==null)continue;
+        const dNowMs=_rawMs(hist2y.timestamps[i]);
+        if(curMode==='put')intr+=_dayInterest(i,cashAmt); // interest only accrues while holding cash (call mode: none)
+        let eq=runningPremium+runningShareGain+runningDividends+intr,seg;
+        if(curMode==='call'&&replayCostBasis!=null){
+          eq+=(px-replayCostBasis)+(holdStartMs!=null?_divsBetweenMs(holdStartMs,dNowMs):0);
+          seg={startIdx:rsIdx,endIdx:i,type:'shares'};
+        }else{
+          seg={startIdx:rsIdx,endIdx:i,type:'cash',capital:cashAmt};
+        }
+        if(i>=t.entryIdx)eq+=t.premium-_optValueAt(t,i,dNowMs,expMs);
+        const cap=_timeWeightedCapitalBase([...segsSoFar,seg],closes);
+        const pct=cap>0?eq/cap*100:null;
+        if(i<t.exitIdx)_ddPoint(i,pct);
+        else if(dailyCurve&&pct!=null&&isFinite(pct))dailyCurve.push({idx:i,pct,exitFormula:true}); // tie-out only, never feeds the drawdown
+      }
+    }
     runningPremium+=t.premium;
     runningShareGain+=t.equityGainDollar;
     let capSoFar;
@@ -755,6 +841,8 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     const unrealizedDivSoFar=(curMode==='call'&&replayCostBasis!=null)?_sharesDividendsFor(rsIdx,t.exitIdx):0;
     const runningDollar=runningPremium+runningShareGain+runningInterest+runningDividends+unrealizedSoFar+unrealizedDivSoFar;
     t.cumulativePct=capSoFar>0?(runningDollar/capSoFar)*100:null;
+    _ddPoint(t.exitIdx,t.cumulativePct); // expiration day = the reconciled ledger row itself
+    lastCoveredIdx=t.exitIdx;
   });
 
   const simpleReturn=totalPnL/avgCapitalBase;
@@ -778,6 +866,9 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     simpleReturnPct:simpleReturn*100, // raw, unannualized total -- what the row-by-row cumulative actually adds up to
     stillHoldingShares:costBasis!=null,
     unrealizedShareGainLoss,cashInterest,shareDividends,unrealizedShareDividends,
+    maxDrawdownDailyPct:ddMax, // daily mark-to-model -- the figure shown
+    maxDrawdownAtExpPct:_maxDrawdownPct(trades), // sampled only at expirations (pre-478 metric) -- kept for comparison
+    ...(dailyCurve?{dailyCurve}:{}),
   };
 }
 
@@ -895,8 +986,10 @@ function _computeWheelBacktest(ticker,monthsOut,targetFloorPct,strategy){
   // Drawdown ordering is the OPPOSITE of the return worst/best above --
   // here a LARGER number is worse (a deeper decline), so "worst" is the
   // max of the sorted-ascending array, not the min.
-  const drawdowns=windows.map(w=>_maxDrawdownPct(w.trades)).sort((a,b)=>a-b);
+  const drawdowns=windows.map(w=>w.maxDrawdownDailyPct).sort((a,b)=>a-b);
   const drawdown={best:drawdowns[0],median:_medianOfSorted(drawdowns),worst:drawdowns[drawdowns.length-1]};
+  const drawdownsAtExp=windows.map(w=>w.maxDrawdownAtExpPct).sort((a,b)=>a-b);
+  const drawdownAtExp={best:drawdownsAtExp[0],median:_medianOfSorted(drawdownsAtExp),worst:drawdownsAtExp[drawdownsAtExp.length-1]};
   const downsideDeviation=_downsideDeviationPct(annReturns);
 
   const mostRecentWindow=windows[windows.length-1];
@@ -905,7 +998,7 @@ function _computeWheelBacktest(ticker,monthsOut,targetFloorPct,strategy){
     ticker,monthsOut,targetFloorPct,strategy:strategy||'default',sampleSize:windows.length,
     median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
-    winRatePct,beatBuyHoldPct,medianExcessReturn,drawdown,downsideDeviation,
+    winRatePct,beatBuyHoldPct,medianExcessReturn,drawdown,drawdownAtExp,downsideDeviation,
     recentCycles:mostRecentWindow.trades,
     recentRunStartIdx:mostRecentWindow.startIdx,
     recentRunEndIdx:mostRecentWindow.endIdx,
@@ -929,7 +1022,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
   let allReturns=[];
   let allAssignmentRates=[];
   let allBuyHold=[];
-  let allWindowTrades=[]; // retained (not just the return %) so drawdown can be computed per window below -- same data _simulateWheelWindow already produced, no new simulation
+  let allWindowDD=[],allWindowDDAtExp=[]; // per-window max drawdown (daily-marked, and the older expiration-sampled figure), index-aligned with allReturns
   let tickersWithData=0;
   // Tracks the single most CALENDAR-RECENT complete run across every
   // ticker in the list -- not just whichever ticker happens to be iterated
@@ -957,7 +1050,8 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
         allReturns.push(win.annualizedReturnPct);
         allAssignmentRates.push(win.assignmentRatePct);
         allBuyHold.push(win.buyHoldAnnualizedPct);
-        allWindowTrades.push(win.trades);
+        allWindowDD.push(win.maxDrawdownDailyPct);
+        allWindowDDAtExp.push(win.maxDrawdownAtExpPct);
         perTickerReturns[t].push(win.annualizedReturnPct);
         gotAny=true;
         const rawEndDate=h2.timestamps?.[win.endIdx];
@@ -973,7 +1067,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
   if(!allReturns.length)return null;
 
   // Paired stats computed BEFORE allReturns gets sorted below (in place) --
-  // these need allReturns/allBuyHold/allWindowTrades to stay in their
+  // these need allReturns/allBuyHold/allWindowDD to stay in their
   // original, index-aligned push order to correctly match each window's
   // return against that SAME window's own buy-hold result and trades.
   const winRatePct=(allReturns.filter(v=>v>0).length/allReturns.length)*100;
@@ -981,8 +1075,10 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
   const beatBuyHoldPct=(beatBuyHoldCount/allReturns.length)*100;
   const excessReturns=allReturns.map((v,i)=>v-allBuyHold[i]).sort((a,b)=>a-b);
   const medianExcessReturn=_medianOfSorted(excessReturns);
-  const drawdowns=allWindowTrades.map(t=>_maxDrawdownPct(t)).sort((a,b)=>a-b);
+  const drawdowns=[...allWindowDD].sort((a,b)=>a-b);
   const drawdown={best:drawdowns[0],median:_medianOfSorted(drawdowns),worst:drawdowns[drawdowns.length-1]};
+  const drawdownsAtExp=[...allWindowDDAtExp].sort((a,b)=>a-b);
+  const drawdownAtExp={best:drawdownsAtExp[0],median:_medianOfSorted(drawdownsAtExp),worst:drawdownsAtExp[drawdownsAtExp.length-1]};
   const downsideDeviation=_downsideDeviationPct(allReturns);
 
   allReturns.sort((a,b)=>a-b);
@@ -1015,7 +1111,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
     monthsOut,targetFloorPct,strategy:strategy||'default',sampleSize:allReturns.length,tickersWithData,tickersTotal:tickers.length,
     median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
-    winRatePct,beatBuyHoldPct,medianExcessReturn,drawdown,downsideDeviation,
+    winRatePct,beatBuyHoldPct,medianExcessReturn,drawdown,drawdownAtExp,downsideDeviation,
     recentCycles:bestRunCycles,recentCyclesTicker:bestRunTicker,
     recentRunStartIdx:bestRunStartIdx,recentRunEndIdx:bestRunEndIdx,recentRunTotalCycles:bestRunTotalCycles,
     recentRunSimpleReturnPct:bestRunSimpleReturnPct,recentRunStillHoldingShares:bestRunStillHoldingShares,
@@ -1285,7 +1381,7 @@ function _renderWheelBacktestFromResult(result,isAggregate,isStarredMode,selecte
       <span style="color:var(--text2)">Median excess vs. Buy &amp; Hold</span><span style="color:${result.medianExcessReturn>=0?'var(--green)':'var(--red)'}">${result.medianExcessReturn>=0?'+':''}${result.medianExcessReturn.toFixed(1)}pp</span>
     </div>
     <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
-      <span style="color:var(--text2)">Max drawdown (worst &middot; median &middot; best)</span><span style="color:var(--text)">-${result.drawdown.worst.toFixed(1)}% &middot; -${result.drawdown.median.toFixed(1)}% &middot; -${result.drawdown.best.toFixed(1)}%</span>
+      <span style="color:var(--text2)">Max drawdown, daily modeled (worst &middot; median &middot; best)</span><span style="color:var(--text)">-${result.drawdown.worst.toFixed(1)}% &middot; -${result.drawdown.median.toFixed(1)}% &middot; -${result.drawdown.best.toFixed(1)}%</span>
     </div>
     <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
       <span style="color:var(--text2)">Downside deviation</span><span style="color:var(--text)">${result.downsideDeviation.toFixed(1)}%</span>

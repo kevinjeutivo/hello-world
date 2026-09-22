@@ -399,16 +399,22 @@ function _legacyEmbeddedExp(meta){
   return{date,entry:meta.data};
 }
 
-// The options_exp_ entry (compact {puts,calls} shape) for the nearest
-// expiration currently cached for this ticker -- the very nearest listed date
-// isn't always the one that's been fetched. Falls back to a pre-472 embedded
-// chain (see _legacyEmbeddedExp) only when there are no per-expiration entries
-// at all. Returns null when neither exists.
-function _nearestExpEntry(ticker){
+// {date,entry} for the nearest expiration currently cached for this ticker
+// (the very nearest LISTED date isn't always the one that's been fetched).
+// Falls back to a pre-472 embedded chain (see _legacyEmbeddedExp) only when
+// there are no per-expiration entries at all -- date is null there if the
+// embedded chain carries no expirationDate. Returns null when neither exists.
+function _nearestExpEntryDated(ticker){
   const meta=S.get('options_'+ticker);
   const list=_cachedExpEntries(ticker,meta);
-  if(list.length)return list[0].entry;
-  return _legacyEmbeddedExp(meta)?.entry??null;
+  if(list.length)return list[0];
+  return _legacyEmbeddedExp(meta);
+}
+
+// The options_exp_ entry (compact {puts,calls} shape) alone -- see
+// _nearestExpEntryDated when the expiration date is also needed.
+function _nearestExpEntry(ticker){
+  return _nearestExpEntryDated(ticker)?.entry??null;
 }
 
 // Does an option expiring on expDate ('YYYY-MM-DD') span an earnings report on

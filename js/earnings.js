@@ -356,7 +356,7 @@ async function loadEarningsTab(){
       // could have already updated earningsTrend/earningsHistoryYahoo
       // without any other visible signal that it happened.
       const freshnessLabel=_earningsFreshnessLabel(_effEarningsDate,_effEarningsHour,snap.summaryTsEpoch);
-      let news=[];try{const cn=S.get('news_'+t);if(cn)news=cn.items;else{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT()});}}catch{}
+      let news=[];try{const cn=S.get('news_'+t);if(cn)news=cn.items;else{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT(),tsEpoch:Date.now()});}}catch{}
       const ivrVal=computeIVR(t,snap.week52High,snap.week52Low,snap.price);const ivr=ivrInfo(ivrVal);
       let impliedMove=null,impliedMoveExp=null;try{if(snap.price){const _cov=_expEntryCovering(t,_effEarningsDate,_effEarningsHour);if(_cov){const _atm=_atmStraddle(_cov.entry,snap.price);if(_atm){impliedMove=(_atm.straddle/snap.price*100).toFixed(1);impliedMoveExp=_cov.date;}}}}catch{} // straddle from the first expiration that spans the report, not merely the nearest one
       const daysUntil=du; // already computed above via daysUntilDate

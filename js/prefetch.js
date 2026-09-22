@@ -319,7 +319,15 @@ async function prefetchAll(){
   };
   S.set('last_refresh_health',_health);
   _updateRefreshHealthBadge();
-  if(btn)btn.disabled=false;renderWatchlist();toast('All data cached for offline use');
+  if(btn)btn.disabled=false;renderWatchlist();
+  // _failedT (computed just above, into _health.summary) is the real record of
+  // which tickers didn't fully succeed this run -- the toast used to claim
+  // success unconditionally regardless of it.
+  if(_failedT.length){
+    toast(`Prefetch partially complete -- ${_failedT.length} ticker${_failedT.length===1?'':'s'} not fully cached`,4000);
+  }else{
+    toast('All data cached for offline use');
+  }
   markWheelbtDataStale();
 }
 

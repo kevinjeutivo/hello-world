@@ -517,7 +517,8 @@ function closeOfflineModal(){document.getElementById('offline-confirm-modal').cl
 function clearAllDataConfirmed(){
   closeOfflineModal();
   localStorage.clear();FINNHUB_KEY='';WORKER_URL='';watchlist=[...DEFAULT_WATCHLIST];currentTicker='';offlineMode=false;
-  toast('All data cleared');renderWatchlist();updateVIXIndicator(null);updateOfflineModeBar();
+  toast('All saved app data cleared'); // localStorage only -- deliberately does not touch Cache Storage (the offline app shell), which stays intact so the PWA still works offline after this
+  renderWatchlist();updateVIXIndicator(null);updateOfflineModeBar();
   try{openWorkerSetupOverlay();}catch(e){console.error('Worker setup overlay error:',e);}
 }
 

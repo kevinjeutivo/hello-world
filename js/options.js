@@ -501,7 +501,18 @@ function buildOptionsTable(){
   const hlApy=parseFloat(document.getElementById('highlight-apy').value)||12;
   const today=new Date();const rows=[];
   for(const exp of selectedExpirations){
-    const expCached=S.get('options_exp_'+t+'_'+exp);if(!expCached)continue;
+    let expCached=S.get('options_exp_'+t+'_'+exp);
+    if(!expCached){
+      // Pre-472 tickers have no per-expiration entries at all -- fall back to
+      // the ticker-level metadata's own embedded chain (see _legacyEmbeddedExp
+      // in helpers.js) when its expiration matches the one being rendered, so
+      // the table isn't silently empty for a ticker that hasn't been
+      // re-fetched since the options-cache consolidation. _expPuts/_expCalls
+      // below already understand this shape.
+      const _legacy=_legacyEmbeddedExp(S.get('options_'+t));
+      if(_legacy&&_legacy.date===exp)expCached=_legacy.entry;
+    }
+    if(!expCached)continue;
     const expD=new Date(exp+'T12:00:00Z');const dte=Math.max(Math.round((expD-today)/86400000),1);
     const proc=(contracts,isCall)=>{if(!contracts)return;contracts.forEach(o=>{const s=o.strike||0;if(s<lowerBound||s>upperBound)return;const bid=o.bid||0,ask=o.ask||0,last=o.lastPrice||0,oi=o.openInterest||0,vol=o.volume||0,iv=o.impliedVolatility||0;const premium=(bid>0?bid:last)*100;const apy=isCall?premium/(currentPrice*100)*(365/dte)*100:premium/(s*100)*(365/dte)*100;const pctOTM=isCall?(s-currentPrice)/currentPrice*100:(currentPrice-s)/currentPrice*100;rows.push({expDate:exp,strike:s,bid,ask,last,premium,apy,oi,vol,iv,dte,pctOTM});});};
     if(currentMode==='puts')proc(_expPuts(expCached),false);else proc(_expCalls(expCached),true);

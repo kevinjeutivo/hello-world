@@ -3484,15 +3484,26 @@ async function refreshSingleTicker(){
     // Manual refresh always fetches options -- user explicitly requested fresh data.
     // Validation still guards against writing synthetic/zeroed data over good cache.
     const _rtInWindow=_isOptionsLiveWindow();
+    // Two separate flags, not one -- they answer different questions and
+    // the fallback check below needs to tell them apart:
+    // _tickerWriteFailed: did THIS RUN's own ticker-level metadata write fail?
+    //   If so, nothing fresh was persisted, so falling back to "is there any
+    //   usable (possibly older) cache" is the right safety net.
+    // _anyExpWriteFailed: did a per-expiration write fail even though the
+    //   ticker-level write succeeded? Here the ticker-level fallback check
+    //   would almost always find something (we just wrote it), which would
+    //   silently mask exactly the failure being tracked -- so it must NOT
+    //   be allowed to override this case.
+    let _tickerWriteFailed=false,_anyExpWriteFailed=false;
     {
       try{
         const opts=await _tkTimeout(yahooOptionsViaProxy(t),15000,'options');
         // Validate before writing -- reject synthetic/zeroed post-cutoff data
         const _rtv=_validateOptionsData(opts);
         if(_rtv.valid){
-          S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),tsEpoch:Date.now()});
+          if(!S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),tsEpoch:Date.now()}))_tickerWriteFailed=true;
         }else if(!S.get('options_'+t)){
-          S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),tsEpoch:Date.now(),synthetic:true});
+          if(!S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),tsEpoch:Date.now(),synthetic:true}))_tickerWriteFailed=true;
         }
         // else preserve existing good cache
         // Only fetch per-expiry chains if main chain fetch was valid AND we're in live window
@@ -3519,20 +3530,29 @@ async function refreshSingleTicker(){
             const _expKey='options_exp_'+t+'_'+pair.date;
             const _expv=_validateOptionsData(data);
             if(_expv.valid){
-              {const _s=slimExpData(data);if(_s)S.set(_expKey,{..._s,ts:nowPT(),tsEpoch:Date.now()});}
+              {const _s=slimExpData(data);if(_s){if(!S.set(_expKey,{..._s,ts:nowPT(),tsEpoch:Date.now()}))_anyExpWriteFailed=true;}}
             }else if(!_rtInWindow&&_hasGoodSameDayCache(_expKey)){
               console.log(t+' '+pair.date+': outside live window, fetch INVALID ('+_expv.reason+') -- preserving same-day exp cache');
             }else if(!S.get(_expKey)){
-              {const _s=slimExpData(data);if(_s)S.set(_expKey,{..._s,ts:nowPT(),tsEpoch:Date.now(),synthetic:true});}
+              {const _s=slimExpData(data);if(_s){if(!S.set(_expKey,{..._s,ts:nowPT(),tsEpoch:Date.now(),synthetic:true}))_anyExpWriteFailed=true;}}
             }else{
               console.warn(t+' '+pair.date+': exp rejected ('+_expv.reason+'), preserving cache');
             }
           });
-          optionsLoaded=true;
+          // A run with no failed writes counts as loaded even with zero
+          // attempted writes (e.g. every expiration preserved existing good
+          // cache).
+          optionsLoaded=!_tickerWriteFailed&&!_anyExpWriteFailed;
         }
       }catch{}
-      // Regardless of fetch outcome, check if good non-synthetic cache exists
-      if(!optionsLoaded){
+      // Fallback safety net -- but ONLY for the case where THIS RUN's own
+      // ticker-level write itself failed (nothing fresh was persisted, so
+      // falling back to "is there ANY usable, possibly-older cache" is the
+      // right question). If the ticker-level write succeeded and it was
+      // specifically a per-expiration write that failed, this check must be
+      // skipped: it would almost always find the metadata we just wrote and
+      // silently flip optionsLoaded back to true, masking that failure.
+      if(!optionsLoaded&&_tickerWriteFailed){
         const _fallback=S.get('options_'+t);
         if(_fallback&&!_fallback.synthetic)optionsLoaded=true;
       }

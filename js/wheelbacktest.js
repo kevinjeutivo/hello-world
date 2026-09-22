@@ -466,7 +466,24 @@ function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r
 // happened yet). Defaults to the full array when omitted, which is correct
 // for a live (non-backtest) caller reasoning about "today" -- there is no
 // look-ahead risk when "now" genuinely is the most recent data point.
+// Pure given (hist2y, asOfIdx) -- the aggregate backtest runs MANY
+// overlapping windows for the same ticker (each 21 trading days apart,
+// often spanning 200+ days), and _findFloorClearingCycle (build 479) can
+// call this for several candidate days per cycle on top of that. Measured
+// on a realistic multi-window run: ~63% of calls repeat an asOfIdx already
+// computed for that ticker. _termStructureSlopeCache, a WeakMap keyed on
+// the hist2y object itself, avoids recomputing those -- each ticker's own
+// hist2y is a distinct object (fetched once per ticker and reused across
+// all of that ticker's windows, see _computeWheelBacktest/Aggregate), so
+// this naturally scopes per ticker with nothing to clear between runs and
+// nothing to leak (WeakMap entries drop once hist2y itself is no longer
+// referenced elsewhere).
+const _termStructureSlopeCache=new WeakMap();
 function _estimateTermStructureSlope(hist2y,asOfIdx){
+  let cache=_termStructureSlopeCache.get(hist2y);
+  if(!cache)_termStructureSlopeCache.set(hist2y,cache=new Map());
+  const key=asOfIdx==null?-1:asOfIdx; // asOfIdx==null is its own distinct, valid cache key (means "use the full series")
+  if(cache.has(key))return cache.get(key);
   const closes=hist2y.closes;
   const n=asOfIdx!=null?Math.min(asOfIdx+1,closes.length):closes.length;
   const ratios=[];
@@ -475,10 +492,16 @@ function _estimateTermStructureSlope(hist2y,asOfIdx){
     const vol63=_realizedVolAsOf(closes,refIdx+63,63); // realized vol over the 63 trading days after refIdx
     if(vol21!=null&&vol21>0&&vol63!=null&&vol63>0)ratios.push(vol63/vol21);
   }
-  if(!ratios.length)return 1.0;
-  const avgRatio=ratios.reduce((s,v)=>s+v,0)/ratios.length;
-  const CLAMP_MIN=0.7,CLAMP_MAX=1.4;
-  return Math.max(CLAMP_MIN,Math.min(CLAMP_MAX,avgRatio));
+  let result;
+  if(!ratios.length){
+    result=1.0;
+  }else{
+    const avgRatio=ratios.reduce((s,v)=>s+v,0)/ratios.length;
+    const CLAMP_MIN=0.7,CLAMP_MAX=1.4;
+    result=Math.max(CLAMP_MIN,Math.min(CLAMP_MAX,avgRatio));
+  }
+  cache.set(key,result);
+  return result;
 }
 
 // Orders candidate DTEs (1..maxMonthsOut) by closeness to the preferred

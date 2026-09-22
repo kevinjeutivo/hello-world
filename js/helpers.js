@@ -3,6 +3,27 @@
 // Globals used: tzPref, S, watchlist, WORKER_URL, vixThreshold
 // Dependencies: storage.js (S)
 
+// Escapes text pulled from a remote/cached source (news headlines, summaries,
+// sources) before it's interpolated into an HTML template string. Every news
+// item comes from an external API response that gets cached locally and
+// replayed on every later view -- without this, a crafted or corrupted
+// headline becomes stored, repeatedly-executed HTML. Covers the five
+// characters that matter inside HTML text/attribute context; String(x) so a
+// non-string (null/number) never throws.
+function _escHtml(s){
+  return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+// A remote URL used as an href -- only http:/https: pass through (escaped);
+// anything else (javascript:, data:, a malformed string) is rejected so a
+// crafted news item can't turn a link into script execution. Returns null on
+// reject; callers render plain (non-linked) text in that case.
+function _safeHref(u){
+  try{
+    const p=new URL(String(u));
+    return(p.protocol==='http:'||p.protocol==='https:')?_escHtml(p.href):null;
+  }catch{return null;}
+}
+
 // Shared by _computeRSIBacktestForTicker and _computeRSIBacktestAggregate --
 // previously defined identically (as a closure over a local `closes`) in
 // both places. Takes closes explicitly so both call sites can share it.
@@ -1248,7 +1269,7 @@ function newsSentiment(h){const l=h.toLowerCase();if(POS_WORDS.some(w=>l.include
 
 function sentDot(s){return s.dot==='pos'?'&#x1F7E2;':s.dot==='neg'?'&#x1F534;':'&#x26AA;';}
 
-function renderNewsItems(newsArr,maxItems=5){if(!newsArr||!newsArr.length)return'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:8px 0">No recent news available</div>';const items=newsArr.slice(0,maxItems);const pos=items.filter(n=>newsSentiment(n.headline).dot==='pos').length;const neg=items.filter(n=>newsSentiment(n.headline).dot==='neg').length;return`<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">${items.length} articles -- ${pos} positive, ${neg} negative</div>`+items.map(n=>{const s=newsSentiment(n.headline);return`<div class="news-item"><div class="news-headline"><span style="${s.css}">${sentDot(s)}</span> <a href="${n.url}" target="_blank" rel="noopener">${n.headline}</a></div><div class="news-meta">${n.source} -- ${relTime(n.datetime)}</div>${n.summary?`<div class="news-summary">${n.summary.slice(0,120)}...</div>`:''}</div>`;}).join('');}
+function renderNewsItems(newsArr,maxItems=5){if(!newsArr||!newsArr.length)return'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:8px 0">No recent news available</div>';const items=newsArr.slice(0,maxItems);const pos=items.filter(n=>newsSentiment(n.headline).dot==='pos').length;const neg=items.filter(n=>newsSentiment(n.headline).dot==='neg').length;return`<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">${items.length} articles -- ${pos} positive, ${neg} negative</div>`+items.map(n=>{const s=newsSentiment(n.headline);const _href=_safeHref(n.url);const _headline=_escHtml(n.headline);return`<div class="news-item"><div class="news-headline"><span style="${s.css}">${sentDot(s)}</span> ${_href?`<a href="${_href}" target="_blank" rel="noopener">${_headline}</a>`:_headline}</div><div class="news-meta">${_escHtml(n.source)} -- ${relTime(n.datetime)}</div>${n.summary?`<div class="news-summary">${_escHtml(n.summary.slice(0,120))}...</div>`:''}</div>`;}).join('');}
 
 // ── Debug log (rolling 20 entries, displayed in Settings) ─────────────────────
 window._dbgLog = [];

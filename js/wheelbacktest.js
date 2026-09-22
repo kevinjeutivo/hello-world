@@ -702,12 +702,28 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
   // eventual final average) that wasn't actually known yet at that point
   // in time. Same "nothing sees its own future" principle as the
   // term-structure fix, just showing up in a display context here. An
-  // in-progress (not-yet-assigned) shares regime is folded into a
-  // throwaway "as if closed right now" copy for this specific
-  // calculation, without touching the real segsSoFar array used for the
-  // next cycle's own accounting.
+  // in-progress (not-yet-assigned) shares regime's running total is used
+  // "as if closed right now" for this specific calculation, without folding
+  // it into the base totals used for the next cycle's own accounting (see
+  // _baseDD/_curDD below).
   let runningPremium=0,runningShareGain=0,runningInterest=0,runningDividends=0;
-  const segsSoFar=[];
+  // Incremental replacement for the old segsSoFar array + full-rescan
+  // _timeWeightedCapitalBase([...segsSoFar,seg],closes) call on EVERY
+  // trading day: that pattern re-summed the CURRENT regime's entire share
+  // price history from its own start on every single day, making a long
+  // share-holding stretch (see multiUnassignedCallHold in the test corpus)
+  // quadratic in its own length. _baseDD/_baseD are the running dollar-days/
+  // days contributed by every regime that has ALREADY closed (what used to
+  // live in segsSoFar); _curDD/_curD are the CURRENTLY OPEN regime's own
+  // running total, extended by one day at a time and folded into the base
+  // totals only once that regime actually closes (mirroring exactly when
+  // the old code called segsSoFar.push). The capital base for "everything up
+  // to and including today" is then (_baseDD+_curDD)/(_baseD+_curD) -- O(1)
+  // per day instead of O(regime length). A day with a null close still
+  // counts toward _curD (it still occupies a day-slot, per
+  // _timeWeightedCapitalBase's own days=endIdx-startIdx+1 semantics) but
+  // contributes 0 to _curDD, exactly matching the old per-call rescan.
+  let _baseDD=0,_baseD=0,_curDD=0,_curD=0;
   let rsIdx=startIdx,curMode='put',replayCostBasis=null;
 
   // ── Daily mark-to-model drawdown ────────────────────────────────────────
@@ -778,18 +794,33 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
       const holdStartMs=(curMode==='call'&&replayCostBasis!=null&&hist2y.timestamps?.[rsIdx]!=null)?_rawMs(hist2y.timestamps[rsIdx]):null;
       for(let i=lastCoveredIdx+1;i<=t.exitIdx;i++){
         const px=closes[i];
-        if(px==null||hist2y.timestamps?.[i]==null)continue;
+        // Extend the currently-open regime by exactly this one day -- O(1),
+        // replacing the old full re-sum of the whole regime on every day.
+        // This must happen for EVERY day in range, independent of whether a
+        // point can actually be emitted below: _timeWeightedCapitalBase's
+        // own day-count (endIdx-startIdx+1) counts every index in a
+        // segment's range unconditionally, and a 'cash' day's dollar-days
+        // don't depend on price at all -- only a 'shares' day's dollar-days
+        // needs a non-null price to contribute (matching that function's
+        // `if(px!=null)totalDollarDays+=px`). Getting this wrong silently
+        // undercounts every later day's denominator whenever a close is
+        // null anywhere earlier in the same regime.
+        _curD+=1;
+        if(curMode==='call'&&replayCostBasis!=null){
+          if(px!=null)_curDD+=px;
+        }else{
+          _curDD+=cashAmt;
+        }
+        if(px==null||hist2y.timestamps?.[i]==null)continue; // can't mark this specific day without a price -- no point emitted, but the day-count above still stands
         const dNowMs=_rawMs(hist2y.timestamps[i]);
         if(curMode==='put')intr+=_dayInterest(i,cashAmt); // interest only accrues while holding cash (call mode: none)
-        let eq=runningPremium+runningShareGain+runningDividends+intr,seg;
+        let eq=runningPremium+runningShareGain+runningDividends+intr;
         if(curMode==='call'&&replayCostBasis!=null){
           eq+=(px-replayCostBasis)+(holdStartMs!=null?_divsBetweenMs(holdStartMs,dNowMs):0);
-          seg={startIdx:rsIdx,endIdx:i,type:'shares'};
-        }else{
-          seg={startIdx:rsIdx,endIdx:i,type:'cash',capital:cashAmt};
         }
         if(i>=t.entryIdx)eq+=t.premium-_optValueAt(t,i,dNowMs,expMs);
-        const cap=_timeWeightedCapitalBase([...segsSoFar,seg],closes);
+        const _capD=_baseD+_curD;
+        const cap=_capD>0?(_baseDD+_curDD)/_capD:null;
         const pct=cap>0?eq/cap*100:null;
         if(i<t.exitIdx)_ddPoint(i,pct);
         else if(dailyCurve&&pct!=null&&isFinite(pct))dailyCurve.push({idx:i,pct,exitFormula:true}); // tie-out only, never feeds the drawdown
@@ -800,7 +831,6 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     let capSoFar;
     if(curMode==='put'){
       const cashAmt=t.strike; // per-share -- always this cycle's own strike, mirrors the main loop above
-      const thisSeg={startIdx:rsIdx,endIdx:t.exitIdx,type:'cash',capital:cashAmt};
       for(let i=rsIdx;i<=t.exitIdx;i++){
         const dateMs=hist2y.timestamps?.[i]!=null?hist2y.timestamps[i]*1000:null;
         if(dateMs==null)continue;
@@ -811,22 +841,30 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
         const daysWeight=nextDateMs!=null?Math.max(1,Math.round((nextDateMs-dateMs)/86400000)):1;
         runningInterest+=cashAmt*rate/365*daysWeight;
       }
-      capSoFar=_timeWeightedCapitalBase([...segsSoFar,thisSeg],closes);
-      segsSoFar.push(thisSeg);
+      // A put cycle's cash regime ALWAYS closes exactly at its own exit
+      // (never carries into the next cycle) -- _curDD/_curD were already
+      // extended through t.exitIdx by the per-day loop above, so they now
+      // hold exactly this closed segment's own totals; fold them into the
+      // base and reset for whatever regime starts next.
+      capSoFar=(_baseD+_curD)>0?(_baseDD+_curDD)/(_baseD+_curD):null;
+      _baseDD+=_curDD;_baseD+=_curD;_curDD=0;_curD=0;
       rsIdx=t.exitIdx+1;
       if(t.assigned){replayCostBasis=t.strike;curMode='call';}
     }else{ // curMode==='call'
-      const thisSeg={startIdx:rsIdx,endIdx:t.exitIdx,type:'shares'};
-      capSoFar=_timeWeightedCapitalBase([...segsSoFar,thisSeg],closes);
+      // Same identity as above: _curDD/_curD already hold this shares
+      // regime's totals through t.exitIdx (whether it started this cycle or
+      // several unassigned-call cycles ago).
+      capSoFar=(_baseD+_curD)>0?(_baseDD+_curDD)/(_baseD+_curD):null;
       if(t.assigned){
-        segsSoFar.push(thisSeg);
+        _baseDD+=_curDD;_baseD+=_curD;_curDD=0;_curD=0;
         runningDividends+=_sharesDividendsFor(rsIdx,t.exitIdx);
         replayCostBasis=null;
         rsIdx=t.exitIdx+1;
         curMode='put';
       }
-      // else: stays open -- segsSoFar NOT pushed, rsIdx unchanged, so the
-      // NEXT cycle's temporary "as if closed now" copy still starts from
+      // else: stays open -- base totals NOT folded, rsIdx unchanged, _curDD/
+      // _curD simply keep accumulating through the next cycle's per-day
+      // loop, so the NEXT cycle's "as if closed now" figure still reflects
       // the true beginning of this still-open holding stretch.
     }
     // Unrealized mark, recomputed FRESH at every row where a shares regime

@@ -169,9 +169,14 @@ function _computeFedMeetingProbabilities(fedFutures,effrRows){
       return dd.getFullYear()===y&&dd.getMonth()===m;
     });
     if(!meetingDateStr){
-      // No meeting this month -- if we don't have a baseline rate yet,
-      // this month's implied rate IS the baseline (nothing moves it).
-      if(currentRate==null)currentRate=c.impliedRate;
+      // No meeting this month -- its implied rate becomes the new
+      // baseline, always (not just when we don't have one yet). Every
+      // meeting-free month is a fresh, independently-priced read of the
+      // rate at that point -- letting it re-anchor here, rather than only
+      // ever using the FIRST such month, stops small pricing noise from
+      // one contract silently compounding forward through the day-
+      // weighted chain across every meeting after it.
+      currentRate=c.impliedRate;
       continue;
     }
     if(currentRate==null){
@@ -252,13 +257,46 @@ function _computeFedMeetingProbabilities(fedFutures,effrRows){
       }
       continue;
     }
-    let pCut=0,pHike=0;
-    if(impliedMove<0)pCut=Math.min(Math.abs(impliedMove)/STEP,1);
-    else if(impliedMove>0)pHike=Math.min(impliedMove/STEP,1);
-    const pHold=1-pCut-pHike;
+    // Generalized outcome split: rather than clamping at a single 25bp
+    // step (the old model read anything >=25bp as "100% cut25"), express
+    // the implied move as a whole number of 25bp steps plus a leftover
+    // fraction -- that fraction IS the probability split between the two
+    // adjacent outcomes it's priced between. A 0.9-step move (<25bp)
+    // splits between hold and a single 25bp step, reproducing the OLD
+    // model exactly. A 1.48-step move (~37bp) splits between a 25bp move
+    // and a 50bp move instead of capping at 100% either way. No special-
+    // casing by magnitude -- this generalizes to a 75bp+ move the same way.
+    const stepsFloat=impliedMove/STEP;
+    const absSteps=Math.abs(stepsFloat);
+    const wholeSteps=Math.floor(absSteps);
+    const frac=absSteps-wholeSteps; // probability mass on the LARGER of the two adjacent outcomes
+    const dirSign=impliedMove<0?-1:1; // only matters when wholeSteps>0; a true 0bp move is direction-less anyway
+    const smallerMoveBp=wholeSteps===0?0:wholeSteps*25*dirSign; // avoid a -0 hold entry on the cut side
+    const largerMoveBp=(wholeSteps+1)*25*dirSign;
+    // Complement, not independently rounded, so the two always sum to
+    // exactly 100 regardless of rounding direction (see "Probability mass
+    // preserved through successive meetings" in the test suite).
+    const smallerProb=Math.round((1-frac)*100);
+    const largerProb=100-smallerProb;
+    const outcomes=[{moveBp:smallerMoveBp,probability:smallerProb}];
+    if(largerProb>0)outcomes.push({moveBp:largerMoveBp,probability:largerProb});
+    let pHold=0,pAnyCut=0,pAnyHike=0;
+    outcomes.forEach(o=>{
+      if(o.moveBp===0)pHold+=o.probability;
+      else if(o.moveBp<0)pAnyCut+=o.probability;
+      else pAnyHike+=o.probability;
+    });
     results.push({
       month:c.month,meetingDate:meetingDateStr,
-      pHold:Math.round(pHold*100),pCut25:Math.round(pCut*100),pHike25:Math.round(pHike*100),
+      outcomes,pHold,pAnyCut,pAnyHike,
+      // Kept as aliases (not renamed) so js/options.js's existing
+      // m.pCut25/m.pHike25 reads keep working unchanged -- now correctly
+      // reflecting the probability of ANY cut/hike (which, for an
+      // ordinary <25bp move, is numerically identical to the old "25bp
+      // move" probability; it only differs -- for the better, since a
+      // 50bp-priced meeting should still trip the options-tab warning --
+      // once a larger move is genuinely being priced in).
+      pCut25:pAnyCut,pHike25:pAnyHike,
     });
     // Chain forward for SUBSEQUENT meetings within this same calculation run
     // only -- deliberately NOT persisted to history. A forecast is exactly
@@ -359,10 +397,11 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
           const srcLabel=p.source==='nyfed-official'?'NY Fed official':'futures-implied, unconfirmed';
           return '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);padding:3px 0">'+dateLabel+' meeting: <span style="color:var(--accent)">'+outcomeLabel+'</span> ('+srcLabel+')</div>';
         }
-        const parts=[];
-        if(p.pHold>0)parts.push(p.pHold+'% hold');
-        if(p.pCut25>0)parts.push(p.pCut25+'% cut 25bp');
-        if(p.pHike25>0)parts.push(p.pHike25+'% hike 25bp');
+        const parts=(p.outcomes||[]).map(o=>{
+          if(o.probability<=0)return null; // e.g. a clean, exact-fraction move with nothing on the larger side
+          if(o.moveBp===0)return o.probability+'% hold';
+          return o.probability+'% '+(o.moveBp<0?'cut':'hike')+' '+Math.abs(o.moveBp)+'bp';
+        }).filter(Boolean);
         return '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);padding:3px 0">'+dateLabel+' meeting: '+parts.join(', ')+'</div>';
       }).join('');
       return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Fed Funds Futures (CME Implied Rates)</div>'
@@ -373,7 +412,7 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
         +'<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:8px">'+summary+' ('+fedFutures.length+' months tracked, '+Math.abs(totalBps)+'bp total)</div>'
         +(fedFuturesFailedMonths&&fedFuturesFailedMonths.length?'<div style="font-family:var(--mono);font-size:9px;color:var(--warn);margin-top:4px">Data unavailable for: '+fedFuturesFailedMonths.join(', ')+' -- that contract didn\'t return a usable quote this fetch (and no prior successful value exists to fall back on), so those meetings (if any fall in these months) are missing below, not intentionally excluded.</div>':'')
         +(fedFuturesStaleMonths&&fedFuturesStaleMonths.length?'<div style="font-family:var(--mono);font-size:9px;color:#64b5f6;margin-top:4px">Using last known data for: '+fedFuturesStaleMonths.join(', ')+' -- that contract didn\'t return a usable quote this fetch, so the most recent successful value is shown instead of nothing.</div>':'')
-        +(probRows?'<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--surface3)"><div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:2px">Meeting-by-meeting odds (simplified -- assumes at most one 25bp step per meeting):</div>'+probRows+'</div>':'')
+        +(probRows?'<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--surface3)"><div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:2px">Meeting-by-meeting odds:</div>'+probRows+'</div>':'')
         +'</div>';
     })()}
     <div class="card">

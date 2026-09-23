@@ -15,8 +15,20 @@ function _getQualifyingFomcMeetings(){
   const cf=S.get('fed_futures');
   const fedFutures=cf?.data||null;
   if(!fedFutures||typeof _computeFedMeetingProbabilities!=='function')return[];
+  // Read the same cached EFFR rows the Market tab itself uses. Without
+  // this, a past meeting the Market tab already resolved via the NY Fed's
+  // official data would get silently re-resolved here via the weaker
+  // futures-implied method and could overwrite that official history
+  // entry -- exactly the kind of contamination the NY-Fed-source fix was
+  // meant to eliminate, just reintroduced through this second call site.
+  // (_computeFedMeetingProbabilities also now refuses that downgrade on
+  // its own regardless of what a caller passes -- see market.js -- but
+  // passing the real data here means this call gets the best answer
+  // rather than just failing safe.)
+  const ce=S.get('fomc_effr_cache');
+  const effrRows=ce?.rows||[];
   let meetings=[];
-  try{meetings=_computeFedMeetingProbabilities(fedFutures)||[];}catch{return[];}
+  try{meetings=_computeFedMeetingProbabilities(fedFutures,effrRows)||[];}catch{return[];}
   return meetings.map(m=>{
     const direction=m.pCut25>m.pHold?'cut':m.pHike25>m.pHold?'hike':null;
     if(!direction)return null;

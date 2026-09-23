@@ -3490,9 +3490,11 @@ async function refreshSingleTicker(){
     //   timeout)? Nothing about this run's data can be trusted at all, so
     //   falling back to "is there any usable (possibly older) cache" is the
     //   right safety net -- same as build 480's original behavior.
-    // _tickerWriteFailed: did THIS RUN's own ticker-level metadata write fail
-    //   (fetch succeeded, but storage rejected it)? Same fallback applies --
-    //   nothing fresh was persisted either way.
+    // _tickerWriteFailed: did THIS RUN fail to end up with usable ticker-
+    //   level metadata -- either the write itself failed (fetch succeeded,
+    //   storage rejected it), or the only thing written was a synthetic
+    //   placeholder (a successful write, but not usable data)? Same
+    //   fallback applies either way -- nothing usable came from this run.
     // _anyExpWriteFailed: did a per-expiration write fail even though the
     //   ticker-level write succeeded? Here the fallback check would almost
     //   always find something (we just wrote it), which would silently mask
@@ -3507,7 +3509,12 @@ async function refreshSingleTicker(){
         if(_rtv.valid){
           if(!S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),tsEpoch:Date.now()}))_tickerWriteFailed=true;
         }else if(!S.get('options_'+t)){
-          if(!S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),tsEpoch:Date.now(),synthetic:true}))_tickerWriteFailed=true;
+          S.set('options_'+t,{data:slimOptionsData(opts),ts:nowPT(),tsEpoch:Date.now(),synthetic:true});
+          // Regardless of whether that write itself succeeded, a synthetic
+          // placeholder is not usable data -- four builds in a row (481, 485,
+          // 488, this one) each fixed a different way a plain success/fail
+          // boolean let this specific case slip through as "not a failure".
+          _tickerWriteFailed=true;
         }
         // else preserve existing good cache
         // Only fetch per-expiry chains if main chain fetch was valid AND we're in live window
@@ -3547,7 +3554,11 @@ async function refreshSingleTicker(){
             }else if(!_rtInWindow&&_hasGoodSameDayCache(_expKey)){
               console.log(t+' '+pair.date+': outside live window, fetch INVALID ('+_expv.reason+') -- preserving same-day exp cache');
             }else if(!S.get(_expKey)){
-              {const _s=slimExpData(data);if(_s){if(!S.set(_expKey,{..._s,ts:nowPT(),tsEpoch:Date.now(),synthetic:true}))_anyExpWriteFailed=true;}}
+              {const _s=slimExpData(data);if(_s)S.set(_expKey,{..._s,ts:nowPT(),tsEpoch:Date.now(),synthetic:true});}
+              // Same reasoning as the ticker-level branch above -- writing a
+              // synthetic placeholder isn't usable data even when the write
+              // itself succeeds.
+              _anyExpWriteFailed=true;
             }else{
               // Same "is what's being preserved actually real" check as the
               // fetch-failure branch above -- this used to preserve silently

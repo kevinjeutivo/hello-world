@@ -118,7 +118,128 @@ test('shipped code now produces a day-count-sensitive result matching the NEW (2
 });
 
 // ============================================================================
-section('NY Fed official resolution of past meetings');
+section('Adjacent 25bp outcome split (Phase 2)');
+
+test('a move under one 25bp step still reduces to exactly the OLD hold/cut25 model (backward compatibility)', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    // 0.6 of a step (~15bp) -- OLD model: pCut=60%, pHold=40%, pHike=0%.
+    const currentRate=4.00, targetPost=4.00-(0.6*0.25), daysInMonth=30;
+    const impliedRate=+(( (currentRate*21) + (targetPost*9) ) / daysInMonth).toFixed(6);
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Aug 2026',currentRate),contract('Sep 2026',impliedRate)],[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    // Values extracted from a vm-context array carry that context's own
+    // Array constructor (a cross-realm quirk of Node's vm module, not
+    // anything about the app) -- spread into a local-realm array first so
+    // deepStrictEqual compares values, not foreign array identity.
+    assert.deepStrictEqual([...sep.outcomes.map(o=>o.moveBp)].sort((a,b)=>a-b),[-25,0]);
+    const hold=sep.outcomes.find(o=>o.moveBp===0), cut=sep.outcomes.find(o=>o.moveBp===-25);
+    assert.strictEqual(hold.probability,40);
+    assert.strictEqual(cut.probability,60);
+    assert.strictEqual(sep.pHold,40);
+    assert.strictEqual(sep.pCut25,60,'alias field must still exist for js/options.js');
+  });
+});
+
+test('a ~37bp move (1.48 steps) splits between adjacent 25bp and 50bp outcomes, summing to exactly 100', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    const currentRate=4.00, targetPost=4.00-(1.48*0.25), daysInMonth=30; // -0.37
+    const impliedRate=+(( (currentRate*21) + (targetPost*9) ) / daysInMonth).toFixed(6);
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Aug 2026',currentRate),contract('Sep 2026',impliedRate)],[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    const c25=sep.outcomes.find(o=>o.moveBp===-25), c50=sep.outcomes.find(o=>o.moveBp===-50);
+    assert(c25 && c50,'expected both a -25bp and a -50bp outcome, not a single capped one');
+    assert.strictEqual(c25.probability,52);
+    assert.strictEqual(c50.probability,48);
+    assert.strictEqual(c25.probability+c50.probability,100);
+    assert.strictEqual(sep.pHold,0,'no hold probability once the market is pricing at least one full step');
+    // The old model would have shown this as a flat 100% cut25 -- confirm
+    // the aggregate alias reflects "any cut" (100%), while outcomes[]
+    // now carries the granularity the old pCut25 alone could not.
+    assert.strictEqual(sep.pCut25,100);
+    assert.strictEqual(sep.pAnyCut,100);
+  });
+});
+
+test('a symmetric ~37bp HIKE move splits the same way in the positive direction', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    const currentRate=4.00, targetPost=4.00+(1.48*0.25), daysInMonth=30;
+    const impliedRate=+(( (currentRate*21) + (targetPost*9) ) / daysInMonth).toFixed(6);
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Aug 2026',currentRate),contract('Sep 2026',impliedRate)],[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    const h25=sep.outcomes.find(o=>o.moveBp===25), h50=sep.outcomes.find(o=>o.moveBp===50);
+    assert(h25 && h50);
+    assert.strictEqual(h25.probability,52);
+    assert.strictEqual(h50.probability,48);
+    assert.strictEqual(sep.pHike25,100);
+    assert.strictEqual(sep.pAnyHike,100);
+  });
+});
+
+test('a clean, exact-fraction move produces a single outcome, not a spurious zero-probability entry', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    const currentRate=4.00, targetPost=3.75, daysInMonth=30; // exactly 1 step, frac=0
+    const impliedRate=+(( (currentRate*21) + (targetPost*9) ) / daysInMonth).toFixed(6);
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Aug 2026',currentRate),contract('Sep 2026',impliedRate)],[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    assert.strictEqual(sep.outcomes.length,1,'no 0%-probability entry should be included');
+    assert.strictEqual(sep.outcomes[0].moveBp,-25);
+    assert.strictEqual(sep.outcomes[0].probability,100);
+  });
+});
+
+test('probability mass is preserved (sums to exactly 100) across a run of several meetings with different-sized moves', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-07-29','2026-09-21'])`);
+  withFixedNow(ctx,'2026-07-01T12:00:00Z',()=>{
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(
+      [contract('Jun 2026',4.50),contract('Jul 2026',4.30),contract('Aug 2026',4.05),contract('Sep 2026',3.80)],[]
+    );
+    results.filter(r=>r.outcomes).forEach(r=>{
+      const total=r.outcomes.reduce((s,o)=>s+o.probability,0);
+      assert.strictEqual(total,100,'meeting '+r.meetingDate+' outcomes must sum to exactly 100');
+    });
+  });
+});
+
+// ============================================================================
+section('Baseline anchoring fix (Phase 2)');
+
+test('EVERY meeting-free month re-anchors the baseline, not just the first one', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    // Two meeting-free months (Jul, Aug) before the Sep meeting. Jul is
+    // stale/wrong-looking on purpose (4.50) -- the fix must use Aug's
+    // fresher 4.20 as the baseline, not Jul's.
+    const daysInMonth=30;
+    const targetPost=3.95; // a clean -25bp move FROM THE CORRECT (Aug=4.20) baseline
+    const impliedRateSep=+(( (4.20*21) + (targetPost*9) ) / daysInMonth).toFixed(6);
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(
+      [contract('Jul 2026',4.50),contract('Aug 2026',4.20),contract('Sep 2026',impliedRateSep)],[]
+    );
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    // Negative control: confirm that if the OLD (first-month-only)
+    // anchoring were still in effect -- baseline stuck at Jul's 4.50
+    // instead of re-anchoring to Aug's 4.20 -- this SAME impliedRate
+    // would produce a wildly different (and clearly wrong) result, so a
+    // passing assertion below can only mean the new anchoring is what ran.
+    const oldPostMeetingRate=(impliedRateSep*daysInMonth - 4.50*21)/9;
+    assert(Math.abs(oldPostMeetingRate-targetPost)>0.3,'old-anchoring result must differ sharply from the correct target, or this test cannot discriminate');
+    assert.strictEqual(sep.outcomes.length,1);
+    assert.strictEqual(sep.outcomes[0].moveBp,-25);
+    assert.strictEqual(sep.outcomes[0].probability,100);
+  });
+});
+
+
 
 test('a past meeting brackets cleanly (before/after both present, bounds agree) -> resolved via nyfed-official', ()=>{
   const ctx=buildContext();

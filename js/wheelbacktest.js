@@ -239,12 +239,27 @@ function _wheelBacktestDateStr(d,includeYear){
   return parsed.toLocaleDateString('en-US',includeYear?{month:'short',day:'numeric',year:'numeric'}:{month:'short',day:'numeric'});
 }
 
+// Comparable calendar-date key (LOCAL year/month/day, ignoring time-of-day
+// entirely) -- used instead of comparing raw Date instants below. A target
+// date built via _thirdFriday()/new Date(year,month,day) lands at LOCAL
+// MIDNIGHT, while a real Yahoo candle timestamp lands hours later (roughly
+// market open) -- comparing those as raw instants means a Friday candle's
+// timestamp is always AFTER that same Friday's midnight-constructed target,
+// so "at or before Friday" silently rolled back and resolved to Thursday's
+// candle every single time, for every monthly expiration. Comparing by
+// calendar date alone makes the specific time-of-day each side happens to
+// carry irrelevant, which is the actual question being asked ("which
+// trading day is this") rather than a coincidental byproduct of it.
+function _calendarDateKey(d){
+  return d.getFullYear()*10000+d.getMonth()*100+d.getDate();
+}
 function _tradingDayIndexAtOrBefore(timestamps,targetDate){
+  const targetKey=_calendarDateKey(targetDate);
   let lo=0,hi=timestamps.length-1,result=null;
   while(lo<=hi){
     const mid=(lo+hi)>>1;
-    const midDate=_parseHist2yDate(timestamps[mid]);
-    if(midDate<=targetDate){result=mid;lo=mid+1;}else{hi=mid-1;}
+    const midKey=_calendarDateKey(_parseHist2yDate(timestamps[mid]));
+    if(midKey<=targetKey){result=mid;lo=mid+1;}else{hi=mid-1;}
   }
   return result;
 }
@@ -253,11 +268,12 @@ function _tradingDayIndexAtOrBefore(timestamps,targetDate){
 // date. Used below to find "the trading day you'd actually re-enter on,
 // right after a real expiration."
 function _tradingDayIndexAtOrAfter(timestamps,targetDate){
+  const targetKey=_calendarDateKey(targetDate);
   let lo=0,hi=timestamps.length-1,result=null;
   while(lo<=hi){
     const mid=(lo+hi)>>1;
-    const midDate=_parseHist2yDate(timestamps[mid]);
-    if(midDate>=targetDate){result=mid;hi=mid-1;}else{lo=mid+1;}
+    const midKey=_calendarDateKey(_parseHist2yDate(timestamps[mid]));
+    if(midKey>=targetKey){result=mid;hi=mid-1;}else{lo=mid+1;}
   }
   return result;
 }

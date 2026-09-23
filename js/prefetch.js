@@ -199,7 +199,19 @@ async function prefetchAll(){
         const _pHasSameDay=_hasGoodSameDayCache('options_'+t);
         const _pv=_validateOptionsData(_opts);
         if(_pv.valid){
-          _pMainStatus=S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),tsEpoch:Date.now()})?'fresh':'unavailable';
+          if(S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),tsEpoch:Date.now()})){
+            _pMainStatus='fresh';
+          }else{
+            // The write itself failed (e.g. storage quota) -- but fresh,
+            // valid data existing in memory doesn't mean nothing usable
+            // remains: if a good non-synthetic cache from an earlier run is
+            // still sitting there untouched (a failed write never overwrites
+            // it), the ticker is still 'preserved', not 'unavailable'. You
+            // regularly run close to the storage quota, so this isn't
+            // theoretical.
+            const _ex=S.get('options_'+t);
+            _pMainStatus=(_ex&&!_ex.synthetic)?'preserved':'unavailable';
+          }
         }else if(!_pInWindow&&_pHasSameDay){
           console.log(t+': outside live window, fetch INVALID ('+_pv.reason+') -- preserving same-day options cache');
           _pMainStatus='preserved'; // _hasGoodSameDayCache already excludes synthetic entries

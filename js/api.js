@@ -353,7 +353,7 @@ async function fetchFedFundsFutures(){
   }catch{return null;}
 }
 
-async function fetchEffrHistory(days=45){
+async function fetchEffrHistory(startDate){
   // New York Fed Markets Data API -- Effective Federal Funds Rate (EFFR)
   // plus the official upper/lower target range, for each business day in
   // the window. Used to authoritatively classify PAST FOMC meetings (see
@@ -362,14 +362,18 @@ async function fetchEffrHistory(days=45){
   // Worker purely for a consistent fetch/caching/error-handling pattern --
   // the Worker's effr branch skips the Yahoo cookie/crumb dance entirely,
   // it isn't needed here.
-  // A ~45-day window comfortably brackets every meeting that can appear as
-  // "past" in the current view: fetchFedFundsFutures() only ever fetches
-  // the prior month plus 6 forward, so a meeting can only show up as past
-  // at all if it fell within roughly the last few weeks.
+  // startDate is a Date, normally computed by the caller (market.js's
+  // _earliestEffrStartNeeded) from the actual earliest month present in
+  // this fetch's fedFutures window -- a fixed lookback isn't reliably
+  // wide enough: near the end of a month, a meeting early in the PRIOR
+  // month can already be more than 45 days old while its contract is
+  // still sitting in the one-month-back futures window. Falls back to a
+  // flat 45-day lookback only if the caller doesn't supply one (kept as a
+  // safety default, not the normal path).
   if(offlineMode)return null;
   try{
     const end=new Date();
-    const start=addDays(end,-days);
+    const start=(startDate instanceof Date)?startDate:addDays(end,-45);
     const r=await fetch(`${WORKER_URL}/?type=effr&startDate=${fmtDate(start)}&endDate=${fmtDate(end)}&_t=${Date.now()}`);
     const d=await r.json();
     const rows=d?.refRates;

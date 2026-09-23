@@ -353,6 +353,42 @@ async function fetchFedFundsFutures(){
   }catch{return null;}
 }
 
+async function fetchEffrHistory(days=45){
+  // New York Fed Markets Data API -- Effective Federal Funds Rate (EFFR)
+  // plus the official upper/lower target range, for each business day in
+  // the window. Used to authoritatively classify PAST FOMC meetings (see
+  // _resolveMeetingFromEffr in market.js) instead of inferring the outcome
+  // from futures reprice. Public, no API key needed; routed through the
+  // Worker purely for a consistent fetch/caching/error-handling pattern --
+  // the Worker's effr branch skips the Yahoo cookie/crumb dance entirely,
+  // it isn't needed here.
+  // A ~45-day window comfortably brackets every meeting that can appear as
+  // "past" in the current view: fetchFedFundsFutures() only ever fetches
+  // the prior month plus 6 forward, so a meeting can only show up as past
+  // at all if it fell within roughly the last few weeks.
+  if(offlineMode)return null;
+  try{
+    const end=new Date();
+    const start=addDays(end,-days);
+    const r=await fetch(`${WORKER_URL}/?type=effr&startDate=${fmtDate(start)}&endDate=${fmtDate(end)}&_t=${Date.now()}`);
+    const d=await r.json();
+    const rows=d?.refRates;
+    if(!Array.isArray(rows))return null;
+    // Normalize + sort ascending by date -- the API's own ordering isn't
+    // documented/guaranteed, and _resolveMeetingFromEffr's nearest-
+    // before/after lookup in market.js depends on ascending order.
+    return rows
+      .map(x=>({
+        effectiveDate:x.effectiveDate,
+        percentRate:x.percentRate,
+        targetRateFrom:x.targetRateFrom,
+        targetRateTo:x.targetRateTo,
+      }))
+      .filter(x=>x.effectiveDate&&x.percentRate!=null&&x.targetRateFrom!=null&&x.targetRateTo!=null)
+      .sort((a,b)=>a.effectiveDate<b.effectiveDate?-1:(a.effectiveDate>b.effectiveDate?1:0));
+  }catch{return null;}
+}
+
 async function fetchTBills(){
   // Yahoo Finance Treasury yield index tickers via existing Worker history proxy:
   //   ^IRX = 13-week (3-month) T-bill yield index -- daily closing rate

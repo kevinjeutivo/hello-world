@@ -225,12 +225,35 @@ function corsJson(obj, status = 200) {
 // one search/effr route is reachable, and only with validated YYYY-MM-DD
 // dates, so this can't be turned into an open relay to an arbitrary NY Fed
 // (or any other) URL by a crafted query string.
+// Validates that a YYYY-MM-DD string is a REAL calendar date, not just
+// shaped like one. Deliberately not `!isNaN(Date.parse(str))` -- V8's
+// Date.parse is lenient about day overflow (2026-02-30 silently parses as
+// 2026-03-02 rather than being rejected), which would let an impossible
+// date slip through undetected and get forwarded to the NY Fed API as
+// something else entirely.
+function _isValidISODate(str) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
+  if (!m) return false;
+  const y = +m[1], mo = +m[2], d = +m[3];
+  if (mo < 1 || mo > 12) return false;
+  const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  return d >= 1 && d <= daysInMonth;
+}
+
 async function handleEffrProxy(url) {
   const startDate = url.searchParams.get('startDate');
   const endDate = url.searchParams.get('endDate');
-  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
-  if (!startDate || !endDate || !dateRe.test(startDate) || !dateRe.test(endDate)) {
-    return corsJson({ error: 'startDate and endDate (YYYY-MM-DD) are required' }, 400);
+  if (!startDate || !endDate || !_isValidISODate(startDate) || !_isValidISODate(endDate)) {
+    return corsJson({ error: 'startDate and endDate must be real calendar dates in YYYY-MM-DD format' }, 400);
+  }
+  const startMs = Date.parse(startDate + 'T00:00:00Z');
+  const endMs = Date.parse(endDate + 'T00:00:00Z');
+  if (startMs > endMs) {
+    return corsJson({ error: 'startDate must not be after endDate' }, 400);
+  }
+  const MAX_RANGE_DAYS = 120; // the client only ever needs a few months at most
+  if ((endMs - startMs) / 86400000 > MAX_RANGE_DAYS) {
+    return corsJson({ error: `date range too large (max ${MAX_RANGE_DAYS} days)` }, 400);
   }
   try {
     const targetUrl = `https://markets.newyorkfed.org/api/rates/unsecured/effr/search.json?startDate=${startDate}&endDate=${endDate}`;

@@ -688,6 +688,36 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
 
   if(!trades.length)return null;
   const endIdx=trades[trades.length-1].exitIdx;
+  // Terminal cash-interest correction. _accrueCashInterest's loop (above)
+  // weights each day by the calendar gap to the NEXT trading day in the
+  // full history, unbounded -- correct for every INTERNAL day, since cash
+  // genuinely continues being held through that gap while the simulation
+  // keeps going. But when the window's own LAST cycle is a put (cash), that
+  // same loop's final iteration (i===cyc.exitIdx===endIdx) also reached past
+  // the window's own reported end this way, accruing interest for however
+  // many calendar days sit between endIdx and whatever trading day happens
+  // to follow it in the full history -- real time the window doesn't claim
+  // to model (elapsedCalendarDaysApprox, below, stops exactly at endDate).
+  // The fix is retroactive rather than a change inside the loop itself,
+  // because whether a given cycle's own exitIdx will turn out to BE endIdx
+  // isn't knowable until the whole loop above has finished -- every other
+  // cycle's identical-looking extension across that same boundary is
+  // correct, since the simulation genuinely continues past it for them.
+  if(irxHist2y){
+    const _lastTrade=trades[trades.length-1];
+    if(_lastTrade.optionType==='put'){
+      const _lastDateMs=hist2y.timestamps?.[endIdx]!=null?hist2y.timestamps[endIdx]*1000:null;
+      const _nextDateMs=hist2y.timestamps?.[endIdx+1]!=null?hist2y.timestamps[endIdx+1]*1000:null;
+      if(_lastDateMs!=null&&_nextDateMs!=null){
+        const _rate=_irxRateAsOf(irxHist2y,_lastDateMs);
+        if(_rate!=null){
+          const _actualWeight=Math.max(1,Math.round((_nextDateMs-_lastDateMs)/86400000));
+          const _correctWeight=1; // the window's own last reported day, nothing past it
+          if(_actualWeight>_correctWeight)cashInterest-=_lastTrade.strike*_rate/365*(_actualWeight-_correctWeight);
+        }
+      }
+    }
+  }
   const startDateRaw=hist2y.timestamps?.[startIdx],endDateRaw=hist2y.timestamps?.[endIdx];
   if(startDateRaw==null||endDateRaw==null)return null;
   const startDate=_parseHist2yDate(startDateRaw);
@@ -778,7 +808,13 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     if(dateMs==null||!irxHist2y)return 0;
     const rate=_irxRateAsOf(irxHist2y,dateMs);
     if(rate==null)return 0;
-    const nextDateMs=hist2y.timestamps?.[i+1]!=null?hist2y.timestamps[i+1]*1000:null;
+    // Same terminal-boundary fix as the aggregate cashInterest correction
+    // above (see its comment): the window's own last day (i===endIdx) gets
+    // weight 1, not the calendar gap to whatever trading day happens to
+    // follow it in the full history -- that gap is real time the window
+    // doesn't claim to model. Every earlier day still correctly extends
+    // through its own gap, since the simulation genuinely continues there.
+    const nextDateMs=i<endIdx&&hist2y.timestamps?.[i+1]!=null?hist2y.timestamps[i+1]*1000:null;
     const daysWeight=nextDateMs!=null?Math.max(1,Math.round((nextDateMs-dateMs)/86400000)):1;
     return capital*rate/365*daysWeight;
   };

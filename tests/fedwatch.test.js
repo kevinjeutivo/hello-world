@@ -69,13 +69,62 @@ function contract(month,impliedRate,extra){
   return Object.assign({ticker:'ZQ_TEST',month,price:+(100-impliedRate).toFixed(3),impliedRate},extra||{});
 }
 
+// ── Harness for testing js/api.js's fetchEffrHistory in isolation, with a
+// mocked `fetch` (never hits the real network) ──────────────────────────
+function buildApiContext(fetchImpl){
+  const ctx=vm.createContext({
+    console,
+    fetch:fetchImpl,
+    WORKER_URL:'https://worker.example',
+    offlineMode:false,
+    FINNHUB_KEY:'',
+    window:{},
+  });
+  const src=p=>fs.readFileSync(path.join(ROOT,p),'utf8');
+  vm.runInContext(src('js/helpers.js'),ctx,{filename:'js/helpers.js'}); // addDays/fmtDate
+  vm.runInContext(src('js/api.js'),ctx,{filename:'js/api.js'});
+  return ctx;
+}
+
+// ── Harness for testing cloudflare-proxy/worker.js's EFFR route directly.
+// Strips the `export default { fetch(...) {...} };` ES-module wrapper
+// (worker.js is a Worker module, not a plain script) so the plain
+// function declarations after it -- corsJson, handleEffrProxy,
+// _isValidISODate -- can run in a vm context; those functions themselves
+// are untouched, real shipped code. The REAL Node Response constructor is
+// injected into the context (not left to a context-local one) so a
+// returned Response can be read normally from outside without hitting
+// the vm module's cross-realm-array gotcha documented further down. ──
+function buildWorkerContext(fetchImpl){
+  const raw=fs.readFileSync(path.join(ROOT,'cloudflare-proxy/worker.js'),'utf8');
+  const stripped=raw.replace(/^export default \{[\s\S]*?\n\};\n/m,'');
+  if(stripped===raw)throw new Error('failed to strip the export-default wrapper -- worker.js structure may have changed');
+  const ctx=vm.createContext({console,fetch:fetchImpl,Response});
+  vm.runInContext(stripped,ctx,{filename:'cloudflare-proxy/worker.js (export wrapper stripped for testing)'});
+  return ctx;
+}
+
+// Returns a local-calendar Y-M-D string (not UTC) -- matches how the app's
+// own date helpers (addDays/new Date(y,m,d)) operate, so assertions stay
+// correct regardless of the machine's timezone (unlike .toISOString(),
+// which would silently shift by a day in a non-UTC+0 timezone).
+function localYMD(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
 // ── Test scaffolding ──────────────────────────────────────────────────
 let pass=0,fail=0;
 function test(name,fn){
   try{ fn(); pass++; console.log('  ok  --',name); }
   catch(e){ fail++; console.log('FAIL  --',name); console.log('      '+(e && e.stack ? e.stack.split('\n').slice(0,3).join('\n      ') : e)); }
 }
-function section(name){ console.log('\n== '+name+' =='); }
+// Deferred async tests -- collected here, actually run (in order, awaited)
+// by the async tail at the very end of this file, after every synchronous
+// test above has already run to completion.
+const _asyncTests=[];
+function testAsync(name,fn){ _asyncTests.push({name,fn,section:_currentSection}); }
+let _currentSection='';
+function section(name){ _currentSection=name; console.log('\n== '+name+' =='); }
 
 // ============================================================================
 section('Day-count fix (meeting date belongs to the PRE-meeting bucket)');
@@ -195,7 +244,7 @@ test('a clean, exact-fraction move produces a single outcome, not a spurious zer
   });
 });
 
-test('probability mass is preserved (sums to exactly 100) across a run of several meetings with different-sized moves', ()=>{
+test('each individual meeting sums to exactly 100 across a run of several meetings (per-meeting normalization only -- this app deliberately has no cross-meeting recombining probability tree, see the Phase-3 scoping discussion)', ()=>{
   const ctx=buildContext();
   run(ctx,`S.set('fomc_meeting_dates_override',['2026-07-29','2026-09-21'])`);
   withFixedNow(ctx,'2026-07-01T12:00:00Z',()=>{
@@ -418,5 +467,295 @@ test('a meeting-free month still seeds currentRate directly, unaffected by the d
 });
 
 // ============================================================================
-console.log(`\n${pass} passed, ${fail} failed`);
-process.exit(fail?1:0);
+section('Regression: Market->Options must never downgrade official history (Must-fix 1)');
+
+test('a caller that omits effrRows (like js/options.js used to) reuses an existing nyfed-official entry instead of overwriting it with a futures-implied guess', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-08-27'])`);
+  withFixedNow(ctx,'2026-09-05T12:00:00Z',()=>{
+    const compute=run(ctx,`_computeFedMeetingProbabilities`);
+    // Step 1: simulate the Market tab -- a call WITH effrRows resolves the
+    // meeting authoritatively and writes it to history.
+    const effrRows=[
+      {effectiveDate:'2026-08-26',percentRate:4.32,targetRateFrom:4.25,targetRateTo:4.50},
+      {effectiveDate:'2026-08-28',percentRate:4.08,targetRateFrom:4.00,targetRateTo:4.25},
+    ];
+    compute([contract('Jul 2026',4.25),contract('Aug 2026',4.10)],effrRows);
+    let history=run(ctx,`S.get('fomc_meeting_history')`);
+    assert.strictEqual(history['2026-08-27'].source,'nyfed-official','sanity: Market-tab-style call should resolve officially first');
+
+    // Step 2: simulate js/options.js's OLD behavior -- calling with NO
+    // effrRows at all (a very different futures reading this time, to
+    // make sure a fallback silently succeeding would be obviously wrong
+    // if it happened).
+    const resultsFromOptionsLikeCall=compute([contract('Jul 2026',4.25),contract('Aug 2026',3.50)],[]);
+    const aug=resultsFromOptionsLikeCall.find(r=>r.meetingDate==='2026-08-27');
+    assert.strictEqual(aug.source,'nyfed-official','a caller without EFFR data must still get back the authoritative answer, not a futures-implied guess');
+    assert.strictEqual(aug.outcome,'cut25','must be the ORIGINAL official outcome, not something derived from the very different second-call futures data');
+
+    history=run(ctx,`S.get('fomc_meeting_history')`);
+    assert.strictEqual(history['2026-08-27'].source,'nyfed-official','the official history entry must NOT have been downgraded');
+  });
+});
+
+test('the actual js/options.js code path (via _getQualifyingFomcMeetings) does not downgrade a Market-tab-resolved meeting', ()=>{
+  const localStorage=makeLocalStorage();
+  const ctx=vm.createContext({console,localStorage,window:{},toast:()=>{}});
+  const src=p=>fs.readFileSync(path.join(ROOT,p),'utf8');
+  vm.runInContext(src('js/storage.js'),ctx,{filename:'js/storage.js'});
+  vm.runInContext(src('js/helpers.js'),ctx,{filename:'js/helpers.js'});
+  vm.runInContext(src('js/market.js'),ctx,{filename:'js/market.js'});
+  vm.runInContext(src('js/options.js'),ctx,{filename:'js/options.js'});
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-08-27'])`);
+  withFixedNow(ctx,'2026-09-05T12:00:00Z',()=>{
+    const effrRows=[
+      {effectiveDate:'2026-08-26',percentRate:4.32,targetRateFrom:4.25,targetRateTo:4.50},
+      {effectiveDate:'2026-08-28',percentRate:4.08,targetRateFrom:4.00,targetRateTo:4.25},
+    ];
+    // Market tab resolves and caches, exactly like loadMarketTab() does.
+    run(ctx,`_computeFedMeetingProbabilities`)([contract('Jul 2026',4.25),contract('Aug 2026',4.10)],effrRows);
+    run(ctx,`S.set('fomc_effr_cache',{rows:${JSON.stringify(effrRows)},ts:'x',tsEpoch:0})`);
+    run(ctx,`S.set('fed_futures',{data:${JSON.stringify([contract('Jul 2026',4.25),contract('Aug 2026',3.50)])},failedMonths:[],ts:'x',tsEpoch:0})`); // deliberately different data, as if the futures moved since
+    // Now call the REAL js/options.js function, unmodified.
+    const meetings=run(ctx,`_getQualifyingFomcMeetings`)();
+    const history=run(ctx,`S.get('fomc_meeting_history')`);
+    assert.strictEqual(history['2026-08-27'].source,'nyfed-official','visiting Options must not have downgraded the official record');
+    // The resolved Aug meeting is a HOLD/CUT/HIKE fact, not a >=hold
+    // forecast -- _getQualifyingFomcMeetings only inspects pCut25/pHold/
+    // pHike25 (forecast-shaped fields), so a resolved meeting simply
+    // won't appear in its output. The real assertion here is the history
+    // check above; this just confirms the call didn't throw.
+    assert(Array.isArray(meetings));
+  });
+});
+
+// ============================================================================
+section('Regression: missing intermediate contract must not corrupt later odds (Must-fix 2)');
+
+test('direct reproduction of the reported bug: Aug present, Sep MISSING, Oct present -> Oct must not read as a 250bp+ cut', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-16','2026-10-28'])`);
+  withFixedNow(ctx,'2026-10-01T12:00:00Z',()=>{ // Oct meeting still upcoming
+    const fedFutures=[
+      contract('Aug 2026',4.00),
+      // September's contract is entirely absent -- not stale, not
+      // present at all (a failed fetch with no prior cache to fall back
+      // to for that specific month).
+      contract('Oct 2026',3.75),
+    ];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,[]);
+    const oct=results.find(r=>r.meetingDate==='2026-10-28');
+    assert(oct,'October meeting should still produce a row');
+    assert.strictEqual(oct.insufficientBaseline,true,'a gap across a meeting-bearing month must invalidate the baseline rather than silently using a 2-months-stale rate');
+    assert(!oct.outcomes,'must not produce a fabricated outcome split from a broken chain');
+  });
+});
+
+test('a gap is harmless when the NEXT contract is meeting-free -- it always re-anchors from its own price regardless', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-11-16'])`);
+  withFixedNow(ctx,'2026-10-01T12:00:00Z',()=>{
+    const fedFutures=[
+      contract('Aug 2026',4.50),
+      // Sep missing
+      contract('Oct 2026',4.10), // meeting-free -- re-anchors here regardless of the Aug->Oct gap
+      contract('Nov 2026',3.95),
+    ];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,[]);
+    const nov=results.find(r=>r.meetingDate==='2026-11-16');
+    assert(nov && !nov.insufficientBaseline,'Nov should resolve fine -- Oct (meeting-free, immediately before Nov, no gap between them) supplies a fresh baseline');
+  });
+});
+
+test('the day-count/anchoring/split tests upstream in this file all use CONTIGUOUS months -- confirm a normal contiguous run is unaffected by the gap check', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Aug 2026',4.00),contract('Sep 2026',3.925)],[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    assert(!sep.insufficientBaseline);
+    assert(sep.outcomes && sep.outcomes.length>0);
+  });
+});
+
+// ============================================================================
+section('Official hold/hike outcomes via NY Fed data (test-suite gap)');
+
+test('a resolved meeting can be an official HOLD (moveBp===0), not just a cut', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-08-27'])`);
+  withFixedNow(ctx,'2026-09-05T12:00:00Z',()=>{
+    const effrRows=[
+      {effectiveDate:'2026-08-26',percentRate:4.33,targetRateFrom:4.25,targetRateTo:4.50},
+      {effectiveDate:'2026-08-28',percentRate:4.32,targetRateFrom:4.25,targetRateTo:4.50}, // unchanged range
+    ];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Jul 2026',4.25),contract('Aug 2026',4.30)],effrRows);
+    const aug=results.find(r=>r.meetingDate==='2026-08-27');
+    assert.strictEqual(aug.outcome,'hold');
+    assert.strictEqual(aug.source,'nyfed-official');
+  });
+});
+
+test('a resolved meeting can be an official HIKE', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-08-27'])`);
+  withFixedNow(ctx,'2026-09-05T12:00:00Z',()=>{
+    const effrRows=[
+      {effectiveDate:'2026-08-26',percentRate:4.33,targetRateFrom:4.25,targetRateTo:4.50},
+      {effectiveDate:'2026-08-28',percentRate:4.58,targetRateFrom:4.50,targetRateTo:4.75},
+    ];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Jul 2026',4.25),contract('Aug 2026',4.60)],effrRows);
+    const aug=results.find(r=>r.meetingDate==='2026-08-27');
+    assert.strictEqual(aug.outcome,'hike25');
+    assert.strictEqual(aug.source,'nyfed-official');
+  });
+});
+
+// ============================================================================
+section('Holiday/weekend bracketing (test-suite gap)');
+
+test('_resolveMeetingFromEffr correctly brackets a meeting even when the surrounding days are a weekend/holiday gap (no EFFR published on non-business days)', ()=>{
+  const ctx=buildContext();
+  const resolve=run(ctx,'_resolveMeetingFromEffr');
+  // A Friday Sep 18 meeting; EFFR has nothing for Sat/Sun, next published
+  // value is the following Tuesday (Monday a holiday, e.g. -- the exact
+  // reason doesn't matter, only that there's a real multi-day gap).
+  const rows=[
+    {effectiveDate:'2026-09-17',percentRate:4.33,targetRateFrom:4.25,targetRateTo:4.50},
+    // 09-18 (meeting day), 09-19 (Sat), 09-20 (Sun), 09-21 (holiday Mon) -- no data
+    {effectiveDate:'2026-09-22',percentRate:4.08,targetRateFrom:4.00,targetRateTo:4.25},
+  ];
+  const result=resolve('2026-09-18',rows);
+  assert(result,'should still resolve across a multi-day publishing gap');
+  assert.strictEqual(result.moveBp,-25);
+  assert.strictEqual(result.resolvedRate,4.08);
+});
+
+// ============================================================================
+section('EFFR window boundary (test-suite gap)');
+
+test('_earliestEffrStartNeeded computes the start date from the EARLIEST month actually present, minus a 10-day buffer', ()=>{
+  const ctx=buildContext();
+  const fn=run(ctx,'_earliestEffrStartNeeded');
+  const fedFutures=[contract('Oct 2026',3.90),contract('Aug 2026',4.10),contract('Sep 2026',4.00)]; // deliberately out of order
+  const start=fn(fedFutures);
+  assert.strictEqual(localYMD(start),'2026-07-22','Aug 1 minus 10 days, using LOCAL calendar arithmetic (matches how the app itself constructs/consumes these dates)');
+});
+
+test('_earliestEffrStartNeeded returns null for an empty or missing fedFutures window', ()=>{
+  const ctx=buildContext();
+  const fn=run(ctx,'_earliestEffrStartNeeded');
+  assert.strictEqual(fn([]),null);
+  assert.strictEqual(fn(null),null);
+});
+
+// ============================================================================
+section('Legacy history migration (test-suite gap)');
+
+test('a legacy PAST-dated history entry with no source field is left alone by the migration, then transparently upgraded the next time that meeting is resolved with fresh EFFR data', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-08-27'])`);
+  // Shaped exactly like a pre-Phase-1 entry: just a bare rate, no source/
+  // moveBp/resolvedAt metadata at all.
+  run(ctx,`S.set('fomc_meeting_history',{'2026-08-27':{rate:4.10}})`);
+  withFixedNow(ctx,'2026-09-05T12:00:00Z',()=>{
+    const effrRows=[
+      {effectiveDate:'2026-08-26',percentRate:4.32,targetRateFrom:4.25,targetRateTo:4.50},
+      {effectiveDate:'2026-08-28',percentRate:4.08,targetRateFrom:4.00,targetRateTo:4.25},
+    ];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Jul 2026',4.25),contract('Aug 2026',4.10)],effrRows);
+    const aug=results.find(r=>r.meetingDate==='2026-08-27');
+    assert.strictEqual(aug.source,'nyfed-official','fresh EFFR data should resolve and upgrade it, not just leave the legacy value in place');
+    const history=run(ctx,`S.get('fomc_meeting_history')`);
+    assert.strictEqual(history['2026-08-27'].source,'nyfed-official');
+    assert.strictEqual(history['2026-08-27'].rate,4.08,'the upgraded entry should hold the real official rate, not the old legacy 4.10 guess');
+  });
+});
+
+// ============================================================================
+section('Worker EFFR route validation (test-suite gap)');
+
+testAsync('rejects a request missing startDate/endDate', async()=>{
+  const ctx=buildWorkerContext(async()=>{throw new Error('fetch must not be called for an invalid request');});
+  const res=await run(ctx,'handleEffrProxy')(new URL('https://worker.example/?type=effr'));
+  assert.strictEqual(res.status,400);
+});
+
+testAsync('rejects a calendar-impossible date (Feb 30) instead of silently rolling it forward to Mar 2', async()=>{
+  const ctx=buildWorkerContext(async()=>{throw new Error('fetch must not be called for an invalid request');});
+  const res=await run(ctx,'handleEffrProxy')(new URL('https://worker.example/?type=effr&startDate=2026-02-30&endDate=2026-03-01'));
+  assert.strictEqual(res.status,400);
+});
+
+testAsync('rejects startDate after endDate', async()=>{
+  const ctx=buildWorkerContext(async()=>{throw new Error('fetch must not be called for an invalid request');});
+  const res=await run(ctx,'handleEffrProxy')(new URL('https://worker.example/?type=effr&startDate=2026-09-20&endDate=2026-09-01'));
+  assert.strictEqual(res.status,400);
+});
+
+testAsync('rejects an oversized date range (>120 days)', async()=>{
+  const ctx=buildWorkerContext(async()=>{throw new Error('fetch must not be called for an invalid request');});
+  const res=await run(ctx,'handleEffrProxy')(new URL('https://worker.example/?type=effr&startDate=2026-01-01&endDate=2026-12-31'));
+  assert.strictEqual(res.status,400);
+});
+
+testAsync('accepts a well-formed, in-range request and forwards it to the NY Fed endpoint', async()=>{
+  let calledUrl=null;
+  const ctx=buildWorkerContext(async(u)=>{calledUrl=u;return{ok:true,json:async()=>({refRates:[]})};});
+  const res=await run(ctx,'handleEffrProxy')(new URL('https://worker.example/?type=effr&startDate=2026-08-01&endDate=2026-09-01'));
+  assert.strictEqual(res.status,200);
+  assert(calledUrl.includes('markets.newyorkfed.org'));
+  assert(calledUrl.includes('startDate=2026-08-01'));
+});
+
+// ============================================================================
+section('fetchEffrHistory fetch/normalization failures (test-suite gap)');
+
+testAsync('normalizes, sorts ascending by date, and filters rows missing required fields', async()=>{
+  const calls=[];
+  const fetchImpl=async(url)=>{
+    calls.push(url);
+    return{json:async()=>({refRates:[
+      {effectiveDate:'2026-08-28',percentRate:4.08,targetRateFrom:4.00,targetRateTo:4.25},
+      {effectiveDate:'2026-08-26',percentRate:4.32,targetRateFrom:4.25,targetRateTo:4.50},
+      {effectiveDate:'2026-08-27',percentRate:null,targetRateFrom:4.00,targetRateTo:4.25}, // incomplete
+    ]})};
+  };
+  const ctx=buildApiContext(fetchImpl);
+  const rows=await run(ctx,'fetchEffrHistory')(new Date(2026,7,1)); // local Aug 1 2026
+  assert.strictEqual(rows.length,2,'the incomplete row must be filtered out');
+  assert.strictEqual(rows[0].effectiveDate,'2026-08-26','must be sorted ascending');
+  assert.strictEqual(rows[1].effectiveDate,'2026-08-28');
+  assert(calls[0].includes('type=effr'));
+});
+
+testAsync('returns null (not a throw) on a fetch failure', async()=>{
+  const ctx=buildApiContext(async()=>{throw new Error('network down');});
+  const rows=await run(ctx,'fetchEffrHistory')(new Date(2026,7,1));
+  assert.strictEqual(rows,null);
+});
+
+testAsync('returns null when the response shape is unexpected (refRates missing or not an array)', async()=>{
+  const ctx=buildApiContext(async()=>({json:async()=>({error:'bad request'})}));
+  const rows=await run(ctx,'fetchEffrHistory')(new Date(2026,7,1));
+  assert.strictEqual(rows,null);
+});
+
+testAsync('falls back to a default lookback window when no startDate argument is passed', async()=>{
+  let capturedUrl=null;
+  const ctx=buildApiContext(async(url)=>{capturedUrl=url;return{json:async()=>({refRates:[]})};});
+  await run(ctx,'fetchEffrHistory')();
+  assert(/startDate=\d{4}-\d{2}-\d{2}/.test(capturedUrl),'expected a well-formed startDate param even with no explicit argument');
+});
+
+// ============================================================================
+(async()=>{
+  let lastAsyncSection=null;
+  for(const{name,fn,section:sec}of _asyncTests){
+    if(sec!==lastAsyncSection){ console.log('\n== '+sec+' =='); lastAsyncSection=sec; }
+    try{ await fn(); pass++; console.log('  ok  --',name); }
+    catch(e){ fail++; console.log('FAIL  --',name); console.log('      '+(e && e.stack ? e.stack.split('\n').slice(0,3).join('\n      ') : e)); }
+  }
+  console.log(`\n${pass} passed, ${fail} failed`);
+  process.exit(fail?1:0);
+})();

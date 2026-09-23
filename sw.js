@@ -5,8 +5,8 @@
 // Version bump this string to force a refresh
 // of the cache when you deploy a new version.
 // ============================================
-const CACHE_NAME = 'income-engine-v493';
-const APP_BUILD = 493; // increment with every deploy, matches CACHE_NAME version
+const CACHE_NAME = 'income-engine-v494';
+const APP_BUILD = 494; // increment with every deploy, matches CACHE_NAME version
 
 // Third-party vendor assets (Chart.js, Google Fonts) live in their OWN,
 // separately-versioned cache, deliberately not tied to CACHE_NAME/APP_BUILD

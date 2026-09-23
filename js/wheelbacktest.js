@@ -911,8 +911,16 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
         if(dateMs==null)continue;
         const rate=irxHist2y?_irxRateAsOf(irxHist2y,dateMs):null;
         if(rate==null)continue;
-        // Same calendar-day weighting as _accrueCashInterest above.
-        const nextDateMs=hist2y.timestamps?.[i+1]!=null?hist2y.timestamps[i+1]*1000:null;
+        // Same calendar-day weighting as _accrueCashInterest above, INCLUDING
+        // its terminal-boundary fix: a THIRD copy of this exact calculation
+        // (missed in the build that added the other two -- see that fix's
+        // own comment on _accrueCashInterest for the reasoning) that feeds
+        // t.cumulativePct specifically. Left uncorrected, this copy and the
+        // other two would disagree with each other for the window's own
+        // final day, breaking the reconciliation between the daily curve
+        // and this per-trade ledger row that the rest of this file
+        // otherwise guarantees.
+        const nextDateMs=i<endIdx&&hist2y.timestamps?.[i+1]!=null?hist2y.timestamps[i+1]*1000:null;
         const daysWeight=nextDateMs!=null?Math.max(1,Math.round((nextDateMs-dateMs)/86400000)):1;
         runningInterest+=cashAmt*rate/365*daysWeight;
       }

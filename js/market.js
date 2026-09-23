@@ -82,13 +82,37 @@ function _effectiveFomcDates(){
 }
 const _MONTH_ABBR={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
 
+// Classifies a PAST meeting from the New York Fed's official target-range
+// history (effrRows: ascending-by-date {effectiveDate,percentRate,
+// targetRateFrom,targetRateTo}), rather than inferring the outcome from the
+// futures-implied rate. Returns null -- never a guess -- when the window
+// doesn't bracket the meeting date on both sides (most often: the meeting
+// happened very recently and EFFR hasn't published a post-meeting business
+// day yet), or when the lower/upper bounds moved by different amounts,
+// which real FOMC decisions don't do -- that pattern means something's off
+// with the data for this window, not a valid non-parallel outcome, so it's
+// safer to fall back to the futures-implied method than report it.
+function _resolveMeetingFromEffr(meetingDateStr,effrRows){
+  if(!effrRows||!effrRows.length)return null;
+  let before=null,after=null;
+  for(const row of effrRows){
+    if(row.effectiveDate<meetingDateStr)before=row; // rows are ascending, so this ends up the LATEST one strictly before
+    else if(row.effectiveDate>meetingDateStr&&!after)after=row; // first one strictly after
+  }
+  if(!before||!after)return null;
+  const lowerChangeBp=Math.round((after.targetRateFrom-before.targetRateFrom)*100);
+  const upperChangeBp=Math.round((after.targetRateTo-before.targetRateTo)*100);
+  if(lowerChangeBp!==upperChangeBp)return null;
+  return{moveBp:lowerChangeBp,resolvedRate:after.percentRate};
+}
+
 // Simple version: assumes at most one standard 25bp step per meeting.
 // Correct the large majority of the time; a genuine 50bp-move scenario
 // would show as a probability this model can't fully represent (capped at
 // 100% for whichever direction), which is a known, accepted simplification
 // for a first version rather than the fuller multi-outcome treatment CME's
 // own methodology uses.
-function _computeFedMeetingProbabilities(fedFutures){
+function _computeFedMeetingProbabilities(fedFutures,effrRows){
   if(!fedFutures||!fedFutures.length)return[];
   const STEP=0.25; // standard FOMC move size, percentage points
   const meetingDates=_effectiveFomcDates();
@@ -119,6 +143,21 @@ function _computeFedMeetingProbabilities(fedFutures){
     historyChanged=true;
   }
   if(oldSingle){S.del('fomc_last_known_rate');}
+  // One-time migration: builds before 495 wrote the live FORECAST rate into
+  // history for every future meeting on every fetch, not just resolved
+  // outcomes (see the 495 changelog). Any entry keyed by a meeting date
+  // that's still in the future as of today is guaranteed to be one of
+  // those forecasts -- a genuinely resolved meeting can only be keyed by a
+  // PAST date -- so it's safe to drop unconditionally rather than trying
+  // to tell a legitimate entry apart from a contaminated one after the
+  // fact. Entries for genuinely past meetings are left alone here: they
+  // get transparently re-resolved (with source metadata attached) by the
+  // main loop below the first time that meeting is processed again, so no
+  // separate migration pass is needed for those.
+  const _todayStr=_todayET();
+  Object.keys(history).forEach(d=>{
+    if(d>_todayStr){delete history[d];historyChanged=true;}
+  });
   for(let i=0;i<fedFutures.length;i++){
     const c=fedFutures[i];
     const[mAbbr,yStr]=(c.month||'').split(' ');
@@ -141,7 +180,13 @@ function _computeFedMeetingProbabilities(fedFutures){
       if(priorMeetingDate&&history[priorMeetingDate])currentRate=history[priorMeetingDate].rate;
     }
     const meetingDay=new Date(meetingDateStr+'T12:00:00Z').getDate();
-    const daysBefore=meetingDay-1;
+    // The new rate isn't effective until the day AFTER the decision is
+    // announced, so the meeting date itself belongs to the PRE-meeting
+    // bucket -- matches CME's own published day-count convention (e.g. a
+    // Sept 21 meeting in a 30-day month is 21 pre-meeting days, 9 post,
+    // not 20/10). Previously this used `meetingDay-1`, which silently
+    // shifted every meeting's split by one day.
+    const daysBefore=meetingDay;
     const daysAfter=daysInMonth-daysBefore;
     if(currentRate==null||daysAfter<=0){
       // Can't cleanly establish a pre-meeting baseline for this specific
@@ -164,34 +209,45 @@ function _computeFedMeetingProbabilities(fedFutures){
     const postMeetingRate=(c.impliedRate*daysInMonth-currentRate*daysBefore)/daysAfter;
     const impliedMove=postMeetingRate-currentRate;
     // Once a meeting's own date is in the past, its outcome isn't a live
-    // probability anymore -- futures reprice almost immediately once a
-    // decision is public, so the SAME impliedMove figure already reflects
-    // the resolved result. Classify it directly (held / hiked / cut,
-    // rounded to the nearest standard 25bp step) instead of a hold/hike
-    // split framed as still undecided. Only when this specific month's
-    // contract was actually fresh this fetch (c.stale is the same flag
-    // already surfaced in the "Using last known data for" note) -- a
-    // carried-forward contract reflects whatever it last knew, not
-    // necessarily anything from after the meeting, so confidently stating
-    // an outcome from stale data would risk being flatly wrong rather than
-    // just imprecise.
+    // probability anymore -- it's a fact, and the New York Fed's own
+    // published target range is the authoritative source for it, so that's
+    // tried FIRST. Only when that's unavailable (a fetch failure, or the
+    // EFFR window doesn't yet bracket the meeting on both sides -- e.g. it
+    // happened very recently) does this fall back to the same
+    // futures-implied classification used before this build, and even then
+    // only when this month's contract was genuinely fresh this fetch
+    // (c.stale) -- a carried-forward contract reflects whatever it last
+    // knew, not necessarily anything from after the meeting, so confidently
+    // stating an outcome from stale data would risk being flatly wrong
+    // rather than just imprecise.
     const meetingIsPast=meetingDateStr<_todayET();
     if(meetingIsPast){
-      if(c.stale){
-        results.push({month:c.month,meetingDate:meetingDateStr,outcomePending:true});
-        currentRate=postMeetingRate;
-        if(!history[meetingDateStr]||history[meetingDateStr].rate!==postMeetingRate){
-          history[meetingDateStr]={rate:postMeetingRate};
+      const nyfed=_resolveMeetingFromEffr(meetingDateStr,effrRows);
+      if(nyfed){
+        const outcome=nyfed.moveBp===0?'hold':(nyfed.moveBp>0?'hike'+nyfed.moveBp:'cut'+(-nyfed.moveBp));
+        results.push({month:c.month,meetingDate:meetingDateStr,resolved:true,outcome,source:'nyfed-official'});
+        currentRate=nyfed.resolvedRate;
+        if(!history[meetingDateStr]||history[meetingDateStr].rate!==currentRate||history[meetingDateStr].source!=='nyfed-official'){
+          history[meetingDateStr]={rate:currentRate,source:'nyfed-official',resolvedAt:_todayStr};
           historyChanged=true;
         }
         continue;
       }
+      if(c.stale){
+        // Not actually resolved -- explicitly NOT written to history, which
+        // is the core of this build's fix: a stale guess (or, before this
+        // build, a live forecast) read back later as though it were a
+        // settled fact is exactly the contamination this replaces.
+        results.push({month:c.month,meetingDate:meetingDateStr,outcomePending:true});
+        currentRate=postMeetingRate;
+        continue;
+      }
       const steps=Math.round(impliedMove/STEP);
       const outcome=steps===0?'hold':(steps>0?'hike'+(steps*25):'cut'+(-steps*25));
-      results.push({month:c.month,meetingDate:meetingDateStr,resolved:true,outcome});
+      results.push({month:c.month,meetingDate:meetingDateStr,resolved:true,outcome,source:'futures-implied'});
       currentRate=postMeetingRate;
-      if(!history[meetingDateStr]||history[meetingDateStr].rate!==postMeetingRate){
-        history[meetingDateStr]={rate:postMeetingRate};
+      if(!history[meetingDateStr]||history[meetingDateStr].rate!==postMeetingRate||history[meetingDateStr].source!=='futures-implied'){
+        history[meetingDateStr]={rate:postMeetingRate,source:'futures-implied',resolvedAt:_todayStr};
         historyChanged=true;
       }
       continue;
@@ -204,17 +260,19 @@ function _computeFedMeetingProbabilities(fedFutures){
       month:c.month,meetingDate:meetingDateStr,
       pHold:Math.round(pHold*100),pCut25:Math.round(pCut*100),pHike25:Math.round(pHike*100),
     });
-    currentRate=postMeetingRate; // chain forward -- next meeting's baseline is this one's outcome
-    if(!history[meetingDateStr]||history[meetingDateStr].rate!==postMeetingRate){
-      history[meetingDateStr]={rate:postMeetingRate};
-      historyChanged=true;
-    }
+    // Chain forward for SUBSEQUENT meetings within this same calculation run
+    // only -- deliberately NOT persisted to history. A forecast is exactly
+    // that: it can (and normally will) change on the next fetch as futures
+    // reprice, so writing it to fomc_meeting_history would let a stale
+    // guess be read back later as though it were a settled fact -- see the
+    // meetingIsPast branch above for where entries actually get written.
+    currentRate=postMeetingRate;
   }
   if(historyChanged)S.set('fomc_meeting_history',history);
   return results;
 }
 
-function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,fedFuturesStaleMonths,tbill3m,tbill5y,tbill10y,marketNews,derived}){
+function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,fedFuturesStaleMonths,effrRows,tbill3m,tbill5y,tbill10y,marketNews,derived}){
   const{tb3Current,tb5yCurrent,tb10yCurrent,tb3Yr,tb5yYr,tb10yYr,spread35,spread310,spread510,spreadStr35,spreadStr310,spreadStr510,spyiYield,nbosYield,vixCurrent,spCurrent,spChg,spChgPct,nqCurrent,nqChg,nqChgPct,spLabels,spData}=derived;
 
   el.innerHTML=`
@@ -287,7 +345,7 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
         :(totalBps<0
             ?(_absBps<50?'Markets pricing ~1 cut':'Markets pricing 2+ cuts')
             :(_absBps<50?'Markets pricing ~1 hike':'Markets pricing 2+ hikes'));
-      const meetingProbs=_computeFedMeetingProbabilities(fedFutures);
+      const meetingProbs=_computeFedMeetingProbabilities(fedFutures,effrRows);
       const probRows=meetingProbs.map(p=>{
         const dateLabel=new Date(p.meetingDate+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric'});
         if(p.insufficientBaseline){
@@ -298,7 +356,8 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
         }
         if(p.resolved){
           const outcomeLabel=p.outcome==='hold'?'HELD':(p.outcome.startsWith('hike')?'HIKED '+p.outcome.slice(4)+'bp':'CUT '+p.outcome.slice(3)+'bp');
-          return '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);padding:3px 0">'+dateLabel+' meeting: <span style="color:var(--accent)">'+outcomeLabel+'</span> (resolved)</div>';
+          const srcLabel=p.source==='nyfed-official'?'NY Fed official':'futures-implied, unconfirmed';
+          return '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);padding:3px 0">'+dateLabel+' meeting: <span style="color:var(--accent)">'+outcomeLabel+'</span> ('+srcLabel+')</div>';
         }
         const parts=[];
         if(p.pHold>0)parts.push(p.pHold+'% hold');
@@ -493,6 +552,17 @@ async function loadMarketTab(){
       }
     }catch{}
     if(!fedFutures){const cf=S.get('fed_futures');if(cf){fedFutures=cf.data;fedFuturesFailedMonths=cf.failedMonths||[];}}
+    // NY Fed EFFR history, for authoritative resolution of past FOMC
+    // meetings in _computeFedMeetingProbabilities (called at render time,
+    // below/on cache-restore). Independent of the futures fetch above -- a
+    // failure here just means past-meeting resolution falls back to the
+    // futures-implied method, same as every build before this one.
+    let effrRows=null;
+    try{
+      effrRows=await _mktTimeout(fetchEffrHistory(),10000,'NY Fed EFFR');
+      if(effrRows&&effrRows.length)S.set('fomc_effr_cache',{rows:effrRows,ts:mktTs,tsEpoch:mktTsEpoch});
+    }catch{}
+    if(!effrRows||!effrRows.length){const ce=S.get('fomc_effr_cache');if(ce)effrRows=ce.rows||[];}
     // Treasury yields via Yahoo Finance (^IRX/^FVX/^TNX), routed through
     // the Worker. Previously this comment referenced Treasury FiscalData --
     // that was abandoned for SSL failures on Cloudflare Workers; Yahoo has
@@ -511,7 +581,7 @@ async function loadMarketTab(){
     let marketNews=await _fetchMarketNews();
 
     const derived=_computeMarketDerivedValues(sp500,nasdaq,spLivePrice,spPrevClose,nqLivePrice,nqPrevClose,tbill3m,tbill5y,tbill10y);
-    _renderMarketContent(el,{ts:mktTs,isLive,tsEpoch:mktTsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,fedFuturesStaleMonths,tbill3m,tbill5y,tbill10y,marketNews,derived});
+    _renderMarketContent(el,{ts:mktTs,isLive,tsEpoch:mktTsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,fedFuturesStaleMonths,effrRows,tbill3m,tbill5y,tbill10y,marketNews,derived});
 
     S.set('market_ts',{ts:nowPT(),tsEpoch:Date.now()});
   }catch(err){el.innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
@@ -631,6 +701,9 @@ function _renderMarketFromCache(){
   // need to persist the same information twice.
   const fedFuturesStaleMonths=(fedFutures||[]).filter(c=>c.stale).map(c=>c.month);
 
+  const ce=S.get('fomc_effr_cache');
+  const effrRows=ce?.rows||[];
+
   const cd=S.get('tbills_cache');
   const tbill3m=cd?.tbill3m||[];
   const tbill5y=cd?.tbill5y||[];
@@ -642,7 +715,7 @@ function _renderMarketFromCache(){
   const marketNews=cnews?.items||[];
 
   const derived=_computeMarketDerivedValues(sp500,nasdaq,spLivePrice,spPrevClose,nqLivePrice,nqPrevClose,tbill3m,tbill5y,tbill10y);
-  _renderMarketContent(el,{ts:cachedTs,isLive:false,tsEpoch:mktTsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,fedFuturesStaleMonths,tbill3m,tbill5y,tbill10y,marketNews,derived});
+  _renderMarketContent(el,{ts:cachedTs,isLive:false,tsEpoch:mktTsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,fedFuturesStaleMonths,effrRows,tbill3m,tbill5y,tbill10y,marketNews,derived});
 
   setTimeout(refreshTsChipAges,200);
 }

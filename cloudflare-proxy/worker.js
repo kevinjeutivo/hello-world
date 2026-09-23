@@ -1,12 +1,21 @@
 // ============================================
 // Income Engine -- Cloudflare Worker Proxy v2
-// Handles five request types:
+// Handles six request types:
 //   ?ticker=NVDA&type=options   -> Yahoo options chain
 //   ?ticker=NVDA&type=history   -> Yahoo price history
 //   ?ticker=SPYI&type=dividends -> Yahoo dividend events
-//   ?series=DTB3&type=fred      -> FRED T-bill yield data
 //   ?type=finnhub&path=...      -> Finnhub proxy (server-side key, see below)
+//   ?type=effr&startDate=...&endDate=...
+//                                -> New York Fed EFFR/target-range data,
+//                                   used to authoritatively resolve past
+//                                   FOMC meetings (see js/market.js). Public,
+//                                   no key, no Yahoo cookie/crumb dance.
 // All Yahoo request types handle cookie+crumb auth server-side.
+// (The "?series=X&type=fred" route referenced in older comments here was
+// never actually implemented -- Treasury yields are fetched via Yahoo's
+// ^IRX/^FVX/^TNX indices instead, see js/api.js fetchTBills. The unused
+// `series` param below is dead and can be removed whenever this file is
+// next touched for an unrelated reason.)
 // Free tier: 100,000 requests/day
 //
 // Secrets (set via Cloudflare dashboard -> Settings -> Variables and Secrets,
@@ -61,6 +70,11 @@ export default {
     // ── Finnhub proxy: separate code path, no Yahoo cookie/crumb needed ──
     if (type === 'finnhub') {
       return handleFinnhubProxy(url, env);
+    }
+
+    // ── NY Fed EFFR proxy: also no Yahoo cookie/crumb needed ──
+    if (type === 'effr') {
+      return handleEffrProxy(url);
     }
 
     const ticker = url.searchParams.get('ticker');
@@ -202,6 +216,44 @@ function corsJson(obj, status = 200) {
       'Access-Control-Allow-Origin': '*'
     }
   });
+}
+
+// Proxies the New York Fed Markets Data API's EFFR (Effective Federal Funds
+// Rate) endpoint -- a plain, public, CORS-enabled JSON API that needs no key
+// and none of the Yahoo cookie/crumb machinery above. Deliberately narrow:
+// this is NOT a general-purpose proxy to markets.newyorkfed.org -- only the
+// one search/effr route is reachable, and only with validated YYYY-MM-DD
+// dates, so this can't be turned into an open relay to an arbitrary NY Fed
+// (or any other) URL by a crafted query string.
+async function handleEffrProxy(url) {
+  const startDate = url.searchParams.get('startDate');
+  const endDate = url.searchParams.get('endDate');
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (!startDate || !endDate || !dateRe.test(startDate) || !dateRe.test(endDate)) {
+    return corsJson({ error: 'startDate and endDate (YYYY-MM-DD) are required' }, 400);
+  }
+  try {
+    const targetUrl = `https://markets.newyorkfed.org/api/rates/unsecured/effr/search.json?startDate=${startDate}&endDate=${endDate}`;
+    const dataResponse = await fetch(targetUrl, {
+      headers: { 'Accept': 'application/json' }
+    });
+    if (!dataResponse.ok) {
+      return corsJson({ error: `NY Fed API returned ${dataResponse.status}` }, dataResponse.status);
+    }
+    const data = await dataResponse.json();
+    return new Response(JSON.stringify(data), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        // EFFR publishes once per business day (~8am ET, for the prior
+        // business day) -- nothing is gained refetching more than hourly.
+        'Cache-Control': 'public, max-age=3600'
+      }
+    });
+  } catch (err) {
+    return corsJson({ error: 'EFFR proxy fetch failed', message: err.message }, 500);
+  }
 }
 
 // Proxies Finnhub API calls using a server-side key (env.FINNHUB_KEY), so

@@ -563,7 +563,16 @@ function clearMarketDataCache(){
        k.startsWith('rec_')||k.startsWith('upgrades_')||
        k.startsWith('mkt_')||k.startsWith('tbills_')||k.startsWith('vix')||
        k.startsWith('div_')||k==='market_news'||
-       k==='hist2y_sp500'){
+       k==='hist2y_sp500'||
+       // fomc_meeting_history: as of 495, every entry is a resolved meeting
+       // re-derivable from the NY Fed's official history (or a futures-
+       // implied fallback that self-corrects the next time NY Fed data
+       // covers it) -- routine, re-fetchable, safe to sweep. Not matched by
+       // a shared prefix with fomc_meeting_dates_override (genuine user
+       // config, deliberately NOT swept here) or fed_futures (deliberately
+       // NOT swept here either, per the comment above), so both are named
+       // explicitly rather than widening a prefix.
+       k==='fomc_meeting_history'||k==='fomc_effr_cache'){
       toDelete.push(k);
     }
   }
@@ -584,20 +593,18 @@ const EXPORT_KEYS_STATIC=[
   'dashboard_notes','bb_gap_overlay','gap_list_filter',
   'tax_state','state_tax_rate',
   'fomc_meeting_dates_override',
-  // Self-healing baseline for the meeting-probability calculation -- now a
-  // full history of every meeting ever successfully resolved, indexed by
-  // meeting date (replaces the old single-latest-value version, which had
-  // a real blind spot: it could only help a stuck meeting whose immediate
-  // predecessor happened to be the single most recent resolution overall,
-  // not any earlier one). Not re-derivable from a fresh fetch if lost --
-  // losing it just means falling back to the honest "insufficient
-  // baseline" placeholder for whatever specific meetings it would have
-  // covered, rather than a correctness problem, but worth preserving the
-  // continuity. Deliberately unbounded (no 2-year-style cap) -- the
-  // storage cost for keeping this indefinitely is a few KB even over
-  // decades, and unlike price history, there's no external data-provider
-  // ceiling forcing a cutoff here.
-  'fomc_meeting_history',
+  // NOTE: fomc_meeting_history used to be listed here (unbounded, exported
+  // indefinitely as irreplaceable data). As of the 495 NY-Fed-official-
+  // source fix, every entry in that file is now either a genuinely
+  // resolved meeting sourced from the New York Fed's own published target-
+  // range history (re-derivable at any time -- the NY Fed API serves full
+  // history back to 1954) or a futures-implied fallback for a meeting the
+  // NY Fed data doesn't cover yet. Neither is irreplaceable the way this
+  // export list is meant for, so it's been moved to the routine, re-
+  // fetchable Clear Market Data Cache sweep below instead (see
+  // clearMarketDataCache). Losing it just means falling back to the honest
+  // "insufficient baseline" placeholder until it's rebuilt on the next
+  // live fetch, not a correctness problem.
   // The raw Fed Funds Futures contract data itself (not just the derived
   // self-healing rate above) -- exportable specifically so a successful
   // fetch on one device/instance can be transplanted into another that's

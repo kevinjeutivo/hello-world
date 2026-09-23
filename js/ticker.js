@@ -3515,8 +3515,16 @@ async function refreshSingleTicker(){
           // 488, this one) each fixed a different way a plain success/fail
           // boolean let this specific case slip through as "not a failure".
           _tickerWriteFailed=true;
+        }else{
+          // The implicit "preserve existing cache" case -- validation
+          // failed, but something's already there, so nothing gets
+          // overwritten. This never checked whether what's being preserved
+          // is itself a synthetic placeholder from an earlier failed run --
+          // the fifth instance of that same gap across builds 481, 485,
+          // 488, and 491, all in this pair of files.
+          const _ex=S.get('options_'+t);
+          if(!_ex||_ex.synthetic)_tickerWriteFailed=true;
         }
-        // else preserve existing good cache
         // Only fetch per-expiry chains if main chain fetch was valid AND we're in live window
         // Outside live window: use _shouldSkipOptionsFetch to correctly honor
         // "Friday cache is still good on Monday pre-market" without re-fetching synthetic data

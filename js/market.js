@@ -112,12 +112,43 @@ function _resolveMeetingFromEffr(meetingDateStr,effrRows){
 // 100% for whichever direction), which is a known, accepted simplification
 // for a first version rather than the fuller multi-outcome treatment CME's
 // own methodology uses.
+// Computes the earliest date EFFR history is actually needed from, based
+// on the earliest month really present in THIS fetch's fedFutures window
+// -- rather than a flat lookback that's either wastefully wide most of
+// the time or, near a month boundary, not wide enough (see the
+// fetchEffrHistory comment in api.js). fetchFedFundsFutures() never looks
+// back further than one month before today, so a meeting earlier than
+// that month's start could never be resolved through THIS window anyway
+// -- a 10-day buffer just covers ordinary settlement/holiday lag right
+// at that boundary.
+function _earliestEffrStartNeeded(fedFutures){
+  if(!fedFutures||!fedFutures.length)return null;
+  let earliestYM=null;
+  fedFutures.forEach(c=>{
+    const[mAbbr,yStr]=(c.month||'').split(' ');
+    const m=_MONTH_ABBR[mAbbr],y=parseInt(yStr);
+    if(m==null||isNaN(y))return;
+    const ym=y*12+m;
+    if(earliestYM==null||ym<earliestYM)earliestYM=ym;
+  });
+  if(earliestYM==null)return null;
+  const y=Math.floor(earliestYM/12),m=earliestYM%12;
+  return addDays(new Date(y,m,1),-10);
+}
+
 function _computeFedMeetingProbabilities(fedFutures,effrRows){
   if(!fedFutures||!fedFutures.length)return[];
   const STEP=0.25; // standard FOMC move size, percentage points
   const meetingDates=_effectiveFomcDates();
   const results=[];
   let currentRate=null;
+  // Tracks the (year*12+month) of the last contract actually processed,
+  // to detect a gap in the monthly sequence (see the invalidation check
+  // inside the loop below) -- a month whose contract simply isn't present
+  // in fedFutures at all (a failed fetch with no prior cache to carry
+  // forward) rather than one marked .stale (which IS still present, just
+  // outdated, and is a perfectly fine chain link).
+  let lastYM=null;
   // Self-healing fallback, keyed by meeting date rather than remembering
   // only the single most-recently-resolved meeting -- the earlier
   // single-value version had a real blind spot: if a LATER meeting (say,
@@ -163,6 +194,23 @@ function _computeFedMeetingProbabilities(fedFutures,effrRows){
     const[mAbbr,yStr]=(c.month||'').split(' ');
     const m=_MONTH_ABBR[mAbbr],y=parseInt(yStr);
     if(m==null||isNaN(y))continue;
+    // Gap detection: if this contract's month isn't the calendar month
+    // immediately after the last one actually processed, currentRate (if
+    // set) was computed from a contract too far back to trust as THIS
+    // month's starting point -- using it anyway silently attributes an
+    // entire multi-month rate move to whatever few days happen to fall on
+    // either side of a meeting, which can produce a wildly wrong implied
+    // move (confirmed via direct reproduction: a missing September
+    // contract between a real Aug and Oct made an ordinary Oct meeting
+    // read as a "250bp cut"). The meeting-free branch just below
+    // re-anchors regardless of any gap -- its own priced rate needs no
+    // predecessor to be trustworthy -- so this only actually changes
+    // anything for a meeting landing right after a gap, and even then the
+    // existing history-based fallback a few lines down still gets a fair,
+    // fully independent shot at recovering a real baseline.
+    const thisYM=y*12+m;
+    if(lastYM!=null&&thisYM!==lastYM+1)currentRate=null;
+    lastYM=thisYM;
     const daysInMonth=new Date(y,m+1,0).getDate();
     const meetingDateStr=meetingDates.find(d=>{
       const dd=new Date(d+'T12:00:00Z');
@@ -233,10 +281,26 @@ function _computeFedMeetingProbabilities(fedFutures,effrRows){
         results.push({month:c.month,meetingDate:meetingDateStr,resolved:true,outcome,source:'nyfed-official'});
         currentRate=nyfed.resolvedRate;
         if(!history[meetingDateStr]||history[meetingDateStr].rate!==currentRate||history[meetingDateStr].source!=='nyfed-official'){
-          history[meetingDateStr]={rate:currentRate,source:'nyfed-official',resolvedAt:_todayStr};
+          history[meetingDateStr]={rate:currentRate,source:'nyfed-official',resolvedAt:_todayStr,moveBp:nyfed.moveBp};
           historyChanged=true;
         }
         continue;
+      }
+      // This call didn't have (or couldn't bracket the meeting with) fresh
+      // EFFR data -- most commonly a caller that doesn't pass effrRows at
+      // all (js/options.js used to be exactly this, before it was fixed
+      // to pass the cached rows -- kept here as a second, caller-
+      // independent line of defense) or a temporary EFFR fetch failure.
+      // Before falling back to the weaker futures-implied method, reuse
+      // an existing nyfed-official record for this exact meeting if one's
+      // already been resolved -- never let a weaker read downgrade a
+      // stronger one that's already on file.
+      const existing=history[meetingDateStr];
+      if(existing&&existing.source==='nyfed-official'&&existing.moveBp!=null){
+        const outcome=existing.moveBp===0?'hold':(existing.moveBp>0?'hike'+existing.moveBp:'cut'+(-existing.moveBp));
+        results.push({month:c.month,meetingDate:meetingDateStr,resolved:true,outcome,source:'nyfed-official'});
+        currentRate=existing.rate;
+        continue; // no history write -- nothing changed
       }
       if(c.stale){
         // Not actually resolved -- explicitly NOT written to history, which
@@ -252,7 +316,7 @@ function _computeFedMeetingProbabilities(fedFutures,effrRows){
       results.push({month:c.month,meetingDate:meetingDateStr,resolved:true,outcome,source:'futures-implied'});
       currentRate=postMeetingRate;
       if(!history[meetingDateStr]||history[meetingDateStr].rate!==postMeetingRate||history[meetingDateStr].source!=='futures-implied'){
-        history[meetingDateStr]={rate:postMeetingRate,source:'futures-implied',resolvedAt:_todayStr};
+        history[meetingDateStr]={rate:postMeetingRate,source:'futures-implied',resolvedAt:_todayStr,moveBp:steps*25};
         historyChanged=true;
       }
       continue;
@@ -598,7 +662,7 @@ async function loadMarketTab(){
     // futures-implied method, same as every build before this one.
     let effrRows=null;
     try{
-      effrRows=await _mktTimeout(fetchEffrHistory(),10000,'NY Fed EFFR');
+      effrRows=await _mktTimeout(fetchEffrHistory(_earliestEffrStartNeeded(fedFutures)),10000,'NY Fed EFFR');
       if(effrRows&&effrRows.length)S.set('fomc_effr_cache',{rows:effrRows,ts:mktTs,tsEpoch:mktTsEpoch});
     }catch{}
     if(!effrRows||!effrRows.length){const ce=S.get('fomc_effr_cache');if(ce)effrRows=ce.rows||[];}

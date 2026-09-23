@@ -66,7 +66,15 @@ async function prefetchAll(){
     // See the health-flag reassignment further below (after the per-expiration
     // fetch block): these need to be readable there, outside the try block
     // where the ticker-level write itself happens.
-    let _pMainWriteOk=false,_pExpOk=0,_pExpTotal=0;
+    // Tri-state, not boolean -- a boolean can't distinguish "freshly
+    // fetched and saved this run" from "the fetch failed/was rejected but a
+    // genuinely good PRIOR cache still exists" from "nothing usable exists
+    // at all (including a synthetic placeholder, which is not usable data
+    // even though writing it can itself succeed)". Four builds in a row
+    // (481, 485, 488, this one) each fixed a different way a plain boolean
+    // let one of those three states get miscounted as another.
+    let _pMainStatus='unavailable'; // 'fresh' | 'preserved' | 'unavailable'
+    let _pExpFresh=0,_pExpPreserved=0,_pExpTotal=0;
     try{
       const _fetchUpgrades=S.get('fetch_upgrades_enabled')==='true';
       const _upgradesAge=_recAgeHrs(S.get('upgrades_'+t)); // Infinity when missing/unparseable => refetch
@@ -191,13 +199,17 @@ async function prefetchAll(){
         const _pHasSameDay=_hasGoodSameDayCache('options_'+t);
         const _pv=_validateOptionsData(_opts);
         if(_pv.valid){
-          _pMainWriteOk=S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),tsEpoch:Date.now()});
+          _pMainStatus=S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),tsEpoch:Date.now()})?'fresh':'unavailable';
         }else if(!_pInWindow&&_pHasSameDay){
           console.log(t+': outside live window, fetch INVALID ('+_pv.reason+') -- preserving same-day options cache');
+          _pMainStatus='preserved'; // _hasGoodSameDayCache already excludes synthetic entries
         }else if(!S.get('options_'+t)){
           S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),tsEpoch:Date.now(),synthetic:true});
+          // stays 'unavailable' -- a synthetic placeholder isn't usable data, even though writing it can itself succeed
         }else{
-          console.warn(t+': rejecting options ('+_pv.reason+'), preserving cache');
+          const _ex=S.get('options_'+t);
+          if(_ex&&!_ex.synthetic){console.warn(t+': rejecting options ('+_pv.reason+'), preserving cache');_pMainStatus='preserved';}
+          else console.warn(t+': rejecting options ('+_pv.reason+'), no good prior cache to fall back on');
         }
       }
     }catch(e){console.warn('prefetch batch failed:',t,e?.message);}
@@ -223,9 +235,12 @@ async function prefetchAll(){
     _updateMultipleHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
     _updateNextFYHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
     // Per-expiry options fetch (parallel -- skip only if main options fetch failed)
-    // _pMainWriteOk/_pExpOk/_pExpTotal declared before the try block above
-    // (see its declaration) so they survive across both this block and
-    // the health-flag assignment further below.
+    // _pMainStatus/_pExpFresh/_pExpPreserved/_pExpTotal declared before the
+    // try block above (see its declaration) so they survive across both
+    // this block and the health-flag assignment further below. Note this
+    // gate is _savedOpts (is there SOME ticker-level cache now, fresh or
+    // preserved), not _pMainStatus -- expiration fetches still run even when
+    // the main write only preserved existing data rather than writing fresh.
     const _savedOpts=S.get('options_'+t);
     if(_savedOpts&&_opts){
       _pruneExpiredOptionExpiries(t);
@@ -257,40 +272,45 @@ async function prefetchAll(){
             // expiration -- same "is there something real to fall back on"
             // question the validation-failure branches below already ask.
             const _ex=S.get(_pExpKey);
-            if(_ex&&!_ex.synthetic)_pExpOk++;
+            if(_ex&&!_ex.synthetic)_pExpPreserved++;
             return;
           }
           const _pExpInWindow=_isOptionsLiveWindow();
           const _pExpHasSameDay=_hasGoodSameDayCache(_pExpKey);
           const _ev=_validateOptionsData(data);
           if(_ev.valid){
-            const _ps=slimExpData(data);if(_ps&&S.set(_pExpKey,{..._ps,ts:nowPT(),tsEpoch:Date.now()}))_pExpOk++;
+            const _ps=slimExpData(data);if(_ps&&S.set(_pExpKey,{..._ps,ts:nowPT(),tsEpoch:Date.now()}))_pExpFresh++;
           }else if(!_pExpInWindow&&_pExpHasSameDay){
             console.log(t+' '+pair.date+': outside live window, fetch INVALID ('+_ev.reason+') -- preserving same-day exp cache');
-            _pExpOk++; // preserved existing good data -- not a failure (_hasGoodSameDayCache already excludes synthetic entries)
+            _pExpPreserved++; // _hasGoodSameDayCache already excludes synthetic entries
           }else if(!S.get(_pExpKey)){
             const _ps=slimExpData(data);if(_ps)S.set(_pExpKey,{..._ps,ts:nowPT(),tsEpoch:Date.now(),synthetic:true});
+            // neither fresh nor preserved -- a synthetic placeholder isn't usable data, even though writing it can itself succeed
           }else{
             // Falling back to whatever's already cached here -- but only
-            // credit it as "ok" if that entry is real data, not a synthetic
-            // placeholder from an earlier failed fetch. This branch used to
-            // credit _pExpOk unconditionally.
+            // counts as "preserved" if that entry is real data, not a
+            // synthetic placeholder from an earlier failed fetch.
             const _ex=S.get(_pExpKey);
-            if(_ex&&!_ex.synthetic){console.warn(t+' '+pair.date+': exp rejected ('+_ev.reason+'), preserving cache from '+(_ex?.ts||'unknown ts'));_pExpOk++;}
+            if(_ex&&!_ex.synthetic){console.warn(t+' '+pair.date+': exp rejected ('+_ev.reason+'), preserving cache from '+(_ex?.ts||'unknown ts'));_pExpPreserved++;}
             else console.warn(t+' '+pair.date+': exp rejected ('+_ev.reason+'), no good prior cache to fall back on');
           }
         });
     }
-    // Options health now reflects BOTH the ticker-level metadata write AND
-    // every attempted per-expiration write, not just the metadata alone (see
-    // build 481's identical fix for the single-ticker refresh path -- this
-    // is the same gap in Prefetch's separate code path). A ticker with valid
-    // metadata but a failed expiration-chain write used to still show as
-    // fully healthy. optionsExpDetail carries the count for display even
-    // when NOT fully successful (e.g. "2/3").
-    if(_pMainWriteOk){
-      _health.tickers[t].options=_pExpOk===_pExpTotal;
-      if(_pExpTotal>0)_health.tickers[t].optionsExpDetail={ok:_pExpOk,total:_pExpTotal};
+    // Options health now reflects BOTH the ticker-level metadata status AND
+    // every attempted per-expiration outcome, not just the metadata alone
+    // (see build 481's identical fix for the single-ticker refresh path --
+    // this is the same gap in Prefetch's separate code path). Gated on
+    // _pMainStatus!=='unavailable' (fresh OR preserved), not the old
+    // fresh-only _pMainWriteOk -- previously a ticker whose main write only
+    // preserved good existing data never got its options health set at all,
+    // even when every expiration fetch that run had succeeded.
+    // optionsExpDetail carries fresh/preserved/total for display -- a
+    // "2/3 fresh, 1 preserved" ticker and a "0/3 fresh, 3 preserved" ticker
+    // are both fully usable but meaningfully different, which a single ok
+    // count couldn't distinguish.
+    if(_pMainStatus!=='unavailable'){
+      _health.tickers[t].options=(_pExpFresh+_pExpPreserved)===_pExpTotal;
+      if(_pExpTotal>0)_health.tickers[t].optionsExpDetail={fresh:_pExpFresh,preserved:_pExpPreserved,total:_pExpTotal};
     }
     {const _tNews=Date.now();try{const news=await fetchNews(t);_timing.news.push(Date.now()-_tNews);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT(),tsEpoch:Date.now()});}catch{}}
     if(i<watchlist.length-1)await sleep(_pfSleepMs);
@@ -365,18 +385,26 @@ async function prefetchAll(){
     yahooBatch:_summarize(_timing.yahooBatch),
     expiryChains:_summarize(_timing.expiryChains)
   };
-  S.set('last_refresh_health',_health);
+  const _healthSaved=S.set('last_refresh_health',_health);
   _updateRefreshHealthBadge();
   if(btn)btn.disabled=false;renderWatchlist();
   // _failedT (computed just above, into _health.summary) is the real record of
   // which tickers didn't fully succeed this run -- the toast used to claim
-  // success unconditionally regardless of it.
-  if(_failedT.length){
+  // success unconditionally regardless of it. If the record itself couldn't
+  // be saved (storage full), say so instead -- otherwise the Settings health
+  // modal and this same badge, on a later visit, would silently show a
+  // STALE record from a previous run with no indication it isn't this one.
+  if(!_healthSaved){
+    toast('Refresh finished, but results could not be recorded (storage full)',4000);
+  }else if(_failedT.length){
     toast(`Prefetch partially complete -- ${_failedT.length} ticker${_failedT.length===1?'':'s'} not fully cached`,4000);
   }else{
     toast('All data cached for offline use');
   }
   markWheelbtDataStale();
+  return _health; // lets fullRefreshEverything() use this run's actual in-memory
+  // result directly, instead of reading it back from storage -- which stays
+  // correct even in the rare case where _healthSaved above was false.
 }
 
 async function fullRefreshEverything(){
@@ -392,16 +420,14 @@ async function fullRefreshEverything(){
   // partially finished, or threw.
   try{
     label.textContent='Step 1/6: Fetching all ticker data...';
-    await prefetchAll();bar.style.width='50%';setTopBar(50);
+    const _prefetchHealth=await prefetchAll();bar.style.width='50%';setTopBar(50);
     // prefetchAll() doesn't throw on individual ticker failures -- it
     // catches those internally and just records them in _health, so this
     // try block always reaches here whether every ticker succeeded or not.
-    // Reading the health record it just saved is how this function's OWN
-    // completion message reflects that, rather than the unconditional
-    // "complete" a normal (no-throw) return used to imply. Without this,
-    // the person could see prefetchAll's own "partially complete" toast
-    // immediately overwritten by this function's unconditional success one.
-    const _frHealth=S.get('last_refresh_health');
+    // Using prefetchAll()'s own returned _health (the in-memory result of
+    // THIS run) rather than reading it back from storage means this stays
+    // correct even in the rare case where storage itself couldn't save it.
+    const _frHealth=_prefetchHealth;
     const _frFailed=_frHealth?.summary?.failed?.length||0;
     label.textContent='Step 2/6: Running conviction dashboards...';
     try{runDashboards();}catch{}bar.style.width='65%';setTopBar(65);

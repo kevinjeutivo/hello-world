@@ -601,20 +601,40 @@ function _populateGapFillDropdown(){
 }
 
 // Shared block for one direction's (up/down) fill-rate summary -- same data
-// shape used by both the aggregate and individual-ticker views.
+// shape used by both the aggregate and individual-ticker views. Reports
+// FIXED-HORIZON outcomes (each computed only over gaps old enough to have
+// actually been observable at that horizon) rather than a single
+// all-ages-pooled fill rate/average -- see _gapHorizonStat in helpers.js
+// for why the pooled version is statistically biased.
 function _gapFillDirectionHtml(label,color,data){
   if(!data||!data.count){
     return `<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">${label}: no qualifying gaps found in the available history.</div>`;
   }
-  const fillStr=data.fillRate!=null?data.fillRate.toFixed(0)+'%':'--';
-  const avgDaysStr=data.avgDaysToFill!=null?data.avgDaysToFill.toFixed(1)+' days avg':'--';
-  return `<div style="margin-bottom:14px">
-    <div style="font-family:var(--mono);font-size:11px;font-weight:600;color:${color};margin-bottom:4px">${label} -- ${data.count} gap${data.count!==1?'s':''}</div>
-    <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11px;padding:3px 0;border-bottom:1px solid var(--surface3)">
-      <span style="color:var(--text2)">Filled</span>
+  const row=(lbl,stat)=>{
+    const pctStr=stat.filledPct!=null?stat.filledPct.toFixed(0)+'%':'--';
+    const sampleStr=stat.eligible?`${stat.filledCount} / ${stat.eligible}`:'no gaps old enough yet';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11px;padding:3px 0;border-bottom:1px solid var(--surface3)">
+      <span style="color:var(--text2)">${lbl}</span>
       <span style="text-align:right">
-        <span style="color:var(--text);font-weight:600">${data.filledCount} / ${data.count} (${fillStr})</span>
-        <span style="color:var(--text3);display:block;font-size:10px">${avgDaysStr}, when filled</span>
+        <span style="color:var(--text);font-weight:600">${pctStr}</span>
+        <span style="color:var(--text3);display:block;font-size:10px">${sampleStr}</span>
+      </span>
+    </div>`;
+  };
+  const h=data.horizons;
+  const stillOpenStr=h.within60.eligible?h.within60.openPct.toFixed(0)+'%':'--';
+  const stillOpenSample=h.within60.eligible?`${h.within60.openCount} / ${h.within60.eligible}`:'no gaps old enough yet';
+  return `<div style="margin-bottom:14px">
+    <div style="font-family:var(--mono);font-size:11px;font-weight:600;color:${color};margin-bottom:4px">${label} -- ${data.count} gap${data.count!==1?'s':''} (${data.filledCount} filled to date)</div>
+    ${row('Filled same day',h.sameDay)}
+    ${row('Filled within 5 trading days',h.within5)}
+    ${row('Filled within 20 trading days',h.within20)}
+    ${row('Filled within 60 trading days',h.within60)}
+    <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11px;padding:3px 0">
+      <span style="color:var(--text2)">Still open past 60 trading days</span>
+      <span style="text-align:right">
+        <span style="color:var(--warn);font-weight:600">${stillOpenStr}</span>
+        <span style="color:var(--text3);display:block;font-size:10px">${stillOpenSample}</span>
       </span>
     </div>
   </div>`;

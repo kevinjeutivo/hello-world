@@ -2752,6 +2752,14 @@ function _computeEarningsReactionEvents(hist2y,hist2ySP,earningsHistory){
 
     events.push({
       date:eDate,hour,
+      // Whether the announcement hour is ACTUALLY known, vs. an unknown
+      // hour silently defaulting to the BMO reaction-day convention above
+      // ("BMO or unknown -- reaction on D"). A genuinely AMC report
+      // treated as BMO reads the wrong day as the reaction day, which can
+      // flip its measured direction entirely -- downstream aggregates
+      // should exclude these from averaged reaction stats rather than
+      // quietly blending them in as if the hour were confirmed.
+      hourKnown:!!hour,
       reactionPct,spReactionPct,excessReaction,
       preDayRet,excessPre,
       postDayRet,excessPost,
@@ -2771,11 +2779,16 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
 
   if(!events.length)return null;
 
-  // Aggregate
-  const validReaction=events.filter(e=>e.reactionPct!=null);
-  const validExcess=events.filter(e=>e.excessReaction!=null);
-  const validPre=events.filter(e=>e.preDayRet!=null);
-  const validPost=events.filter(e=>e.postDayRet!=null);
+  // Aggregate -- only events with a CONFIRMED announcement hour. An
+  // unknown-hour event's reaction day is a guess (defaults to the BMO
+  // convention inside _computeEarningsReactionEvents), so including it
+  // here could silently mix a wrong-day reading into the averages. Still
+  // shown in the raw per-event list below, just excluded from what gets
+  // averaged and presented as "how this ticker typically reacts."
+  const validReaction=events.filter(e=>e.reactionPct!=null&&e.hourKnown);
+  const validExcess=events.filter(e=>e.excessReaction!=null&&e.hourKnown);
+  const validPre=events.filter(e=>e.preDayRet!=null&&e.hourKnown);
+  const validPost=events.filter(e=>e.postDayRet!=null&&e.hourKnown);
 
   if(!validReaction.length)return null;
 
@@ -2807,7 +2820,7 @@ function _computeEarningsPatternSummary(ticker,hist2y,hist2ySP,earningsHistory){
       e.source==='gap-estimated'?'':
       e.source==='auto-confirmed'?'<span style="color:var(--accent);font-size:8px"> auto</span>':
       '<span style="color:var(--text3);font-size:8px"> ~est</span>';
-    const hourLabel=e.hour?' '+e.hour.toUpperCase():'';
+    const hourLabel=e.hour?' '+e.hour.toUpperCase():' <span style="color:var(--warn)">(hour unknown -- reaction day assumed, excluded from averages)</span>';
     return `<div style="font-family:var(--mono);font-size:10px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
       <div style="display:flex;justify-content:space-between">
         <span style="color:var(--text3)">${e.date}${hourLabel}${srcLabel}</span>

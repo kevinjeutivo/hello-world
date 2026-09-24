@@ -176,18 +176,33 @@ function _computeFedMeetingProbabilities(fedFutures,effrRows){
   if(oldSingle){S.del('fomc_last_known_rate');}
   // One-time migration: builds before 495 wrote the live FORECAST rate into
   // history for every future meeting on every fetch, not just resolved
-  // outcomes (see the 495 changelog). Any entry keyed by a meeting date
-  // that's still in the future as of today is guaranteed to be one of
-  // those forecasts -- a genuinely resolved meeting can only be keyed by a
-  // PAST date -- so it's safe to drop unconditionally rather than trying
-  // to tell a legitimate entry apart from a contaminated one after the
-  // fact. Entries for genuinely past meetings are left alone here: they
-  // get transparently re-resolved (with source metadata attached) by the
-  // main loop below the first time that meeting is processed again, so no
-  // separate migration pass is needed for those.
+  // outcomes (see the 495 changelog). Two separate contamination shapes
+  // that migration needs to handle:
+  // (a) Still future-dated as of today -- unambiguously a leftover
+  //     forecast (a genuinely resolved meeting can only be keyed by a
+  //     PAST date), purged unconditionally.
+  // (b) Already past-dated, but with none of the fields this build always
+  //     writes (source/resolvedAt/moveBp) -- this is what (a) becomes
+  //     once enough time passes for the meeting date to arrive, and it's
+  //     NOT caught by the future-only check above. Confirmed via direct
+  //     reproduction that leaving it in place is a real, severe hole: it
+  //     can get read completely unconditionally as another (later)
+  //     meeting's PRE-meeting baseline a few lines below (the
+  //     `history[priorMeetingDate]` lookup), with no source check at all
+  //     -- an old contaminated guess silently distorted an ordinary
+  //     meeting into reading as a "1275bp cut" in testing. Every entry
+  //     this build itself ever writes always carries a `source`, so
+  //     "past-dated but source-less" can only mean pre-495 debris -- safe
+  //     to drop unconditionally, same as (a). If that meeting's own month
+  //     is still reachable in a future fetch window, it gets a clean,
+  //     properly-sourced resolution the next time it's actually
+  //     processed; if it's aged out of the window entirely, dropping it
+  //     just means an honest "insufficientBaseline" for anything that
+  //     would have leaned on it, instead of a silent wrong answer.
   const _todayStr=_todayET();
   Object.keys(history).forEach(d=>{
-    if(d>_todayStr){delete history[d];historyChanged=true;}
+    const entry=history[d];
+    if(d>_todayStr||!entry||!entry.source){delete history[d];historyChanged=true;}
   });
   for(let i=0;i<fedFutures.length;i++){
     const c=fedFutures[i];
@@ -230,7 +245,13 @@ function _computeFedMeetingProbabilities(fedFutures,effrRows){
     if(currentRate==null){
       const idx=meetingDates.indexOf(meetingDateStr);
       const priorMeetingDate=idx>0?meetingDates[idx-1]:null;
-      if(priorMeetingDate&&history[priorMeetingDate])currentRate=history[priorMeetingDate].rate;
+      // Require .source -- an entry without one can only be pre-495
+      // legacy contamination (see the migration comment above), and the
+      // migration now deletes those anyway; this check is the second,
+      // caller-independent line of defense in case one ever slips through
+      // some other way. An unsourced rate must never silently become
+      // another meeting's baseline.
+      if(priorMeetingDate&&history[priorMeetingDate]?.source)currentRate=history[priorMeetingDate].rate;
     }
     const meetingDay=new Date(meetingDateStr+'T12:00:00Z').getDate();
     // The new rate isn't effective until the day AFTER the decision is

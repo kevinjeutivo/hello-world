@@ -1036,6 +1036,10 @@
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
     <div class="commentary" style="font-size:12px;max-height:400px;overflow-y:auto">
+v3.2.2 -- 2026-09-23
+- Fixed a real, severe Fed Watch bug caught by review: a source-less legacy history entry (from a build before 495) surviving past its own meeting date could get read completely unconditionally as a LATER meeting's starting rate, with no check on where that rate actually came from. Confirmed via direct reproduction: a single stray legacy entry made an ordinary meeting read as a fabricated "1275bp cut." The migration now purges any history entry that isn't properly sourced, regardless of whether its date is in the future or the past, and the baseline lookup itself now also refuses to trust an unsourced entry even if one somehow exists.
+- Service worker: v498
+
 v3.2.1 -- 2026-09-23
 - Fixed a real regression from an external review: visiting the Options tab could silently overwrite a Market-tab-resolved (NY Fed official) meeting outcome with a weaker futures-implied guess, because the Options tab's own call into the shared probability function wasn't passing the cached official rate data. Fixed at both ends -- the Options tab now passes the same data the Market tab does, and the shared function itself now refuses to downgrade an existing official record even if a future caller forgets to.
 - Fixed a real bug, also caught by review: if a single month's futures contract was ever completely missing from a fetch (not stale -- genuinely absent), the calculation would silently use a rate from however many months back happened to be available as if it were the immediately preceding month's rate. For adjacent meeting months (like September/October), this could attribute an entire multi-month rate move to a single meeting -- confirmed via direct reproduction to produce a nonsensical "67% chance of a 250bp cut" instead of an honest "odds unavailable." A gap in the monthly sequence now correctly invalidates the baseline instead.

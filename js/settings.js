@@ -1047,7 +1047,17 @@ function openRefreshHealthModal(){
     :'';
 
   const tickerRows=Object.entries(h.tickers||{}).map(([t,v])=>{
-    const coreOk=v.snap&&v.hist&&v.finnhub;
+    // Must match prefetch.js's _coreOk EXACTLY -- these two are meant to
+    // represent the same concept (the summary's N/total count and each
+    // row's own badge), and previously didn't: this row-level check used
+    // to omit options entirely, so a ticker whose options data failed
+    // (metadata unavailable, or some expiration fetches came back with
+    // nothing usable to fall back on) could show a green "OK" row here
+    // while still being correctly counted as the failure behind a "46/47"
+    // summary above it -- invisible in the one place meant to show which
+    // ticker that was, with its own explanatory detail line suppressed
+    // too (that line only renders when the row ISN'T "OK").
+    const coreOk=v.snap&&v.hist&&v.finnhub&&v.options===true;
     const isDegraded=coreOk&&v.summaryDegraded;
     // Three states, not two: fully OK, degraded (core data fine, but
     // sector/beta/PEG/price targets/etc. are carried over from an earlier

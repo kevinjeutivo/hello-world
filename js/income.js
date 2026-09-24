@@ -453,12 +453,30 @@ function _calcIncome(inp,tbillYield,fdlxxYield,spaxxYield,spyiData,nbosData,targ
   const blendedYield =totalCapital>0?totalIncome/totalCapital*100:0;
   const l3Lift       =totalCapital>0?l3Income/totalCapital*100:0;
 
+  // Collateral-coverage check: the exclusion above is only correct if the
+  // cash securing every tracked put is ACTUALLY sitting in Layer 1. If
+  // tracked put notional exceeds Layer 1's own capital, that assumption
+  // has broken down somewhere (margin in use, a real cash balance not
+  // fully reflected in Layer 1's tracked accounts, etc.) -- the blended
+  // yield above is then implicitly a return on leveraged capital, not
+  // fully-covered cash-secured capital, without saying so anywhere. This
+  // doesn't change the arithmetic (still the same exclusion, same
+  // formula) -- it only flags when that exclusion's own precondition
+  // isn't actually holding, so the person can see it rather than trust a
+  // number that's quietly assuming more collateral exists than is shown.
+  const collateralCoverage={
+    putsNotional:_effectivePutsNotional,l1Capital,
+    covered:_effectivePutsNotional<=l1Capital,
+    shortfall:Math.max(0,_effectivePutsNotional-l1Capital),
+  };
+
   return{
     l1:{capital:l1Capital,income:l1Income,yield:l1Yield,components:l1Components},
     l2:{capital:l2Capital,income:l2Income,yield:l2Yield,components:l2Components},
     l3:{income:l3Income,lift:l3Lift,components:l3Components,targetAPY},
     blended:{yield:blendedYield,capital:totalCapital,annualIncome:totalIncome,monthlyIncome:totalIncome/12},
     yields:{tbill:tbillYield,tbillTEY,fdlxx:fdlxxYield,fdlxxTEY,spaxx:spaxxYield},
+    collateralCoverage,
   };
 }
 
@@ -563,6 +581,22 @@ function _layerCard({bg,border,accentColor,title,layerNum,capitalStr,yieldStr,in
   +'</div>';
 }
 
+// Warning banner shown when tracked put notional exceeds Layer 1's own
+// capital -- the blended yield's exclusion of put collateral from the
+// denominator (see _calcIncome) is only correct when that collateral is
+// actually sitting in Layer 1; if it isn't, the displayed yield is
+// implicitly a return on leveraged capital, not fully cash-secured
+// capital, without saying so anywhere else in the UI. Returns '' when
+// coverage is fine (the common case) -- nothing shown, no clutter.
+function _collateralCoverageWarningHtml(cc){
+  if(!cc||cc.covered)return'';
+  return '<div style="background:rgba(255,159,10,0.12);border:1px solid var(--warn);border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;font-family:var(--mono);font-size:11px;color:var(--text)">'
+    +'<div style="font-weight:600;color:var(--warn);margin-bottom:3px">&#x26A0; Collateral coverage shortfall</div>'
+    +'<div>Tracked put notional ('+_fmtDollar(cc.putsNotional)+') exceeds Layer 1 capital ('+_fmtDollar(cc.l1Capital)+') by '+_fmtDollar(cc.shortfall)+'. '
+    +'The blended yield above assumes put collateral is already covered by Layer 1 cash and excludes it from the denominator -- if that\'s not actually the case (margin in use, or real cash not fully reflected in Layer 1 here), this yield is effectively a return on leveraged capital, not fully cash-secured capital.</div>'
+  +'</div>';
+}
+
 function _renderResults(result,mmfTs,mmfFromCache,mmfMeta,rawFetched){
   const{l1,l2,l3,blended}=result;
   const noCapital=blended.capital<=0;
@@ -586,7 +620,8 @@ function _renderResults(result,mmfTs,mmfFromCache,mmfMeta,rawFetched){
       +'</div>'
       +(l3.income>0?'<div style="font-family:var(--mono);font-size:10px;color:'+L3_TEXT+';margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">Options overlay adds +'+_fmtPct(l3.lift)+' lift on total capital ('+_fmtDollar(l3.income)+'/yr in premium income)</div>':'')
     )
-  +'</div>';
+  +'</div>'
+  +_collateralCoverageWarningHtml(result.collateralCoverage);
 
   // ── Layer 1 with manual fallbacks ─────────────────────────────────────────
   const l1ComponentsWithFallback=l1.components.map(c=>{
@@ -1123,7 +1158,7 @@ function _calcIncomeForAccount(accountId){
 // per-account card already uses.
 function _calcIncomeAllAccounts(){
   const accounts=_getAccounts();
-  let l1Capital=0,l1Income=0,l2Capital=0,l2Income=0,l3Income=0,totalCapital=0,totalIncome=0;
+  let l1Capital=0,l1Income=0,l2Capital=0,l2Income=0,l3Income=0,totalCapital=0,totalIncome=0,putsNotionalAll=0;
   accounts.forEach(a=>{
     const r=_calcIncomeForAccount(a.id);
     l1Capital+=r.l1.capital; l1Income+=r.l1.income;
@@ -1131,6 +1166,7 @@ function _calcIncomeAllAccounts(){
     l3Income+=r.l3.income;
     totalCapital+=r.blended.capital;
     totalIncome+=r.blended.annualIncome;
+    putsNotionalAll+=r.collateralCoverage.putsNotional;
   });
   const blendedYield=totalCapital>0?totalIncome/totalCapital*100:0;
   const l3Lift=totalCapital>0?l3Income/totalCapital*100:0;
@@ -1140,6 +1176,7 @@ function _calcIncomeAllAccounts(){
     l2:{capital:l2Capital,income:l2Income},
     l3:{income:l3Income,lift:l3Lift},
     blended:{yield:blendedYield,capital:totalCapital,annualIncome:totalIncome,monthlyIncome:totalIncome/12},
+    collateralCoverage:{putsNotional:putsNotionalAll,l1Capital,covered:putsNotionalAll<=l1Capital,shortfall:Math.max(0,putsNotionalAll-l1Capital)},
   };
 }
 
@@ -1163,7 +1200,8 @@ function _renderAllAccountsHero(result){
       +'</div>'
       +(l3.income>0?'<div style="font-family:var(--mono);font-size:10px;color:'+L3_TEXT+';margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">Options overlay adds +'+_fmtPct(l3.lift)+' lift on total capital ('+_fmtDollar(l3.income)+'/yr in premium income)</div>':'')
     )
-    +'</div>';
+    +'</div>'
+    +_collateralCoverageWarningHtml(result.collateralCoverage);
 }
 
 function openIncomeOverview(){

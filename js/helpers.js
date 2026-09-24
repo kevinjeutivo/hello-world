@@ -608,7 +608,57 @@ function stdDev(arr){const a=avg(arr);if(a===null)return null;const v=arr.filter
 // including the watchlist/ticker RSI badge, were exposed to this. Filtering
 // once here, internally, fixes all of them at once regardless of what any
 // given caller remembers to do.
-function computeRSI(closes,period=14){const filtered=closes.filter(c=>c!=null);const result=[];for(let i=0;i<filtered.length;i++){if(i<period){result.push(null);continue;}const sl=filtered.slice(i-period,i+1);let g=0,l=0;for(let j=1;j<sl.length;j++){const d=sl[j]-sl[j-1];if(d>0)g+=d;else l-=d;}const ag=g/period,al=l/period;if(al===0){result.push(100);continue;}result.push(100-100/(1+ag/al));}return result.filter(v=>v!==null);}
+// Standard Wilder RSI(period). Each day's average gain/loss is a
+// recursive exponential smooth of the PRIOR day's average (weight
+// (period-1)/period) plus today's gain/loss (weight 1/period) -- NOT an
+// independently recomputed simple average over a fresh rolling window
+// every day, which is what this function did before. Confirmed via a
+// hand-computed worked example that the two methods can disagree by
+// several RSI points -- enough to flip which side of the 30/70 threshold
+// a ticker reads on (see tests/rsi.test.js).
+//
+// Returns an array the SAME LENGTH as `closes`, with explicit `null` at
+// any position that either (a) was itself null in the input, or (b)
+// doesn't yet have `period` full lookback days of real price data behind
+// it (including right after a null -- a genuine data gap resets the
+// smoothing rather than silently blending a stale average across it,
+// the same way a freshly-listed instrument would have to start over).
+// rsi[k] always corresponds to closes[k] -- no caller needs to know
+// `period` to map an RSI index back to a closes index, and no caller
+// should pre-filter nulls out of `closes` before calling this (doing so
+// only reintroduces the exact misalignment this design avoids: every
+// caller in this codebase that does its own null-filtering first is
+// filtering a throwaway LOCAL copy purely to avoid gap-triggered resets
+// mattering to it, never to reconstruct a closes-index mapping
+// afterward). A caller checking "is there a usable RSI at all" must
+// check the actual last non-null value, not just `.length` -- length is
+// now always closes.length, whether or not any real value exists in it.
+function computeRSI(closes,period=14){
+  const result=new Array(closes.length).fill(null);
+  let avgGain=null,avgLoss=null,seedCount=0,sumGain=0,sumLoss=0,prev=null;
+  for(let i=0;i<closes.length;i++){
+    const c=closes[i];
+    if(c==null){avgGain=avgLoss=null;seedCount=0;sumGain=0;sumLoss=0;prev=null;continue;}
+    if(prev==null){prev=c;continue;} // first real close after a gap (or the series start) -- no change to measure yet
+    const change=c-prev;prev=c;
+    const gain=change>0?change:0,loss=change<0?-change:0;
+    if(avgGain==null){
+      // Seeding the initial window -- Wilder's own convention: the first
+      // `period` changes are a plain average, and recursive smoothing
+      // only begins on the next one after that.
+      sumGain+=gain;sumLoss+=loss;seedCount++;
+      if(seedCount===period){
+        avgGain=sumGain/period;avgLoss=sumLoss/period;
+        result[i]=avgLoss===0?100:100-100/(1+avgGain/avgLoss);
+      }
+      continue;
+    }
+    avgGain=(avgGain*(period-1)+gain)/period;
+    avgLoss=(avgLoss*(period-1)+loss)/period;
+    result[i]=avgLoss===0?100:100-100/(1+avgGain/avgLoss);
+  }
+  return result;
+}
 
 // EMA seeded with a simple moving average of the first `period` values (the
 // conventional seeding method), then computed recursively forward. Unlike
@@ -698,8 +748,12 @@ function _getRSIRecentTransition(ticker,preloadedHist2y){
     if(!h2?.closes?.length||h2.closes.length<80)return null;
     const closes=h2.closes;
     const rsi=computeRSI(closes,14);
-    if(!rsi.length)return null;
-    const lastIdx=rsi.length-1;
+    // rsi.length is now always closes.length, whether or not a real value
+    // exists anywhere in it -- find the actual last non-null entry rather
+    // than assuming the final position is valid.
+    let lastIdx=rsi.length-1;
+    while(lastIdx>=0&&rsi[lastIdx]==null)lastIdx--;
+    if(lastIdx<0)return null;
     const lastRSI=rsi[lastIdx];
     const isOversold=lastRSI<RSI_OVERSOLD_THRESHOLD;
     const isOverbought=lastRSI>RSI_OVERBOUGHT_THRESHOLD;
@@ -709,6 +763,12 @@ function _getRSIRecentTransition(ticker,preloadedHist2y){
       const inZone=isOversold?(v=>v<RSI_OVERSOLD_THRESHOLD):(v=>v>RSI_OVERBOUGHT_THRESHOLD);
       let days=0;
       for(let k=lastIdx;k>=0;k--){
+        // A null here is a genuine data gap (or the pre-seeding window) --
+        // treat it the same as the old implementation effectively did by
+        // not having a position there at all: it breaks the streak rather
+        // than being silently coerced by `null<30`/`null>70` (both of
+        // which evaluate against 0, not "no data").
+        if(rsi[k]==null)break;
         if(inZone(rsi[k]))days++;
         else break;
       }
@@ -722,6 +782,7 @@ function _getRSIRecentTransition(ticker,preloadedHist2y){
     let exitZone=null,daysSinceExit=null;
     const startK=Math.max(1,lastIdx-RSI_RECENT_EXIT_DAYS+1);
     for(let k=startK;k<=lastIdx;k++){
+      if(rsi[k-1]==null||rsi[k]==null)continue; // a data gap in this window -- no transition can be read across it
       const prevOversold=rsi[k-1]<RSI_OVERSOLD_THRESHOLD;
       const prevOverbought=rsi[k-1]>RSI_OVERBOUGHT_THRESHOLD;
       const currOversold=rsi[k]<RSI_OVERSOLD_THRESHOLD;
@@ -740,7 +801,7 @@ function _computeRSIBacktestForTicker(ticker){
     if(!h2?.closes?.length||h2.closes.length<80)return null; // need enough history for RSI + forward windows to be meaningful
     const closes=h2.closes;
     const rsiPeriod=14;
-    const rsi=computeRSI(closes,rsiPeriod); // rsi[k] corresponds to closes[k+rsiPeriod]
+    const rsi=computeRSI(closes,rsiPeriod); // rsi[k] corresponds directly to closes[k] -- see computeRSI's own comment
 
     // Detect episodes: both entering a zone (first day RSI crosses in, not
     // every day spent there) and leaving it (first day RSI crosses back out).
@@ -753,8 +814,15 @@ function _computeRSIBacktestForTicker(ticker){
     const overboughtEnterIdx=[],overboughtExitIdx=[];
     let wasOversold=false,wasOverbought=false;
     for(let k=0;k<rsi.length;k++){
-      const closeIdx=k+rsiPeriod;
       const v=rsi[k];
+      // rsi[k] now corresponds directly to closes[k] -- computeRSI no
+      // longer strips nulls or shortens the array, so no +rsiPeriod
+      // offset is needed (or correct) here anymore. A null position
+      // (pre-seeding window, or a genuine data gap) has no signal to
+      // read -- skip it rather than let `null<30`/`null>70` silently
+      // evaluate against 0.
+      if(v==null)continue;
+      const closeIdx=k;
       const isOversold=v<RSI_OVERSOLD_THRESHOLD;
       const isOverbought=v>RSI_OVERBOUGHT_THRESHOLD;
       if(isOversold&&!wasOversold)oversoldEnterIdx.push(closeIdx);
@@ -831,8 +899,12 @@ function _computeRSIBacktestAggregate(tickers){
       const idxByCat={oversoldEnter:[],oversoldExit:[],overboughtEnter:[],overboughtExit:[]};
       let wasOversold=false,wasOverbought=false;
       for(let k=0;k<rsi.length;k++){
-        const closeIdx=k+rsiPeriod;
         const v=rsi[k];
+        // Same fix as _computeRSIBacktestForTicker above: rsi[k] maps
+        // directly to closes[k] now, and a null position is skipped
+        // rather than compared against the thresholds.
+        if(v==null)continue;
+        const closeIdx=k;
         const isOversold=v<RSI_OVERSOLD_THRESHOLD;
         const isOverbought=v>RSI_OVERBOUGHT_THRESHOLD;
         if(isOversold&&!wasOversold)idxByCat.oversoldEnter.push(closeIdx);

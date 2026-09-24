@@ -199,7 +199,10 @@ async function loadETFTab(){
               }));
             distributions=divList;
             S.set(divKey,{distributions,ts:nowPT(),tsEpoch:Date.now()});
-            // Trailing 12-month yield: sum last 12 distributions / current price
+            // "Trailing 12-month" yield by distribution COUNT, not literal
+            // calendar months -- the same thing for a fund that reliably
+            // pays every month, but if one was ever skipped, these 12
+            // payments span more than 12 actual months (see the Guide).
             const last12=divList.slice(0,12);
             const total=last12.reduce((s,d)=>s+(d.amount||0),0);
             if(snap?.price&&total>0)trailingYield=(total/snap.price*100).toFixed(2);
@@ -216,8 +219,11 @@ async function loadETFTab(){
       }else{const _hc=S.get(holdKey);if(_hc){holdings=_hc.holdings||[];alloc=_hc.alloc||null;bond=_hc.bond||null;ratings=_hc.ratings||[];}}
       const chartLabels=hist6mo?hist6mo.timestamps.slice(-126).map(d=>{if(!(d instanceof Date))d=new Date(d);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});}):[];
       const chartData=hist6mo?hist6mo.closes.slice(-126):[];
-      // Compute total return series: price + cumulative distributions reinvested
-      // Map distribution dates to cumulative sum, then add to price on each date
+      // Compute total return series: price + cumulative CASH distributions
+      // added -- an approximation of total return, NOT actual share
+      // reinvestment (which would compound by buying more shares with each
+      // distribution). Map distribution dates to cumulative sum, then add
+      // to price on each date.
       let totalReturnData=[];
       if(hist6mo&&hist6mo.timestamps&&distributions.length){
         let cumDist=0;
@@ -594,7 +600,7 @@ function _sbBuildTile(ticker,snap,hist6mo,distributions,trailingYield,isLive,fun
       <div class="metric-tile" id="sb-total-ret-${ticker}">
         ${totalRetPct!=null?`<div class="metric-label">Total Return (6M)</div>
         <div class="metric-value" style="color:${totalRetPct>=0?'var(--green)':'var(--red)'}">${totalRetPct>=0?'+':''}${totalRetPct.toFixed(1)}%</div>
-        <div class="metric-sub">Price + distributions reinvested</div>`:''}
+        <div class="metric-sub">Price + cash distributions added (not compounded reinvestment)</div>`:''}
       </div>
       <div class="metric-tile">
         <div class="metric-label">Annualized Yield (indicated)</div>
@@ -662,7 +668,7 @@ function _updateSbReturnTiles(ticker,priceRetPct,totalRetPct,span){
     trEl.innerHTML='<div class="metric-label">Total Return ('+span+')</div>'+
       '<div class="metric-value" style="color:'+(totalRetPct>=0?'var(--green)':'var(--red)')+'">'+
         (totalRetPct>=0?'+':'')+totalRetPct.toFixed(1)+'%</div>'+
-      '<div class="metric-sub">Price + distributions reinvested</div>';
+      '<div class="metric-sub">Price + cash distributions added (not compounded reinvestment)</div>';
   }
 }
 

@@ -324,10 +324,10 @@ async function prefetchAll(){
       _health.tickers[t].options=(_pExpFresh+_pExpPreserved)===_pExpTotal;
       if(_pExpTotal>0)_health.tickers[t].optionsExpDetail={fresh:_pExpFresh,preserved:_pExpPreserved,total:_pExpTotal};
     }
-    {const _tNews=Date.now();try{const news=await fetchNews(t);_timing.news.push(Date.now()-_tNews);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT(),tsEpoch:Date.now()});}catch{}}
+    {const _tNews=Date.now();try{const news=await _pfTimeout(fetchNews(t),10000,t+' news');_timing.news.push(Date.now()-_tNews);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT(),tsEpoch:Date.now()});}catch{}}
     if(i<watchlist.length-1)await sleep(_pfSleepMs);
   }
-  try{const[vh,v3h]=await Promise.all([yahooHistory('^VIX','1y','1d'),yahooHistory('^VIX3M','1y','1d')]);S.set('vix_hist',{timestamps:vh.timestamps.map(d=>d.toISOString()),closes:vh.closes,ts:nowPT(),tsEpoch:Date.now()});S.set('vix3m_hist',{timestamps:v3h.timestamps.map(d=>d.toISOString()),closes:v3h.closes,ts:nowPT(),tsEpoch:Date.now()});const vc=vh.closes.filter(c=>c!==null);updateVIXIndicator(vc[vc.length-1]);}catch{}
+  try{const[vh,v3h]=await Promise.all([_pfTimeout(yahooHistory('^VIX','1y','1d'),15000,'VIX'),_pfTimeout(yahooHistory('^VIX3M','1y','1d'),15000,'VIX3M')]);S.set('vix_hist',{timestamps:vh.timestamps.map(d=>d.toISOString()),closes:vh.closes,ts:nowPT(),tsEpoch:Date.now()});S.set('vix3m_hist',{timestamps:v3h.timestamps.map(d=>d.toISOString()),closes:v3h.closes,ts:nowPT(),tsEpoch:Date.now()});const vc=vh.closes.filter(c=>c!==null);updateVIXIndicator(vc[vc.length-1]);}catch{}
   if(barEl)barEl.style.width='100%';if(labelEl)labelEl.textContent='Prefetch complete!';
   setTimeout(()=>{if(progressEl)progressEl.style.display='none';},2000);
   // Refresh sandbox ETF data

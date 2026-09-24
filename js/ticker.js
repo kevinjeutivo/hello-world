@@ -66,8 +66,8 @@ async function loadTicker(){
       // a mutual fund) instead of aborting this whole Promise.all and
       // discarding the Yahoo quote/history data that succeeded fine on its
       // own. prefetch.js already guards this identical call the same way.
-      const _e=await fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`).catch(e=>{console.warn('earnings calendar failed:',t,e?.message);return null;});
-      const _u=_fetchUpgrades?await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`).catch(()=>null):null;
+      const _e=await _tkTimeout(fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),10000,'earnings').catch(e=>{console.warn('earnings calendar failed:',t,e?.message);return null;});
+      const _u=_fetchUpgrades?await _tkTimeout(fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`),8000,'upgrades').catch(()=>null):null;
       return[_e,_u];
     })();
     const _yahooBatch=Promise.all([
@@ -254,7 +254,7 @@ async function loadTicker(){
     // dense price map and confirmed BMO/AMC report timing.
     _updateMultipleHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
     _updateNextFYHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
-    try{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT(),tsEpoch:Date.now()});}
+    try{news=await _tkTimeout(fetchNews(t),10000,'news');S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT(),tsEpoch:Date.now()});}
     catch{const cn=S.get('news_'+t);if(cn)news=cn.items;}
     const upgradesData=S.get('upgrades_'+t)?.data||[];
     // Re-read snap from localStorage to pick up fetchQuoteSummary enrichment
@@ -3347,10 +3347,10 @@ async function refreshSingleTicker(){
     // -- a mutual fund genuinely has no earnings calendar, and that should
     // degrade gracefully rather than aborting the whole refresh before it
     // even reaches the quote/history steps below.
-    const earnings=await fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`).catch(e=>{console.warn('earnings calendar failed:',t,e?.message);return null;});
+    const earnings=await _tkTimeout(fh(`/calendar/earnings?symbol=${t}&from=${fmtDate(addDays(new Date(),-740))}&to=${fmtDate(addDays(new Date(),180))}`),10000,'earnings').catch(e=>{console.warn('earnings calendar failed:',t,e?.message);return null;});
     let upgrades=null,priceTargetS=null;
     if(_fetchUpgrades){
-      try{upgrades=await fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`);}catch(e){_rUpgradesErr=e?.message||'failed';}
+      try{upgrades=await _tkTimeout(fh(`/stock/upgrade-downgrade?symbol=${t}&from=${fmtDate(addDays(new Date(),-90))}`),8000,'upgrades');}catch(e){_rUpgradesErr=e?.message||'failed';}
     }
     // Build snap from Yahoo /quote. Fetched concurrently with 2Y history
     // (rather than waiting for Step 3 below) specifically so the
@@ -3359,7 +3359,7 @@ async function refreshSingleTicker(){
     setP(20,'Fetching '+t+' Yahoo quote...');
     let ah,_rh2;
     [ah,_rh2]=await Promise.all([
-      fetchAfterHoursPrice(t),
+      _tkTimeout(fetchAfterHoursPrice(t),10000,'quote').catch(e=>{console.warn('quote failed:',t,e?.message);return null;}),
       _tkTimeout(yahooHistory(t,'2y','1d'),15000,'hist2y').catch(e=>{console.warn('hist2y failed:',t,e?.message);return null;})
     ]);
     if(!ah)ah={};
@@ -3418,7 +3418,7 @@ async function refreshSingleTicker(){
     }catch{}
     // Step 2: Yahoo quoteSummary (beta, short interest, R40 inputs, price targets, trends)
     setP(20,'Fetching '+t+' extended data...');
-      try{const qs=await fetchQuoteSummary(t);if(qs){
+      try{const qs=await _tkTimeout(fetchQuoteSummary(t),10000,'quoteSummary');if(qs){
         snap.summaryDegraded=false;snap.summaryTs=nowPT();snap.summaryTsEpoch=Date.now();
         if(qs.sector!=null)snap.sector=qs.sector;
         if(qs.industry!=null)snap.industry=qs.industry;
@@ -3477,7 +3477,7 @@ async function refreshSingleTicker(){
     _updateNextFYHistory(t,S.get('snap_'+t),S.get('hist2y_'+t));
     // Step 4: News
     setP(50,'Fetching '+t+' news...');
-    try{const newsData=await fetchNews(t);S.set('news_'+t,{items:(newsData||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT(),tsEpoch:Date.now()});}catch{}
+    try{const newsData=await _tkTimeout(fetchNews(t),10000,'news');S.set('news_'+t,{items:(newsData||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT(),tsEpoch:Date.now()});}catch{}
     // Step 5: Options chain top-level
     setP(65,'Fetching '+t+' options chain...');
     let optionsLoaded=false;

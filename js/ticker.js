@@ -1738,7 +1738,13 @@ function _rsiTransitionCardHtml(ticker,preloadedHist2y){
   if(!trans){
     const h2=preloadedHist2y||S.get('hist2y_'+ticker);
     const rsi=h2?.closes?.length>=80?computeRSI(h2.closes,14):null;
-    const lastRSI=rsi&&rsi.length?rsi[rsi.length-1]:null;
+    // rsi.length (now always h2.closes.length when rsi is non-null) no
+    // longer signals whether the LAST position specifically has a real
+    // value -- computeRSI can now return internal/trailing nulls for a
+    // gap or an unsettled latest bar. Search backward for the actual
+    // last non-null entry, same fix as _getRSIRecentTransition.
+    let lastRSI=null;
+    if(rsi){for(let i=rsi.length-1;i>=0;i--){if(rsi[i]!=null){lastRSI=rsi[i];break;}}}
     const rsiStr=lastRSI!=null?lastRSI.toFixed(0):'--';
     return`<div class="card"><div style="font-family:var(--mono);font-size:11px;color:var(--text3)">RSI: ${rsiStr} (neutral) -- no recent oversold/overbought signal</div></div>`;
   }
@@ -1864,7 +1870,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
   let rsiStr='N/A',bbStr='',bbData=null;
   if(hist&&hist.closes&&hist.closes.length>20){
     const closes=hist.closes.filter(c=>c!==null);const rsi=computeRSI(closes);
-    rsiStr=rsi.length?rsi[rsi.length-1].toFixed(1):'N/A';
+    rsiStr=(rsi.length&&rsi[rsi.length-1]!=null)?rsi[rsi.length-1].toFixed(1):'N/A';
     // Buffered BB computation (see _computeBBData) -- reads the raw
     // hist2y_ cache directly by ticker rather than the hist2y parameter,
     // since that parameter can be total-return/adjclose-based when the
@@ -2090,7 +2096,7 @@ function renderBBChart(bbData,hist){
     window._bbChart=new Chart(bbCtx,{type:'line',data:{labels,datasets:[{data:bbData.closes,borderColor:'#e8eaf0',borderWidth:1.5,pointRadius:0,tension:0.2,fill:false},{data:bbData.sma20,borderColor:'#7c6af7',borderWidth:1,pointRadius:0,borderDash:[4,3],fill:false},{data:bbData.upper,borderColor:'#ff4757',borderWidth:1,pointRadius:0,borderDash:[2,3],fill:false},{data:bbData.lower,borderColor:'#00c896',borderWidth:1,pointRadius:0,borderDash:[2,3],fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6},grid:{color:'#2a2e38'}},y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}}},plugins:[gapPlugin]});
   }
   const rsiCtx=document.getElementById('rsi-chart')?.getContext('2d');
-  if(rsiCtx&&rsiVals.length>0){
+  if(rsiCtx&&rsiVals.some(v=>v!=null)){
     // rsiVals can now be LONGER than labels when hist carries lookback
     // buffer (see _computeBBData/toggleBBSpan) -- the old assumption here
     // was that rsiVals could only ever be shorter (computeRSI eating into

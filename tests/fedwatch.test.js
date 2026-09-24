@@ -1,1803 +1,789 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Income Engine">
-<link rel="apple-touch-icon" sizes="180x180" href="icon-saturn4.png">
-<link rel="apple-touch-startup-image" href="icon-saturn4.png">
-<title>Income Engine</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<link rel="stylesheet" href="./app.css">
-</head>
-<body>
-<div id="offline-mode-bar">OFFLINE MODE -- all data served from cache</div>
-<div id="app">
-<div id="sticky-chrome" style="position:sticky;top:0;z-index:200">
-<div class="offline-banner" id="offline-banner">No network -- showing cached data</div>
-<div id="market-status-banner" class="mkt-closed">Loading market status...</div>
-<div id="top-progress-bar"><div class="top-bar-fill" id="top-bar-fill"></div></div>
-<div class="header">
-  <div class="header-left">
-    <div class="header-title">Income Engine <span id="header-status-dot" onclick="_explainHeaderStatus()" title="Data freshness -- tap for details" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555870;margin-left:4px;vertical-align:middle;cursor:pointer"></span></div>
-    <div class="header-sub">
-      <span id="online-dot" style="display:inline-block;vertical-align:middle;line-height:0"></span>
-      <span>Options Income Strategy <span id="app-build-label"></span></span>
-    </div>
-    <div id="vix-status-banner"></div>
-  </div>
-  <button class="settings-btn" onclick="openSettings()">Settings</button>
-</div>
-<div class="nav-tabs">
-  <button class="nav-tab active" onclick="showTab('dashboard')">Dashboard</button>
-  <button class="nav-tab" onclick="showTab('watchlist')">Watchlist</button>
-  <button class="nav-tab" onclick="showTab('ticker')">Ticker</button>
-  <button class="nav-tab" onclick="showTab('options')">Options</button>
-  <button class="nav-tab" onclick="showTab('income')">Income</button>
-  <button class="nav-tab" id="vix-tab-btn" onclick="showTab('vix')">VIX</button>
-  <button class="nav-tab" onclick="showTab('earnings')">Earnings</button>
-  <button class="nav-tab" onclick="showTab('etf')">ETFs</button>
-  <button class="nav-tab" onclick="showTab('market')">Market</button>
-  <button class="nav-tab" onclick="showTab('guide')">Guide</button>
-</div>
-</div><!-- /sticky-chrome -->
-<!-- Disclaimer modal -->
-<div id="disclaimer-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.8);overflow-y:auto">
-  <div style="background:var(--surface);border-radius:16px;margin:20px auto;max-width:600px;padding:24px;position:relative">
-    <div style="font-family:var(--sans);font-size:18px;font-weight:700;color:var(--accent);margin-bottom:16px">Disclaimer &amp; Terms of Use</div>
-    <div style="font-family:var(--mono);font-size:12px;color:var(--text2);line-height:1.8">
-      <p style="margin-bottom:12px"><strong style="color:var(--text)">For Informational Purposes Only</strong><br>
-      This application is an analytical tool designed to help visualize and organize publicly available market data. Nothing presented in this app constitutes financial advice, investment advice, trading advice, or any other type of professional financial guidance.</p>
-      <p style="margin-bottom:12px"><strong style="color:var(--text)">No Recommendations</strong><br>
-      Conviction scores, strategy suggestions, and any other analysis presented are purely informational and algorithmic in nature. They do not represent personalized recommendations and should not be relied upon as the basis for any investment decision.</p>
-      <p style="margin-bottom:12px"><strong style="color:var(--text)">Risk Warning</strong><br>
-      Options trading involves substantial risk of loss and is not suitable for all investors. Selling puts and covered calls can result in significant financial losses. Past performance is not indicative of future results.</p>
-      <p style="margin-bottom:12px"><strong style="color:var(--text)">Data Accuracy</strong><br>
-      Market data is sourced from third-party providers including Yahoo Finance and Finnhub. Data may be delayed, inaccurate, or incomplete. Always verify information with your broker or a licensed financial professional before making investment decisions.</p>
-      <p style="margin-bottom:0"><strong style="color:var(--text)">No Liability</strong><br>
-      The developer of this application accepts no liability for any financial losses or damages arising from use of this tool.</p>
-    </div>
-    <button class="btn btn-primary" onclick="document.getElementById('disclaimer-modal').style.display='none'" style="margin-top:20px;width:100%">I Understand</button>
-  </div>
-</div>
-<div class="main">
+#!/usr/bin/env node
+'use strict';
+// tests/fedwatch.test.js -- deterministic tests for the FOMC / Fed Funds
+// Futures Phase-1 fix (build 495): day-count correction, NY-Fed-official
+// resolution of past meetings, and the forecast/history contamination fix.
+//
+// Runs the ACTUAL shipped js/storage.js, js/helpers.js and js/market.js
+// source inside a Node vm context (never a hand-reimplemented stand-in --
+// see income-engine-working-practices.md §1: "Extract and test the actual
+// shipped code... a reimplementation can accidentally 'fix' the bug in the
+// test harness without validating what actually ships"), with a minimal
+// in-memory localStorage and a fixed system clock so meeting-past/future
+// classification is reproducible regardless of when this is actually run.
+//
+// Usage: node tests/fedwatch.test.js
 
-<!-- DASHBOARD TAB -->
-<div id="tab-dashboard" class="tab-panel active">
-  <div class="card">
-    <div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Full Refresh Everything</div>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Fetches all data, runs conviction dashboards, loads earnings and VIX. One tap -- walk away and come back.</div>
-    <button class="btn btn-success" id="full-refresh-btn" onclick="fullRefreshEverything()">Refresh All Data + Dashboards</button>
-    <div id="last-full-refresh-label" style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:4px;text-align:center"></div>
-    <div id="full-refresh-progress" style="display:none">
-      <div class="progress-bar-wrap"><div class="progress-bar" id="full-refresh-bar" style="width:0%"></div></div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-align:center" id="full-refresh-label">Starting...</div>
-    </div>
-  </div>
-  <div class="card">
-    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">View:</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-      <button class="btn btn-secondary" id="dash-view-puts" onclick="setDashboardViewMode('puts')" style="font-size:10px;padding:3px 8px">Puts</button>
-      <button class="btn btn-secondary" id="dash-view-cc" onclick="setDashboardViewMode('cc')" style="font-size:10px;padding:3px 8px;opacity:0.4">Covered Calls</button>
-      <button class="btn btn-secondary" id="dash-view-rsi" onclick="setDashboardViewMode('rsi')" style="font-size:10px;padding:3px 8px;opacity:0.4">RSI Backtest</button>
-      <button class="btn btn-secondary" id="dash-view-risk" onclick="setDashboardViewMode('risk')" style="font-size:10px;padding:3px 8px;opacity:0.4">ITM Risk</button>
-      <button class="btn btn-secondary" id="dash-view-gap" onclick="setDashboardViewMode('gap')" style="font-size:10px;padding:3px 8px;opacity:0.4">Gap Fill</button>
-      <button class="btn btn-secondary" id="dash-view-notes" onclick="setDashboardViewMode('notes')" style="font-size:10px;padding:3px 8px;opacity:0.4">Notes</button>
-      <button class="btn btn-secondary" id="dash-view-wheelbt" onclick="setDashboardViewMode('wheelbt')" style="font-size:10px;padding:3px 8px;opacity:0.4">Wheel Backtest</button>
-      <button class="btn btn-secondary" id="dash-view-valuation" onclick="setDashboardViewMode('valuation')" style="font-size:10px;padding:3px 8px;opacity:0.4">Valuation</button>
-    </div>
-  </div>
-  <div id="dash-conviction-controls" class="card">
-    <div class="card-title"><span class="dot"></span>Conviction Dashboards</div>
-    <div class="input-group"><label class="input-label">Target APY %</label><input class="input" type="number" id="target-apy" value="12" min="5" max="50"></div>
-    <button class="btn btn-primary" id="run-dashboard-btn" onclick="runDashboards()">Run Both Conviction Dashboards</button>
-    <div id="dashboard-progress" style="display:none">
-      <div class="progress-bar-wrap"><div class="progress-bar" id="dash-progress-bar" style="width:0%"></div></div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-align:center" id="dash-progress-label">Scoring...</div>
-    </div>
-  </div>
-  <div id="dash-puts-card" class="card">
-    <div class="card-title"><span class="dot" style="background:var(--red)"></span>Put-Selling Conviction</div>
-    <div id="put-dash-ts"></div>
-    <div id="put-dashboard-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Press Run to generate</div></div>
-  </div>
-  <div id="dash-cc-card" class="card" style="display:none">
-    <div class="card-title"><span class="dot" style="background:var(--green)"></span>Covered Call Conviction</div>
-    <div id="cc-dash-ts"></div>
-    <div id="cc-dashboard-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Press Run to generate</div></div>
-  </div>
-  <div id="dash-rsi-card" class="card" style="display:none">
-    <div class="card-title"><span class="dot" style="background:var(--accent3)"></span>RSI Backtest</div>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">How often has RSI oversold/overbought actually preceded a real price move, for stocks you watch? Cache-only -- uses whatever price history is already stored, no new fetches.</div>
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
-      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Scope:</span>
-      <select class="input" id="rsi-backtest-ticker-sel" onchange="renderRSIBacktest()" style="font-family:var(--mono);font-size:11px;padding:4px 6px;flex:1">
-        <option value="">Aggregate (whole watchlist)</option>
-      </select>
-    </div>
-    <div id="rsi-backtest-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Loading...</div></div>
-  </div>
-  <div id="dash-rsi-ranking-card" class="card" style="display:none">
-    <div class="card-title"><span class="dot" style="background:var(--accent3)"></span>RSI Ranking</div>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Which of your watchlist tickers show the strongest RSI signal, ranked by excess return over baseline. Requires at least 4 historical episodes to qualify.</div>
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap">
-      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Window:</span>
-      <select class="input" id="rsi-ranking-window-sel" onchange="renderRSIRanking()" style="font-family:var(--mono);font-size:11px;padding:4px 6px">
-        <option value="5">5-day</option>
-        <option value="10" selected>10-day</option>
-        <option value="20">20-day</option>
-      </select>
-      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-left:8px">Phase:</span>
-      <select class="input" id="rsi-ranking-phase-sel" onchange="renderRSIRanking()" style="font-family:var(--mono);font-size:11px;padding:4px 6px">
-        <option value="Enter">Entering</option>
-        <option value="Exit" selected>Leaving</option>
-      </select>
-    </div>
-    <div id="rsi-ranking-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Loading...</div></div>
-  </div>
-  <div id="dash-risk-card" class="card" style="display:none">
-    <div class="card-title"><span class="dot" style="background:var(--warn)"></span>In-the-Money Risk</div>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Active positions currently ITM, ranked by how likely and how soon assignment looks -- ITM% scaled by urgency from days-to-expiry. Time value and earnings proximity shown separately so you can see the full picture, not just a single score.</div>
-    <div id="assignment-risk-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Loading...</div></div>
-  </div>
-  <div id="dash-gap-card" class="card" style="display:none">
-    <div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Gap Fill</div>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Gaps (Open vs. prior Close, &ge;2%) found in cached history, and whether price has traded back through the gap since. An inventory of what's happened, not a fixed-window backtest -- cache-only, uses whatever price history is already stored.</div>
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
-      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Scope:</span>
-      <select class="input" id="gap-fill-ticker-sel" onchange="renderGapFillDashboard()" style="font-family:var(--mono);font-size:11px;padding:4px 6px;flex:1">
-        <option value="">Aggregate (whole watchlist)</option>
-      </select>
-    </div>
-    <div id="gap-fill-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Loading...</div></div>
-  </div>
-  <div id="dash-notes-card" class="card" style="display:none">
-    <div class="card-title"><span class="dot" style="background:#4fc3f7"></span>Notes</div>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Freeform notes, not tied to any single ticker. Saved automatically as you type.</div>
-    <textarea id="dash-notes-text" oninput="_saveDashboardNotes()" style="width:100%;box-sizing:border-box;min-height:420px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:12px;padding:10px;resize:vertical;outline:none"></textarea>
-    <div id="dash-notes-status" style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:4px;text-align:right">&nbsp;</div>
-  </div>
-  <div id="dash-wheelbt-card" class="card" style="display:none">
-    <div class="card-title"><span class="dot" style="background:#7c6af7"></span>Wheel Backtest</div>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Simulates the wheel (CSP &rarr; assignment &rarr; CC &rarr; called away &rarr; repeat) against real historical prices, using real monthly (3rd-Friday) expirations. Strike each cycle is the one closest to your target APY while still clearing it -- not a fixed delta. If your preferred expiration can't clear the floor, tries the other expirations (1-3mo, whichever works), then waits for a later day if none do. Black-Scholes premiums, realized volatility standing in for implied vol -- see "Premium source" below. Strategy selector below chooses which entry rules apply -- see "Strategy" in the Guide tab.</div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">This is not real historical options data -- an approximation using each stock's own price history.</div>
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Scope:</span>
-      <select class="input" id="wheelbt-ticker-sel" onchange="renderWheelBacktest()" style="font-family:var(--mono);font-size:11px;padding:4px 6px;flex:1">
-        <option value="">Aggregate (whole watchlist)</option>
-        <option value="__starred__">Starred Only</option>
-      </select>
-    </div>
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Strategy:</span>
-      <select class="input" id="wheelbt-strategy-sel" onchange="setWheelBacktestStrategy()" style="font-family:var(--mono);font-size:11px;padding:4px 6px;flex:1">
-        <option value="default">Default</option>
-        <option value="no-earnings-csp">No Earnings Overlap (CSP)</option>
-      </select>
-    </div>
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
-      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Target APY:</span>
-      <input class="input" type="number" id="wheelbt-target-apy-input" value="12" step="0.5" min="0" onchange="setWheelBacktestTargetAPY()" style="font-family:var(--mono);font-size:11px;padding:4px 6px;width:64px">
-      <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">% &mdash; independent of Conviction Scoring's target</span>
-    </div>
-    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:4px">Preferred Expiration (starting point -- see above)</div>
-    <div style="display:flex;gap:5px;margin-bottom:12px">
-      <button class="btn btn-secondary" id="wheelbt-months-1" onclick="setWheelBacktestMonths(1)" style="flex:1;font-size:10px;padding:4px 0;opacity:0.4">1 Month</button>
-      <button class="btn btn-secondary" id="wheelbt-months-2" onclick="setWheelBacktestMonths(2)" style="flex:1;font-size:10px;padding:4px 0;opacity:1">2 Months</button>
-      <button class="btn btn-secondary" id="wheelbt-months-3" onclick="setWheelBacktestMonths(3)" style="flex:1;font-size:10px;padding:4px 0;opacity:0.4">3 Months</button>
-    </div>
-    <div id="wheelbt-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Loading...</div></div>
-  </div>
-  <div id="dash-wheelbt-ranking-card" class="card" style="display:none">
-    <div class="card-title"><span class="dot" style="background:#7c6af7"></span>Best Tickers for the Wheel</div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Every watchlist ticker's median simulated return, ranked -- always across the whole watchlist regardless of the Scope selection above. Uses the same Preferred Expiration and Target APY settings from the card above.</div>
-    <div style="display:flex;gap:4px;margin-bottom:10px">
-      <span id="wheelbt-ranking-filter-all" onclick="setWheelBacktestRankingFilter('all')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--accent);color:#000">All</span>
-      <span id="wheelbt-ranking-filter-starred" onclick="setWheelBacktestRankingFilter('starred')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--surface3);color:var(--text3)">Starred Only</span>
-    </div>
-    <div id="wheelbt-ranking-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Loading...</div></div>
-  </div>
-  <div id="dash-valuation-card" class="card" style="display:none">
-    <div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Valuation by Sector</div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px">Your watchlist grouped by sector, ranked by valuation multiple within each group -- a low P/E or PEG only means much relative to similar companies, not across unrelated sectors. ETFs, funds, and anything not yet prefetched land in "No sector data" below. PEG here uses forward P/E internally (Yahoo's methodology) -- see the paired value in each row.</div>
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:10px">
-      <div style="display:flex;gap:4px">
-        <span id="valuation-scope-all" onclick="setValuationScope('all')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--accent);color:#000">All</span>
-        <span id="valuation-scope-starred" onclick="setValuationScope('starred')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--surface3);color:var(--text3)">Starred Only</span>
-      </div>
-      <div style="display:flex;gap:4px">
-        <span id="valuation-metric-pe" onclick="setValuationMetric('pe')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--accent);color:#000">P/E TTM</span>
-        <span id="valuation-metric-pe_fwd" onclick="setValuationMetric('pe_fwd')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--surface3);color:var(--text3)">P/E Fwd</span>
-        <span id="valuation-metric-peg" onclick="setValuationMetric('peg')" style="font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:3px;cursor:pointer;background:var(--surface3);color:var(--text3)">PEG</span>
-      </div>
-    </div>
-    <div id="valuation-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Loading...</div></div>
-  </div>
-</div>
+const fs=require('fs');
+const path=require('path');
+const vm=require('vm');
+const assert=require('assert');
 
+const ROOT=path.join(__dirname,'..');
 
-<!-- WATCHLIST TAB -->
-<div id="tab-watchlist" class="tab-panel">
-  <div class="card">
-    <div class="card-title"><span class="dot"></span>Manage Watchlist</div>
-    <div class="row"><input class="input" type="text" id="new-ticker-input" placeholder="e.g. AAPL" style="text-transform:uppercase"><button class="btn btn-secondary btn-sm" onclick="addTicker()">Add</button></div>
-    <div style="display:flex;gap:6px;margin-bottom:6px">
-      <button class="btn btn-secondary" id="wl-sort-manual" onclick="setWatchlistSort('manual')" style="font-size:10px;padding:3px 8px">Manual</button>
-      <button class="btn btn-secondary" id="wl-sort-alpha" onclick="setWatchlistSort('alpha')" style="font-size:10px;padding:3px 8px;opacity:0.4">A→Z</button>
-      <button class="btn btn-secondary" id="wl-sort-opp" onclick="setWatchlistSort('opportunity')" style="font-size:10px;padding:3px 8px;opacity:0.4">By Score</button>
-    </div>
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Heat:</span>
-      <button class="btn btn-secondary" id="hm-off" onclick="setHeatmap('off')" style="font-size:10px;padding:3px 8px">Off</button>
-      <button class="btn btn-secondary" id="hm-change" onclick="setHeatmap('change')" style="font-size:10px;padding:3px 8px;opacity:0.4">Daily %</button>
-      <button class="btn btn-secondary" id="hm-ivr" onclick="setHeatmap('ivr')" style="font-size:10px;padding:3px 8px;opacity:0.4">HVR</button>
-    </div>
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-      <button class="btn btn-secondary" id="wl-filter-all" onclick="setWatchlistFilterMode('all')" style="font-size:10px;padding:3px 8px;white-space:nowrap">All</button>
-      <button class="btn btn-secondary" id="wl-filter-positions" onclick="setWatchlistFilterMode('positions')" style="font-size:10px;padding:3px 8px;opacity:0.4;white-space:nowrap">Positions</button>
-      <button class="btn btn-secondary" id="wl-filter-starred" onclick="setWatchlistFilterMode('starred')" style="font-size:10px;padding:3px 8px;opacity:0.4;white-space:nowrap">Starred</button>
-    </div>
-    <button class="btn btn-success" id="prefetch-btn" onclick="prefetchAll()">Prefetch All Ticker Data</button>
-    <div id="refresh-health-badge" onclick="openRefreshHealthModal()" style="display:none;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid;cursor:pointer;margin-top:4px;color:var(--text2)"></div>
-    <div id="prefetch-progress" style="display:none">
-      <div class="progress-bar-wrap"><div class="progress-bar" id="prefetch-progress-bar" style="width:0%"></div></div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-align:center" id="prefetch-label">Fetching...</div>
-    </div>
-  </div>
-  <div class="card"><div class="card-title"><span class="dot"></span>Watchlist</div><div id="watchlist-items"></div></div>
-</div>
-
-<!-- TICKER TAB -->
-<div id="tab-ticker" class="tab-panel">
-  <div class="card"><div class="card-title"><span class="dot"></span>Select Ticker</div><select class="input" id="ticker-select" onchange="loadTicker()"><option value="">-- Select --</option></select>
-    <button class="btn btn-secondary" id="single-refresh-btn" onclick="refreshSingleTicker()" style="margin-top:8px;width:100%">&#x21BB; Refresh This Ticker + Options</button>
-    <div id="single-refresh-progress" style="display:none;margin-top:6px"><div class="progress-bar-wrap"><div class="progress-bar" id="single-refresh-bar" style="width:0%"></div></div><div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-align:center" id="single-refresh-label">Refreshing...</div></div>
-  </div>
-  <div id="ticker-sticky-bar" style="display:none;position:sticky;top:130px;z-index:98;background:var(--bg);padding:6px 14px;border-bottom:1px solid var(--border);box-sizing:border-box;margin:-14px -14px 14px -14px;align-items:baseline;gap:10px;font-family:var(--mono)">
-    <span id="ticker-sticky-symbol" style="font-size:16px;font-weight:700;letter-spacing:0.5px;color:var(--text)"></span>
-    <span id="ticker-sticky-price" style="font-size:12px;color:var(--text2)"></span>
-  </div>
-  <div id="ticker-content"><div class="empty"><div class="empty-icon">&#x1F4C8;</div>Select a ticker above</div></div>
-</div>
-
-<!-- OPTIONS TAB -->
-<div id="tab-options" class="tab-panel">
-  <div class="card">
-    <div class="card-title"><span class="dot"></span>Options Analysis</div>
-    <select class="input" id="options-ticker-select" onchange="loadOptionsForTicker()" style="margin-bottom:10px"><option value="">-- Select Ticker --</option></select>
-    <div class="mode-toggle">
-      <button class="mode-btn active" id="mode-puts" onclick="setMode('puts')">Sell Puts</button>
-      <button class="mode-btn" id="mode-calls" onclick="setMode('calls')">Sell Calls</button>
-    </div>
-    <div id="exp-section" style="display:none">
-      <label class="input-label">Expirations (tap to toggle)</label>
-      <div class="exp-chips" id="exp-chips"></div>
-      <div class="slider-wrap"><div class="slider-row"><span class="slider-label">% Below Price</span><span class="slider-val" id="pct-below-val">20%</span></div><input type="range" id="pct-below" min="1" max="50" value="20" oninput="updateSlider('pct-below')"></div>
-      <div class="slider-wrap"><div class="slider-row"><span class="slider-label">% Above Price</span><span class="slider-val" id="pct-above-val">5%</span></div><input type="range" id="pct-above" min="1" max="50" value="5" oninput="updateSlider('pct-above')"></div>
-      <div class="input-group"><label class="input-label">Highlight APY %</label><input class="input" type="number" id="highlight-apy" value="12" oninput="saveOptionsPrefs();(function(){const s=document.getElementById('options-ticker-select')?.value||'';if(currentOptionsData&&lastOptionsTickerLoaded&&s===lastOptionsTickerLoaded)buildOptionsTable();})();"></div>
-    </div>
-  </div>
-  <div id="options-earnings-warn"></div>
-  <div id="options-fomc-warn"></div>
-  <div id="options-content"></div>
-  <div id="oi-chart-section" style="display:none">
-    <div class="card">
-      <div class="card-title"><span class="dot"></span>Open Interest by Strike and Expiration</div>
-      <div id="oi-ts"></div>
-      <div class="chart-wrap" style="height:260px"><canvas id="oi-chart"></canvas></div>
-      <div id="oi-legend" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px"></div>
-      <div id="oi-analysis"></div>
-    </div>
-  </div>
-</div>
-
-<!-- VIX TAB -->
-<div id="tab-vix" class="tab-panel">
-  <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent3)"></span>VIX Market Environment</div><button class="btn btn-secondary" onclick="loadVIX()">Refresh VIX Data</button></div>
-  <div id="vix-content"><div class="empty"><div class="empty-icon">&#x1F321;&#xFE0F;</div>Press Refresh to load VIX</div></div>
-</div>
-
-<!-- EARNINGS TAB -->
-<div id="tab-earnings" class="tab-panel">
-  <div class="card">
-    <div class="card-title"><span class="dot" style="background:var(--warn)"></span>Earnings Calendar</div>
-    <div id="earnings-subtitle" style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">Sorted by upcoming earnings date. Tap any card to analyze.</div>
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">View:</span>
-      <button class="btn btn-secondary" id="earnings-view-upcoming" onclick="setEarningsViewMode('upcoming')" style="font-size:10px;padding:3px 8px">Upcoming</button>
-      <button class="btn btn-secondary" id="earnings-view-recent" onclick="setEarningsViewMode('recent')" style="font-size:10px;padding:3px 8px;opacity:0.4">Recent</button>
-    </div>
-    <div id="earnings-upcoming-chips-wrap">
-      <div class="exp-chips" id="earnings-filter-chips"><div class="exp-chip selected" onclick="filterEarnings(30,this)">Next 30d</div><div class="exp-chip" onclick="filterEarnings(60,this)">Next 60d</div><div class="exp-chip" onclick="filterEarnings(999,this)">All</div></div>
-    </div>
-    <button class="btn btn-secondary" onclick="loadEarningsTab()">Refresh Earnings Data</button>
-  </div>
-  <div id="earnings-content"><div class="empty"><div class="empty-icon">&#x1F4C5;</div>Press Refresh or run Full Refresh to load</div></div>
-</div>
-
-<!-- ETF TAB -->
-<div id="tab-etf" class="tab-panel">
-  <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Options Income ETFs</div><div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px">SPYI (covered calls on S&amp;P 500) and NBOS (put-writing strategy). Monthly distributions tracked.</div><button class="btn btn-secondary" onclick="loadETFTab()">Refresh ETF Data</button></div>
-  <div id="etf-content"><div class="empty"><div class="empty-icon">&#x1F4B0;</div>Press Refresh to load ETF data</div></div>
-
-  <!-- ETF RESEARCH SANDBOX -->
-  <div style="margin-top:16px">
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">&#x1F9EA; ETF Research Sandbox</div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px;line-height:1.5">Analyze any ETF for comparison with SPYI and NBOS. Sandbox data is never included in income calculations.</div>
-    <div style="margin-bottom:12px">
-      <input id="sb-input" class="input" type="text" placeholder="Ticker symbol, e.g. SCHD or CSHI" style="width:100%;box-sizing:border-box;text-transform:uppercase;margin-bottom:6px" oninput="this.value=this.value.toUpperCase()">
-      <button class="btn btn-secondary" onclick="sbAnalyze()" style="width:100%">Analyze ETF</button>
-    </div>
-    <div id="sb-tiles"></div>
-  </div>
-</div>
-
-<!-- MARKET TAB -->
-<div id="tab-market" class="tab-panel">
-  <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent3)"></span>Market Overview</div><button class="btn btn-secondary" onclick="loadMarketTab()">Refresh Market Data</button></div>
-  <div id="market-content"><div class="empty"><div class="empty-icon">&#x1F30E;</div>Press Refresh to load market data</div></div>
-</div>
-
-<!-- INCOME TAB -->
-<div id="tab-income" class="tab-panel">
-  <div id="income-acct-bar" style="display:none;position:sticky;top:130px;z-index:98;background:var(--bg);padding:6px 14px 8px;border-bottom:1px solid var(--border);box-sizing:border-box;margin:-14px -14px 14px -14px;">
-    <div id="income-acct-chips" style="display:flex;flex:1;overflow-x:auto"></div>
-    <button id="income-overview-btn" onclick="openIncomeOverview()">All Accounts ↗</button>
-  </div>
-  <div class="card">
-    <div class="card-title"><span class="dot" style="background:#00d4aa"></span>Income Engine Calculator</div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:14px">Three-layer blended yield. Inputs saved per account automatically.</div>
-    <!-- Layer 1 -->
-    <div style="font-family:var(--mono);font-size:9px;color:#64b5f6;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Layer 1 &mdash; Fixed Income</div>
-    <div class="input-group"><label class="input-label">T-Bills allocated ($)</label><input class="input" id="inc-tbill-amt" type="number" min="0" placeholder="e.g. 50000" oninput="recalcIncome()"></div>
-    <div class="input-group"><label class="input-label">FDLXX ($)</label><input class="input" id="inc-fdlxx-amt" type="number" min="0" placeholder="e.g. 25000" oninput="recalcIncome()"></div>
-    <div class="input-group"><label class="input-label">SPAXX / FDRXX / free cash ($)</label><input class="input" id="inc-spaxx-amt" type="number" min="0" placeholder="e.g. 10000" oninput="recalcIncome()"></div>
-    <!-- Layer 2 -->
-    <div style="font-family:var(--mono);font-size:9px;color:#ff6b35;text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px">Layer 2 &mdash; ETF Income</div>
-    <div class="input-group"><label class="input-label">SPYI shares held</label><input class="input" id="inc-spyi-shares" type="number" min="0" placeholder="e.g. 200" oninput="recalcIncome()"></div>
-    <div class="input-group"><label class="input-label">NBOS shares held</label><input class="input" id="inc-nbos-shares" type="number" min="0" placeholder="e.g. 150" oninput="recalcIncome()"></div>
-    <!-- Layer 3 -->
-    <div style="font-family:var(--mono);font-size:9px;color:#00d4aa;text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px">Layer 3 &mdash; Wheel Strategy</div>
-    <div class="input-group"><label class="input-label">Written puts &mdash; manual notional ($) <span style="font-family:var(--mono);font-size:9px;color:var(--text3)">(overridden by position tracker)</span></label><input class="input" id="inc-puts-notional" type="number" min="0" placeholder="e.g. 140000" oninput="recalcIncome()"></div>
-    <div class="input-group"><label class="input-label">Stock held for CC writing ($) <span style="font-family:var(--mono);font-size:9px;color:var(--text3)">(overridden by position tracker)</span></label><input class="input" id="inc-cc-stock-amt" type="number" min="0" placeholder="e.g. 30000" oninput="recalcIncome()"></div>
-    <!-- Per-account Target APY -->
-    <div class="input-group" style="margin-top:10px"><label class="input-label">Target APY % <span style="font-family:var(--mono);font-size:9px;color:var(--text3)">(per account)</span></label><input class="input" id="inc-target-apy" type="number" min="1" max="100" placeholder="12" oninput="recalcIncome()"></div>
-    <div style="display:flex;gap:8px;margin-top:4px">
-      <button class="btn btn-primary" style="flex:2" onclick="recalcIncome()">Calculate</button>
-      <button class="btn btn-secondary" style="flex:1" onclick="refreshIncomeYields()">Refresh Yields</button>
-    </div>
-  </div>
-  <div id="income-results"></div>
-</div>
-
-<!-- GUIDE TAB -->
-<div id="tab-guide" class="tab-panel">
-
-
-<script>
-(function(){
-  function _gsOpen(){return JSON.parse(localStorage.getItem('guide_open')||'[]');}
-  function _gsSave(arr){localStorage.setItem('guide_open',JSON.stringify(arr));}
-  window.toggleGuide=function(id){
-    const body=document.getElementById('gb-'+id);
-    const chev=document.getElementById('gc-'+id);
-    if(!body)return;
-    const isOpen=body.classList.contains('open');
-    body.classList.toggle('open',!isOpen);
-    chev.classList.toggle('open',!isOpen);
-    const arr=_gsOpen();
-    if(isOpen){const i=arr.indexOf(id);if(i>-1)arr.splice(i,1);}
-    else if(!arr.includes(id))arr.push(id);
-    _gsSave(arr);
+// ── Minimal in-memory localStorage, backing the REAL storage.js's S ──────
+function makeLocalStorage(){
+  const store=new Map();
+  return{
+    getItem:k=>store.has(k)?store.get(k):null,
+    setItem:(k,v)=>{store.set(k,String(v));},
+    removeItem:k=>{store.delete(k);},
+    clear:()=>store.clear(),
   };
-  window.initGuide=function(){
-    const open=_gsOpen();
-    open.forEach(id=>{
-      const b=document.getElementById('gb-'+id);const c=document.getElementById('gc-'+id);
-      if(b){b.classList.add('open');}if(c){c.classList.add('open');}
+}
+
+function buildContext(){
+  const localStorage=makeLocalStorage();
+  const ctx=vm.createContext({
+    console,
+    localStorage,
+    window:{},
+    toast:()=>{}, // storage.js's S.set only calls this on a write failure
+  });
+  const src=p=>fs.readFileSync(path.join(ROOT,p),'utf8');
+  vm.runInContext(src('js/storage.js'),ctx,{filename:'js/storage.js'});
+  vm.runInContext(src('js/helpers.js'),ctx,{filename:'js/helpers.js'});
+  vm.runInContext(src('js/market.js'),ctx,{filename:'js/market.js'});
+  return ctx;
+}
+
+// ── Fixed-clock helper -- overrides Date for the duration of fn() only,
+// so _todayET() (which calls `new Date()` internally) is deterministic. ──
+function withFixedNow(ctx,isoInstant,fn){
+  const RealDate=vm.runInContext('Date',ctx);
+  function FixedDate(...args){
+    if(args.length===0)return new RealDate(isoInstant);
+    return new RealDate(...args);
+  }
+  FixedDate.prototype=RealDate.prototype;
+  FixedDate.now=()=>RealDate.parse(isoInstant);
+  ctx.Date=FixedDate;
+  try{ return fn(); }
+  finally{ ctx.Date=RealDate; }
+}
+
+function run(ctx,expr){ return vm.runInContext(expr,ctx); }
+function setGlobal(ctx,name,value){ ctx[name]=value; }
+
+function contract(month,impliedRate,extra){
+  return Object.assign({ticker:'ZQ_TEST',month,price:+(100-impliedRate).toFixed(3),impliedRate},extra||{});
+}
+
+// ── Harness for testing js/api.js's fetchEffrHistory in isolation, with a
+// mocked `fetch` (never hits the real network) ──────────────────────────
+function buildApiContext(fetchImpl){
+  const ctx=vm.createContext({
+    console,
+    fetch:fetchImpl,
+    WORKER_URL:'https://worker.example',
+    offlineMode:false,
+    FINNHUB_KEY:'',
+    window:{},
+  });
+  const src=p=>fs.readFileSync(path.join(ROOT,p),'utf8');
+  vm.runInContext(src('js/helpers.js'),ctx,{filename:'js/helpers.js'}); // addDays/fmtDate
+  vm.runInContext(src('js/api.js'),ctx,{filename:'js/api.js'});
+  return ctx;
+}
+
+// ── Harness for testing cloudflare-proxy/worker.js's EFFR route directly.
+// Strips the `export default { fetch(...) {...} };` ES-module wrapper
+// (worker.js is a Worker module, not a plain script) so the plain
+// function declarations after it -- corsJson, handleEffrProxy,
+// _isValidISODate -- can run in a vm context; those functions themselves
+// are untouched, real shipped code. The REAL Node Response constructor is
+// injected into the context (not left to a context-local one) so a
+// returned Response can be read normally from outside without hitting
+// the vm module's cross-realm-array gotcha documented further down. ──
+function buildWorkerContext(fetchImpl){
+  const raw=fs.readFileSync(path.join(ROOT,'cloudflare-proxy/worker.js'),'utf8');
+  const stripped=raw.replace(/^export default \{[\s\S]*?\n\};\n/m,'');
+  if(stripped===raw)throw new Error('failed to strip the export-default wrapper -- worker.js structure may have changed');
+  const ctx=vm.createContext({console,fetch:fetchImpl,Response});
+  vm.runInContext(stripped,ctx,{filename:'cloudflare-proxy/worker.js (export wrapper stripped for testing)'});
+  return ctx;
+}
+
+// Returns a local-calendar Y-M-D string (not UTC) -- matches how the app's
+// own date helpers (addDays/new Date(y,m,d)) operate, so assertions stay
+// correct regardless of the machine's timezone (unlike .toISOString(),
+// which would silently shift by a day in a non-UTC+0 timezone).
+function localYMD(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+// ── Test scaffolding ──────────────────────────────────────────────────
+let pass=0,fail=0;
+function test(name,fn){
+  try{ fn(); pass++; console.log('  ok  --',name); }
+  catch(e){ fail++; console.log('FAIL  --',name); console.log('      '+(e && e.stack ? e.stack.split('\n').slice(0,3).join('\n      ') : e)); }
+}
+// Deferred async tests -- collected here, actually run (in order, awaited)
+// by the async tail at the very end of this file, after every synchronous
+// test above has already run to completion.
+const _asyncTests=[];
+function testAsync(name,fn){ _asyncTests.push({name,fn,section:_currentSection}); }
+let _currentSection='';
+function section(name){ _currentSection=name; console.log('\n== '+name+' =='); }
+
+// ============================================================================
+section('Day-count fix (meeting date belongs to the PRE-meeting bucket)');
+
+test('negative control: the pre-495 formula (meetingDay-1) really did give 20/9-days-off, not 21/9', ()=>{
+  // CME's own published example: Sept 21 meeting, 30-day month -> 21
+  // pre-meeting days, 9 post. The old code computed daysBefore=meetingDay-1.
+  const meetingDay=21, daysInMonth=30;
+  const oldDaysBefore=meetingDay-1, oldDaysAfter=daysInMonth-oldDaysBefore;
+  assert.strictEqual(oldDaysBefore,20);
+  assert.strictEqual(oldDaysAfter,10);
+  assert.notStrictEqual([oldDaysBefore,oldDaysAfter].join('/'),'21/9','sanity: confirms a real bug existed to fix');
+});
+
+test('shipped code now produces a day-count-sensitive result matching the NEW (21/9) split, not the OLD (20/10) one', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  // Constructed so the CORRECT (21/9) split yields a clean -25bp move
+  // (postMeetingRate=3.75, currentRate=4.00) -- and, as a negative
+  // control, the SAME impliedRate fed through the OLD (20/10) formula
+  // produces a materially different, non-clean answer, proving this test
+  // can actually tell the two formulas apart rather than passing either way.
+  const currentRate=4.00, targetPostNew=3.75, daysInMonth=30;
+  const impliedRate=+(( (currentRate*21) + (targetPostNew*9) ) / daysInMonth).toFixed(6);
+  const oldPostMeetingRate=(impliedRate*daysInMonth - currentRate*20)/10;
+  assert(Math.abs(oldPostMeetingRate-targetPostNew)>0.01,'old-formula result must differ from the new target, or this test cannot discriminate');
+
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{ // before the meeting -- forecast branch
+    const fedFutures=[contract('Aug 2026',currentRate),contract('Sep 2026',impliedRate)];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    assert(sep,'Sep 2026 meeting should be present in results');
+    // A clean -25bp move under the NEW day count should read as pCut25=100.
+    // Under the OLD day count it would have come out ~90/10 (see negative
+    // control above) -- so landing on exactly 100/0/0 confirms the fix.
+    assert.strictEqual(sep.pCut25,100,'expected 100% cut25 under the corrected day count');
+    assert.strictEqual(sep.pHold,0);
+    assert.strictEqual(sep.pHike25,0);
+  });
+});
+
+// ============================================================================
+section('Adjacent 25bp outcome split (Phase 2)');
+
+test('a move under one 25bp step still reduces to exactly the OLD hold/cut25 model (backward compatibility)', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    // 0.6 of a step (~15bp) -- OLD model: pCut=60%, pHold=40%, pHike=0%.
+    const currentRate=4.00, targetPost=4.00-(0.6*0.25), daysInMonth=30;
+    const impliedRate=+(( (currentRate*21) + (targetPost*9) ) / daysInMonth).toFixed(6);
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Aug 2026',currentRate),contract('Sep 2026',impliedRate)],[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    // Values extracted from a vm-context array carry that context's own
+    // Array constructor (a cross-realm quirk of Node's vm module, not
+    // anything about the app) -- spread into a local-realm array first so
+    // deepStrictEqual compares values, not foreign array identity.
+    assert.deepStrictEqual([...sep.outcomes.map(o=>o.moveBp)].sort((a,b)=>a-b),[-25,0]);
+    const hold=sep.outcomes.find(o=>o.moveBp===0), cut=sep.outcomes.find(o=>o.moveBp===-25);
+    assert.strictEqual(hold.probability,40);
+    assert.strictEqual(cut.probability,60);
+    assert.strictEqual(sep.pHold,40);
+    assert.strictEqual(sep.pCut25,60,'alias field must still exist for js/options.js');
+  });
+});
+
+test('a ~37bp move (1.48 steps) splits between adjacent 25bp and 50bp outcomes, summing to exactly 100', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    const currentRate=4.00, targetPost=4.00-(1.48*0.25), daysInMonth=30; // -0.37
+    const impliedRate=+(( (currentRate*21) + (targetPost*9) ) / daysInMonth).toFixed(6);
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Aug 2026',currentRate),contract('Sep 2026',impliedRate)],[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    const c25=sep.outcomes.find(o=>o.moveBp===-25), c50=sep.outcomes.find(o=>o.moveBp===-50);
+    assert(c25 && c50,'expected both a -25bp and a -50bp outcome, not a single capped one');
+    assert.strictEqual(c25.probability,52);
+    assert.strictEqual(c50.probability,48);
+    assert.strictEqual(c25.probability+c50.probability,100);
+    assert.strictEqual(sep.pHold,0,'no hold probability once the market is pricing at least one full step');
+    // The old model would have shown this as a flat 100% cut25 -- confirm
+    // the aggregate alias reflects "any cut" (100%), while outcomes[]
+    // now carries the granularity the old pCut25 alone could not.
+    assert.strictEqual(sep.pCut25,100);
+    assert.strictEqual(sep.pAnyCut,100);
+  });
+});
+
+test('a symmetric ~37bp HIKE move splits the same way in the positive direction', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    const currentRate=4.00, targetPost=4.00+(1.48*0.25), daysInMonth=30;
+    const impliedRate=+(( (currentRate*21) + (targetPost*9) ) / daysInMonth).toFixed(6);
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Aug 2026',currentRate),contract('Sep 2026',impliedRate)],[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    const h25=sep.outcomes.find(o=>o.moveBp===25), h50=sep.outcomes.find(o=>o.moveBp===50);
+    assert(h25 && h50);
+    assert.strictEqual(h25.probability,52);
+    assert.strictEqual(h50.probability,48);
+    assert.strictEqual(sep.pHike25,100);
+    assert.strictEqual(sep.pAnyHike,100);
+  });
+});
+
+test('a clean, exact-fraction move produces a single outcome, not a spurious zero-probability entry', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    const currentRate=4.00, targetPost=3.75, daysInMonth=30; // exactly 1 step, frac=0
+    const impliedRate=+(( (currentRate*21) + (targetPost*9) ) / daysInMonth).toFixed(6);
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Aug 2026',currentRate),contract('Sep 2026',impliedRate)],[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    assert.strictEqual(sep.outcomes.length,1,'no 0%-probability entry should be included');
+    assert.strictEqual(sep.outcomes[0].moveBp,-25);
+    assert.strictEqual(sep.outcomes[0].probability,100);
+  });
+});
+
+test('each individual meeting sums to exactly 100 across a run of several meetings (per-meeting normalization only -- this app deliberately has no cross-meeting recombining probability tree, see the Phase-3 scoping discussion)', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-07-29','2026-09-21'])`);
+  withFixedNow(ctx,'2026-07-01T12:00:00Z',()=>{
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(
+      [contract('Jun 2026',4.50),contract('Jul 2026',4.30),contract('Aug 2026',4.05),contract('Sep 2026',3.80)],[]
+    );
+    results.filter(r=>r.outcomes).forEach(r=>{
+      const total=r.outcomes.reduce((s,o)=>s+o.probability,0);
+      assert.strictEqual(total,100,'meeting '+r.meetingDate+' outcomes must sum to exactly 100');
     });
-  };
-})();
-</script>
-
-<!-- ── SECTION: Three-Layer Strategy ───────────────────────────────── -->
-<div class="card" style="margin-bottom:8px">
-  <div class="gs-header" onclick="toggleGuide('layers')">
-    <div class="card-title" style="margin:0"><span class="dot" style="background:#64b5f6"></span>Three-Layer Income Strategy</div>
-    <span class="gs-chevron" id="gc-layers">&#9658;</span>
-  </div>
-  <div class="gs-body" id="gb-layers">
-    <div class="guide-h3">Layer 1 — Risk-Free Baseline</div>
-    <div class="guide-kv"><span class="guide-key">Instruments</span><span class="guide-val">3-month and 6-month T-bills, FDLXX, SPAXX, SGOV</span></div>
-    <div class="guide-kv"><span class="guide-key">Purpose</span><span class="guide-val">Sets your opportunity cost floor. Every higher layer must earn a meaningful risk premium above this yield to justify its complexity and risk.</span></div>
-    <div class="guide-kv"><span class="guide-key">Yield source</span><span class="guide-val">Government credit, near-zero duration risk. State-tax-exempt for T-bills.</span></div>
-    <div class="guide-kv"><span class="guide-key">Why FDLXX</span><span class="guide-val">Fidelity's Treasury-only money market fund. Your put collateral sits here earning a yield that's typically better than most high-yield savings accounts, with same-day liquidity -- no lockup, no early-withdrawal penalty -- whenever a put gets assigned or a new position needs cash.</span></div>
-    <div class="guide-kv"><span class="guide-key">T-bill auctions</span><span class="guide-val">Fidelity lets you buy Treasury bills directly at auction, at no fee -- not every online broker offers this. Auction purchases skip the bid/ask spread and markup you'd otherwise pay buying T-bills on the secondary market.</span></div>
-    <div class="guide-kv"><span class="guide-key">Brokerage</span><span class="guide-val">This app's Layer 1 assumes a Fidelity account specifically, given FDLXX and direct auction access above -- genuine advantages over many other brokers for this strategy's collateral-parking layer.</span></div>
-    <div class="guide-h3">Layer 2 — Options Income ETFs</div>
-    <div class="guide-kv"><span class="guide-key">SPYI</span><span class="guide-val">NEOS S&amp;P 500 High Income ETF. Holds S&amp;P 500 stocks and sells index put spreads and covered calls to generate monthly income. Tax-efficient via 1256 contracts.</span></div>
-    <div class="guide-kv"><span class="guide-key">NBOS</span><span class="guide-val">Neuberger Berman Option Strategy ETF. Put-write strategy &mdash; sells cash-secured puts on a broad equity index to generate option premium income, similar in spirit to your own Layer 3 wheel but executed at fund scale. Distinct from covered-call funds: NBOS retains more upside participation since it does not sell calls against its holdings.</span></div>
-    <div class="guide-kv"><span class="guide-key">Target metric</span><span class="guide-val">Trailing 12-month distribution yield vs T-bill spread. Layer 2 should earn meaningfully more than Layer 1 to compensate for equity market correlation.</span></div>
-    <div class="guide-kv"><span class="guide-key">Risk</span><span class="guide-val">NAV can decline during sustained bear markets even with income. Total return (price + distributions) is the correct performance measure.</span></div>
-    <div class="guide-h3">Layer 3 — Active Wheel Strategy</div>
-    <div class="guide-kv"><span class="guide-key">Mechanism</span><span class="guide-val">Sell cash-secured puts on high-conviction tickers. If assigned, sell covered calls against the stock. Repeat. Collect premium at each step.</span></div>
-    <div class="guide-kv"><span class="guide-key">Target APY</span><span class="guide-val">12% annualized per position. Strike selection targets this threshold while maintaining a 5–12% OTM buffer for downside cushion.</span></div>
-    <div class="guide-kv"><span class="guide-key">Risk management</span><span class="guide-val">Avoid earnings straddles. Beta-aware sizing. No more than one position per sector at high concentration. Close or roll before assignment if thesis breaks.</span></div>
-  </div>
-</div>
-
-<!-- ── SECTION: Wheel Strategy Mechanics ───────────────────────────── -->
-<div class="card" style="margin-bottom:8px">
-  <div class="gs-header" onclick="toggleGuide('wheel')">
-    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--accent)"></span>Wheel Strategy Mechanics</div>
-    <span class="gs-chevron" id="gc-wheel">&#9658;</span>
-  </div>
-  <div class="gs-body" id="gb-wheel">
-    <div class="guide-h3">Cash-Secured Put</div>
-    <div class="guide-kv"><span class="guide-key">What it is</span><span class="guide-val">You sell the right for someone else to sell you 100 shares at the strike price. You collect premium upfront and must hold enough cash to buy the shares if assigned.</span></div>
-    <div class="guide-kv"><span class="guide-key">OTM %</span><span class="guide-val">Strike is set below current price. A 7% OTM put means the stock must fall more than 7% before you're assigned. The further OTM, the safer but lower premium.</span></div>
-    <div class="guide-kv"><span class="guide-key">Profit</span><span class="guide-val">You keep the full premium if the stock stays above your strike at expiration. Max profit is the premium collected.</span></div>
-    <div class="guide-kv"><span class="guide-key">Assignment</span><span class="guide-val">If the stock closes below your strike at expiration, you buy 100 shares at the strike price. Your effective cost basis is strike minus premium collected.</span></div>
-    <div class="guide-h3">Covered Call</div>
-    <div class="guide-kv"><span class="guide-key">What it is</span><span class="guide-val">Once assigned shares, you sell calls against them. You collect more premium and agree to sell your shares at the call strike if exercised.</span></div>
-    <div class="guide-kv"><span class="guide-key">Strike selection</span><span class="guide-val">Set above your cost basis so you profit on the stock appreciation plus the call premium if exercised. Typically 4–12% OTM.</span></div>
-    <div class="guide-kv"><span class="guide-key">The wheel</span><span class="guide-val">Put → assigned → covered call → called away → sell new put. Each cycle collects premium. Works best on stocks you are comfortable owning long-term.</span></div>
-    <div class="guide-h3">Key Numbers</div>
-    <div class="guide-kv"><span class="guide-key">DTE</span><span class="guide-val">Days to expiration. 30–60 DTE is the sweet spot — theta decay accelerates in the final 30 days and you capture most of the decay curve without excessive gamma risk.</span></div>
-    <div class="guide-kv"><span class="guide-key">APY formula</span><span class="guide-val">(premium / notional) × (365 / DTE) × 100. Notional = strike × 100 shares for puts, current price × 100 for calls.</span></div>
-    <div class="guide-kv"><span class="guide-key">Bid vs mid</span><span class="guide-val">The app uses bid price for conservative APY estimates. In practice you can often fill at mid or better, especially on liquid tickers.</span></div>
-    <div class="guide-h3">Wash Sale Avoidance (Taxable Account)</div>
-    <div class="guide-kv"><span class="guide-key">Year-end closure</span><span class="guide-val">Every chain of rolling options on an underlying — including parallel/concurrent chains — must fully resolve before Dec 31 of the same tax year, with nothing left open. This makes the aggregate tax result equivalent to per-transaction recognition, since deferred losses on intermediate legs all resolve within the same year.</span></div>
-    <div class="guide-kv"><span class="guide-key">Roll for a net credit</span><span class="guide-val">Every roll collects more premium on the new short put than it costs to close the prior leg. A cash-flow discipline that lowers effective cost basis over the chain — not itself a wash sale shield, since an intermediate closing leg can still be at a loss even on a net-credit roll.</span></div>
-    <div class="guide-kv"><span class="guide-key">Covered calls stay OTM</span><span class="guide-val">Never in the money from inception. Keeps the position outside qualified-covered-call and straddle (IRC &sect;1092) complications, preserving clean holding-period treatment on the assigned shares.</span></div>
-    <div class="guide-kv"><span class="guide-key">30-day clean exit after a loss</span><span class="guide-val">After a chain's final close (worthless expiration, or share sale following CC assignment), don't re-enter a substantially identical position on the same underlying within 30 days if that final close recognized a loss — doing so pulls the loss back into wash sale treatment and can push recognition into the next tax year.</span></div>
-    <div class="guide-kv"><span class="guide-key">How wash sale actually works</span><span class="guide-val">Applies trade-by-trade on a 61-day window centered on each losing close, not to chains or calendar years as a whole. It defers the loss into the replacement position's basis — it does not eliminate it.</span></div>
-    <div class="guide-kv"><span class="guide-key">Cost basis on assignment</span><span class="guide-val">Strike minus total net premiums collected across the entire chain. Accumulated roll credits lower effective basis, which organically reduces the odds of an unrealized loss on the share leg — the scenario most likely to create wash sale exposure there.</span></div>
-  </div>
-</div>
-
-<!-- ── SECTION: Volatility — HVR vs IVR ────────────────────────────── -->
-<div class="card" style="margin-bottom:8px">
-  <div class="gs-header" onclick="toggleGuide('vol')">
-    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--warn)"></span>Volatility — HVR vs IVR</div>
-    <span class="gs-chevron" id="gc-vol">&#9658;</span>
-  </div>
-  <div class="gs-body" id="gb-vol">
-    <div class="guide-h3">Core Concepts</div>
-    <div class="guide-kv"><span class="guide-key">Implied Vol (IV)</span><span class="guide-val">The market's forward-looking expectation of how much a stock will move, derived from options prices. Expressed as annualized percentage. High IV = expensive options = more premium for sellers.</span></div>
-    <div class="guide-kv"><span class="guide-key">Historical Vol (HV)</span><span class="guide-val">How much the stock actually moved in the past. Computed as annualized standard deviation of daily log returns. Backward-looking by definition.</span></div>
-    <div class="guide-kv"><span class="guide-key">Vol Risk Premium</span><span class="guide-val">IV almost always exceeds realized HV. This gap — the volatility risk premium — is the structural edge premium sellers exploit. The market consistently overpays for protection.</span></div>
-    <div class="guide-h3">True IVR (Gold Standard)</div>
-    <div class="guide-kv"><span class="guide-key">Definition</span><span class="guide-val">Where today's IV sits within its own 1-year range of daily IV readings. IVR 80 means current IV is higher than 80% of the past year's IV values.</span></div>
-    <div class="guide-kv"><span class="guide-key">Requires</span><span class="guide-val">Storing a daily IV snapshot every trading day for a year. Without this history, true IVR cannot be computed. Professional platforms (ToS, tastytrade) maintain this database.</span></div>
-    <div class="guide-kv"><span class="guide-key">Why it matters</span><span class="guide-val">IVR 80 means options are genuinely expensive relative to their own history — a strong signal to sell premium. IVR 20 means options are cheap — thin premiums, wait for a better environment.</span></div>
-    <div class="guide-h3">HVR — What Income Engine Uses</div>
-    <div class="guide-kv"><span class="guide-key">Definition</span><span class="guide-val">Historical Volatility Rank. Where today's 21-day realized volatility sits within its own 1-year range of 21-day realized volatility readings. Apples-to-apples: HV vs HV.</span></div>
-    <div class="guide-kv"><span class="guide-key">Why not IV vs HV</span><span class="guide-val">Comparing today's IV against a historical HV range is systematically biased high — IV always exceeds HV by the risk premium, so every reading would look "elevated." HVR eliminates this bias.</span></div>
-    <div class="guide-kv"><span class="guide-key">What it tells you</span><span class="guide-val">Is the stock moving more or less than usual for itself? HVR 70+ means unusually active recently — premiums are likely elevated. HVR below 30 means unusually calm — premiums likely thin.</span></div>
-    <div class="guide-kv"><span class="guide-key">Limitation</span><span class="guide-val">HVR measures realized movement, not implied forward expectation. A stock can have low HVR (calm recently) but high IV (market expecting a coming event). Always check the options chain directly for the actual premium.</span></div>
-    <div class="guide-kv"><span class="guide-key">Badges</span><span class="guide-val">Low HVR (&lt;30) · Normal HVR (30–50) · Elevated HVR (50–70) · High HVR (&gt;70)</span></div>
-    <div class="guide-h3">HVR Chart</div>
-    <div class="guide-kv"><span class="guide-key">What it shows</span><span class="guide-val">Rolling HVR over the selected timeframe (6M/1Y/2Y). Green zone = low, amber = normal-elevated, red = high. Trends matter: rising HVR means premiums expanding, falling means contracting.</span></div>
-    <div class="guide-kv"><span class="guide-key">Requires</span><span class="guide-val">2-year price history cache (hist2y). Run Prefetch All to populate. The chart will not render if hist2y is missing.</span></div>
-  </div>
-</div>
-
-<!-- ── SECTION: Multiple History & Forward Estimates ───────────────── -->
-<div class="card" style="margin-bottom:8px">
-  <div class="gs-header" onclick="toggleGuide('multhist')">
-    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--accent)"></span>Multiple History &amp; Forward Estimates</div>
-    <span class="gs-chevron" id="gc-multhist">&#9658;</span>
-  </div>
-  <div class="gs-body" id="gb-multhist">
-    <div class="guide-h3">Why Two Cards</div>
-    <div class="guide-kv"><span class="guide-key">Two different bases</span><span class="guide-val">Multiple History uses a TTM-composite basis -- the three most recently reported quarters plus the current quarter's estimate, summed into a trailing-twelve-month EPS figure. Next-FY uses a completely different basis -- price divided by next fiscal year's consensus EPS estimate, the standard "next year's multiple" figure most mainstream analyst coverage actually means. These are genuinely different metrics on the same day for the same stock, not two views of one number -- deliberately kept as two separate cards rather than merged into one, since blending them mid-chart would produce a number that isn't really either metric, just an artifact of switching formulas partway through.</span></div>
-    <div class="guide-h3">Multiple History (TTM &amp; Forward P/E)</div>
-    <div class="guide-kv"><span class="guide-key">What it shows</span><span class="guide-val">One continuous line: solid where the multiple is realized or currently tracked, dashed past the "now" marker where it's a slider-driven projection to the next earnings report. Past quarters are archived permanently once a new one begins tracking; a quarter still in progress updates continuously as its underlying EPS estimate gets revised.</span></div>
-    <div class="guide-kv"><span class="guide-key">The slider</span><span class="guide-val">Drag to see the price at a different multiple, holding the current quarter's EPS estimate fixed -- a quick way to explore "what if the market re-rates this to roughly what it's traded at recently." The right-edge date marker shows exactly what calendar date the projection reaches (typically the next earnings report), also stated in the what-if label itself.</span></div>
-    <div class="guide-kv"><span class="guide-key">Requires</span><span class="guide-val">Builds from today forward -- Yahoo has no historical forward-estimate endpoint, so past quarters can't be backfilled the way price history can. Expect a "Building history" message on a ticker you've only just started tracking; it fills in over the following quarters.</span></div>
-    <div class="guide-h3">Next-FY Multiple &amp; Price Target</div>
-    <div class="guide-kv"><span class="guide-key">What it shows</span><span class="guide-val">The same solid/dashed convention as Multiple History, but on the next-fiscal-year basis, projecting to fiscal year-end rather than the next earnings report. Rolls to a new fiscal year automatically once the current one's "+1y" target advances, archiving the prior year's full tracked series permanently -- not just its first and last points, since a full year's real revisions are sparse enough that keeping everything costs almost nothing.</span></div>
-    <div class="guide-kv"><span class="guide-key">The slider</span><span class="guide-val">Same mechanic as Multiple History's, holding next-FY EPS fixed while exploring a different multiple -- but the target here lands at fiscal year-end, matching the horizon analysts actually mean by "next year's multiple," so the slider's default position is exactly today's real figure, not something requiring mental math to translate.</span></div>
-    <div class="guide-kv"><span class="guide-key">Requires</span><span class="guide-val">Same backfill limitation as Multiple History -- builds from today forward. Unlike quarterly tracking, a fiscal year rolls only about once a year, so this card's history accumulates more slowly but each entry stays relevant for much longer.</span></div>
-  </div>
-</div>
-
-
-<div class="card" style="margin-bottom:8px">
-  <div class="gs-header" onclick="toggleGuide('conviction')">
-    <div class="card-title" style="margin:0"><span class="dot" style="background:#ab47bc"></span>Conviction Scoring</div>
-    <span class="gs-chevron" id="gc-conviction">&#9658;</span>
-  </div>
-  <div class="gs-body" id="gb-conviction">
-    <div class="commentary" style="margin-bottom:10px">A weighted nine-factor algorithm scoring each ticker's suitability for put-selling or covered-call writing. Score runs -5 to +21. Weights are adjustable in Settings.</div>
-    <div class="guide-h3">Put Conviction Factors</div>
-    <div class="guide-kv"><span class="guide-key">HVR / IV Rank</span><span class="guide-val">Elevated volatility rank = more premium. Highest weight factor. HVR &gt;70 scores full points; &lt;30 scores negative (thin premiums).</span></div>
-    <div class="guide-kv"><span class="guide-key">RSI</span><span class="guide-val">Oversold conditions (RSI &lt;40) favor put selling — stock more likely to bounce. Overbought (RSI &gt;70) is a negative signal for naked puts.</span></div>
-    <div class="guide-kv"><span class="guide-key">52W Range Position</span><span class="guide-val">Puts score better when the stock is in the lower half of its annual range — more cushion below, less downside risk.</span></div>
-    <div class="guide-kv"><span class="guide-key">APY vs Target</span><span class="guide-val">Does the best available strike meet your 12% APY target? Scores based on how close the best put APY is to your configured threshold.</span></div>
-    <div class="guide-kv"><span class="guide-key">Earnings Penalty</span><span class="guide-val">Earnings within 21 days penalizes puts — IV crush after earnings can wipe out premium gains, and gap risk is elevated.</span></div>
-    <div class="guide-kv"><span class="guide-key">Moving Averages</span><span class="guide-val">Price above both MA50 and MA200 = positive trend = safer put environment. Below both = negative, avoid naked puts.</span></div>
-    <div class="guide-kv"><span class="guide-key">Analyst Upside</span><span class="guide-val">Consensus price target upside &gt;15% adds conviction — analyst community sees value above current price, reducing assignment concern.</span></div>
-    <div class="guide-kv"><span class="guide-key">Beta</span><span class="guide-val">Lower beta = more stable = better put candidate. High beta stocks require wider OTM buffers for the same risk.</span></div>
-    <div class="guide-kv"><span class="guide-key">OI Gravity Gap</span><span class="guide-val">Distance from current price to the highest put OI strike below price. High OI acts as gravitational support — market makers hedge puts by buying stock near that strike. Smaller gap = stronger nearby support.</span></div>
-    <div class="guide-h3">Interpreting Scores</div>
-    <div class="guide-kv"><span class="guide-key">Strong (&gt;12)</span><span class="guide-val">Multiple factors aligned. Favorable premium environment with reasonable downside protection. Worth detailed analysis.</span></div>
-    <div class="guide-kv"><span class="guide-key">Moderate (6–12)</span><span class="guide-val">Some factors positive, some neutral. Check which factors are dragging — often fixable by waiting for better timing.</span></div>
-    <div class="guide-kv"><span class="guide-key">Weak (&lt;6)</span><span class="guide-val">Several negative factors. Thin premiums or unfavorable conditions. Wait for a better environment.</span></div>
-  </div>
-</div>
-
-<!-- ── SECTION: Dashboard Analytics ────────────────────────────────── -->
-<div class="card" style="margin-bottom:8px">
-  <div class="gs-header" onclick="toggleGuide('dashanalytics')">
-    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--accent3)"></span>Dashboard Analytics</div>
-    <span class="gs-chevron" id="gc-dashanalytics">&#9658;</span>
-  </div>
-  <div class="gs-body" id="gb-dashanalytics">
-    <div class="commentary" style="margin-bottom:10px">The additional Dashboard views beyond the Puts/Covered Calls conviction scores are all cache-only -- they analyze whatever price/position history is already stored, no new fetches.</div>
-    <div class="guide-h3">RSI Backtest</div>
-    <div class="guide-kv"><span class="guide-key">What it answers</span><span class="guide-val">Has RSI oversold/overbought actually preceded a real price move, for the specific stocks you watch -- backtested against your own cached 2-year history, not a textbook assumption.</span></div>
-    <div class="guide-kv"><span class="guide-key">Entering vs. leaving</span><span class="guide-val">Tracked separately, and they answer different questions. RSI can stay under 30 for weeks during an ongoing decline -- entering oversold doesn't mean the move is over. Leaving measures what happens once the stretched condition actually resolves.</span></div>
-    <div class="guide-kv"><span class="guide-key">Thresholds &amp; windows</span><span class="guide-val">14-period RSI, oversold &lt;30, overbought &gt;70. Forward returns measured 5, 10, and 20 trading days after each entry/exit transition (a transition, not every day spent in the zone -- avoids inflating the sample with non-independent observations).</span></div>
-    <div class="guide-kv"><span class="guide-key">Excess return</span><span class="guide-val">The window's average return minus that ticker's own same-window baseline (any random day). Isolates whether the RSI signal adds anything beyond the stock's normal drift -- a positive raw return with near-zero excess isn't actually a meaningful signal.</span></div>
-    <div class="guide-kv"><span class="guide-key">Aggregate vs. individual</span><span class="guide-val">Aggregate pools raw episodes across your whole watchlist for a much larger sample. Single-ticker view is real but typically small-sample -- shown with an explicit warning rather than presented as statistically robust.</span></div>
-    <div class="guide-kv"><span class="guide-key">Ranking</span><span class="guide-val">Which watchlist tickers show the strongest signal for a given window/phase, sorted by excess return. Requires at least 4 historical episodes to qualify -- filters out tickers where 1-2 lucky episodes would misleadingly top the list.</span></div>
-    <div class="guide-kv"><span class="guide-key">Badge</span><span class="guide-val">Appears on Watchlist cards and the Ticker page when a stock is currently in a zone, or left one within the last 10 trading days. Shows both absolute and excess return for that window.</span></div>
-    <div class="guide-h3">ITM Risk</div>
-    <div class="guide-kv"><span class="guide-key">What it shows</span><span class="guide-val">Every active put and covered call position currently in the money, pooled across all your accounts, ranked by how likely and how soon assignment looks.</span></div>
-    <div class="guide-kv"><span class="guide-key">Score</span><span class="guide-val">ITM% &times; urgency factor. Urgency: 1.5&times; at &le;7 days to expiry, 1.0&times; at 8&ndash;21 days, 0.6&times; beyond that -- a position close to expiry outranks a deeper-ITM position with more time left.</span></div>
-    <div class="guide-kv"><span class="guide-key">Time value &amp; earnings</span><span class="guide-val">Shown as separate columns, not folded into the score, so you see the full picture rather than a single number. An earnings date landing before expiry is flagged directly.</span></div>
-    <div class="guide-kv"><span class="guide-key">Navigation</span><span class="guide-val">Tap a ticker to jump to its Ticker page, or the account name to jump straight to that account in the Income tab.</span></div>
-    <div class="guide-h3">Gap Fill</div>
-    <div class="guide-kv"><span class="guide-key">Definition</span><span class="guide-val">Today's Open differs from yesterday's Close by at least 2%. Not an intraday gap -- the classic overnight gap-up/gap-down definition.</span></div>
-    <div class="guide-kv"><span class="guide-key">Fill detection</span><span class="guide-val">Checked via a later day's High/Low actually trading back through the prior close -- not Close alone, since a gap can fill intraday on a day whose own close never reflects it.</span></div>
-    <div class="guide-kv"><span class="guide-key">Inventory, not backtest</span><span class="guide-val">Unlike RSI Backtest's fixed windows, this is a full inventory -- every qualifying gap found in your cached history (up to 2 years), with its fill status and how long it took, to the extent your cache has data for.</span></div>
-    <div class="guide-kv"><span class="guide-key">Badge</span><span class="guide-val">An unfilled gap within the last 10 trading days, or one that filled within the last 10 days -- whichever is more recent takes priority if both would apply. Shows direction, size, and the actual price range the gap spans.</span></div>
-    <div class="guide-kv"><span class="guide-key">Sample size</span><span class="guide-val">Per-ticker gap counts over 2 years are typically small -- a handful to a few dozen. The aggregate view across your whole watchlist is the more statistically meaningful lens for any single ticker's history to lean on.</span></div>
-    <div class="guide-h3">Wheel Backtest</div>
-    <div class="guide-kv"><span class="guide-key">What it simulates</span><span class="guide-val">The full wheel cycle (cash-secured put &rarr; assignment &rarr; covered call &rarr; called away &rarr; repeat) against real historical prices, using real monthly (3rd-Friday) expirations -- not an arbitrary day count from whenever a cycle happened to start.</span></div>
-    <div class="guide-kv"><span class="guide-key">Strike selection</span><span class="guide-val">The strike closest to your Target APY while still clearing it -- not a fixed delta. If your Preferred Expiration can't clear the floor, tries the other expirations (1-3mo, whichever actually works, prioritized by closeness to your preference), then waits for a later trading day if none do.</span></div>
-    <div class="guide-kv"><span class="guide-key">Realistic strikes</span><span class="guide-val">Snapped to standard CBOE increments ($2.50 &le;$25, $5 $25-$200, $10 &gt;$200) -- always rounded toward the money, never away from it, so a snapped strike is guaranteed to still clear your floor whenever the underlying theoretical strike did.</span></div>
-    <div class="guide-kv"><span class="guide-key">Term structure</span><span class="guide-val">Estimated once per ticker from that stock's own history (how much higher its realized vol tends to run at ~3 months than at ~1 month) -- this is what lets extending duration genuinely help clear the floor, rather than just costing annualized efficiency.</span></div>
-    <div class="guide-kv"><span class="guide-key">Rolling windows</span><span class="guide-val">Each simulated 1-year window starts the trading day right after a real monthly expiration -- anchored to actual expiration-to-expiration transitions, not an arbitrary fixed step, so the sample reflects genuinely distinct scenarios rather than many near-duplicate starts. These windows overlap substantially (each starts about a month after the last, spanning a full year), so they should not be interpreted as independent trials -- treat the worst/median/best spread as a range within one broadly-overlapping sample period, not 13 separate market histories.</span></div>
-    <div class="guide-kv"><span class="guide-key">Capital base</span><span class="guide-val">Full cash-secured, no margin reduction. A put's capital is its raw strike (matching how a real CSP position is valued in the Income tab); a held stock's capital is its actual daily marked value, not frozen at whatever price it was assigned at; any stretch with no position open earns the historical ^IRX rate for those specific dates, not today's rate applied uniformly. The reported return is the time-weighted average of all of this across the whole window, not a flat average of each cycle's own entry price.</span></div>
-    <div class="guide-kv"><span class="guide-key">Dividends</span><span class="guide-val">Credited to the wheel's own return only for the stretches shares are actually held -- assignment through eventual call-away -- never for the window as a whole, since the wheel only owns the stock intermittently. Buy &amp; Hold receives dividends for the entire window instead, held as cash rather than reinvested, to match the wheel side's own non-compounded accounting.</span></div>
-    <div class="guide-kv"><span class="guide-key">Worst / median / best</span><span class="guide-val">The spread across every qualifying rolling window, with a marker at your Target APY and a plain-language sentence on what percentage of windows actually beat it.</span></div>
-    <div class="guide-kv"><span class="guide-key">vs. Buy &amp; Hold</span><span class="guide-val">The same windows' returns compared against simply holding the stock throughout, including its own dividends. The averaged delta shown at the top can be dominated by one or two extreme windows -- Win rate and Beat Buy &amp; Hold (below) show the actual percentage of windows on each side, a more robust read than the average alone.</span></div>
-    <div class="guide-kv"><span class="guide-key">Risk stats</span><span class="guide-val">Win rate and Beat Buy &amp; Hold are the % of windows with a positive return, and the % that actually outperformed Buy &amp; Hold, respectively. Median excess return is the median, across windows, of the wheel's return minus Buy &amp; Hold's for that same window. Max drawdown is the largest peak-to-trough dip within each window's own P&amp;L curve, marked every trading day: shares at market, plus the open option's liability re-priced daily with Black-Scholes using the same volatility, rate and dividend yield it was sold with, as a % of the strategy's running capital base (not portfolio equity). It is modeled, not real option quotes, and volatility is held at its entry value -- in a real selloff implied volatility usually rises, so a real drawdown could be worse than shown. Builds before 478 sampled only at each expiration, which reads noticeably smaller (a mid-cycle drop that recovered by expiry was invisible). Downside deviation is the standard root-mean-square of just the below-zero windows in the return distribution.</span></div>
-    <div class="guide-kv"><span class="guide-key">Scope</span><span class="guide-val">Aggregate (whole watchlist), Starred Only, or a single ticker. Target APY and Preferred Expiration are independent settings for this feature specifically -- changing them here never changes Conviction Scoring's own target, or vice versa.</span></div>
-    <div class="guide-kv"><span class="guide-key">Strategy</span><span class="guide-val">"Default" is the strike/expiration rules described above with no other restriction. "No Earnings Overlap (CSP)" additionally never opens a cash-secured put whose window would span the ticker's own earnings date -- reuses the same day-by-day retry that already handles a thin yield floor, so a hiatus of a month or more around earnings is expected, not a bug. Covered calls are unaffected by this strategy. Earnings dates use the same source and override precedence as the Ticker tab (manual override, then auto-confirmed, then estimate); a ticker with no cached earnings data yet behaves like Default for that ticker until it's been through Prefetch or a Ticker tab visit.</span></div>
-    <div class="guide-kv"><span class="guide-key">Best Tickers</span><span class="guide-val">Every qualifying watchlist ticker ranked by median simulated return, always across the whole watchlist regardless of the Scope selection above. A gold star marks tickers you've starred, so they're easy to spot while scanning a long list -- toggle All / Starred Only above the list to filter down to just those. Tap a ticker name to jump to its Ticker page, or "View analysis" to load that ticker's specific report in the card above.</span></div>
-    <div class="guide-kv"><span class="guide-key">One Example Run</span><span class="guide-val">The single most calendar-recent complete window, shown cycle by cycle -- strike, DTE used, % out of the money, outcome, this leg's own gain, and a running cumulative total, ending in a "Total this run" summary that reconciles exactly with the per-row numbers above it.</span></div>
-    <div class="guide-kv"><span class="guide-key">Full History toggle</span><span class="guide-val">Switches the example run from "Most Recent" (~1 year) to one continuous run across the ticker's entire cached history. Shows both the raw total (unannualized, since it spans more than a year) and that same total's annualized equivalent side by side.</span></div>
-    <div class="guide-kv"><span class="guide-key">Premium source</span><span class="guide-val">Black-Scholes-Merton pricing with realized volatility standing in for implied volatility -- real historical options-chain data isn't available without a paid feed. This is a documented approximation, always labeled as such in the results. Realized vol runs below implied vol (the volatility risk premium) on average, but not universally -- after a sharp move, trailing realized vol can exceed contemporaneous implied vol, and skew varies by ticker and regime, so modeled premiums may differ materially from tradable historical premiums in either direction. The risk-free rate that pricing uses is looked up historically too -- the actual ^IRX rate as of each cycle's own entry date, not today's rate applied uniformly across every window. Pricing also accounts for dividends, via a trailing-twelve-month yield as of each cycle's own date -- this raises modeled put premiums and lowers modeled call premiums for actual dividend payers, and has no effect on a ticker with no dividend history. The term-structure adjustment (Settings) can be turned off if you'd rather price every expiration with a single flat volatility instead of this app's realized-vol-ratio estimate of the options market's own term structure.</span></div>
-    <div class="guide-kv"><span class="guide-key">Not modeled</span><span class="guide-val">Bid-ask spread, volatility skew beyond the term-structure estimate, and dividend-driven early assignment risk are all out of scope for this version. To be clear on that last one: dividends themselves ARE credited while shares are held (see above) -- what's not modeled is the risk of an early call-away specifically triggered by an approaching ex-dividend date. Treat results as directional, not a precise forecast.</span></div>
-    <div class="guide-h3">Valuation by Sector</div>
-    <div class="guide-kv"><span class="guide-key">What it shows</span><span class="guide-val">Your watchlist grouped by sector (Technology, Financial Services, Energy, etc.), tickers within each sector ranked by whichever valuation multiple you pick. A low P/E or PEG only means much relative to similar companies -- comparing across unrelated sectors makes almost anything outside high-growth tech look "cheap" without that actually meaning anything. Sector/industry comes from Yahoo's quoteSummary, same batched call already used for P/E and beta -- no separate fetch.</span></div>
-    <div class="guide-kv"><span class="guide-key">Three metrics</span><span class="guide-val">P/E (TTM): price over the last 12 months of actual, already-reported earnings -- backward-looking, no forecast involved. P/E (Forward): price over the next 12 months of analyst-estimated earnings -- forward-looking, and only as good as the estimate. PEG: P/E divided by expected earnings growth, meant to normalize P/E for how fast a company is growing. Yahoo's PEG specifically uses forward P/E (not trailing) as its own numerator, divided by a 5-year expected growth rate -- other sites sometimes use trailing P/E instead, which can show a different PEG for the identical stock. That's a genuine methodology difference, not an error, if the numbers don't match somewhere else.</span></div>
-    <div class="guide-kv"><span class="guide-key">Paired value in each row</span><span class="guide-val">Whichever metric you're sorting by is shown large; a second, related metric is shown alongside it -- P/E (TTM) pairs with P/E (Forward) and vice versa, so the gap between them shows the market's implied growth expectation directly. PEG pairs with P/E (Forward) specifically, since that's what it's actually built from internally.</span></div>
-    <div class="guide-kv"><span class="guide-key">Missing data</span><span class="guide-val">A ticker missing the metric you're currently sorting by sinks to the bottom of its own sector rather than mixing in as if it were the cheapest -- a missing value isn't a low value. ETFs, mutual funds, and anything not yet prefetched have no sector at all and land in their own "No sector data" group, always last, rather than disappearing.</span></div>
-    <div class="guide-kv"><span class="guide-key">Scope</span><span class="guide-val">All or Starred Only, same convention as Wheel Backtest's ranking filter. Unlike that filter, your Scope and metric choice here persist across sessions.</span></div>
-    <div class="guide-h3">Notes</div>
-    <div class="guide-kv"><span class="guide-key">Purpose</span><span class="guide-val">A freeform scratchpad on the Dashboard, separate from per-ticker Watchlist notes -- for anything broader that isn't tied to a single stock. No length limit. Saves automatically a moment after you stop typing.</span></div>
-  </div>
-</div>
-
-<!-- ── SECTION: Options Concepts ───────────────────────────────────── -->
-<div class="card" style="margin-bottom:8px">
-  <div class="gs-header" onclick="toggleGuide('options')">
-    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--green)"></span>Options Concepts</div>
-    <span class="gs-chevron" id="gc-options">&#9658;</span>
-  </div>
-  <div class="gs-body" id="gb-options">
-    <div class="guide-h3">Greeks</div>
-    <div class="guide-kv"><span class="guide-key">Delta</span><span class="guide-val">How much the option price moves per $1 move in the stock. A 0.20 delta put gains ~$0.20 in value per $1 stock decline. Selling 0.20 delta puts means ~20% probability of expiring in-the-money.</span></div>
-    <div class="guide-kv"><span class="guide-key">Theta</span><span class="guide-val">Daily time decay — how much premium you collect per day. Theta accelerates as expiration approaches, especially in the final 30 days. This is your friend as a premium seller.</span></div>
-    <div class="guide-kv"><span class="guide-key">Vega</span><span class="guide-val">Sensitivity to implied volatility changes. High vega = option price moves a lot with IV changes. Selling options when IV is high (HVR elevated) benefits from vega when IV later contracts (IV crush).</span></div>
-    <div class="guide-kv"><span class="guide-key">Gamma</span><span class="guide-val">Rate of change of delta. Spikes near expiration and near the money. High gamma near expiration creates risk for short option sellers — small stock moves cause large delta changes.</span></div>
-    <div class="guide-h3">Strike Selection</div>
-    <div class="guide-kv"><span class="guide-key">OTM %</span><span class="guide-val">How far below current price your put strike is. 7% OTM means the stock must fall more than 7% for you to be assigned. The app targets 5–12% OTM for puts.</span></div>
-    <div class="guide-kv"><span class="guide-key">Trade-off</span><span class="guide-val">Further OTM = safer (less assignment risk) but lower premium = lower APY. Closer to ATM = higher premium but higher assignment risk. Your APY target helps find the balance.</span></div>
-    <div class="guide-h3">Open Interest vs Volume</div>
-    <div class="guide-kv"><span class="guide-key">Open Interest</span><span class="guide-val">Total number of outstanding contracts at a given strike. High OI = liquidity = tighter spreads. High put OI below price creates gravitational support (market maker delta hedging).</span></div>
-    <div class="guide-kv"><span class="guide-key">Volume</span><span class="guide-val">Contracts traded today. High volume = active market. Volume converts to OI overnight — if a new position is opened, OI increases the next day.</span></div>
-    <div class="guide-h3">IV Crush</div>
-    <div class="guide-kv"><span class="guide-key">What it is</span><span class="guide-val">Implied volatility spikes before earnings announcements (uncertainty = demand for options). After earnings, uncertainty resolves and IV collapses — often 30–50% overnight.</span></div>
-    <div class="guide-kv"><span class="guide-key">For sellers</span><span class="guide-val">Selling puts before earnings captures elevated premium but risks large gap moves. Selling the day after earnings captures lower but "clean" premium without binary event risk.</span></div>
-    <div class="guide-h3">Risk Warnings</div>
-    <div class="guide-kv"><span class="guide-key">Earnings banner (amber)</span><span class="guide-val">Appears both as a summary at the top of the Options tab and inline within the table, whenever the ticker's earnings date falls within one of the displayed expirations. IV crush and gap risk both concentrate around that date -- elevated assignment risk either way.</span></div>
-    <div class="guide-kv"><span class="guide-key">FOMC banner (purple)</span><span class="guide-val">Same idea, for FOMC meetings where the Market tab's own meeting-odds calculation shows a hike or cut as more likely than a hold. Hold-expected meetings are deliberately never flagged -- only genuine, meaningfully-probable rate moves. Reads the Market tab's own cached data, so visiting Market at least once populates it; nothing shows until then. A chain spanning more than one qualifying meeting shows all of them, and if both an earnings date and an FOMC meeting land in the same window, they're merged and ordered correctly by date, not just by type.</span></div>
-  </div>
-</div>
-
-<!-- ── SECTION: Earnings Strategy ──────────────────────────────────── -->
-<div class="card" style="margin-bottom:8px">
-  <div class="gs-header" onclick="toggleGuide('earnings')">
-    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--warn)"></span>Earnings Strategy</div>
-    <span class="gs-chevron" id="gc-earnings">&#9658;</span>
-  </div>
-  <div class="gs-body" id="gb-earnings">
-    <div class="guide-h3">Timing</div>
-    <div class="guide-kv"><span class="guide-key">BMO</span><span class="guide-val">Before Market Open. Stock gaps at open. Your put from the prior session faces the gap risk overnight. If you are short a put and earnings are BMO tomorrow, you carry full overnight gap risk.</span></div>
-    <div class="guide-kv"><span class="guide-key">AMC</span><span class="guide-val">After Market Close. Gap happens in extended hours. You have until market close to exit or adjust before the uncertainty resolves.</span></div>
-    <div class="guide-kv"><span class="guide-key">Rule of thumb</span><span class="guide-val">Don&apos;t hold naked puts through earnings unless you are comfortable owning the stock at the strike. The earnings penalty in conviction scoring reflects this risk.</span></div>
-    <div class="guide-h3">Earnings Pattern Analysis</div>
-    <div class="guide-kv"><span class="guide-key">Reaction</span><span class="guide-val">The stock&apos;s move on earnings day (AMC) or the morning after (BMO) compared to the S&amp;P 500 move on the same day. The excess return isolates the earnings-specific move.</span></div>
-    <div class="guide-kv"><span class="guide-key">Pre-earnings drift</span><span class="guide-val">The day before earnings. Stocks often drift up (IV expansion = call buying) or down (puts). The pattern table shows your ticker&apos;s historical pre-earnings behavior.</span></div>
-    <div class="guide-kv"><span class="guide-key">Post-earnings follow-through</span><span class="guide-val">Day after the reaction. Does the stock continue in the reaction direction or mean-revert? Strong post-earnings follow-through suggests the move was fundamental, not just positioning.</span></div>
-    <div class="guide-h3">Earnings Date Cache</div>
-    <div class="guide-kv"><span class="guide-key">How it works</span><span class="guide-val">The app automatically accumulates confirmed earnings dates as you use it. Each time a future earnings date passes, it&apos;s promoted to the confirmed history cache and used to improve future date estimates.</span></div>
-    <div class="guide-kv"><span class="guide-key">Override</span><span class="guide-val">Tap any earnings date row to override the estimated date with the actual confirmed date. The modal shows the algorithm estimate, any cached confirmed date (with one-tap Accept), and a manual date picker.</span></div>
-    <div class="guide-kv"><span class="guide-key">Sources (priority order)</span><span class="guide-val">1. Your manual override · 2. Auto-confirmed from prior fetch · 3. Gap-confirmed (≥3% price gap near estimate) · 4. Pure cadence estimate (91-day stepback)</span></div>
-    <div class="guide-kv"><span class="guide-key">Adding a missing date</span><span class="guide-val">A "+ Add" prompt appears on the Ticker page's Relative Performance card when there's a suspiciously large gap in tracked earnings history relative to the available price history -- most common for a recently spun-off or newly listed company, where the automatic sources simply don't go back far enough. Manually-added dates render in teal (matching an override), not gold like an auto-confirmed date, since they represent a direct assertion, not an algorithmic guess. Delete a manually-added date from within its own Override modal -- only manual entries can be deleted, since an auto-fetched one would just reappear on the next refresh.</span></div>
-  </div>
-</div>
-
-<!-- ── SECTION: Support / Resistance ───────────────────────────────── -->
-<div class="card" style="margin-bottom:8px">
-  <div class="gs-header" onclick="toggleGuide('sr')">
-    <div class="card-title" style="margin:0"><span class="dot"></span>Support / Resistance Guide</div>
-    <span class="gs-chevron" id="gc-sr">&#9658;</span>
-  </div>
-  <div class="gs-body" id="gb-sr">
-    <div class="guide-kv"><span class="guide-key">VP levels</span><span class="guide-val">Volume Profile — price zones where the most shares have traded historically. High-volume nodes act as support from above and resistance from below. The strongest levels in this analysis.</span></div>
-    <div class="guide-kv"><span class="guide-key">52W High / Low</span><span class="guide-val">Major annual reference points. Stocks often stall at or near these levels. Breaking above the 52W high on volume is a bullish signal; breaking below the 52W low is bearish.</span></div>
-    <div class="guide-kv"><span class="guide-key">MA50 / MA200</span><span class="guide-val">Dynamic support and resistance that moves with price. Price above both MAs = uptrend. MA50 crossing above MA200 (golden cross) = bullish. Below both = downtrend.</span></div>
-    <div class="guide-kv"><span class="guide-key">High put OI</span><span class="guide-val">Market makers who sold puts must buy stock to hedge as price approaches put strikes. This buying creates gravitational support near high-OI put strikes.</span></div>
-    <div class="guide-kv"><span class="guide-key">High call OI</span><span class="guide-val">Market makers who sold calls must sell stock to hedge as price approaches call strikes. This selling creates resistance near high-OI call strikes.</span></div>
-    <div class="guide-h3">Why Market Makers Hedge -- The Mechanics</div>
-    <div class="guide-kv"><span class="guide-key">Delta</span><span class="guide-val">Every option has a delta -- how much its value changes per $1 move in the stock. A put has negative delta (gains value as the stock falls); a call has positive delta (gains value as the stock rises). Delta ranges from -1 to 0 for puts, 0 to 1 for calls.</span></div>
-    <div class="guide-kv"><span class="guide-key">The market maker's position</span><span class="guide-val">When a retail trader buys an option, a market maker is typically on the other side -- short that option. Being short a put gives the market maker positive delta exposure (opposite of the put itself); being short a call gives them negative delta exposure.</span></div>
-    <div class="guide-kv"><span class="guide-key">Staying delta-neutral</span><span class="guide-val">Market makers don't want directional risk -- they profit from the bid-ask spread, not from betting on the stock. To offset their option-driven delta exposure, they continuously buy or sell shares of the underlying stock to bring their net delta back to zero. This is "delta hedging."</span></div>
-    <div class="guide-h3">Gamma -- Why Hedging Concentrates Near Strikes</div>
-    <div class="guide-kv"><span class="guide-key">Gamma</span><span class="guide-val">Gamma measures how fast delta changes as the stock price moves. Delta changes fastest when the stock is near the strike price -- this is where gamma is highest. Far OTM or deep ITM options have low gamma (delta is already near 0 or near 1 and barely changes).</span></div>
-    <div class="guide-kv"><span class="guide-key">Put wall (support)</span><span class="guide-val">As price falls toward a strike with heavy put OI, the puts' delta moves toward -1, making the market maker's short-put position more positive-delta. In the typical (positive gamma) regime, market makers respond by BUYING stock to rebalance -- this buying pressure slows or reverses the decline, creating support at that strike.</span></div>
-    <div class="guide-kv"><span class="guide-key">Call wall (resistance)</span><span class="guide-val">Symmetrically, as price rises toward a strike with heavy call OI, the calls' delta moves toward +1, making the market maker's short-call position more negative-delta. Market makers respond by SELLING stock to rebalance -- this selling pressure slows or reverses the rally, creating resistance at that strike.</span></div>
-    <div class="guide-kv"><span class="guide-key">The "magnet" effect</span><span class="guide-val">As expiration approaches, gamma at high-OI strikes intensifies (delta changes even faster for a given price move). This can cause the stock to gravitate toward and "pin" near high-OI strikes on expiration day, since hedging flows from both directions tend to dampen movement away from that level.</span></div>
-    <div class="guide-h3">When It Goes the Other Way -- Negative Gamma</div>
-    <div class="guide-kv"><span class="guide-key">Negative gamma regime</span><span class="guide-val">If market makers are net LONG options at a strike (less common, but happens -- e.g. heavy call buying by retail that market makers absorb as short calls but then hedge in ways that flip their net gamma), hedging flows REVERSE: market makers buy as price rises and sell as it falls. This AMPLIFIES moves instead of dampening them.</span></div>
-    <div class="guide-kv"><span class="guide-key">Gamma squeeze</span><span class="guide-val">A classic example: heavy ATM/OTM call buying forces market makers (short those calls) to buy stock as price rises to stay hedged. That buying pushes price up further, forcing more hedging buys -- a self-reinforcing rally. This is the mechanism behind "gamma squeezes" in heavily-optioned names.</span></div>
-    <div class="guide-kv"><span class="guide-key">Practical takeaway</span><span class="guide-val">The OI Gravity Gap in conviction scoring assumes the typical positive-gamma case -- high put OI below price acting as support. This holds most of the time, but during periods of extreme one-sided positioning (meme-stock-style call buying, post-earnings repositioning) the relationship can temporarily invert. Use OI levels as one input among several, not a guarantee.</span></div>
-    <div class="guide-h3">VIX Context</div>
-    <div class="guide-kv"><span class="guide-key">Below 15</span><span class="guide-val">Complacency — thin premiums across the market. Harder to hit APY targets without taking more risk.</span></div>
-    <div class="guide-kv"><span class="guide-key">15–20</span><span class="guide-val">Normal — standard put-selling conditions. Most of the time the market operates here.</span></div>
-    <div class="guide-kv"><span class="guide-key">20–30</span><span class="guide-val">Elevated — favorable environment. Premiums are rich and IV crush opportunities are available.</span></div>
-    <div class="guide-kv"><span class="guide-key">Above 30</span><span class="guide-val">Fear spike — exceptional premiums but also exceptional gap risk. Size smaller, be selective. Markets can gap violently in either direction.</span></div>
-    <div class="guide-kv"><span class="guide-key">Backwardation</span><span class="guide-val">VIX above VIX3M means near-term fear exceeds medium-term fear — historically a strong time to sell puts as the fear premium is concentrated in the near term.</span></div>
-  </div>
-</div>
-
-<!-- ── SECTION: Watchlist ──────────────────────────────────────────── -->
-<div class="card" style="margin-bottom:8px">
-  <div class="gs-header" onclick="toggleGuide('watchlist')">
-    <div class="card-title" style="margin:0"><span class="dot" style="background:#4fc3f7"></span>Watchlist</div>
-    <span class="gs-chevron" id="gc-watchlist">&#9658;</span>
-  </div>
-  <div class="gs-body" id="gb-watchlist">
-    <div class="guide-h3">Filter</div>
-    <div class="guide-kv"><span class="guide-key">All</span><span class="guide-val">Every ticker on your watchlist.</span></div>
-    <div class="guide-kv"><span class="guide-key">Positions</span><span class="guide-val">Only tickers with an active put or covered call position in any account.</span></div>
-    <div class="guide-kv"><span class="guide-key">Starred</span><span class="guide-val">Only tickers you've starred. Tap the star icon on any card to add or remove it.</span></div>
-    <div class="guide-h3">Sort</div>
-    <div class="guide-kv"><span class="guide-key">Manual</span><span class="guide-val">The order you added tickers in.</span></div>
-    <div class="guide-kv"><span class="guide-key">A&rarr;Z</span><span class="guide-val">Alphabetical by ticker.</span></div>
-    <div class="guide-kv"><span class="guide-key">Opportunity</span><span class="guide-val">Ranked by the higher of that ticker's put or covered call conviction score. Run the conviction dashboards on the Dashboard tab first -- without scores computed, this sort has nothing to rank by.</span></div>
-    <div class="guide-h3">Cards</div>
-    <div class="guide-kv"><span class="guide-key">Badges</span><span class="guide-val">HVR, unusual volume, RSI transition, and Gap Fill can each appear on a card when relevant -- see their respective Guide sections for what triggers each one.</span></div>
-    <div class="guide-kv"><span class="guide-key">Notes</span><span class="guide-val">Tap a card's note area to add free text, up to 500 characters. Long notes truncate to one line -- tap the note itself to expand or collapse it.</span></div>
-  </div>
-</div>
-
-<!-- ── SECTION: Data & App Mechanics ───────────────────────────────── -->
-<div class="card" style="margin-bottom:8px">
-  <div class="gs-header" onclick="toggleGuide('data')">
-    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--text3)"></span>Data &amp; App Mechanics</div>
-    <span class="gs-chevron" id="gc-data">&#9658;</span>
-  </div>
-  <div class="gs-body" id="gb-data">
-    <div class="guide-h3">Prefetch &amp; Refresh</div>
-    <div class="guide-kv"><span class="guide-key">Prefetch All</span><span class="guide-val">Fetches all data for every watchlist ticker sequentially. Run before making decisions to ensure data is current. The refresh health badge below the button shows how many tickers updated successfully, plus a separate degraded count -- a ticker whose core data (price, history, earnings) came through fine but whose valuation data (sector, beta, PEG, price targets) is carried over from an earlier fetch, distinct from a genuine failure. Tap the badge for a per-ticker breakdown, plus an endpoint timing summary (Finnhub earnings/news, Yahoo's batched quote-and-history fetch, Yahoo's per-expiry options chains) showing where a run's time actually went.</span></div>
-    <div class="guide-kv"><span class="guide-key">Force Refresh Everything</span><span class="guide-val">Also refreshes the VIX tab, ETF tab, Market tab, Earnings tab, and runs conviction scoring. Use when you want a complete picture, not just ticker data.</span></div>
-    <div class="guide-kv"><span class="guide-key">Refresh Ticker</span><span class="guide-val">Refreshes a single ticker including options chain. Always fetches live — no cache skip. Use when you want the most current data for a specific ticker.</span></div>
-    <div class="guide-h3">Options Live Window</div>
-    <div class="guide-kv"><span class="guide-key">What it is</span><span class="guide-val">9:30am – your configured cutoff (default 6pm) ET on weekdays. During this window, options data reflects live or recent market activity.</span></div>
-    <div class="guide-kv"><span class="guide-key">Outside window</span><span class="guide-val">Yahoo returns synthetic placeholder data with artificial IV values. The app detects this pattern and preserves your last good cache rather than overwriting with synthetic data.</span></div>
-    <div class="guide-kv"><span class="guide-key">Smart skip</span><span class="guide-val">Prefetch skips re-fetching options if the cache is fresh from the most recent session and no new session has opened since. Saves network calls on intraday re-prefetches.</span></div>
-    <div class="guide-h3">Cache &amp; Storage</div>
-    <div class="guide-kv"><span class="guide-key">localStorage</span><span class="guide-val">All data is cached locally on your device. Full app functionality after first prefetch, even offline. Export your data regularly via Settings → Data Portability.</span></div>
-    <div class="guide-kv"><span class="guide-key">hist2y</span><span class="guide-val">2-year daily price history — the foundation for HVR, relative performance chart, earnings pattern analysis, and Bollinger Bands. Populated by Prefetch All.</span></div>
-    <div class="guide-kv"><span class="guide-key">Earnings confirmed cache</span><span class="guide-val">Automatically accumulates confirmed past earnings dates as you use the app. Persists even if you remove a ticker from your watchlist (up to 2 years). Only cleared by nuclear reset.</span></div>
-    <div class="guide-h3">Data Sources</div>
-    <div class="guide-kv"><span class="guide-key">Finnhub</span><span class="guide-val">Quotes, fundamentals, earnings calendar, analyst recommendations, price targets, news. Free tier: 60 calls/minute.</span></div>
-    <div class="guide-kv"><span class="guide-key">Yahoo Finance</span><span class="guide-val">Price history, options chains, VIX, indices, T-bill yields, quoteSummary (PE, EPS, short interest, forward estimates). Accessed via your Cloudflare Worker proxy.</span></div>
-    <div class="guide-h3">Treasury Yields</div>
-    <div class="guide-kv"><span class="guide-key">What it shows</span><span class="guide-val">Three Yahoo Treasury yield indices on the Market tab: ^IRX (3-month T-bill, a genuine short-term rate), ^FVX (5-Year Treasury), and ^TNX (10-Year Treasury). There is no 6-month T-bill index available through Yahoo -- 5-Year and 10-Year are used as the two longer points instead, labeled honestly as what they actually are rather than approximated as "6-month."</span></div>
-    <div class="guide-kv"><span class="guide-key">The three spreads</span><span class="guide-val">3M/5Y and 3M/10Y each read the gap between the short end and one longer point -- 3M/10Y is the standard, widely-tracked recession-watch spread (the same one behind the NY Fed's own published recession-probability model); 3M/5Y is a shorter-horizon version, blending near-term Fed expectations with a medium-term view. 5Y/10Y reads the long end of the curve alone, decoupled from near-term Fed policy entirely. An inverted spread (short rate above the longer one) means the market expects rate cuts ahead; the size of the inversion, not just its presence, is what shifts as expectations change.</span></div>
-    <div class="guide-kv"><span class="guide-key">Chart range toggle</span><span class="guide-val">3M / 6M / 1Y buttons above the chart re-slice the same already-fetched year of daily data by trading-day count (roughly 63 / 126 / 252 days) -- no extra fetch, just a different window into data that's already there.</span></div>
-    <div class="guide-h3">Fed Funds Futures &amp; Meeting Odds</div>
-    <div class="guide-kv"><span class="guide-key">What it is</span><span class="guide-val">The Market tab's Fed Funds Futures card includes a per-meeting probability breakdown (e.g. "Sep 16: 72% hold, 28% cut 25bp") below the raw implied-rate table -- an estimate of what the futures market is pricing in for each upcoming FOMC decision, not just a single implied-rate number.</span></div>
-    <div class="guide-kv"><span class="guide-key">How it's calculated</span><span class="guide-val">Each 30-Day Fed Funds futures contract's price implies an average rate for its whole calendar month. Since a meeting doesn't fall on day 1, that average blends the known pre-meeting rate with the unknown post-meeting rate, weighted by days before/after the meeting date (the meeting date itself counts as a pre-meeting day, matching CME's own convention). Solving for the post-meeting rate and comparing it to the pre-meeting rate gives the implied move in fractional 25bp steps -- e.g. 1.48 steps. That's read as a probability split between the two adjacent whole-step outcomes it falls between (here, 52% a 25bp move, 48% a 50bp move), not capped at a single step. Meetings are solved in chronological order; each meeting-free month resets the starting point to its own priced rate, and each meeting uses either the most recent meeting-free month or the prior meeting's solved rate as its own starting point -- not treated independently.</span></div>
-    <div class="guide-kv"><span class="guide-key">Resolved meetings</span><span class="guide-val">Once a meeting's own date has passed, its row switches from a live hold/cut/hike split to the actual resolved outcome, labeled with where that came from. First choice is the Federal Reserve Bank of New York's own published target-range history -- an authoritative record of what actually happened, not an inference -- shown as "(NY Fed official)". If that data isn't available yet for this specific meeting (most often: it happened very recently and the NY Fed hasn't published a post-meeting business day's rate yet), the app falls back to the same futures-reprice method used before this existed, shown as "(futures-implied, unconfirmed)" so it's clear at a glance which kind of confidence to place in it. If that month's contract also didn't return fresh data this fetch, the outcome is withheld entirely rather than guessed, shown as "outcome pending fresher data." A resolved meeting's row disappears from the list once its month falls outside the rolling fetch window (see Bootstrapping below) -- not archived as a visible list, though the resolved rate itself stays in the self-healing history for future baseline calculations until a routine Clear Market Data Cache run (see Settings), since it's fully re-derivable from the NY Fed's own history at any time.</span></div>
-    <div class="guide-kv"><span class="guide-key">Bootstrapping a starting rate</span><span class="guide-val">Solving each meeting requires already knowing the rate going into it, so the fetch reaches one month back from today in addition to six months forward -- specifically to supply that starting point on the (unusual, but real) occasions when the current month is itself a meeting month with nothing meeting-free earlier in the window. If that backward month's own contract doesn't return usable data this fetch (common once it's already expired), the most recently saved value for that exact month is shown instead, marked with a small dot and a note reading "Using last known data for: [month]" -- an implied Fed Funds rate only moves at a meeting, so a slightly older cached value is still meaningfully accurate, not a rough guess.</span></div>
-    <div class="guide-kv"><span class="guide-key">Self-healing across meetings</span><span class="guide-val">Every meeting the app successfully resolves is remembered, indexed by its own date -- so a meeting that can't bootstrap a starting rate from the current fetch window can still resolve using its own true predecessor's outcome, however long ago that was solved, rather than only ever being able to use whatever resolved most recently. This history is treated as routine, re-fetchable market data (swept by Clear Market Data Cache in Settings, not permanently exported), since a resolved meeting sourced from the NY Fed can always be reconstructed from that same public history if it's ever cleared -- it just needs one more live fetch to rebuild.</span></div>
-    <div class="guide-kv"><span class="guide-key">"Odds unavailable"</span><span class="guide-val">A meeting can still show this if neither the fetch window nor the self-healing history can supply it a starting rate -- most often an unusual year where two consecutive months both have meetings, colliding with a failed backward fetch and no earlier resolution to fall back on. This is an honest gap, not something being papered over, and it resolves on its own once that meeting's date actually passes and becomes a known, real outcome rather than something to estimate.</span></div>
-    <div class="guide-kv"><span class="guide-key">Data source &amp; validity</span><span class="guide-val">The live hold/cut/hike split for UPCOMING meetings is built entirely from the same 30-Day Fed Funds futures prices (Yahoo, via your Worker) already used for the implied-rate table above it -- not scraped from CME's own FedWatch tool, which is a paid, licensed product. The day-weighted-average technique is the same standard, publicly documented method CME's own methodology is built on. This is an independent calculation from public data, not a reproduction of CME's proprietary numbers, and may not exactly match CME's own published probabilities. PAST meetings, once resolved, instead use the Federal Reserve Bank of New York's own published Effective Federal Funds Rate and target-range data -- a free, public, no-key API (markets.newyorkfed.org) -- as the authoritative record of what the target range actually was before and after each meeting. This data is provided by the Federal Reserve Bank of New York for general informational purposes, subject to the New York Fed's own Terms of Use; the New York Fed does not endorse this app, is not affiliated with it, and bears no liability for its use of that data. The figures shown here are this app's own independent presentation of that public data, not an official New York Fed product.</span></div>
-    <div class="guide-kv"><span class="guide-key">Outcome granularity</span><span class="guide-val">Splits across as many adjacent 25bp outcomes as the implied move actually calls for (hold vs. 25bp, 25bp vs. 50bp, and so on) rather than capping at a single step -- so a meeting genuinely being priced for a bigger move shows that split (e.g. "52% cut 25bp, 48% cut 50bp") instead of a flat "100% cut 25bp." Still a linear read of one number (the day-weighted implied rate), not a full binomial probability tree like CME's own FedWatch methodology -- extremely large, multi-meeting compound moves are the one case this simplification wouldn't capture precisely, though that's rare enough in practice not to matter for everyday reads of this card.</span></div>
-    <div class="guide-kv"><span class="guide-key">FOMC meeting dates</span><span class="guide-val">The calculation needs the exact day of each meeting to correctly split "before" vs "after" days within its contract's month -- get the date wrong and the whole split is wrong for that meeting. Dates are maintained in Settings → FOMC Meeting Dates (built in through Jan 2028; the Fed announces each new year's schedule about a year ahead, usually Aug/Sep, at <a href="https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline">federalreserve.gov</a>). If a meeting's date is missing from the list, that meeting simply doesn't appear in the breakdown -- the raw implied-rate table above keeps working regardless, only the probability split fades out one meeting at a time as dates run out, never showing something wrong.</span></div>
-  </div>
-</div>
-
-<!-- ── SECTION: ETF Research Sandbox ───────────────────────────────── -->
-<div class="card" style="margin-bottom:8px">
-  <div class="gs-header" onclick="toggleGuide('etfsandbox')">
-    <div class="card-title" style="margin:0"><span class="dot" style="background:#4fc3f7"></span>ETF Research Sandbox</div>
-    <span class="gs-chevron" id="gc-etfsandbox">&#9658;</span>
-  </div>
-  <div class="gs-body" id="gb-etfsandbox">
-    <div class="guide-kv"><span class="guide-key">Purpose</span><span class="guide-val">Analyze any income ETF for comparison with SPYI and NBOS. Enter a ticker symbol (e.g. GPIQ, YMAX, JEPI, CSHI) and tap Analyze ETF to generate a full analysis tile.</span></div>
-    <div class="guide-kv"><span class="guide-key">Trailing yield</span><span class="guide-val">Sum of the last 12 monthly distributions divided by current price. The most honest yield metric — reflects what the fund actually paid, not what it promises to pay.</span></div>
-    <div class="guide-kv"><span class="guide-key">Price return</span><span class="guide-val">NAV change only over the selected period. For income ETFs, this is often flat or negative — that is acceptable and expected if distributions are high enough to compensate.</span></div>
-    <div class="guide-kv"><span class="guide-key">Total return</span><span class="guide-val">Price change plus all distributions reinvested. This is the true performance metric. Compare total return against SPYI and NBOS to evaluate whether an ETF is worth adding to Layer 2.</span></div>
-    <div class="guide-kv"><span class="guide-key">Isolation</span><span class="guide-val">Sandbox data is completely separate from income calculations. Adding or removing sandbox ETFs does not affect your blended yield or Layer 2 income figures.</span></div>
-    <div class="guide-kv"><span class="guide-key">Persistence</span><span class="guide-val">Sandbox ticker list is saved and included in data exports. Cached data is refreshed when you tap the ETF tab refresh button or run Force Refresh Everything.</span></div>
-  </div>
-</div>
-
-<!-- ── SECTION: Income Engine ──────────────────────────────────────── -->
-<div class="card" style="margin-bottom:8px">
-  <div class="gs-header" onclick="toggleGuide('income')">
-    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--green)"></span>Income Engine</div>
-    <span class="gs-chevron" id="gc-income">&#9658;</span>
-  </div>
-  <div class="gs-body" id="gb-income">
-    <div class="guide-kv"><span class="guide-key">Blended yield</span><span class="guide-val">Weighted average of all three layers based on your capital allocation. Shows what your total portfolio is earning on an annualized basis.</span></div>
-    <div class="guide-kv"><span class="guide-key">Tax-equivalent yield</span><span class="guide-val">T-bill and money market yields are state-tax-exempt. The app grosses these up using your state and marginal tax rate, set in Settings (defaults to California, 9.3% -- change it if you're in a different state or bracket). No lookup table -- enter your own known rate, since it depends on your specific income and filing status. States with no income tax zero this out automatically.</span></div>
-    <div class="guide-kv"><span class="guide-key">MMF yields</span><span class="guide-val">FDLXX and SPAXX/FDRXX 7-day yields are fetched from Yahoo Finance and cached per account. Tap Refresh Yields to update. Layer 2 ETF yields come from the ETF tab — refresh the ETF tab if SPYI or NBOS shows no yield.</span></div>
-    <div class="guide-kv"><span class="guide-key">Layer 3 capital</span><span class="guide-val">Your active put and covered call positions feed into the Layer 3 denominator as deployed notional capital. The blended yield calculation uses actual position notional, not a flat allocation.</span></div>
-    <div class="guide-kv"><span class="guide-key">Position tracker</span><span class="guide-val">Log each put and covered call with ticker, strike, expiration, and contracts (a covered call also records the stock price at write, for its own notional calculation). Premium paid or received isn't captured, so there's no true per-position yield shown -- Layer 3's income figure applies your configured Target APY to actual position notional, not a return computed from what you were actually paid. Lifecycle tracking (active &rarr; approaching expiry &rarr; expired, lingering 7 days before cleanup) is real and drives what counts toward that notional.</span></div>
-    <div class="guide-kv"><span class="guide-key">Rolling a position</span><span class="guide-val">The roll-candidates table under any put or CC position (tap to expand) shows live strikes and expiries to roll into, each one tappable. Selecting a candidate opens the normal Add Position modal pre-filled with that strike, expiration, and your current contract count -- confirm, and it atomically adds the new position while marking the original as rolled, both in one save. A rolled position gets the exact same grayed-out treatment and 7-day lingering window as a naturally expired one, and stops counting toward Layer 3 notional the moment it's marked, not when its real expiration date eventually arrives.</span></div>
-    <div class="guide-kv"><span class="guide-key">Target APY</span><span class="guide-val">Set per account. Controls the Layer 3 benchmark line and highlighted positions. Defaults to the global Dashboard APY setting when an account is first created.</span></div>
-    <div class="guide-h3">Multiple Accounts</div>
-    <div class="guide-kv"><span class="guide-key">Account switcher</span><span class="guide-val">The chip row at the top of the Income tab shows all your accounts. Tap any chip to switch. The active account is highlighted in its assigned color, and a soft glow on the left edge of the tab identifies which account you are viewing at all times, even while scrolled.</span></div>
-    <div class="guide-kv"><span class="guide-key">Firewall</span><span class="guide-val">Each account has completely independent Layer 1, Layer 2, Layer 3 inputs, position trackers, MMF yield cache, and target APY. Switching accounts loads that account's data. Nothing is shared between accounts except Layer 2 ETF yields (market data, not account-specific).</span></div>
-    <div class="guide-kv"><span class="guide-key">Add account</span><span class="guide-val">Tap the ＋ button at the end of the chip row. Enter a name (e.g. "SEP IRA", "HSA"). New accounts start empty.</span></div>
-    <div class="guide-kv"><span class="guide-key">Rename / delete</span><span class="guide-val">Long-press (or right-tap on desktop) any account chip to rename or delete it. Renaming does not affect stored data. Deleting an account with active positions requires exporting a backup first.</span></div>
-    <div class="guide-kv"><span class="guide-key">All Accounts overview</span><span class="guide-val">Tap "All Accounts ↗" to open a summary pop-up. A blended-yield hero at the top shows your true annualized yield across every account combined -- total income summed, then yield recalculated from those totals (not an average of each account's own yield, which would misweight differently-sized accounts). Below that: position counts, notional values, ITM flags, and expiry urgency (⚠ red = ≤2 days, ⚡ amber = ≤7 days) per account. Tap any account row to switch directly to that account.</span></div>
-    <div class="guide-kv"><span class="guide-key">Sticky selection</span><span class="guide-val">The last-viewed account is remembered across app launches. When you open the Income tab, you land on the same account you were last viewing.</span></div>
-    <div class="guide-kv"><span class="guide-key">Export / import</span><span class="guide-val">Backups include all accounts. The import preview shows each account by name with its position count. Restoring a backup replaces all accounts simultaneously.</span></div>
-  </div>
-</div>
-
-<!-- ── SECTION: About ───────────────────────────────────────────────── -->
-<div class="card" style="margin-bottom:8px">
-  <div class="gs-header" onclick="toggleGuide('about')">
-    <div class="card-title" style="margin:0"><span class="dot" style="background:var(--text3)"></span>About Income Engine</div>
-    <span class="gs-chevron" id="gc-about">&#9658;</span>
-  </div>
-  <div class="gs-body" id="gb-about">
-    <div class="guide-kv"><span class="guide-key">Version</span><span class="guide-val">Build number shown in header — increments with every deploy and matches the service worker cache version.</span></div>
-    <div class="guide-kv"><span class="guide-key">Platform</span><span class="guide-val">Progressive Web App (PWA). Install from Safari on iPhone for full-screen experience and offline capability.</span></div>
-    <div class="guide-kv"><span class="guide-key">Data privacy</span><span class="guide-val">All data stored locally on your device. No account required. Market data comes from Finnhub and Yahoo Finance (the latter via your Cloudflare Worker proxy). If no personal Finnhub key is set in Settings, Finnhub calls route through the Worker instead using a shared key. First launch asks for a Server Address to connect to that Worker.</span></div>
-    <div class="guide-kv"><span class="guide-key">Disclaimer</span><span class="guide-val">For personal research and education only. Not financial advice. Options trading involves substantial risk of loss. Always verify data with your broker before placing trades.</span></div>
-  </div>
-</div>
-
-<script>document.addEventListener('DOMContentLoaded',initGuide);if(document.readyState==='complete'||document.readyState==='interactive')initGuide();</script>
-
-</div>
-
-</div><!-- /main -->
-</div><!-- /app -->
-
-<!-- SETTINGS OVERLAY -->
-<div class="settings-overlay" id="settings-overlay" onclick="closeSettingsIfOutside(event)">
-  <div class="settings-sheet">
-    <div class="settings-handle"></div>
-    <div class="settings-title">Settings</div>
-    <div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:var(--accent)"></span>App Updates</div>
-    <div id="app-update-status" style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.6">Checking for updates...</div>
-    <button class="btn btn-secondary" onclick="forceAppRefresh()" style="width:100%">Force App Refresh</button>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Clears page cache, reloads latest version from GitHub. Your data is preserved.</div>
-    <hr class="divider">
-    <div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:var(--text3)"></span>General Settings</div>
-    <div class="input-group"><label class="input-label">Finnhub API Key</label><input class="input" type="password" id="finnhub-key-input" placeholder="Paste your Finnhub API key"></div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Key stored locally on your device only. Get a free key at finnhub.io.</div>
-    <div class="input-group"><label class="input-label">Server Address</label><input class="input" type="text" id="worker-fragment-settings-input" placeholder="the address you were given" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
-    <div class="input-group"><label class="input-label">Default Watchlist (comma separated)</label><input class="input" type="text" id="default-watchlist-input" value="NVDA,AMZN,GOOGL,GLW,MS,PANW,NET,NFLX,SHOP,ORCL,TSLA"></div>
-    <div class="input-group"><label class="input-label">VIX Alert Threshold (shows indicator above this level)</label><input class="input" type="number" id="vix-threshold-input" value="20" min="10" max="50"></div>
-    <div class="input-group"><label class="input-label">Prefetch Delay Between Tickers (ms)</label><input class="input" type="number" id="prefetch-sleep-input" value="100" min="100" max="5000" step="50"></div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Pause between tickers during Prefetch All / Force Refresh, to avoid bursting Yahoo/Finnhub API rate limits across the full watchlist. Default 500ms; raise it if you see rate-limit errors, lower it for a faster refresh if you haven't.</div>
-    <div class="input-group"><label class="input-label">Font Size</label><select class="input" id="font-size-input"><option value="15">Small (15px)</option><option value="17">Medium (17px)</option><option value="19" selected>Default (19px)</option><option value="21">Large (21px)</option><option value="23">Extra Large (23px)</option><option value="26">2XL (26px)</option><option value="30">3XL (30px)</option><option value="36">4XL (36px)</option></select></div>
-    <div class="input-group"><label class="input-label">Timestamp Display</label><select class="input" id="tz-pref-input"><option value="PT">Pacific Time (PT) -- home timezone</option><option value="local">Local Device Time</option><option value="UTC">UTC / GMT</option></select></div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">All timestamps throughout the app will use this timezone. Relative age (e.g. "3h ago") is always shown alongside.</div>
-    <div class="input-group"><label class="input-label">State (for tax-equivalent yield)</label><select class="input" id="tax-state-sel" onchange="setTaxState()"></select></div>
-    <div class="input-group"><label class="input-label">Your Marginal State Tax Rate (%)</label><input class="input" type="number" id="state-tax-rate-input" min="0" max="100" step="0.1" onchange="setStateTaxRate()"></div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Used to gross up T-bill and FDLXX yields to their tax-equivalent value on the Income tab, since both are exempt from state income tax. Enter your own known marginal rate -- this isn't looked up automatically, since your actual rate depends on your specific income and filing status. Selecting a state with no income tax zeroes the rate automatically (still editable).</div>
-    <div class="input-group"><label class="input-label">Options cache write cutoff</label><select class="input" id="options-cutoff-input"></select></div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">After this time, existing same-day options cache is preserved rather than overwritten with potentially synthetic after-hours data.</div>
-    <div class="input-group" style="display:flex;align-items:center;justify-content:space-between">
-      <label class="input-label" style="margin-bottom:0">Offline Mode (skip all network fetches, serve from cache only)</label>
-      <input type="checkbox" id="offline-mode-input" style="width:20px;height:20px;accent-color:var(--accent3)">
-    </div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Enable before flights. Disables all API calls -- everything served from localStorage cache.</div>
-    <div class="input-group" style="display:flex;align-items:center;justify-content:space-between">
-      <label class="input-label" style="margin-bottom:0">Debug Options Fetch (show a toast on each Options tab load explaining what happened)</label>
-      <input type="checkbox" id="debug-options-fetch-input" style="width:20px;height:20px;accent-color:var(--accent3)">
-    </div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Diagnostic only -- leave off normally. Useful for troubleshooting stale options data.</div>
-    <div class="input-group" style="display:flex;align-items:center;justify-content:space-between">
-      <label class="input-label" style="margin-bottom:0">Fetch Analyst Upgrades/Downgrades (Recent Analyst Actions card)</label>
-      <input type="checkbox" id="fetch-upgrades-input" style="width:20px;height:20px;accent-color:var(--accent3)">
-    </div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Off by default. This Finnhub endpoint has been unreliable (intermittent 403s) and the resulting card is easy to miss. Enable to attempt the fetch again.</div>
-    <div class="input-group" style="display:flex;align-items:center;justify-content:space-between">
-      <label class="input-label" style="margin-bottom:0">Wheel Backtest: Term-Structure Adjustment</label>
-      <input type="checkbox" id="wheelbt-term-structure-input" style="width:20px;height:20px;accent-color:var(--accent3)">
-    </div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">On by default. Uses the ratio between two realized-volatility lookback windows as a stand-in for how the options market actually prices different expirations relative to each other -- a real approximation, not verified against actual historical option quotes. Turn off to price every expiration with a single flat volatility instead.</div>
-    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
-    <button class="btn btn-secondary" onclick="document.getElementById('disclaimer-modal').style.display='block'">View Disclaimer &amp; Terms</button>
-    <button class="btn btn-secondary" onclick="closeSettings()" style="margin-top:6px">Cancel</button>
-    <hr class="divider">
-    <div class="card-title" style="font-size:12px;margin-bottom:6px"><span class="dot" style="background:var(--green)"></span>Flight Mode Readiness</div>
-    <div id="flight-mode-display" style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6">Tap Check to audit all cached data before a flight.</div>
-    <button class="btn btn-secondary" onclick="checkFlightModeReady()" style="margin-top:6px;width:100%">Check Flight Mode Readiness</button>
-    <hr class="divider">
-    <div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:var(--accent2)"></span>Conviction Factor Weights</div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px;line-height:1.6">Multipliers per scoring factor (0.0 = ignore, 1.0 = default, 2.0 = double). Takes effect on next dashboard run.</div>
-    <div id="weight-sliders">
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">HVR (historical vol rank)</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-ivr" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-ivr" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-ivr" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-ivr" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-ivr').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-ivr');const b=document.getElementById('weight-info-ivr');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['ivr']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-ivr" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-ivr" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">RSI (momentum)</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-rsi" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-rsi" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-rsi" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-rsi" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-rsi').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-rsi');const b=document.getElementById('weight-info-rsi');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['rsi']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-rsi" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-rsi" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">Range (52W position)</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-range" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-range" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-range" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-range" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-range').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-range');const b=document.getElementById('weight-info-range');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['range']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-range" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-range" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">APY (yield vs target)</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-apy" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-apy" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-apy" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-apy" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-apy').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-apy');const b=document.getElementById('weight-info-apy');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['apy']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-apy" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-apy" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">Earnings (penalty)</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-earnings" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-earnings" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-earnings" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-earnings" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-earnings').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-earnings');const b=document.getElementById('weight-info-earnings');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['earnings']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-earnings" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-earnings" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">MA (trend confirmation)</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-ma" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-ma" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-ma" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-ma" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-ma').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-ma');const b=document.getElementById('weight-info-ma');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['ma']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-ma" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-ma" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">Analyst Upside</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-upside" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-upside" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-upside" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-upside" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-upside').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-upside');const b=document.getElementById('weight-info-upside');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['upside']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-upside" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-upside" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">Beta (high-beta penalty)</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-beta" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-beta" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-beta" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-beta" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-beta').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-beta');const b=document.getElementById('weight-info-beta');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['beta']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-beta" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-beta" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-      <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-          <label class="input-label" style="margin:0;font-size:11px">OI Gravity Gap</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="weight-share-oiGap" style="font-family:var(--mono);font-size:10px;background:rgba(0,212,170,0.15);color:var(--accent);border-radius:4px;padding:1px 5px;min-width:32px;text-align:center">--%</span>
-            <span id="weight-val-oiGap" style="font-family:var(--mono);font-size:12px;color:var(--text2);min-width:28px;text-align:right">1.0x</span>
-          </div>
-        </div>
-        <div style="background:var(--surface3);border-radius:2px;height:3px;margin-bottom:4px">
-          <div id="weight-bar-oiGap" style="height:3px;background:var(--accent);border-radius:2px;width:0%;transition:width 0.2s"></div>
-        </div>
-        <input type="range" id="weight-oiGap" min="0" max="3" step="0.1" value="1.0"
-          style="width:100%;accent-color:var(--accent);margin-bottom:3px"
-          oninput="document.getElementById('weight-val-oiGap').textContent=parseFloat(this.value).toFixed(1)+'x';if(typeof updateWeightShares==='function')updateWeightShares();">
-        <button onclick="(function(){const d=document.getElementById('weight-desc-oiGap');const b=document.getElementById('weight-info-oiGap');if(d.style.display==='none'){d.style.display='block';b.textContent='▲';d.textContent=typeof FACTOR_DESCRIPTIONS!=='undefined'?FACTOR_DESCRIPTIONS['oiGap']:'';}else{d.style.display='none';b.textContent='ⓘ';}})()" id="weight-info-oiGap" style="background:none;border:none;color:var(--text3);font-family:var(--mono);font-size:9px;cursor:pointer;padding:0;margin-top:2px">ⓘ</button>
-        <div id="weight-desc-oiGap" style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.5;display:none;margin-top:4px"></div>
-      </div>
-    </div>
-    <div style="display:flex;gap:8px;margin-top:4px;margin-bottom:12px">
-      <button class="btn btn-primary" onclick="saveConvictionWeights()" style="flex:1">Save Weights</button>
-      <button class="btn btn-secondary" onclick="resetConvictionWeights()" style="flex:1">Reset Defaults</button>
-    </div>
-    <hr class="divider">
-    <div class="card-title" style="margin-bottom:6px"><span class="dot" style="background:var(--accent)"></span>Last Refresh Status</div>
-    <div id="refresh-health-badge-settings" onclick="openRefreshHealthModal()" style="font-family:var(--mono);font-size:10px;color:var(--text2);cursor:pointer;padding:6px 10px;border-radius:6px;border:1px solid var(--border);margin-bottom:4px">Tap to view last refresh health report</div>
-    <hr class="divider">
-    <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:#64b5f6"></span>Data Portability</div>
-    <button class="btn btn-secondary" onclick="openDataPortabilityModal()" style="width:100%;margin-bottom:6px">Export / Import App Data</button>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.5">Export your positions, earnings overrides, income inputs, and settings to a portable JSON backup. Import a previous backup to restore.</div>
-    <hr class="divider">
-    <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent2)"></span>FOMC Meeting Dates</div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.6">Used by the Fed Funds Futures meeting-by-meeting odds on the Market tab (see Guide for how). One date per line, YYYY-MM-DD, the second day of each meeting (when the rate decision is announced). The Fed publishes next year's dates about once a year, usually Aug/Sep, at <a href="https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline">federalreserve.gov/monetarypolicy/fomccalendars.htm</a> -- copy the new ones in here if this hasn't been updated in a while.</div>
-    <textarea id="fomc-dates-textarea" style="width:100%;height:140px;font-family:var(--mono);font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;resize:none;box-sizing:border-box;margin-bottom:8px" placeholder="2026-01-28"></textarea>
-    <div style="display:flex;gap:6px">
-      <button class="btn btn-secondary" style="flex:1;font-size:11px" onclick="saveFomcDates()">Save</button>
-      <button class="btn btn-secondary" style="flex:1;font-size:11px" onclick="resetFomcDatesToDefault()">Reset to Defaults</button>
-    </div>
-    <hr class="divider">
-    <div class="card-title" style="font-size:12px;margin-bottom:6px"><span class="dot" style="background:var(--accent3)"></span>Storage Usage</div>
-    <div id="storage-display" style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6">Tap Measure to see usage</div>
-    <button class="btn btn-secondary" onclick="measureStorage()" style="margin-top:6px;width:100%">Measure Storage</button>
-    <button class="btn btn-secondary" id="storage-capacity-test-btn" onclick="measureRealStorageCapacity()" style="margin-top:8px;width:100%;font-size:10px;padding:6px;opacity:0.75">Recalibrate Real Storage Limit (optional, ~1 sec)</button>
-    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:4px">This runs automatically once per device already -- only needed again if you suspect it's stale (e.g. after an iOS update). Writes and deletes temporary throwaway data to find this device's actual localStorage ceiling, since iOS Safari doesn't report it directly. Safe -- never touches your real data. Result is saved on this device only, not included in exports.</div>
-    <div style="margin-top:12px">
-      <div class="card-title" style="font-size:12px;margin-bottom:6px"><span class="dot" style="background:var(--green)"></span>Worker Health Check</div>
-      <div id="worker-health-display" style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6">Tap Test to check Worker connectivity and Yahoo auth</div>
-      <button class="btn btn-secondary" onclick="workerHealthCheck()" style="margin-top:6px;width:100%">Test Worker Connection</button>
-    </div>
-    <hr class="divider">
-    <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
-    <div class="commentary" style="font-size:12px;max-height:400px;overflow-y:auto">
-v3.2.2 -- 2026-09-23
-- Fixed a real, severe Fed Watch bug caught by review: a source-less legacy history entry (from a build before 495) surviving past its own meeting date could get read completely unconditionally as a LATER meeting's starting rate, with no check on where that rate actually came from. Confirmed via direct reproduction: a single stray legacy entry made an ordinary meeting read as a fabricated "1275bp cut." The migration now purges any history entry that isn't properly sourced, regardless of whether its date is in the future or the past, and the baseline lookup itself now also refuses to trust an unsourced entry even if one somehow exists.
-- Service worker: v498
-
-v3.2.1 -- 2026-09-23
-- Fixed a real regression from an external review: visiting the Options tab could silently overwrite a Market-tab-resolved (NY Fed official) meeting outcome with a weaker futures-implied guess, because the Options tab's own call into the shared probability function wasn't passing the cached official rate data. Fixed at both ends -- the Options tab now passes the same data the Market tab does, and the shared function itself now refuses to downgrade an existing official record even if a future caller forgets to.
-- Fixed a real bug, also caught by review: if a single month's futures contract was ever completely missing from a fetch (not stale -- genuinely absent), the calculation would silently use a rate from however many months back happened to be available as if it were the immediately preceding month's rate. For adjacent meeting months (like September/October), this could attribute an entire multi-month rate move to a single meeting -- confirmed via direct reproduction to produce a nonsensical "67% chance of a 250bp cut" instead of an honest "odds unavailable." A gap in the monthly sequence now correctly invalidates the baseline instead.
-- The NY Fed data window is now sized dynamically from the actual earliest month in view, rather than a flat 45 days -- fixes a real (if narrow) edge case near month boundaries where a meeting could be more than 45 days old while its contract was still in view.
-- Cloudflare Worker: the EFFR route now validates that dates are real calendar dates (not just YYYY-MM-DD shaped -- a Feb 30 was previously silently accepted and rolled forward to Mar 2), rejects a start date after the end date, and caps the requested range at 120 days.
-- Corrected a documentation example that didn't actually sum to 100%, and strengthened the New York Fed attribution note.
-- Added 20 additional regression tests, including a direct reproduction of both bugs above and an end-to-end test through the real (unmodified) options.js code path.
-- Service worker: v497
-
-v3.2.0 -- 2026-09-23
-- Fed Funds Futures meeting odds now split across whatever adjacent 25bp outcomes the implied move actually calls for, instead of capping at a single step. A meeting priced for roughly a 37bp move now shows something like "52% cut 25bp, 48% cut 50bp" instead of a flat "100% cut 25bp" -- ordinary meetings (moves under 25bp) show exactly the same hold/cut/hike numbers as before.
-- Fixed a baseline-anchoring gap: the meeting-odds calculation only ever reset its starting rate from the FIRST meeting-free month in its window, silently ignoring every meeting-free month after that. It now re-anchors at every one, which can shift the odds shown for a meeting that follows a meeting-free month -- not a sign anything was wrong before, just a more precise starting point now.
-- Service worker: v496
-
-v3.1.0 -- 2026-09-23
-- Fed Funds Futures meeting-odds fix: the pre/post-meeting day-count split had been off by one day for every meeting (the meeting date itself was being counted as post-meeting instead of pre-meeting), which shifted every implied probability slightly. Corrected to match CME's own published day-count convention.
-- Past FOMC meetings are now resolved from the Federal Reserve Bank of New York's own published Effective Federal Funds Rate and target-range history (a free, public API) instead of being inferred from futures reprice -- an authoritative record of what actually happened, not a guess. The futures-implied method is kept as a fallback for very recent meetings the NY Fed data doesn't cover yet, and each resolved meeting is labeled with which source it came from.
-- Fixed a real data-integrity bug: the live forecast rate for UPCOMING meetings was being written into the same self-healing history used to bootstrap later calculations, on every single fetch -- meaning a meeting that hadn't happened yet could get silently read back later as though its outcome were settled. Forecasts are no longer persisted; only genuinely resolved outcomes are. Existing contaminated entries are migrated away automatically on first load of this version.
-- fomc_meeting_history reclassified from permanently-exported data to routine, re-fetchable market-data cache (now included in Settings &rarr; Clear Market Data Cache) -- every entry is now either NY-Fed-sourced or a self-correcting futures-implied fallback, so nothing here is irreplaceable anymore. Your FOMC meeting dates override (Settings &rarr; FOMC Meeting Dates) is unaffected and still exported as before.
-- Service worker: v495
-
-v3.0.0 -- 2026-05-23
-- ETF Research Sandbox: new section at the bottom of the ETF tab for ad-hoc ETF analysis. Enter any ticker (e.g. GPIQ, YMAX, JEPI) and tap Analyze ETF to generate the same tile shown for SPYI and NBOS — trailing 12-month yield, price return, total return, distribution history, and 6-month price chart. Supports up to 5 concurrent sandbox ETFs. Each sandbox ticker can be individually removed. Sandbox data is completely isolated from income calculations. Ticker list and cached data persist across sessions.
-
-v2.9.0 -- 2026-05-17
-- Relative Performance vs S&P 500 chart: new dedicated card on ticker page showing stock vs ^GSPC normalized to 100 at start of 2-year window. Teal line = ticker, gray dashed = S&P 500. Toggle earnings vertical lines (amber) on/off -- defaults to on when earnings history is available.
-- 2-year price history: all watchlist tickers now fetch 2Y daily OHLCV alongside existing 6M and 1Y history. Powers the relative performance chart and improves MA200 accuracy across the full 1Y chart period.
-- ^GSPC 2Y history: fetched once per prefetch run and cached separately, shared across all ticker relative performance charts.
-- Historical earnings dates: Finnhub /stock/earnings (limit=8, ~2 years of quarters) now fetched and cached per ticker. Powers earnings vertical lines on the relative performance chart. Foundation for future earnings pattern analysis.
-- BB chart 2Y toggle: Bollinger Band chart now has a third timeframe button (2Y) alongside existing 6M and 1Y.
-- Covered call positions: "Stock held for CC writing ($)" manual field now shows "(overridden by position tracker)" label, matching the puts notional field.
-- Income tab: CC stock notional (from position tracker or manual field) now correctly included in the blended yield denominator as deployed capital.
-- Service worker: v45
-
-v2.8.0 -- 2026-05-12
-- Income Engine tab: three-layer blended yield calculator. Layer 1: T-Bills + FDLXX (CA state TEY) + SPAXX. Layer 2: SPYI + NBOS (TTM yield from ETF cache). Layer 3: written puts + CC stock at target APY. Hero displays blended yield %, annual income, and monthly income.
-- Income Engine: FDLXX and SPAXX yields auto-fetched via Yahoo Finance (summaryDetail → dividends TTM fallback). Manual override inputs always visible -- labeled "Manual override" when fetch succeeds, amber warning when it fails. Toggle switch per fund to prioritize manual value over fetched value when Yahoo data is suspected inaccurate.
-- Income Engine: T-Bills and FDLXX both treated with CA state tax-equivalent yield (raw ÷ (1 − 9.3%)). SPAXX excluded from TEY (partially state-taxable).
-- Income Engine: manual yield inputs use onblur trigger to avoid focus loss while typing decimals.
-- Watchlist heatmap: Heat toggle row added (Off / Daily % / IVR). Daily % colors chips green/red by price change intensity. IVR colors chips orange→amber→blue by implied volatility rank. IVR legend appears below chips when IVR mode active.
-- Watchlist heatmap: IVR values now persisted to snap cache during conviction dashboard run, enabling IVR heatmap without re-running dashboards.
-- Volume badge: 🔥 VOL badge appears on watchlist chips in final 2 hours of any trading session (including early close days) when projected volume exceeds 1.5× 20-day average. Amber at 1.5×–2×, red at 2×+. Badge lingers through after-hours and overnight. Clears at next premarket open. Retroactive detection from history cache survives nuclear option rebuild on weekends.
-- Early close detection: _getSessionCloseMins() computes correct session end time (1pm on early close days, 4pm normally) for volume badge window calculation.
-- Settings: Force App Refresh now uses window.location.reload() without hard-reload flag, preventing mixed old/new file state that caused market banner to freeze after refresh.
-- Release Notes: moved from separate release-notes.html page (which caused navigation-away banner regression) to inline scrollable section within Settings.
-- After-hours price: display guard now uses live getMarketState() instead of cached snap.marketState, preventing yesterday's after-hours price from lingering through next regular session.
-- 52-week high/low: sanity check detects Finnhub currency contamination (ADRs like TSM returning TWD values). Implausible values cleared and backfilled from Yahoo 1Y history. Same backfill applied in dashboard scoring loop.
-- Options sliders: % Below Price and % Above Price now correctly persist per mode via saveOptionsPrefs() call added to updateSlider().
-- Service worker: v18.
-
-v2.7.0 -- 2026-05-08
-- Conviction scoring rebalanced: IVR now correctly weighted as most important factor (max +3 pts, was +1). APY now contributes to raw score (was display-only). Two new factors: Analyst Target Upside and Beta adjustment.
-- Dynamic factor weights: Settings panel now has 8 sliders (0.0x to 3.0x) for each conviction factor. Defaults reproduce the new balanced algorithm. Save/Reset buttons. Weights persisted in localStorage.
-- Ghost variable cleanup: removed stale rec2/upgrades2 references in loadTicker. Removed unused Finnhub /stock/price-target call (price targets now from Yahoo quoteSummary, free tier).
-- Removed old scorePuts/scoreCalls from index.html -- now exclusively in js/scoring.js.
-
-v2.6.2 -- 2026-05-04
-- Earnings tab: fixed timezone boundary bug where BMO tickers disappeared the evening before their earnings date. Filter now uses daysUntilDate() (calendar date comparison in local timezone) instead of raw UTC millisecond math. Tickers now stay visible throughout their entire earnings day.
-- Fed Rate Outlook card: removed from Market tab. It was an imprecise proxy (2Y vs 3M Treasury spread) that conflicted with the more accurate CME Fed Funds Futures card. The Futures card is the authoritative source for rate direction.
-
-v2.6.1 -- 2026-05-04
-- CME Fed Funds Futures: fixed ticker format from ZQK26=F to ZQK26.CBT (Yahoo Finance CBOT format). Card should now appear on Market tab.
-- Font sizes: added 2XL (26px), 3XL (30px), and 4XL (36px) options to Settings dropdown. Useful for low-visibility conditions. Note: text scales via CSS variable; some fixed-px layout elements do not scale proportionally.
-
-v2.6.0 -- 2026-05-04
-- About card: version number updated (v2.6.0).
-- Ordinal suffix: ordinal() utility function added. IVR percentile now shows "23rd pct", "42nd pct" etc. with correct English suffixes. Replaces hardcoded "th" throughout.
-- Market tab: index fetches (sp500, nasdaq, treasury2y) made independent so one failure no longer blocks the others.
-- Fed Rate Outlook card: treasury2y now falls back to ^TNX (10-year) live quote if ^USGG2YR returns all-null closes. Card should now appear reliably.
-- CME Fed Funds Futures card: new card on Market tab showing 30-day futures implied rates for next 6 months. Price, implied rate (100 minus price), and delta vs near-month contract in basis points. Summary line shows market consensus on rate direction.
-
-v2.5.0 -- 2026-05-04
-- Extended hours display: pre-market and after-hours prices now suppressed during REGULAR market session. Only shown in PRE, POST, POSTPOST, or CLOSED states.
-- S&P 500 / Nasdaq: switched to live quote fetch (?type=quote) for current price and prev close. History closes for index tickers are unreliable (often null). Live prices cached to mkt_sp_live / mkt_nq_live keys.
-- VIX live price: live quote injected into last history close after fetch, replacing stale prior-day close. VIX chart and indicator now reflect intraday value.
-- Earnings tab EPS estimate: Yahoo earningsTrend (current quarter epsMean) used as fallback when Finnhub returns null on free tier.
-- Earnings tab TODAY label: fixed timezone boundary bug. daysUntilDate() utility compares calendar dates in user timezone -- no more UTC midnight rounding issues.
-- Timezone audit: daysUntilDate() applied to earnings banner in options table and conviction scoring earnings timing (2 locations). Options DTE was already safe (uses noon UTC).
-- About card: updated data sources and version number. FRED references removed.
-- Release notes: dates now reflect actual generation date.
-
-v2.4.0 -- 2026-04-29
-- fetchQuoteSummary: single Yahoo quoteSummary call fetches financialData + defaultKeyStatistics + earningsTrend + recommendationTrend in one round trip.
-- PEG ratio tile: color-coded (<1 green, 1-2 neutral, >2 red). From Yahoo defaultKeyStatistics.
-- EV/EBITDA tile: with qualitative label. From Yahoo defaultKeyStatistics.
-- Short interest: switched to Yahoo shortPercentOfFloat and shortRatio (reliable on free tier). Finnhub used as fallback only.
-- Analyst Price Target card: moved below Analyst Coverage. Now a full card with consensus, low, high, and spread tiles.
-- Earnings Estimates card: EPS and revenue estimates for current quarter, next quarter, current year, next year with growth rate. From Yahoo earningsTrend.
-- Recommendation Trend card: buy/hold/sell percentages for last 3 months from Yahoo recommendationTrend. Free tier -- more reliable than Finnhub.
-- Disclaimer modal: accessible via "View Disclaimer & Terms" button in Settings. Non-blocking -- appears as overlay.
-
-v2.3.0 -- 2026-04-29
-- Analyst price targets: consensus mean, high, and low target from Finnhub /stock/price-target displayed as a full-width tile on the Ticker tab. Shows % upside/downside from current price and spread between high/low targets. Fetched in loadTicker, prefetchAll, and refreshSingleTicker.
-- Watchlist sort: three modes -- Manual (default, original entry order), A→Z (alphabetical), By Score (conviction score descending from last dashboard run). Buttons above Prefetch All. Mode persists in localStorage.
-- Settings: localStorage key count added to storage display alongside KB breakdown.
-- Settings: Worker health check pings the Worker with a SPY quote request and reports latency, HTTP status, and whether Yahoo auth is working.
-
-v2.2.0 -- 2026-04-29
-- Options table: bid and ask stacked in single Bid/Ask column to save horizontal space on narrow screens.
-- Conviction dashboard: numeric score (0-100) displayed inline with conviction level. Component bar strip (IVR/RSI/Range/APY/Earn in descending weight) shows color-coded performance per factor.
-- Header status dot: green = data fresh, amber = stale, blue pulse = refresh in progress.
-- Dashboard tab: "Last full refresh" timestamp persists below the Full Refresh button.
-- ETF charts: 6M/1Y toggle. Total return line and metrics now cached to localStorage and rendered from cache on app wake / airplane mode.
-- ETF return tiles: update dynamically when time span toggles.
-- Income engine Layer 2: per-ETF risk premium (SPYI and NBOS separately vs T-bills). Yield labeled as TTM.
-- Ticker BB/RSI chart: 6M/1Y toggle using already-cached history data.
-
-v2.1.0 -- 2026-04-29
-- Single-ticker refresh button on Ticker tab: fetches all data for selected ticker including 3 options expirations. Same offline safeguards. Does not affect conviction dashboard.
-- Storage display in Settings: shows Storage API usage vs quota with progress bar, plus localStorage breakdown by category (options/history/snaps/news). Tap "Measure Storage" to update.
-- Additional data slimming: top-level options cache, news (ticker + market), history timestamps stored as Unix integers. Reduces total storage ~60%.
-- EPS from Yahoo quote endpoint (epsTrailingTwelveMonths field) -- more reliable than Finnhub on free tier.
-- Analyst recommendations and upgrade/downgrade history now fetched in prefetchAll -- available offline after pre-flight refresh.
-- Market tab: timestamp saved to localStorage so ts-chip persists across sessions.
-
-v2.0.0 -- 2026-04-29
-- Font size setting in Settings: Small/Medium/Default/Large/Extra Large. Applied instantly via CSS variable.
-- EPS (TTM) and YoY EPS growth added to Ticker tab metrics grid. Red when negative (not profitable).
-- Analyst upgrade/downgrade history: recent 90 days from Finnhub with firm name, action, and grade transition.
-- ETF total return overlay: yellow dashed line on price chart showing price + cumulative distributions. Price return % and total return % printed as metric tiles for direct comparison.
-- Fed rate outlook card on Market tab: 2-year Treasury yield vs 3-month T-bill spread with plain-English interpretation of implied Fed rate path. Tailwind/headwind signal for equity valuations.
-- Conviction dashboard offline safety: if ALL tickers return errors (network failure), cached results are preserved and restored. No more accidental wipe in airplane mode.
-- prefetchAll: now fetches 3 monthly expirations per ticker (was 2). Also fetches Yahoo quote data to cache forwardPE and after-hours price.
-- Options tab: warning shown when options chain is freshly fetched but ticker price is stale (>30 min old).
-
-v1.9.0 -- 2026-04-29
-- Forward P/E added to Ticker tab metrics grid with direction indicator
-- Rule of 40 added to Ticker tab (revenue growth % + FCF/operating margin %). Color-coded score with context note that it applies to software/SaaS companies
-- Earnings date: now filters to earliest future date from Finnhub array. Window extended to 180 days. Prevents showing past earnings or far-future date when near-term date was in the array
-- Options table: expiration group header row at top of each month with date, DTE, and color matching OI chart stacked bars
-- Options table: earnings banner inserted at the correct position relative to expirations (between groups or inside group if earnings falls within that window). Shows date and BMO/AMC timing
-- Options table: dollar signs use HTML entity to avoid template literal conflicts
-- OI chart: now cleared immediately when ticker changes before new data loads
-- runDashboards: accepts skipOnlineCheck=true parameter for programmatic calls
-- fullRefreshEverything: now 6 steps including ETF and Market tab refresh. Passes skipOnlineCheck=true to runDashboards
-- Income engine summary: Layer 3 APY reads from target-apy setting on Dashboard tab
-- T-bill card title: FRED reference removed, now shows ^IRX / ^FVX
-- refreshTsChipAges: called in restoreVIXFromCache, restoreTickerFromCache, restoreETFFromCache so chips show correct stale state on first tab visit
-
-v1.8.1 -- 2026-04-29
-- Settings save: ticker dropdown selection now restored after saving settings. Previously populateSelects() rebuilt the option elements and the browser reset the dropdown to blank.
-- Settings save: refreshTsChipAges() now called immediately after saving so timezone change is reflected in all visible timestamp chips without needing to switch tabs.
-
-v1.8.0 -- 2026-04-29
-- Options tab live controls: expiration chips, OTM sliders, and APY threshold now all instantly redraw the options table and OI chart when a chain is already loaded. No need to press Load/Refresh again after adjusting any control.
-
-v1.7.9 -- 2026-04-29
-- Timestamp chips: refreshTsChipAges() now flips chip from green (live) to amber (cached) when data is older than 15 minutes. Fixes contradiction where ETF tab showed green "live" for hour-old data.
-- Options separator: completely rewritten with correct unified logic. In ascending strike order, the separator always appears before the first strike above the current price -- identical for both puts and calls mode. Previous version had swapped conditions causing puts separator to appear at top.
-
-v1.7.8 -- 2026-04-29
-- After-hours/pre-market price: now uses Yahoo Finance quote endpoint (?type=quote) via Worker -- same data source as Python yfinance stock.info. Shows change and % alongside extended price.
-- PWA icon: apple-touch-icon link tags added. Drop a 180x180 apple-touch-icon.png in the repo root whenever ready.
-- Options mode toggle: switching between Sell Puts and Sell Calls now auto-rebuilds the table and OI chart instantly without requiring a second button tap. Button renamed to "Load / Refresh Options Chain".
-- Options separator: puts mode separator now correctly appears between ITM puts (strike above price) and OTM puts (strike below price). Previous version incorrectly placed it at the top of each group.
-
-v1.7.7 -- 2026-04-29
-- Market banner: fixed next-open time calculation. Previous version constructed 9:30 AM ET incorrectly by guessing UTC offset from midnight -- which gave wrong results depending on DST. New approach uses make930ET() which tries both EDT (UTC-4) and EST (UTC-5), then verifies with Intl.DateTimeFormat that the resulting UTC timestamp actually corresponds to 9:30 AM ET before using it.
-
-v1.7.6 -- 2026-04-29
-- Volume Profile: VP bars now drawn as overlay on price chart using yAxis.getPixelForValue() -- guarantees pixel-perfect alignment with price axis. No more separate panel.
-- Volume Profile: removed separate horizontal bar chart panel. VP bars integrated into right margin of price chart, color-coded by volume magnitude.
-- Options table: current price separator row injected at the strike crossing point within each expiration group.
-- After-hours price: now also shows pre-market price when available; handles all extended-hours session states.
-- Short interest: improved field detection; shows "not reported" instead of "N/A" when data is genuinely unavailable.
-- Offline guard: all refresh/run buttons (dashboards, earnings, VIX, prefetch, ETF, market) now check connectivity before attempting fetch. Cached data is preserved.
-- Timestamp chips: age ("3h ago") refreshed on every tab switch so values never show "just now" for stale data.
-- ETF charts: SPYI chart now renders reliably using sequential requestAnimationFrame instead of setTimeout.
-
-v1.7.5 -- 2026-04-29
-- Options sliders: loadOptionsPrefs() now called whenever a new ticker is loaded in Options tab, so slider positions always reflect saved values rather than drifting
-- Volume Profile: both panels now share the same Y-axis min/max so price levels align horizontally across the price chart and volume bar chart
-- Volume Profile: chart container is now a horizontal scroll wrapper -- swipe left to see full volume bar panel on narrow screens
-
-v1.7.4 -- 2026-04-29
-- Market banner: fixed incorrect open/closed determination by using Intl.DateTimeFormat.formatToParts() instead of unreliable locale string parsing (Safari iOS incompatibility)
-- Market banner: close/open times now displayed in your selected timezone (PT/local/UTC) instead of hardcoded ET
-- Market banner: countdown shows "closes in 2h 30m (at 1:00 PM PT)" format
-
-v1.7.3 -- 2026-04-29
-- T-bill yields: switched to Yahoo Finance ^IRX (3-month) and ^FVX (5-year) via existing Worker history proxy. Avoids Treasury FiscalData SSL failures on Cloudflare Workers and FRED key requirement.
-
-v1.7.2 -- 2026-04-29
-- T-bill yields: switched from FRED API (requires key -- 400 error) to US Treasury FiscalData API (fully public, no key needed, routed via Worker)
-- ETF distributions and T-bill data now route correctly through Cloudflare Worker
-
-v1.7.1 -- 2026-04-29
-- Market banner timezone fix: respects PT/local/UTC setting from Settings
-- T-bill yields now routed through Cloudflare Worker (fixes N/A -- FRED CORS issue)
-- ETF distributions now fetched from Yahoo Finance via Worker (fixes N/A -- wrong Finnhub endpoint)
-- ETF trailing yield now computed correctly from Yahoo dividend event data
-
-v1.7 -- 2026-04-29
-- Live market status banner: green (open with countdown), red (closed), amber (pre/post market). Second-level precision in final 10 minutes. NYSE holiday aware.
-- Timezone preference in Settings: Pacific / Local Device / UTC. All timestamps use selected zone plus relative age (e.g. "3h ago")
-- Mode-specific slider persistence: puts and calls each remember their own OTM range and APY threshold settings
-- OI empty state: amber info box when OI data unavailable (typical overnight condition) with explanation and last-known-good timestamp
-- Analyst coverage on Ticker tab: analyst count, consensus label, recommendation mean, buy/hold/sell breakdown with visual bar
-- Treasury bill yields on Market tab: 3-month and 6-month T-bill yield history from FRED API, 1-year chart, spread analysis, income engine summary panel
-- ETF and Market tabs: auto-restore from cache on app wake, timestamps throughout
-- Online/offline indicator dot in header
-- Offline Mode toggle in Settings: skips all network fetches when enabled (for flights)
-- Clear All safety guard: strong warning with offline detection prevents accidental data loss on airplane
-- Offline detection: fleeting banner when network fails, persists as indicator dot</div>
-    <hr class="divider">
-    <div class="card-title" style="font-size:12px;margin-bottom:6px"><span class="dot" style="background:var(--warn)"></span>Debug Log</div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">Last 20 internal events.</div>
-    <div id="debug-log-entries" style="font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.6;max-height:180px;overflow-y:auto;background:var(--surface2);border-radius:8px;padding:8px;margin-bottom:8px">No entries yet.</div>
-    <div style="display:flex;gap:8px">
-      <button class="btn btn-secondary" style="flex:1" onclick="refreshDbgLogDisplay()">Refresh</button>
-      <button class="btn btn-secondary" style="flex:1" onclick="clearDbgLog()">Clear</button>
-    </div>
-    <hr class="divider">
-    <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--danger)"></span>Danger Zone</div>
-    <button class="btn btn-secondary" onclick="clearMarketDataCache()" style="margin-bottom:8px;width:100%">Clear Market Data Cache</button>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px;line-height:1.5">Clears options chains, price history (including the S&amp;P and Treasury-rate benchmark series), ticker snapshots, news, analyst upgrades, VIX, T-bill rates, and dividend history -- all re-fetchable, none of it accumulated history a refresh can't restore. Preserves your watchlist, positions, earnings overrides, income inputs, Multiple History/Next-FY tracking, Fed Funds meeting history, and all settings.</div>
-    <button class="btn btn-danger" onclick="clearAllDataWithGuard()" style="width:100%">Clear All Cached Data</button>
-  </div>
-</div>
-
-<!-- DATA PORTABILITY MODAL -->
-<div class="modal-overlay" id="data-portability-modal">
-  <div class="modal-box" style="max-width:480px;max-height:85vh;overflow-y:auto">
-    <div class="modal-title">Export / Import App Data</div>
-
-    <!-- EXPORT SECTION -->
-    <div style="margin-bottom:16px">
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Export</div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.5">Your positions, earnings overrides, income inputs, and settings as portable JSON. Save to Notes, Files, or any app.</div>
-      <textarea id="export-textarea" readonly style="width:100%;height:100px;font-family:var(--mono);font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text3);padding:8px;resize:none;box-sizing:border-box" placeholder="Tap Generate Export to create your backup..."></textarea>
-      <div style="display:flex;gap:6px;margin-top:6px">
-        <button class="btn btn-secondary" style="flex:1;font-size:11px" onclick="generateExport()">Generate Export</button>
-        <button class="btn btn-secondary" style="flex:1;font-size:11px" id="copy-export-btn" onclick="copyExportToClipboard()" disabled>Copy to Clipboard</button>
-        <button class="btn btn-secondary" style="flex:1;font-size:11px" id="share-export-btn" onclick="shareExport()" disabled>Share...</button>
-      </div>
-    </div>
-
-    <hr class="divider">
-
-    <!-- IMPORT SECTION -->
-    <div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Import</div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.5">Paste a previously exported backup below, then preview before restoring.</div>
-      <textarea id="import-textarea" style="width:100%;height:100px;font-family:var(--mono);font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;resize:none;box-sizing:border-box" placeholder="Paste JSON backup here..."></textarea>
-      <div style="display:flex;gap:6px;margin-top:6px;margin-bottom:10px">
-        <button class="btn btn-secondary" style="flex:1;font-size:11px" onclick="previewImport()">Preview Import</button>
-        <button class="btn btn-primary" style="flex:1;font-size:11px" id="restore-btn" onclick="confirmImport()" disabled>Restore Data</button>
-      </div>
-      <div id="import-preview" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:var(--mono);font-size:10px;line-height:1.7"></div>
-    </div>
-
-    <div style="margin-top:12px">
-      <button class="btn btn-secondary" onclick="closeDataPortabilityModal()" style="width:100%">Close</button>
-    </div>
-  </div>
-</div>
-
-<!-- OFFLINE CONFIRM MODAL -->
-<div class="modal-overlay" id="worker-setup-overlay">
-  <div class="modal-box">
-    <div class="modal-title modal-title-neutral">One-Time Setup</div>
-    <div class="modal-body">Enter the server address you were given to connect the app.</div>
-    <div class="input-group">
-      <label class="input-label">Server Address</label>
-      <input class="input" type="text" id="worker-fragment-input" placeholder="the address you were given" autocapitalize="off" autocorrect="off" spellcheck="false">
-    </div>
-    <div id="worker-setup-status" style="font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:10px;min-height:14px"></div>
-    <div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.6;background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:12px">
-      This app is for informational and educational purposes only -- not financial, investment, or trading advice. Options trading involves substantial risk of loss. The developer accepts no liability for losses arising from its use. <a href="javascript:void(0)" onclick="document.getElementById('disclaimer-modal').style.display='block'" style="color:var(--accent);text-decoration:underline">Read the full disclaimer</a>.
-    </div>
-    <label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:14px;font-family:var(--mono);font-size:11px;color:var(--text2);cursor:pointer">
-      <input type="checkbox" id="worker-setup-disclaimer-check" onchange="_updateWorkerSetupContinueState()" style="margin-top:2px;flex-shrink:0">
-      <span>I understand this is not financial advice and I'm using this app at my own risk.</span>
-    </label>
-    <button class="btn btn-primary" id="worker-setup-continue-btn" onclick="submitWorkerFragment()" disabled>Continue</button>
-    <button class="btn btn-secondary" id="worker-setup-cancel-btn" style="display:none" onclick="cancelWorkerFragmentCheck()">Cancel</button>
-  </div>
-</div>
-
-<div class="modal-overlay" id="offline-confirm-modal">
-  <div class="modal-box">
-    <div class="modal-title">You are currently offline</div>
-    <div class="modal-body" id="offline-modal-body">Clearing all cached data while offline will erase all your stored prices, options data, conviction dashboards, and news. You will not be able to restore this data until you have an internet connection. This action cannot be undone.</div>
-    <button class="btn btn-secondary" onclick="closeOfflineModal()" style="margin-bottom:8px">Cancel (recommended)</button>
-    <button class="btn" style="background:var(--danger);color:#fff;font-size:11px" onclick="clearAllDataConfirmed()">Clear Anyway -- I understand I cannot restore this data</button>
-
-v2.6.2 -- 2026-05-04
-- Earnings tab: fixed timezone boundary bug where BMO tickers disappeared the evening before their earnings date. Filter now uses daysUntilDate() (calendar date comparison in local timezone) instead of raw UTC millisecond math. Tickers now stay visible throughout their entire earnings day.
-- Fed Rate Outlook card: removed from Market tab. It was an imprecise proxy (2Y vs 3M Treasury spread) that conflicted with the more accurate CME Fed Funds Futures card. The Futures card is the authoritative source for rate direction.
-
-v2.6.1 -- 2026-05-04
-- CME Fed Funds Futures: fixed ticker format from ZQK26=F to ZQK26.CBT (Yahoo Finance CBOT format). Card should now appear on Market tab.
-- Font sizes: added 2XL (26px), 3XL (30px), and 4XL (36px) options to Settings dropdown. Useful for low-visibility conditions. Note: text scales via CSS variable; some fixed-px layout elements do not scale proportionally.
-
-v2.6.0 -- 2026-05-04
-- About card: version number updated (v2.6.0).
-- Ordinal suffix: ordinal() utility function added. IVR percentile now shows "23rd pct", "42nd pct" etc. with correct English suffixes. Replaces hardcoded "th" throughout.
-- Market tab: index fetches (sp500, nasdaq, treasury2y) made independent so one failure no longer blocks the others.
-- Fed Rate Outlook card: treasury2y now falls back to ^TNX (10-year) live quote if ^USGG2YR returns all-null closes. Card should now appear reliably.
-- CME Fed Funds Futures card: new card on Market tab showing 30-day futures implied rates for next 6 months. Price, implied rate (100 minus price), and delta vs near-month contract in basis points. Summary line shows market consensus on rate direction.
-
-v2.5.0 -- 2026-05-04
-- Extended hours display: pre-market and after-hours prices now suppressed during REGULAR market session. Only shown in PRE, POST, POSTPOST, or CLOSED states.
-- S&P 500 / Nasdaq: switched to live quote fetch (?type=quote) for current price and prev close. History closes for index tickers are unreliable (often null). Live prices cached to mkt_sp_live / mkt_nq_live keys.
-- VIX live price: live quote injected into last history close after fetch, replacing stale prior-day close. VIX chart and indicator now reflect intraday value.
-- Earnings tab EPS estimate: Yahoo earningsTrend (current quarter epsMean) used as fallback when Finnhub returns null on free tier.
-- Earnings tab TODAY label: fixed timezone boundary bug. daysUntilDate() utility compares calendar dates in user timezone -- no more UTC midnight rounding issues.
-- Timezone audit: daysUntilDate() applied to earnings banner in options table and conviction scoring earnings timing (2 locations). Options DTE was already safe (uses noon UTC).
-- About card: updated data sources and version number. FRED references removed.
-- Release notes: dates now reflect actual generation date.
-
-v2.4.0 -- 2026-04-29
-- fetchQuoteSummary: single Yahoo quoteSummary call fetches financialData + defaultKeyStatistics + earningsTrend + recommendationTrend in one round trip.
-- PEG ratio tile: color-coded (<1 green, 1-2 neutral, >2 red). From Yahoo defaultKeyStatistics.
-- EV/EBITDA tile: with qualitative label. From Yahoo defaultKeyStatistics.
-- Short interest: switched to Yahoo shortPercentOfFloat and shortRatio (reliable on free tier). Finnhub used as fallback only.
-- Analyst Price Target card: moved below Analyst Coverage. Now a full card with consensus, low, high, and spread tiles.
-- Earnings Estimates card: EPS and revenue estimates for current quarter, next quarter, current year, next year with growth rate. From Yahoo earningsTrend.
-- Recommendation Trend card: buy/hold/sell percentages for last 3 months from Yahoo recommendationTrend. Free tier -- more reliable than Finnhub.
-- Disclaimer modal: accessible via "View Disclaimer & Terms" button in Settings. Non-blocking -- appears as overlay.
-
-v2.3.0 -- 2026-04-29
-- Analyst price targets: consensus mean, high, and low target from Finnhub /stock/price-target displayed as a full-width tile on the Ticker tab. Shows % upside/downside from current price and spread between high/low targets. Fetched in loadTicker, prefetchAll, and refreshSingleTicker.
-- Watchlist sort: three modes -- Manual (default, original entry order), A→Z (alphabetical), By Score (conviction score descending from last dashboard run). Buttons above Prefetch All. Mode persists in localStorage.
-- Settings: localStorage key count added to storage display alongside KB breakdown.
-- Settings: Worker health check pings the Worker with a SPY quote request and reports latency, HTTP status, and whether Yahoo auth is working.
-
-v2.2.0 -- 2026-04-29
-- Options table: bid and ask stacked in single Bid/Ask column to save horizontal space on narrow screens.
-- Conviction dashboard: numeric score (0-100) displayed inline with conviction level. Component bar strip (IVR/RSI/Range/APY/Earn in descending weight) shows color-coded performance per factor.
-- Header status dot: green = data fresh, amber = stale, blue pulse = refresh in progress.
-- Dashboard tab: "Last full refresh" timestamp persists below the Full Refresh button.
-- ETF charts: 6M/1Y toggle. Total return line and metrics now cached to localStorage and rendered from cache on app wake / airplane mode.
-- ETF return tiles: update dynamically when time span toggles.
-- Income engine Layer 2: per-ETF risk premium (SPYI and NBOS separately vs T-bills). Yield labeled as TTM.
-- Ticker BB/RSI chart: 6M/1Y toggle using already-cached history data.
-
-v2.1.0 -- 2026-04-29
-- Single-ticker refresh button on Ticker tab: fetches all data for selected ticker including 3 options expirations. Same offline safeguards. Does not affect conviction dashboard.
-- Storage display in Settings: shows Storage API usage vs quota with progress bar, plus localStorage breakdown by category (options/history/snaps/news). Tap "Measure Storage" to update.
-- Additional data slimming: top-level options cache, news (ticker + market), history timestamps stored as Unix integers. Reduces total storage ~60%.
-- EPS from Yahoo quote endpoint (epsTrailingTwelveMonths field) -- more reliable than Finnhub on free tier.
-- Analyst recommendations and upgrade/downgrade history now fetched in prefetchAll -- available offline after pre-flight refresh.
-- Market tab: timestamp saved to localStorage so ts-chip persists across sessions.
-
-v2.0.0 -- 2026-04-29
-- Font size setting in Settings: Small/Medium/Default/Large/Extra Large. Applied instantly via CSS variable.
-- EPS (TTM) and YoY EPS growth added to Ticker tab metrics grid. Red when negative (not profitable).
-- Analyst upgrade/downgrade history: recent 90 days from Finnhub with firm name, action, and grade transition.
-- ETF total return overlay: yellow dashed line on price chart showing price + cumulative distributions. Price return % and total return % printed as metric tiles for direct comparison.
-- Fed rate outlook card on Market tab: 2-year Treasury yield vs 3-month T-bill spread with plain-English interpretation of implied Fed rate path. Tailwind/headwind signal for equity valuations.
-- Conviction dashboard offline safety: if ALL tickers return errors (network failure), cached results are preserved and restored. No more accidental wipe in airplane mode.
-- prefetchAll: now fetches 3 monthly expirations per ticker (was 2). Also fetches Yahoo quote data to cache forwardPE and after-hours price.
-- Options tab: warning shown when options chain is freshly fetched but ticker price is stale (>30 min old).
-
-v1.9.0 -- 2026-04-29
-- Forward P/E added to Ticker tab metrics grid with direction indicator
-- Rule of 40 added to Ticker tab (revenue growth % + FCF/operating margin %). Color-coded score with context note that it applies to software/SaaS companies
-- Earnings date: now filters to earliest future date from Finnhub array. Window extended to 180 days. Prevents showing past earnings or far-future date when near-term date was in the array
-- Options table: expiration group header row at top of each month with date, DTE, and color matching OI chart stacked bars
-- Options table: earnings banner inserted at the correct position relative to expirations (between groups or inside group if earnings falls within that window). Shows date and BMO/AMC timing
-- Options table: dollar signs use HTML entity to avoid template literal conflicts
-- OI chart: now cleared immediately when ticker changes before new data loads
-- runDashboards: accepts skipOnlineCheck=true parameter for programmatic calls
-- fullRefreshEverything: now 6 steps including ETF and Market tab refresh. Passes skipOnlineCheck=true to runDashboards
-- Income engine summary: Layer 3 APY reads from target-apy setting on Dashboard tab
-- T-bill card title: FRED reference removed, now shows ^IRX / ^FVX
-- refreshTsChipAges: called in restoreVIXFromCache, restoreTickerFromCache, restoreETFFromCache so chips show correct stale state on first tab visit
-
-v1.8.1 -- 2026-04-29
-- Settings save: ticker dropdown selection now restored after saving settings. Previously populateSelects() rebuilt the option elements and the browser reset the dropdown to blank.
-- Settings save: refreshTsChipAges() now called immediately after saving so timezone change is reflected in all visible timestamp chips without needing to switch tabs.
-
-v1.8.0 -- 2026-04-29
-- Options tab live controls: expiration chips, OTM sliders, and APY threshold now all instantly redraw the options table and OI chart when a chain is already loaded. No need to press Load/Refresh again after adjusting any control.
-
-v1.7.9 -- 2026-04-29
-- Timestamp chips: refreshTsChipAges() now flips chip from green (live) to amber (cached) when data is older than 15 minutes. Fixes contradiction where ETF tab showed green "live" for hour-old data.
-- Options separator: completely rewritten with correct unified logic. In ascending strike order, the separator always appears before the first strike above the current price -- identical for both puts and calls mode. Previous version had swapped conditions causing puts separator to appear at top.
-
-v1.7.8 -- 2026-04-29
-- After-hours/pre-market price: now uses Yahoo Finance quote endpoint (?type=quote) via Worker -- same data source as Python yfinance stock.info. Shows change and % alongside extended price.
-- PWA icon: apple-touch-icon link tags added. Drop a 180x180 apple-touch-icon.png in the repo root whenever ready.
-- Options mode toggle: switching between Sell Puts and Sell Calls now auto-rebuilds the table and OI chart instantly without requiring a second button tap. Button renamed to "Load / Refresh Options Chain".
-- Options separator: puts mode separator now correctly appears between ITM puts (strike above price) and OTM puts (strike below price). Previous version incorrectly placed it at the top of each group.
-
-v1.7.7 -- 2026-04-29
-- Market banner: fixed next-open time calculation. Previous version constructed 9:30 AM ET incorrectly by guessing UTC offset from midnight -- which gave wrong results depending on DST. New approach uses make930ET() which tries both EDT (UTC-4) and EST (UTC-5), then verifies with Intl.DateTimeFormat that the resulting UTC timestamp actually corresponds to 9:30 AM ET before using it.
-
-v1.7.6 -- 2026-04-29
-- Volume Profile: VP bars now drawn as overlay on price chart using yAxis.getPixelForValue() -- guarantees pixel-perfect alignment with price axis. No more separate panel.
-- Volume Profile: removed separate horizontal bar chart panel. VP bars integrated into right margin of price chart, color-coded by volume magnitude.
-- Options table: current price separator row injected at the strike crossing point within each expiration group.
-- After-hours price: now also shows pre-market price when available; handles all extended-hours session states.
-- Short interest: improved field detection; shows "not reported" instead of "N/A" when data is genuinely unavailable.
-- Offline guard: all refresh/run buttons (dashboards, earnings, VIX, prefetch, ETF, market) now check connectivity before attempting fetch. Cached data is preserved.
-- Timestamp chips: age ("3h ago") refreshed on every tab switch so values never show "just now" for stale data.
-- ETF charts: SPYI chart now renders reliably using sequential requestAnimationFrame instead of setTimeout.
-
-v1.7.5 -- 2026-04-29
-- Options sliders: loadOptionsPrefs() now called whenever a new ticker is loaded in Options tab, so slider positions always reflect saved values rather than drifting
-- Volume Profile: both panels now share the same Y-axis min/max so price levels align horizontally across the price chart and volume bar chart
-- Volume Profile: chart container is now a horizontal scroll wrapper -- swipe left to see full volume bar panel on narrow screens
-
-v1.7.4 -- 2026-04-29
-- Market banner: fixed incorrect open/closed determination by using Intl.DateTimeFormat.formatToParts() instead of unreliable locale string parsing (Safari iOS incompatibility)
-- Market banner: close/open times now displayed in your selected timezone (PT/local/UTC) instead of hardcoded ET
-- Market banner: countdown shows "closes in 2h 30m (at 1:00 PM PT)" format
-
-v1.7.3 -- 2026-04-29
-- T-bill yields: switched to Yahoo Finance ^IRX (3-month) and ^FVX (5-year) via existing Worker history proxy. Avoids Treasury FiscalData SSL failures on Cloudflare Workers and FRED key requirement.
-
-v1.7.2 -- 2026-04-29
-- T-bill yields: switched from FRED API (requires key -- 400 error) to US Treasury FiscalData API (fully public, no key needed, routed via Worker)
-- ETF distributions and T-bill data now route correctly through Cloudflare Worker
-
-v1.7.1 -- 2026-04-29
-- Market banner timezone fix: respects PT/local/UTC setting from Settings
-- T-bill yields now routed through Cloudflare Worker (fixes N/A -- FRED CORS issue)
-- ETF distributions now fetched from Yahoo Finance via Worker (fixes N/A -- wrong Finnhub endpoint)
-- ETF trailing yield now computed correctly from Yahoo dividend event data
-
-v1.7 -- 2026-04-29
-- Live market status banner: green (open with countdown), red (closed), amber (pre/post market). Second-level precision in final 10 minutes. NYSE holiday aware.
-- Timezone preference in Settings: Pacific / Local Device / UTC. All timestamps use selected zone plus relative age (e.g. "3h ago")
-- Mode-specific slider persistence: puts and calls each remember their own OTM range and APY threshold settings
-- OI empty state: amber info box when OI data unavailable (typical overnight condition) with explanation and last-known-good timestamp
-- Analyst coverage on Ticker tab: analyst count, consensus label, recommendation mean, buy/hold/sell breakdown with visual bar
-- Treasury bill yields on Market tab: 3-month and 6-month T-bill yield history from FRED API, 1-year chart, spread analysis, income engine summary panel
-- ETF and Market tabs: auto-restore from cache on app wake, timestamps throughout
-- Online/offline indicator dot in header
-- Offline Mode toggle in Settings: skips all network fetches when enabled (for flights)
-- Clear All safety guard: strong warning with offline detection prevents accidental data loss on airplane
-- Offline detection: fleeting banner when network fails, persists as indicator dot
-    </div>  </div>
-</div>
-
-<div class="toast" id="toast"></div>
-<script src="./js/storage.js"></script>
-<script src="./js/helpers.js"></script>
-<script src="./js/ui.js"></script>
-<script src="./js/api.js"></script>
-<script src="./js/scoring.js"></script>
-<script src="./js/settings.js"></script>
-<script src="./js/watchlist.js"></script>
-<script src="./js/dashboard.js"></script>
-<script src="./js/wheelbacktest.js"></script>
-<script src="./js/ticker.js"></script>
-<script src="./js/options.js"></script>
-<script src="./js/earnings.js"></script>
-<script src="./js/vix.js"></script>
-<script src="./js/etf.js"></script>
-<script src="./js/market.js"></script>
-<script src="./js/prefetch.js"></script>
-<script src="./js/income.js"></script>
-
-<script>
-// ═══ GLOBAL CONFIG & STATE ═══
-// S object defined in storage.js
-
-let FINNHUB_KEY=S.get('finnhub_key')||'';
-let watchlist=S.get('watchlist')||['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
-// Persist immediately if this is a fresh device/profile that's never
-// explicitly saved a watchlist -- otherwise S.get('watchlist') keeps
-// returning null indefinitely (until the user happens to add/remove a
-// ticker) even though the in-memory `watchlist` global above is correctly
-// populated from defaults and the app otherwise looks and works normally.
-// Found this the hard way: two separate places (refreshSingleTicker's
-// health-summary patch, a Settings diagnostics function) read storage
-// directly instead of the global and silently reported 0 tickers as a
-// result on an unseeded device. This closes off the root cause rather
-// than just the two known symptoms.
-if(!S.get('watchlist'))S.set('watchlist',watchlist);
-let currentMode='puts';
-let currentTicker=S.get('last_ticker')||'';
-let lastOptionsTickerLoaded='';
-let earningsDaysFilter=30;
-let earningsAllData=[];
-let vixThreshold=parseInt(S.get('vix_threshold')||'20');
-let tzPref=S.get('tz_pref')||'PT';
-let offlineMode=S.get('offline_mode')==='true';
-let fontSize=S.get('font_size')||'19';
-applyFontSize(fontSize);
-let watchlistSort=S.get('watchlist_sort')||'manual';
-let currentBBSpan='2y'; // timeframe for Bollinger Band chart
-let currentRPSpan='2y';  // timeframe for Relative Performance chart (independent)
-if(!S.get('options_cutoff_et'))S.set('options_cutoff_et','18');
-_updateRefreshHealthBadge(); // default 6pm ET // manual | alpha | opportunity
-
-const DEFAULT_WATCHLIST=['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
-const EXP_COLORS=['#00d4aa','#ff6b35','#7c6af7','#ffa502'];
-
-// ─── Proxy secret: silent header on every worker request ───
-// Not meant to be hidden -- it's a plain constant in public source, same as
-// everything else in this file. It deters opportunistic bots/scrapers that
-// find the worker URL and probe it without ever reading this JS, not a
-// human with the URL. Set the SAME value as the worker's PROXY_SECRET
-// Cloudflare secret for this to actually take effect (the worker skips the
-// check entirely if its own secret is unset, same opt-in-when-ready
-// behavior as FINNHUB_KEY).
-const PROXY_SECRET='54170936711fd62a56ac6ad61b07e766c57f92c45c42d4ca259b8dd9e1b5236c';
-
-// Rather than editing the ~21 individual fetch() call sites across
-// api.js/etf.js/income.js/market.js/prefetch.js/settings.js/vix.js (varied
-// shapes -- Promise.all arrays, .then() chains, timeout wrappers -- real
-// risk of a missed or malformed edit doing that by hand), a single scoped
-// fetch wrapper attaches the header automatically to any request whose URL
-// currently starts with WORKER_URL. Every other fetch in the app (direct
-// Finnhub calls, FRED, the worker-fragment verification fetch, anything
-// else) passes through completely unmodified -- this only ever touches
-// requests already targeting the worker.
-(function(){
-  const _nativeFetch=window.fetch.bind(window);
-  window.fetch=function(input,init){
-    try{
-      const url=typeof input==='string'?input:(input&&input.url);
-      if(url&&WORKER_URL&&url.indexOf(WORKER_URL)===0){
-        init=init||{};
-        // new Headers() correctly normalizes any of the three shapes fetch()
-        // accepts for `headers` -- a Headers instance, a plain object, or an
-        // array of [name,value] pairs -- and also picks up headers carried by
-        // an input Request object when init itself doesn't specify any,
-        // matching the Fetch spec's own precedence (init.headers wins when
-        // present). Object.assign({}, aHeadersInstance, {...}) silently
-        // dropped it, since Headers doesn't expose its entries as own
-        // enumerable properties -- this codebase's own call sites never pass
-        // one today (checked), so this is a correctness fix for future
-        // callers/libraries, not an active bug against current usage.
-        const _hdrSrc=init.headers!==undefined?init.headers:(input&&typeof input!=='string'&&input.headers);
-        const h=new Headers(_hdrSrc||undefined);
-        h.set('X-Proxy-Secret',PROXY_SECRET);
-        init.headers=h;
-      }
-    }catch(e){/* fall through to native fetch unmodified on any error */}
-    return _nativeFetch(input,init);
-  };
-})();
-
-// ─── Worker hostname fragment (replaces old hardcoded WORKER_URL) ───
-// WORKER_URL is intentionally `let`, not `const` -- every existing fetch call
-// site across the app (api.js, etf.js, income.js, market.js, prefetch.js,
-// settings.js, vix.js) reads this variable by name at call time, so
-// reassigning it here after first-run setup is picked up automatically by
-// all of them with zero changes to those files (normal JS closure behavior).
-function _normalizeWorkerFragment(raw){
-  // Tolerate common paste mistakes: full URL, trailing slash, trailing path.
-  let v=(raw||'').trim();
-  v=v.replace(/^https?:\/\//i,'');
-  v=v.replace(/\.workers\.dev.*$/i,'');
-  v=v.replace(/\/+$/,'');
-  return v;
-}
-function _buildWorkerUrl(fragment){
-  return fragment?`https://${fragment}.workers.dev`:'';
-}
-let WORKER_URL=_buildWorkerUrl(S.get('worker_fragment'));
-
-let _workerSetupAbortCtrl=null;
-function _setWorkerSetupStatus(msg,isError){
-  const el=document.getElementById('worker-setup-status');
-  if(!el)return;
-  el.textContent=msg;
-  el.style.color=isError?'var(--danger)':'var(--text2)';
-}
-function _updateWorkerSetupContinueState(){
-  const check=document.getElementById('worker-setup-disclaimer-check');
-  const continueBtn=document.getElementById('worker-setup-continue-btn');
-  if(check&&continueBtn)continueBtn.disabled=!check.checked;
-}
-function openWorkerSetupOverlay(){
-  const input=document.getElementById('worker-fragment-input');
-  if(input)input.value=S.get('worker_fragment')||'';
-  _setWorkerSetupStatus('');
-  document.getElementById('worker-setup-cancel-btn').style.display='none';
-  // Both call sites (true first launch, and after "Clear All Cached Data")
-  // are genuine fresh-start moments -- the checkbox resets unchecked and
-  // Continue starts disabled every time this modal opens, not just once
-  // ever, so a full reset also means a fresh acknowledgment.
-  const check=document.getElementById('worker-setup-disclaimer-check');
-  if(check)check.checked=false;
-  document.getElementById('worker-setup-continue-btn').disabled=true;
-  document.getElementById('worker-setup-overlay').classList.add('open');
-}
-function cancelWorkerFragmentCheck(){
-  // Kills an in-flight verification fetch immediately -- doesn't wait for
-  // the timeout. Returns the user to an editable, pre-filled input rather
-  // than clearing what they typed.
-  if(_workerSetupAbortCtrl)_workerSetupAbortCtrl.abort('user-cancel');
-}
-async function submitWorkerFragment(){
-  const check=document.getElementById('worker-setup-disclaimer-check');
-  if(check&&!check.checked){_setWorkerSetupStatus('Please check the box above to continue.',true);return;}
-  const raw=document.getElementById('worker-fragment-input').value;
-  const fragment=_normalizeWorkerFragment(raw);
-  if(!fragment){_setWorkerSetupStatus('Enter a value before continuing.',true);return;}
-  const candidateUrl=_buildWorkerUrl(fragment);
-  const continueBtn=document.getElementById('worker-setup-continue-btn');
-  const cancelBtn=document.getElementById('worker-setup-cancel-btn');
-  continueBtn.disabled=true;
-  cancelBtn.style.display='block';
-  _setWorkerSetupStatus('Checking connection...');
-  _workerSetupAbortCtrl=new AbortController();
-  const timeoutId=setTimeout(()=>_workerSetupAbortCtrl.abort('timeout'),8000);
-  try{
-    // Any HTTP response -- even an error status -- proves the hostname is
-    // real and answering. We're validating reachability here, not the
-    // response content.
-    // Header attached explicitly here, not via the global fetch wrapper --
-    // WORKER_URL isn't set to candidateUrl until after this call succeeds,
-    // so the wrapper's WORKER_URL-match guard can't fire for this specific
-    // request yet.
-    await fetch(`${candidateUrl}/?ticker=SPY&type=quote`,{signal:_workerSetupAbortCtrl.signal,headers:{'X-Proxy-Secret':PROXY_SECRET}});
-    clearTimeout(timeoutId);
-    S.set('worker_fragment',fragment);
-    WORKER_URL=candidateUrl;
-    document.getElementById('worker-setup-overlay').classList.remove('open');
-    toast('Connected');
-  }catch(err){
-    clearTimeout(timeoutId);
-    if(err.name==='AbortError'){
-      _setWorkerSetupStatus(_workerSetupAbortCtrl.signal.reason==='user-cancel'?'Cancelled. Edit the address and try again.':"Timed out. Check the address and try again.",true);
-    }else{
-      _setWorkerSetupStatus("Couldn't reach that address. Check it and try again.",true);
-    }
-  }finally{
-    continueBtn.disabled=false;
-    cancelBtn.style.display='none';
-    _workerSetupAbortCtrl=null;
-  }
-}
-
-// ─── Ticker tab state ───
-let _lastLiveRenderTicker='';let _lastLiveRenderTime=0;
-
-// ─── Options tab state ───
-let currentExpirations=[],selectedExpirations=[],currentOptionsData=null;
-let cachedOIRows=null;
-
-
-function init(){
-  // First-run (or post-clear-data) gate: nothing else in init() touches the
-  // network, so this is safe to check anywhere -- placed first purely so
-  // it's the first thing a new user sees.
-  if(!WORKER_URL){try{openWorkerSetupOverlay();}catch(e){console.error('Worker setup overlay error:',e);}}
-  // Run income account migration before anything else touches income data
-  try{ runIncomeMigration(); }catch(e){ console.error('Income migration error:',e); }
-  // Cleanup: remove earnings_confirmed_ entries written during the specific
-  // window a historical-earnings-date bug was live (see helpers.js for detail).
-  // Flagless and self-limiting -- anchored to a fixed historical date range, so
-  // it naturally stops matching anything once enough real time has passed.
-  // Safe to call every init.
-  try{ purgeContaminatedConfirmedEarnings(); }catch(e){ console.error('Confirmed-earnings purge error:',e); }
-  // Startup safety net for the storage-capacity test (Settings): if it was
-  // ever interrupted before its own cleanup ran (e.g. app backgrounded
-  // mid-test), remove any leftover throwaway keys rather than letting them
-  // silently eat into real storage headroom. Safe to call every init --
-  // no-op if none exist.
-  try{ _cleanupStrayStorageTestKeys(); }catch(e){ console.error('Storage-test-key cleanup error:',e); }
-  // One-time (gated on the result key being absent, not a run-count flag,
-  // so it also naturally re-fires after a full "Clear All Cached Data"
-  // reset): measure this device's real localStorage ceiling while
-  // localStorage is still close to empty -- the cleanest possible baseline,
-  // before real ticker data accumulates and makes the same measurement
-  // less representative of the device's true capacity. Completes in ~1ms
-  // at realistic sizes (tested), so no perceptible startup delay.
-  try{ if(!S.get('_storage_capacity_kb'))measureRealStorageCapacity(); }catch(e){ console.error('Initial storage-capacity measurement error:',e); }
-  // One-time cleanup: remove orphaned flat income position keys left over from
-  // pre-migration state. Safe to call every init -- S.del is a no-op if key absent.
-  // Only runs when migration is already complete (flag set) and accounts exist.
-  try{
-    if(S.get('income_migration_v1')&&(S.get('income_accounts_meta')||[]).length){
-      S.del('put_positions');
-      S.del('cc_positions');
-    }
-  }catch(e){}
-  // Cleanup stale hist_ and hist1y_ keys -- now derived from hist2y_ on the fly
-  try{
-    const _sk=[];
-    for(let _i=0;_i<localStorage.length;_i++){const _k=localStorage.key(_i);if(_k&&(_k.startsWith('hist_')||_k.startsWith('hist1y_')))_sk.push(_k);}
-    _sk.forEach(k=>localStorage.removeItem(k));
-    if(_sk.length)console.log('Cleaned up',_sk.length,'stale hist keys, saving ~'+Math.round(_sk.length*12)+'KB');
-  }catch(e){}
-  loadOptionsPrefs();
-  updateOfflineModeBar();
-  const cp=S.get('conviction_puts'),cc=S.get('conviction_cc');
-  if(cp){renderDashTable('put-dashboard-content',cp.results,cp.ts,false);document.getElementById('put-dash-ts').innerHTML=tsChip(cp.ts,false,cp.tsEpoch);}
-  if(cc){renderDashTable('cc-dashboard-content',cc.results,cc.ts,false);document.getElementById('cc-dash-ts').innerHTML=tsChip(cc.ts,false,cc.tsEpoch);}
-  renderWatchlist();populateSelects();
-  // Apply saved sort mode button state
-  setWatchlistSort(watchlistSort);
-  const lt=S.get('last_ticker');
-  if(lt){currentTicker=lt;document.getElementById('ticker-select').value=lt;document.getElementById('options-ticker-select').value=lt;restoreTickerFromCache(lt);}
-  restoreVIXFromCache();
-  const cv=S.get('vix_hist');if(cv?.closes){const c=cv.closes.filter(x=>x!==null);if(c.length)updateVIXIndicator(c[c.length-1]);}else{_updateNavTop();}
-  const ce=S.get('earnings_data');if(ce?.data){const today=new Date();earningsAllData=ce.data.map(e=>({...e,daysUntil:daysUntilDate(e.earningsDate)??Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);}
-  updateOnlineIndicator();
-  _syncDashboardViewModeUI();
-  window.addEventListener('online',updateOnlineIndicator);
-  window.addEventListener('offline',updateOnlineIndicator);
-  // Start market status banner ticker -- every second
-  try{updateMarketBanner();}catch(e){
-    console.error('Banner error:',e);
-    // Previously this failed completely silently -- the static placeholder
-    // ("Loading market status...") would stay on screen indefinitely with
-    // no indication anything was wrong, easily mistaken for the app still
-    // loading rather than a real error.
-    try{
-      const banner=document.getElementById('market-status-banner');
-      if(banner){banner.className='mkt-closed';banner.textContent='Market status unavailable -- try refreshing';}
-    }catch(e2){}
-  }
-  setInterval(function(){try{updateMarketBanner();}catch(e){console.error('Banner interval error:',e);}},1000);
-  updateHeaderStatus();
-  setInterval(()=>{try{updateHeaderStatus();}catch(e){console.warn('Header:',e.message);}},60000);
-  applyFontSize(fontSize);
-  if(!FINNHUB_KEY&&!WORKER_URL)setTimeout(()=>toast('Add a Finnhub key, or set your Server Address, in Settings to get started',4000),500);
-}
-
-// Populate build label from SW cache name -- no hardcoded version in HTML needed
-function _updateBuildLabel(){
-  if(!('caches'in window))return;
-  caches.keys().then(keys=>{
-    // Must match a PURELY NUMERIC suffix, not just the prefix -- a plain
-    // startsWith('income-engine-v') here also matches the separate vendor
-    // cache (income-engine-vendor-v1), since "vendor" itself starts with
-    // "v" right where a digit was assumed to follow. caches.keys() order
-    // isn't guaranteed, so which one .find() landed on before was pure
-    // luck -- when it picked the vendor cache, replace() stripped the
-    // prefix and left "endor-v1" on screen as the "build number". Real
-    // bug, caught directly from a screenshot, not a hypothetical.
-    const cn=keys.find(k=>/^income-engine-v\d+$/.test(k));
-    if(cn){const el=document.getElementById('app-build-label');if(el)el.textContent='build '+cn.replace('income-engine-v','');}
   });
-}
-if(document.readyState==='loading'){
-  document.addEventListener('DOMContentLoaded',_updateBuildLabel);
-}else{
-  _updateBuildLabel();
-}
-if(document.readyState==='loading'){
-  document.addEventListener('DOMContentLoaded', function(){
-    try{init();}catch(e){console.error('Init error:',e);toast('App init error: '+e.message,5000);}
+});
+
+// ============================================================================
+section('Baseline anchoring fix (Phase 2)');
+
+test('EVERY meeting-free month re-anchors the baseline, not just the first one', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    // Two meeting-free months (Jul, Aug) before the Sep meeting. Jul is
+    // stale/wrong-looking on purpose (4.50) -- the fix must use Aug's
+    // fresher 4.20 as the baseline, not Jul's.
+    const daysInMonth=30;
+    const targetPost=3.95; // a clean -25bp move FROM THE CORRECT (Aug=4.20) baseline
+    const impliedRateSep=+(( (4.20*21) + (targetPost*9) ) / daysInMonth).toFixed(6);
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(
+      [contract('Jul 2026',4.50),contract('Aug 2026',4.20),contract('Sep 2026',impliedRateSep)],[]
+    );
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    // Negative control: confirm that if the OLD (first-month-only)
+    // anchoring were still in effect -- baseline stuck at Jul's 4.50
+    // instead of re-anchoring to Aug's 4.20 -- this SAME impliedRate
+    // would produce a wildly different (and clearly wrong) result, so a
+    // passing assertion below can only mean the new anchoring is what ran.
+    const oldPostMeetingRate=(impliedRateSep*daysInMonth - 4.50*21)/9;
+    assert(Math.abs(oldPostMeetingRate-targetPost)>0.3,'old-anchoring result must differ sharply from the correct target, or this test cannot discriminate');
+    assert.strictEqual(sep.outcomes.length,1);
+    assert.strictEqual(sep.outcomes[0].moveBp,-25);
+    assert.strictEqual(sep.outcomes[0].probability,100);
   });
-}else{
-  // DOM already ready (e.g. script at end of body)
-  try{init();}catch(e){console.error('Init error:',e);toast('App init error: '+e.message,5000);}
-}
-
-if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').then(reg=>{window._swReg=reg;_updateBuildLabel();}).catch(err=>console.warn('SW:',err));navigator.serviceWorker.addEventListener('controllerchange',()=>{_updateBuildLabel();try{toast('New version installed -- refresh to load it',5000);}catch(e){}});});
-}
-</script>
-<!-- Income account switcher bar -- OUTSIDE #app to escape CSS zoom context.
-     position:fixed keeps it viewport-anchored regardless of scroll or zoom.
-     -webkit-transform:translateZ(0) forces GPU compositing layer on iOS Safari,
-     preventing the bar from disappearing after downward scroll interactions.
-     Shown/hidden by showTab(). Top is set dynamically by _updateAcctBarStickyTop(). -->
+});
 
 
-</body>
-</html>
-        
+
+test('a past meeting brackets cleanly (before/after both present, bounds agree) -> resolved via nyfed-official', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-08-27'])`);
+  withFixedNow(ctx,'2026-09-05T12:00:00Z',()=>{ // meeting is in the past
+    const fedFutures=[contract('Jul 2026',4.25),contract('Aug 2026',4.10,{stale:false})];
+    const effrRows=[
+      {effectiveDate:'2026-08-25',percentRate:4.33,targetRateFrom:4.25,targetRateTo:4.50},
+      {effectiveDate:'2026-08-26',percentRate:4.32,targetRateFrom:4.25,targetRateTo:4.50}, // last one BEFORE the meeting
+      {effectiveDate:'2026-08-28',percentRate:4.08,targetRateFrom:4.00,targetRateTo:4.25}, // first one AFTER
+      {effectiveDate:'2026-08-29',percentRate:4.07,targetRateFrom:4.00,targetRateTo:4.25},
+    ];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,effrRows);
+    const aug=results.find(r=>r.meetingDate==='2026-08-27');
+    assert(aug,'Aug 2026 meeting should be present');
+    assert.strictEqual(aug.resolved,true);
+    assert.strictEqual(aug.outcome,'cut25');
+    assert.strictEqual(aug.source,'nyfed-official');
+    const history=run(ctx,`S.get('fomc_meeting_history')`);
+    assert.strictEqual(history['2026-08-27'].rate,4.08,'history should store the OFFICIAL post-meeting EFFR value, not a futures-implied guess');
+    assert.strictEqual(history['2026-08-27'].source,'nyfed-official');
+  });
+});
+
+test('_resolveMeetingFromEffr returns null (never guesses) when bounds do not bracket the meeting', ()=>{
+  const ctx=buildContext();
+  const resolve=run(ctx,'_resolveMeetingFromEffr');
+  // Only "before" data, nothing after -- meeting is too recent for EFFR to
+  // have published a post-meeting business day yet.
+  const onlyBefore=[{effectiveDate:'2026-08-26',percentRate:4.32,targetRateFrom:4.25,targetRateTo:4.50}];
+  assert.strictEqual(resolve('2026-08-27',onlyBefore),null);
+  // Only "after", nothing before.
+  const onlyAfter=[{effectiveDate:'2026-08-28',percentRate:4.08,targetRateFrom:4.00,targetRateTo:4.25}];
+  assert.strictEqual(resolve('2026-08-27',onlyAfter),null);
+  // No data at all.
+  assert.strictEqual(resolve('2026-08-27',[]),null);
+  assert.strictEqual(resolve('2026-08-27',null),null);
+});
+
+test('_resolveMeetingFromEffr returns null on a lower/upper bound mismatch rather than reporting an ambiguous move', ()=>{
+  const ctx=buildContext();
+  const resolve=run(ctx,'_resolveMeetingFromEffr');
+  const rows=[
+    {effectiveDate:'2026-08-26',percentRate:4.32,targetRateFrom:4.25,targetRateTo:4.50},
+    {effectiveDate:'2026-08-28',percentRate:4.08,targetRateFrom:4.00,targetRateTo:4.30}, // upper only moved 20bp, not 25 -- mismatch
+  ];
+  assert.strictEqual(resolve('2026-08-27',rows),null);
+});
+
+test('no NY Fed bracket available, but the contract is fresh -> falls back to futures-implied and IS persisted (it is a genuine resolved outcome, just via the fallback method)', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-08-27'])`);
+  withFixedNow(ctx,'2026-09-05T12:00:00Z',()=>{
+    // Same clean -25bp scenario as the day-count test, but for a PAST
+    // meeting with no effrRows at all.
+    const currentRate=4.00, targetPost=3.75, daysInMonth=31; // August has 31 days
+    const impliedRate=+(( (currentRate*27) + (targetPost*4) ) / daysInMonth).toFixed(6); // meetingDay=27 -> daysBefore=27, daysAfter=4
+    const fedFutures=[contract('Jul 2026',currentRate),contract('Aug 2026',impliedRate,{stale:false})];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,[]);
+    const aug=results.find(r=>r.meetingDate==='2026-08-27');
+    assert.strictEqual(aug.resolved,true);
+    assert.strictEqual(aug.source,'futures-implied');
+    const history=run(ctx,`S.get('fomc_meeting_history')`);
+    assert.strictEqual(history['2026-08-27'].source,'futures-implied');
+  });
+});
+
+test('no NY Fed bracket available AND the contract is stale -> outcomePending, and NOT persisted to history', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-08-27'])`);
+  withFixedNow(ctx,'2026-09-05T12:00:00Z',()=>{
+    const fedFutures=[contract('Jul 2026',4.00),contract('Aug 2026',3.90,{stale:true})];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,[]);
+    const aug=results.find(r=>r.meetingDate==='2026-08-27');
+    assert.strictEqual(aug.outcomePending,true);
+    assert(!aug.resolved);
+    const history=run(ctx,`S.get('fomc_meeting_history')`);
+    assert(!history||!history['2026-08-27'],'a stale, unresolved meeting must never be written to history');
+  });
+});
+
+// ============================================================================
+section('Forecast/history contamination fix');
+
+test('a FUTURE meeting forecast is never written to fomc_meeting_history', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{ // meeting is upcoming
+    const fedFutures=[contract('Aug 2026',4.00),contract('Sep 2026',3.925)];
+    run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,[]);
+    const history=run(ctx,`S.get('fomc_meeting_history')`);
+    assert(!history||Object.keys(history).length===0,'no entry should have been written for a meeting that has not happened yet');
+  });
+});
+
+test('a repeated forecast across multiple fetches for the SAME future meeting still never accumulates a history entry', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    const compute=run(ctx,`_computeFedMeetingProbabilities`);
+    compute([contract('Aug 2026',4.00),contract('Sep 2026',3.90)],[]);
+    compute([contract('Aug 2026',4.00),contract('Sep 2026',3.95)],[]); // futures reprice on the next fetch
+    compute([contract('Aug 2026',4.00),contract('Sep 2026',3.80)],[]);
+    const history=run(ctx,`S.get('fomc_meeting_history')`);
+    assert(!history||Object.keys(history).length===0);
+  });
+});
+
+test('migration purges BOTH a future-dated contaminated forecast AND a source-less past entry -- only properly-sourced entries survive', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21','2026-07-29'])`);
+  // Seed a history blob with three shapes: a genuinely resolved (sourced)
+  // past entry, a source-less past entry (pre-495 legacy -- no longer
+  // trusted regardless of its date, see the migration comment in
+  // market.js), and a contaminated future forecast.
+  run(ctx,`S.set('fomc_meeting_history',{
+    '2026-06-17':{rate:4.58,source:'nyfed-official',resolvedAt:'2026-06-20',moveBp:0},
+    '2026-07-29':{rate:4.33},
+    '2026-09-21':{rate:3.90}
+  })`);
+  withFixedNow(ctx,'2026-08-15T12:00:00Z',()=>{ // between the two meeting dates
+    run(ctx,`_computeFedMeetingProbabilities`)([contract('Aug 2026',4.10)],[]);
+    const history=run(ctx,`S.get('fomc_meeting_history')`);
+    assert(!('2026-09-21' in history),'future-dated (contaminated) entry must be purged');
+    assert(!('2026-07-29' in history),'source-less past entry must ALSO be purged -- it cannot be told apart from contamination');
+    assert.strictEqual(history['2026-06-17'].rate,4.58,'a properly-sourced past entry must survive the migration untouched');
+  });
+});
+
+// ============================================================================
+section('Options-tab result-shape compatibility');
+
+test('forecast results still expose pHold/pCut25/pHike25 at the top level (js/options.js reads these directly)', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Aug 2026',4.00),contract('Sep 2026',3.90)],[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    assert('pHold' in sep && 'pCut25' in sep && 'pHike25' in sep);
+    assert.strictEqual(typeof sep.pHold,'number');
+  });
+});
+
+test('probability mass sums to 100 for a forecast meeting', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Aug 2026',4.00),contract('Sep 2026',3.90)],[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    assert.strictEqual(sep.pHold+sep.pCut25+sep.pHike25,100);
+  });
+});
+
+// ============================================================================
+section('Existing behavior unaffected by this build (regression check)');
+
+test('insufficientBaseline still surfaces when no earlier month or history can supply a starting rate', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    // Only the meeting month itself is in the window -- no meeting-free
+    // prior month, no history.
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Sep 2026',3.90)],[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    assert.strictEqual(sep.insufficientBaseline,true);
+  });
+});
+
+test('a meeting-free month still seeds currentRate directly, unaffected by the day-count change', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Aug 2026',4.125),contract('Sep 2026',3.90)],[]);
+    // No assertion failure means the loop ran clean; specifically check Aug
+    // (meeting-free) produced no entry in results (it's silently skipped,
+    // by design) while Sep did.
+    assert.strictEqual(results.filter(r=>r.meetingDate).length,1);
+    assert.strictEqual(results[0].meetingDate,'2026-09-21');
+  });
+});
+
+// ============================================================================
+section('Regression: Market->Options must never downgrade official history (Must-fix 1)');
+
+test('a caller that omits effrRows (like js/options.js used to) reuses an existing nyfed-official entry instead of overwriting it with a futures-implied guess', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-08-27'])`);
+  withFixedNow(ctx,'2026-09-05T12:00:00Z',()=>{
+    const compute=run(ctx,`_computeFedMeetingProbabilities`);
+    // Step 1: simulate the Market tab -- a call WITH effrRows resolves the
+    // meeting authoritatively and writes it to history.
+    const effrRows=[
+      {effectiveDate:'2026-08-26',percentRate:4.32,targetRateFrom:4.25,targetRateTo:4.50},
+      {effectiveDate:'2026-08-28',percentRate:4.08,targetRateFrom:4.00,targetRateTo:4.25},
+    ];
+    compute([contract('Jul 2026',4.25),contract('Aug 2026',4.10)],effrRows);
+    let history=run(ctx,`S.get('fomc_meeting_history')`);
+    assert.strictEqual(history['2026-08-27'].source,'nyfed-official','sanity: Market-tab-style call should resolve officially first');
+
+    // Step 2: simulate js/options.js's OLD behavior -- calling with NO
+    // effrRows at all (a very different futures reading this time, to
+    // make sure a fallback silently succeeding would be obviously wrong
+    // if it happened).
+    const resultsFromOptionsLikeCall=compute([contract('Jul 2026',4.25),contract('Aug 2026',3.50)],[]);
+    const aug=resultsFromOptionsLikeCall.find(r=>r.meetingDate==='2026-08-27');
+    assert.strictEqual(aug.source,'nyfed-official','a caller without EFFR data must still get back the authoritative answer, not a futures-implied guess');
+    assert.strictEqual(aug.outcome,'cut25','must be the ORIGINAL official outcome, not something derived from the very different second-call futures data');
+
+    history=run(ctx,`S.get('fomc_meeting_history')`);
+    assert.strictEqual(history['2026-08-27'].source,'nyfed-official','the official history entry must NOT have been downgraded');
+  });
+});
+
+test('the actual js/options.js code path (via _getQualifyingFomcMeetings) does not downgrade a Market-tab-resolved meeting', ()=>{
+  const localStorage=makeLocalStorage();
+  const ctx=vm.createContext({console,localStorage,window:{},toast:()=>{}});
+  const src=p=>fs.readFileSync(path.join(ROOT,p),'utf8');
+  vm.runInContext(src('js/storage.js'),ctx,{filename:'js/storage.js'});
+  vm.runInContext(src('js/helpers.js'),ctx,{filename:'js/helpers.js'});
+  vm.runInContext(src('js/market.js'),ctx,{filename:'js/market.js'});
+  vm.runInContext(src('js/options.js'),ctx,{filename:'js/options.js'});
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-08-27'])`);
+  withFixedNow(ctx,'2026-09-05T12:00:00Z',()=>{
+    const effrRows=[
+      {effectiveDate:'2026-08-26',percentRate:4.32,targetRateFrom:4.25,targetRateTo:4.50},
+      {effectiveDate:'2026-08-28',percentRate:4.08,targetRateFrom:4.00,targetRateTo:4.25},
+    ];
+    // Market tab resolves and caches, exactly like loadMarketTab() does.
+    run(ctx,`_computeFedMeetingProbabilities`)([contract('Jul 2026',4.25),contract('Aug 2026',4.10)],effrRows);
+    run(ctx,`S.set('fomc_effr_cache',{rows:${JSON.stringify(effrRows)},ts:'x',tsEpoch:0})`);
+    run(ctx,`S.set('fed_futures',{data:${JSON.stringify([contract('Jul 2026',4.25),contract('Aug 2026',3.50)])},failedMonths:[],ts:'x',tsEpoch:0})`); // deliberately different data, as if the futures moved since
+    // Now call the REAL js/options.js function, unmodified.
+    const meetings=run(ctx,`_getQualifyingFomcMeetings`)();
+    const history=run(ctx,`S.get('fomc_meeting_history')`);
+    assert.strictEqual(history['2026-08-27'].source,'nyfed-official','visiting Options must not have downgraded the official record');
+    // The resolved Aug meeting is a HOLD/CUT/HIKE fact, not a >=hold
+    // forecast -- _getQualifyingFomcMeetings only inspects pCut25/pHold/
+    // pHike25 (forecast-shaped fields), so a resolved meeting simply
+    // won't appear in its output. The real assertion here is the history
+    // check above; this just confirms the call didn't throw.
+    assert(Array.isArray(meetings));
+  });
+});
+
+// ============================================================================
+section('Regression: missing intermediate contract must not corrupt later odds (Must-fix 2)');
+
+test('direct reproduction of the reported bug: Aug present, Sep MISSING, Oct present -> Oct must not read as a 250bp+ cut', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-16','2026-10-28'])`);
+  withFixedNow(ctx,'2026-10-01T12:00:00Z',()=>{ // Oct meeting still upcoming
+    const fedFutures=[
+      contract('Aug 2026',4.00),
+      // September's contract is entirely absent -- not stale, not
+      // present at all (a failed fetch with no prior cache to fall back
+      // to for that specific month).
+      contract('Oct 2026',3.75),
+    ];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,[]);
+    const oct=results.find(r=>r.meetingDate==='2026-10-28');
+    assert(oct,'October meeting should still produce a row');
+    assert.strictEqual(oct.insufficientBaseline,true,'a gap across a meeting-bearing month must invalidate the baseline rather than silently using a 2-months-stale rate');
+    assert(!oct.outcomes,'must not produce a fabricated outcome split from a broken chain');
+  });
+});
+
+test('a gap is harmless when the NEXT contract is meeting-free -- it always re-anchors from its own price regardless', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-11-16'])`);
+  withFixedNow(ctx,'2026-10-01T12:00:00Z',()=>{
+    const fedFutures=[
+      contract('Aug 2026',4.50),
+      // Sep missing
+      contract('Oct 2026',4.10), // meeting-free -- re-anchors here regardless of the Aug->Oct gap
+      contract('Nov 2026',3.95),
+    ];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,[]);
+    const nov=results.find(r=>r.meetingDate==='2026-11-16');
+    assert(nov && !nov.insufficientBaseline,'Nov should resolve fine -- Oct (meeting-free, immediately before Nov, no gap between them) supplies a fresh baseline');
+  });
+});
+
+test('the day-count/anchoring/split tests upstream in this file all use CONTIGUOUS months -- confirm a normal contiguous run is unaffected by the gap check', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-21'])`);
+  withFixedNow(ctx,'2026-08-01T12:00:00Z',()=>{
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Aug 2026',4.00),contract('Sep 2026',3.925)],[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-21');
+    assert(!sep.insufficientBaseline);
+    assert(sep.outcomes && sep.outcomes.length>0);
+  });
+});
+
+// ============================================================================
+section('Official hold/hike outcomes via NY Fed data (test-suite gap)');
+
+test('a resolved meeting can be an official HOLD (moveBp===0), not just a cut', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-08-27'])`);
+  withFixedNow(ctx,'2026-09-05T12:00:00Z',()=>{
+    const effrRows=[
+      {effectiveDate:'2026-08-26',percentRate:4.33,targetRateFrom:4.25,targetRateTo:4.50},
+      {effectiveDate:'2026-08-28',percentRate:4.32,targetRateFrom:4.25,targetRateTo:4.50}, // unchanged range
+    ];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Jul 2026',4.25),contract('Aug 2026',4.30)],effrRows);
+    const aug=results.find(r=>r.meetingDate==='2026-08-27');
+    assert.strictEqual(aug.outcome,'hold');
+    assert.strictEqual(aug.source,'nyfed-official');
+  });
+});
+
+test('a resolved meeting can be an official HIKE', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-08-27'])`);
+  withFixedNow(ctx,'2026-09-05T12:00:00Z',()=>{
+    const effrRows=[
+      {effectiveDate:'2026-08-26',percentRate:4.33,targetRateFrom:4.25,targetRateTo:4.50},
+      {effectiveDate:'2026-08-28',percentRate:4.58,targetRateFrom:4.50,targetRateTo:4.75},
+    ];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Jul 2026',4.25),contract('Aug 2026',4.60)],effrRows);
+    const aug=results.find(r=>r.meetingDate==='2026-08-27');
+    assert.strictEqual(aug.outcome,'hike25');
+    assert.strictEqual(aug.source,'nyfed-official');
+  });
+});
+
+// ============================================================================
+section('Holiday/weekend bracketing (test-suite gap)');
+
+test('_resolveMeetingFromEffr correctly brackets a meeting even when the surrounding days are a weekend/holiday gap (no EFFR published on non-business days)', ()=>{
+  const ctx=buildContext();
+  const resolve=run(ctx,'_resolveMeetingFromEffr');
+  // A Friday Sep 18 meeting; EFFR has nothing for Sat/Sun, next published
+  // value is the following Tuesday (Monday a holiday, e.g. -- the exact
+  // reason doesn't matter, only that there's a real multi-day gap).
+  const rows=[
+    {effectiveDate:'2026-09-17',percentRate:4.33,targetRateFrom:4.25,targetRateTo:4.50},
+    // 09-18 (meeting day), 09-19 (Sat), 09-20 (Sun), 09-21 (holiday Mon) -- no data
+    {effectiveDate:'2026-09-22',percentRate:4.08,targetRateFrom:4.00,targetRateTo:4.25},
+  ];
+  const result=resolve('2026-09-18',rows);
+  assert(result,'should still resolve across a multi-day publishing gap');
+  assert.strictEqual(result.moveBp,-25);
+  assert.strictEqual(result.resolvedRate,4.08);
+});
+
+// ============================================================================
+section('EFFR window boundary (test-suite gap)');
+
+test('_earliestEffrStartNeeded computes the start date from the EARLIEST month actually present, minus a 10-day buffer', ()=>{
+  const ctx=buildContext();
+  const fn=run(ctx,'_earliestEffrStartNeeded');
+  const fedFutures=[contract('Oct 2026',3.90),contract('Aug 2026',4.10),contract('Sep 2026',4.00)]; // deliberately out of order
+  const start=fn(fedFutures);
+  assert.strictEqual(localYMD(start),'2026-07-22','Aug 1 minus 10 days, using LOCAL calendar arithmetic (matches how the app itself constructs/consumes these dates)');
+});
+
+test('_earliestEffrStartNeeded returns null for an empty or missing fedFutures window', ()=>{
+  const ctx=buildContext();
+  const fn=run(ctx,'_earliestEffrStartNeeded');
+  assert.strictEqual(fn([]),null);
+  assert.strictEqual(fn(null),null);
+});
+
+// ============================================================================
+section('Legacy history migration (test-suite gap)');
+
+test('a legacy PAST-dated history entry with no source field is purged by the migration, then correctly re-resolved the next time that meeting is processed with fresh EFFR data', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-08-27'])`);
+  // Shaped exactly like a pre-495 entry: just a bare rate, no source/
+  // moveBp/resolvedAt metadata at all.
+  run(ctx,`S.set('fomc_meeting_history',{'2026-08-27':{rate:4.10}})`);
+  withFixedNow(ctx,'2026-09-05T12:00:00Z',()=>{
+    const effrRows=[
+      {effectiveDate:'2026-08-26',percentRate:4.32,targetRateFrom:4.25,targetRateTo:4.50},
+      {effectiveDate:'2026-08-28',percentRate:4.08,targetRateFrom:4.00,targetRateTo:4.25},
+    ];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Jul 2026',4.25),contract('Aug 2026',4.10)],effrRows);
+    const aug=results.find(r=>r.meetingDate==='2026-08-27');
+    assert.strictEqual(aug.source,'nyfed-official','fresh EFFR data should resolve it, not leave the legacy value in place');
+    const history=run(ctx,`S.get('fomc_meeting_history')`);
+    assert.strictEqual(history['2026-08-27'].source,'nyfed-official');
+    assert.strictEqual(history['2026-08-27'].rate,4.08,'the re-resolved entry should hold the real official rate, not the old legacy 4.10 guess');
+  });
+});
+
+test('regression: a source-less legacy entry for a meeting OUTSIDE the current fetch window must NOT silently become a later meeting\'s baseline (direct reproduction of the reported contamination)', ()=>{
+  const ctx=buildContext();
+  // Two meetings: an OLDER one that will NOT appear in this run's
+  // fedFutures at all (simulating it having aged out of the one-month-
+  // back fetch window), and a LATER one that needs a baseline and would,
+  // before this fix, silently inherit the older one's contaminated rate.
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-06-17','2026-09-16'])`);
+  // A deliberately absurd rate makes contamination unmistakable if it
+  // leaks through -- this exact scenario produced a "1275bp cut" before
+  // this fix, confirmed via direct reproduction against the real code.
+  run(ctx,`S.set('fomc_meeting_history',{'2026-06-17':{rate:9.99}})`);
+  withFixedNow(ctx,'2026-09-01T12:00:00Z',()=>{
+    // Only September's contract is in the window -- June's meeting is
+    // never reprocessed this run, so the old migration (future-dated-only
+    // purge) would have left the contaminated entry in place untouched.
+    const results=run(ctx,`_computeFedMeetingProbabilities`)([contract('Sep 2026',4.00)],[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-16');
+    assert.strictEqual(sep.insufficientBaseline,true,'must fall back to an honest placeholder, not silently use the purged contaminated rate as a baseline');
+    assert(!sep.outcomes,'must not produce ANY outcome split derived from the contaminated rate');
+    const history=run(ctx,`S.get('fomc_meeting_history')`);
+    assert(!history['2026-06-17'],'the source-less entry must be purged, not merely ignored');
+  });
+});
+
+// ============================================================================
+section('Worker EFFR route validation (test-suite gap)');
+
+testAsync('rejects a request missing startDate/endDate', async()=>{
+  const ctx=buildWorkerContext(async()=>{throw new Error('fetch must not be called for an invalid request');});
+  const res=await run(ctx,'handleEffrProxy')(new URL('https://worker.example/?type=effr'));
+  assert.strictEqual(res.status,400);
+});
+
+testAsync('rejects a calendar-impossible date (Feb 30) instead of silently rolling it forward to Mar 2', async()=>{
+  const ctx=buildWorkerContext(async()=>{throw new Error('fetch must not be called for an invalid request');});
+  const res=await run(ctx,'handleEffrProxy')(new URL('https://worker.example/?type=effr&startDate=2026-02-30&endDate=2026-03-01'));
+  assert.strictEqual(res.status,400);
+});
+
+testAsync('rejects startDate after endDate', async()=>{
+  const ctx=buildWorkerContext(async()=>{throw new Error('fetch must not be called for an invalid request');});
+  const res=await run(ctx,'handleEffrProxy')(new URL('https://worker.example/?type=effr&startDate=2026-09-20&endDate=2026-09-01'));
+  assert.strictEqual(res.status,400);
+});
+
+testAsync('rejects an oversized date range (>120 days)', async()=>{
+  const ctx=buildWorkerContext(async()=>{throw new Error('fetch must not be called for an invalid request');});
+  const res=await run(ctx,'handleEffrProxy')(new URL('https://worker.example/?type=effr&startDate=2026-01-01&endDate=2026-12-31'));
+  assert.strictEqual(res.status,400);
+});
+
+testAsync('accepts a well-formed, in-range request and forwards it to the NY Fed endpoint', async()=>{
+  let calledUrl=null;
+  const ctx=buildWorkerContext(async(u)=>{calledUrl=u;return{ok:true,json:async()=>({refRates:[]})};});
+  const res=await run(ctx,'handleEffrProxy')(new URL('https://worker.example/?type=effr&startDate=2026-08-01&endDate=2026-09-01'));
+  assert.strictEqual(res.status,200);
+  assert(calledUrl.includes('markets.newyorkfed.org'));
+  assert(calledUrl.includes('startDate=2026-08-01'));
+});
+
+// ============================================================================
+section('fetchEffrHistory fetch/normalization failures (test-suite gap)');
+
+testAsync('normalizes, sorts ascending by date, and filters rows missing required fields', async()=>{
+  const calls=[];
+  const fetchImpl=async(url)=>{
+    calls.push(url);
+    return{json:async()=>({refRates:[
+      {effectiveDate:'2026-08-28',percentRate:4.08,targetRateFrom:4.00,targetRateTo:4.25},
+      {effectiveDate:'2026-08-26',percentRate:4.32,targetRateFrom:4.25,targetRateTo:4.50},
+      {effectiveDate:'2026-08-27',percentRate:null,targetRateFrom:4.00,targetRateTo:4.25}, // incomplete
+    ]})};
+  };
+  const ctx=buildApiContext(fetchImpl);
+  const rows=await run(ctx,'fetchEffrHistory')(new Date(2026,7,1)); // local Aug 1 2026
+  assert.strictEqual(rows.length,2,'the incomplete row must be filtered out');
+  assert.strictEqual(rows[0].effectiveDate,'2026-08-26','must be sorted ascending');
+  assert.strictEqual(rows[1].effectiveDate,'2026-08-28');
+  assert(calls[0].includes('type=effr'));
+});
+
+testAsync('returns null (not a throw) on a fetch failure', async()=>{
+  const ctx=buildApiContext(async()=>{throw new Error('network down');});
+  const rows=await run(ctx,'fetchEffrHistory')(new Date(2026,7,1));
+  assert.strictEqual(rows,null);
+});
+
+testAsync('returns null when the response shape is unexpected (refRates missing or not an array)', async()=>{
+  const ctx=buildApiContext(async()=>({json:async()=>({error:'bad request'})}));
+  const rows=await run(ctx,'fetchEffrHistory')(new Date(2026,7,1));
+  assert.strictEqual(rows,null);
+});
+
+testAsync('falls back to a default lookback window when no startDate argument is passed', async()=>{
+  let capturedUrl=null;
+  const ctx=buildApiContext(async(url)=>{capturedUrl=url;return{json:async()=>({refRates:[]})};});
+  await run(ctx,'fetchEffrHistory')();
+  assert(/startDate=\d{4}-\d{2}-\d{2}/.test(capturedUrl),'expected a well-formed startDate param even with no explicit argument');
+});
+
+// ============================================================================
+(async()=>{
+  let lastAsyncSection=null;
+  for(const{name,fn,section:sec}of _asyncTests){
+    if(sec!==lastAsyncSection){ console.log('\n== '+sec+' =='); lastAsyncSection=sec; }
+    try{ await fn(); pass++; console.log('  ok  --',name); }
+    catch(e){ fail++; console.log('FAIL  --',name); console.log('      '+(e && e.stack ? e.stack.split('\n').slice(0,3).join('\n      ') : e)); }
+  }
+  console.log(`\n${pass} passed, ${fail} failed`);
+  process.exit(fail?1:0);
+})();

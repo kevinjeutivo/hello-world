@@ -1036,6 +1036,13 @@
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
     <div class="commentary" style="font-size:12px;max-height:400px;overflow-y:auto">
+v3.5.0 -- 2026-09-23
+- Fixed two confirmed data-integrity bugs in historical valuation reconstruction (js/ticker.js):
+- Report-date matching now bounded to 120 days past fiscal quarter-end, instead of an unbounded "earliest report at or after quarter-end" search. Previously, if a quarter's report was missing from tracked earnings history, the search would silently attach the FOLLOWING quarter's report -- months later -- producing a valid-looking but wrong report date, price, and TTM P/E. Outside the bound, the record now correctly stores reportDate: null instead of a guess.
+- Next-fiscal-year rollover now requires the same new fiscal-year end date on two CONSECUTIVE fetches, plus a chronological-plausibility check (roughly a year later, not backward or an implausibly small jump), before archiving the current year's tracked history. Previously, a single fetch reporting a different +1y end date -- including a transient provider glitch that reverts on the next refresh -- would immediately and permanently archive the current year and start spurious new tracking.
+- 11 new deterministic tests (tests/valuation-reconstruction.test.js), including direct reconstructions of both reported failure modes.
+- Service worker: v502
+
 v3.4.0 -- 2026-09-23
 - Wheel backtest: added a genuinely equity-based "Max drawdown" metric, now the primary figure shown. The previous metric (still shown, relabeled "Max cumulative-return pullback") measured cumulative $ P&L against the RUNNING TIME-WEIGHTED AVERAGE capital deployed so far -- and that average moves as the cash/shares regime mix changes over a window (e.g. an assignment into a higher-priced share regime raises it), which could make the reading fall even when actual dollar equity hadn't moved at all. The new metric normalizes the same daily $ P&L against a FIXED capital base (the capital committed on the window's own first day) instead, giving a standard peak-to-trough equity drawdown that can't have that artifact.
 - 6 new deterministic tests (tests/wheel-drawdown.test.js), including a direct reconstruction of the exact capital-base-jump-with-no-real-loss scenario, confirming the old metric shows a drawdown there while the new one correctly shows zero.

@@ -393,6 +393,16 @@ function buildRecTrendCard(trend){
 
 const _MH_TOLERANCE_DAYS=45;
 function _mhDateDiffDays(a,b){return Math.abs((new Date(a)-new Date(b))/86400000);}
+// How far past a fiscal quarter-end a report is allowed to land and still
+// be treated as THAT quarter's report. Real reports typically land 20-45
+// days after quarter-end; 120 days is generous headroom for a genuinely
+// late reporter, while still catching the actual failure mode: if the
+// correct quarter's earnings date is simply missing from tracked history
+// (a data gap), an UNBOUNDED "earliest date at or after quarter-end"
+// search would happily grab the FOLLOWING quarter's report -- months
+// later -- and silently attach it as if it were this quarter's, producing
+// a valid-looking but wrong report date, report price, and TTM multiple.
+const _MH_MAX_REPORT_LAG_DAYS=120;
 
 // {dateStr: close} map from a hist2y_-shaped object (timestamps as Date
 // objects or epoch seconds, per _parseHist2yDate's existing handling).
@@ -414,7 +424,8 @@ function _mhPriorTradingDayPrice(priceMap,dateStr){
 // the app rather than a second date source.
 function _mhFindReportInfo(ticker,quarterEndDate){
   const candidates=_getEarningsWithOverrides(ticker).map(_effectiveEarningsDate)
-    .filter(e=>e.date>=quarterEndDate).sort((a,b)=>a.date.localeCompare(b.date));
+    .filter(e=>e.date>=quarterEndDate&&_mhDateDiffDays(e.date,quarterEndDate)<=_MH_MAX_REPORT_LAG_DAYS)
+    .sort((a,b)=>a.date.localeCompare(b.date));
   return candidates.length?candidates[0]:null;
 }
 // AMC: report lands after this close, so it's still the last clean price.
@@ -658,14 +669,54 @@ function _updateNextFYHistory(ticker,snap,hist2yCache){
     let hist=S.get(histKey)||[];
 
     // Rollover: the fiscal year "+1y" now points to is different from the
-    // one we were tracking -- archive what we have (if anything was ever
-    // captured) and start fresh for the new year.
+    // one we were tracking. Don't commit to archiving on a single fetch's
+    // say-so -- Yahoo's own +1y math can occasionally glitch for one
+    // refresh and then revert, and an immediate rollover on that alone
+    // would archive a perfectly good, still-current fiscal year and start
+    // spurious tracking for nothing. Require the SAME new end date to
+    // show up on two CONSECUTIVE fetches before treating it as real: a
+    // glitch that reverts never accumulates the second confirmation,
+    // while a genuine rollover (which persists on every subsequent fetch
+    // until the NEXT real one) naturally confirms itself on the very next
+    // call. Also require the new date to be chronologically plausible --
+    // strictly LATER than the current one, by roughly a fiscal year (a
+    // 52/53-week fiscal calendar can drift a bit, hence the wide-ish
+    // band) -- since two observations of an equally-implausible glitch
+    // (e.g. two stale-cache reads in a row) would otherwise still pass
+    // the confirmation check alone.
     if(track&&track.targetFYEnd!==p1y.endDate){
-      if(track.entries.length){
-        hist.push({fyEndDate:track.targetFYEnd,resolvedDate:today,entries:track.entries});
-        hist.sort((a,b)=>a.fyEndDate.localeCompare(b.fyEndDate));
+      if(track.pendingFYEnd===p1y.endDate){
+        const gapDays=_mhDateDiffDays(p1y.endDate,track.targetFYEnd);
+        const isForward=new Date(p1y.endDate)>new Date(track.targetFYEnd);
+        if(isForward&&gapDays>=300&&gapDays<=430){
+          if(track.entries.length){
+            hist.push({fyEndDate:track.targetFYEnd,resolvedDate:today,entries:track.entries});
+            hist.sort((a,b)=>a.fyEndDate.localeCompare(b.fyEndDate));
+          }
+          track=null;
+        }else{
+          // Confirmed twice, but not a chronologically plausible new
+          // fiscal year -- more likely two reads of the same lingering
+          // bad data than a real rollover. Leave the existing track
+          // alone; clear the pending marker so a genuinely different
+          // (plausible) value later gets its own fresh two-fetch check
+          // rather than being silently pre-confirmed by this one.
+          track.pendingFYEnd=null;
+          S.set(trackKey,track);S.set(histKey,hist);
+          return;
+        }
+      }else{
+        // First time seeing this particular new end date -- note it and
+        // wait for the next fetch to confirm; don't touch the existing
+        // track yet.
+        track.pendingFYEnd=p1y.endDate;
+        S.set(trackKey,track);S.set(histKey,hist);
+        return;
       }
-      track=null;
+    }else if(track&&track.pendingFYEnd!=null){
+      // This fetch matches what we already had after all -- the earlier
+      // "new" reading didn't stick. Clear the stale pending marker.
+      track.pendingFYEnd=null;
     }
     if(!track)track={targetFYEnd:p1y.endDate,entries:[]};
 

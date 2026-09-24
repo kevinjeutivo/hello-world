@@ -810,12 +810,33 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
   // the expiration-sampled one. Modeled, not real quotes: volatility is held
   // at its entry value (no IV spikes), so a real crash would likely mark worse.
   let lastCoveredIdx=startIdx-1,ddPeak=0,ddMax=0; // peak starts at 0 -- the window's own true starting point, same as _maxDrawdownPct
+  // A SEPARATE, genuinely equity-based drawdown series, alongside the one
+  // above. The metric above (ddPeak/ddMax) is "cumulative $ P&L as a % of
+  // the RUNNING TIME-WEIGHTED AVERAGE capital deployed so far" -- and that
+  // average denominator moves as the cash/shares regime mix changes over
+  // the window (e.g. rolling into a higher-priced share regime raises the
+  // average), which can make the ratio fall even when actual dollar
+  // equity hasn't -- a real, confirmed artifact of the denominator, not
+  // of any capital loss. This second series instead normalizes the exact
+  // same dollar P&L by a FIXED capital base -- the capital actually
+  // committed on the window's own first day, captured once below and
+  // never revised -- giving a standard Drawdown_t=(Peak-Equity_t)/Peak
+  // reading that can't have that artifact, because its denominator never
+  // moves. See tests/wheel-drawdown.test.js for a constructed case where
+  // the two disagree.
+  let eqFixedCap=null,eqPeak=0,eqDDMax=0;
   const dailyCurve=(opts&&opts.keepDailyCurve)?[]:null;
-  const _ddPoint=(idx,pct)=>{
+  const _ddPoint=(idx,pct,dollarPnL,capBase)=>{
     if(pct==null||!isFinite(pct))return;
     if(pct>ddPeak)ddPeak=pct;
     if(ddPeak-pct>ddMax)ddMax=ddPeak-pct;
     if(dailyCurve)dailyCurve.push({idx,pct});
+    if(dollarPnL!=null&&isFinite(dollarPnL)&&capBase>0){
+      if(eqFixedCap==null)eqFixedCap=capBase; // first valid day of the window -- the fixed base for the rest of it
+      const eqPct=dollarPnL/eqFixedCap*100;
+      if(eqPct>eqPeak)eqPeak=eqPct;
+      if(eqPeak-eqPct>eqDDMax)eqDDMax=eqPeak-eqPct;
+    }
   };
   // One day's cash interest, calendar-day weighted -- same formula as the
   // interest loops above (kept as its own closure so those stay untouched).
@@ -897,7 +918,7 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
         const _capD=_baseD+_curD;
         const cap=_capD>0?(_baseDD+_curDD)/_capD:null;
         const pct=cap>0?eq/cap*100:null;
-        if(i<t.exitIdx)_ddPoint(i,pct);
+        if(i<t.exitIdx)_ddPoint(i,pct,eq,cap);
         else if(dailyCurve&&pct!=null&&isFinite(pct))dailyCurve.push({idx:i,pct,exitFormula:true}); // tie-out only, never feeds the drawdown
       }
     }
@@ -962,7 +983,7 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     const unrealizedDivSoFar=(curMode==='call'&&replayCostBasis!=null)?_sharesDividendsFor(rsIdx,t.exitIdx):0;
     const runningDollar=runningPremium+runningShareGain+runningInterest+runningDividends+unrealizedSoFar+unrealizedDivSoFar;
     t.cumulativePct=capSoFar>0?(runningDollar/capSoFar)*100:null;
-    _ddPoint(t.exitIdx,t.cumulativePct); // expiration day = the reconciled ledger row itself
+    _ddPoint(t.exitIdx,t.cumulativePct,runningDollar,capSoFar); // expiration day = the reconciled ledger row itself
     lastCoveredIdx=t.exitIdx;
   });
 
@@ -987,7 +1008,8 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     simpleReturnPct:simpleReturn*100, // raw, unannualized total -- what the row-by-row cumulative actually adds up to
     stillHoldingShares:costBasis!=null,
     unrealizedShareGainLoss,cashInterest,shareDividends,unrealizedShareDividends,
-    maxDrawdownDailyPct:ddMax, // daily mark-to-model -- the figure shown
+    maxDrawdownDailyPct:ddMax, // daily mark-to-model, relative to the RUNNING TIME-WEIGHTED AVERAGE capital base (not a strict equity drawdown -- see maxDrawdownEquityPct for that; kept for comparison/backward reference)
+    maxDrawdownEquityPct:eqDDMax, // same daily $ P&L, normalized by a FIXED capital base instead -- a true Drawdown_t=(Peak-Equity_t)/Peak reading, the figure shown as "Max drawdown" in the UI
     maxDrawdownAtExpPct:_maxDrawdownPct(trades), // sampled only at expirations (pre-478 metric) -- kept for comparison
     ...(dailyCurve?{dailyCurve}:{}),
   };
@@ -1109,6 +1131,8 @@ function _computeWheelBacktest(ticker,monthsOut,targetFloorPct,strategy){
   // max of the sorted-ascending array, not the min.
   const drawdowns=windows.map(w=>w.maxDrawdownDailyPct).sort((a,b)=>a-b);
   const drawdown={best:drawdowns[0],median:_medianOfSorted(drawdowns),worst:drawdowns[drawdowns.length-1]};
+  const drawdownsEquity=windows.map(w=>w.maxDrawdownEquityPct).sort((a,b)=>a-b);
+  const drawdownEquity={best:drawdownsEquity[0],median:_medianOfSorted(drawdownsEquity),worst:drawdownsEquity[drawdownsEquity.length-1]};
   const drawdownsAtExp=windows.map(w=>w.maxDrawdownAtExpPct).sort((a,b)=>a-b);
   const drawdownAtExp={best:drawdownsAtExp[0],median:_medianOfSorted(drawdownsAtExp),worst:drawdownsAtExp[drawdownsAtExp.length-1]};
   const downsideDeviation=_downsideDeviationPct(annReturns);
@@ -1119,7 +1143,7 @@ function _computeWheelBacktest(ticker,monthsOut,targetFloorPct,strategy){
     ticker,monthsOut,targetFloorPct,strategy:strategy||'default',sampleSize:windows.length,
     median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
-    winRatePct,beatBuyHoldPct,medianExcessReturn,drawdown,drawdownAtExp,downsideDeviation,
+    winRatePct,beatBuyHoldPct,medianExcessReturn,drawdown,drawdownEquity,drawdownAtExp,downsideDeviation,
     recentCycles:mostRecentWindow.trades,
     recentRunStartIdx:mostRecentWindow.startIdx,
     recentRunEndIdx:mostRecentWindow.endIdx,
@@ -1143,7 +1167,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
   let allReturns=[];
   let allAssignmentRates=[];
   let allBuyHold=[];
-  let allWindowDD=[],allWindowDDAtExp=[]; // per-window max drawdown (daily-marked, and the older expiration-sampled figure), index-aligned with allReturns
+  let allWindowDD=[],allWindowDDEquity=[],allWindowDDAtExp=[]; // per-window max drawdown (daily-marked capital-relative, daily-marked equity-based, and the older expiration-sampled figure), index-aligned with allReturns
   let tickersWithData=0;
   // Tracks the single most CALENDAR-RECENT complete run across every
   // ticker in the list -- not just whichever ticker happens to be iterated
@@ -1172,6 +1196,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
         allAssignmentRates.push(win.assignmentRatePct);
         allBuyHold.push(win.buyHoldAnnualizedPct);
         allWindowDD.push(win.maxDrawdownDailyPct);
+        allWindowDDEquity.push(win.maxDrawdownEquityPct);
         allWindowDDAtExp.push(win.maxDrawdownAtExpPct);
         perTickerReturns[t].push(win.annualizedReturnPct);
         gotAny=true;
@@ -1198,6 +1223,8 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
   const medianExcessReturn=_medianOfSorted(excessReturns);
   const drawdowns=[...allWindowDD].sort((a,b)=>a-b);
   const drawdown={best:drawdowns[0],median:_medianOfSorted(drawdowns),worst:drawdowns[drawdowns.length-1]};
+  const drawdownsEquity=[...allWindowDDEquity].sort((a,b)=>a-b);
+  const drawdownEquity={best:drawdownsEquity[0],median:_medianOfSorted(drawdownsEquity),worst:drawdownsEquity[drawdownsEquity.length-1]};
   const drawdownsAtExp=[...allWindowDDAtExp].sort((a,b)=>a-b);
   const drawdownAtExp={best:drawdownsAtExp[0],median:_medianOfSorted(drawdownsAtExp),worst:drawdownsAtExp[drawdownsAtExp.length-1]};
   const downsideDeviation=_downsideDeviationPct(allReturns);
@@ -1232,7 +1259,7 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
     monthsOut,targetFloorPct,strategy:strategy||'default',sampleSize:allReturns.length,tickersWithData,tickersTotal:tickers.length,
     median,worst,best,avgAssignmentRate,avgAnnReturn,avgBuyHold,pctBeatTarget,
     vsBuyHold:avgAnnReturn-avgBuyHold,
-    winRatePct,beatBuyHoldPct,medianExcessReturn,drawdown,drawdownAtExp,downsideDeviation,
+    winRatePct,beatBuyHoldPct,medianExcessReturn,drawdown,drawdownEquity,drawdownAtExp,downsideDeviation,
     recentCycles:bestRunCycles,recentCyclesTicker:bestRunTicker,
     recentRunStartIdx:bestRunStartIdx,recentRunEndIdx:bestRunEndIdx,recentRunTotalCycles:bestRunTotalCycles,
     recentRunSimpleReturnPct:bestRunSimpleReturnPct,recentRunStillHoldingShares:bestRunStillHoldingShares,
@@ -1502,7 +1529,10 @@ function _renderWheelBacktestFromResult(result,isAggregate,isStarredMode,selecte
       <span style="color:var(--text2)">Median excess vs. Buy &amp; Hold</span><span style="color:${result.medianExcessReturn>=0?'var(--green)':'var(--red)'}">${result.medianExcessReturn>=0?'+':''}${result.medianExcessReturn.toFixed(1)}pp</span>
     </div>
     <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
-      <span style="color:var(--text2)">Max drawdown, daily modeled (worst &middot; median &middot; best)</span><span style="color:var(--text)">-${result.drawdown.worst.toFixed(1)}% &middot; -${result.drawdown.median.toFixed(1)}% &middot; -${result.drawdown.best.toFixed(1)}%</span>
+      <span style="color:var(--text2)">Max drawdown, daily modeled (worst &middot; median &middot; best)</span><span style="color:var(--text)">-${result.drawdownEquity.worst.toFixed(1)}% &middot; -${result.drawdownEquity.median.toFixed(1)}% &middot; -${result.drawdownEquity.best.toFixed(1)}%</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
+      <span style="color:var(--text2)">Max cumulative-return pullback (capital-base-relative, not a strict equity drawdown -- worst &middot; median &middot; best)</span><span style="color:var(--text)">-${result.drawdown.worst.toFixed(1)}% &middot; -${result.drawdown.median.toFixed(1)}% &middot; -${result.drawdown.best.toFixed(1)}%</span>
     </div>
     <div style="display:flex;justify-content:space-between;font-size:10px;padding:5px 0;border-top:1px solid var(--surface3)">
       <span style="color:var(--text2)">Downside deviation</span><span style="color:var(--text)">${result.downsideDeviation.toFixed(1)}%</span>

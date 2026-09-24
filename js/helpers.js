@@ -1026,6 +1026,30 @@ function _computeGapEvents(ticker,preloadedHist2y){
   }catch{return null;}
 }
 
+// Computes a right-censoring-free fill stat at one fixed horizon (in
+// trading days). The naive version of this stat -- filled/total across
+// EVERY gap regardless of age -- is biased two ways: a gap from
+// yesterday and a gap from 18 months ago get counted as equivalent
+// observations even though the recent one hasn't had a fair chance to
+// resolve yet (dragging the fill rate down), and averaging days-to-fill
+// over only the FILLED gaps silently excludes the longest-running open
+// ones, the exact opposite direction of bias (dragging the average up
+// -- excluded, not averaged in as slow outliers -- so the reported
+// number looks faster than reality).
+// The fix: only ever compare a gap against a horizon it's actually old
+// enough to have been fully observed for (daysSince>=horizonDays) --
+// a gap can't be judged "did it fill within 20 days" until at least 20
+// trading days have actually passed for it. Every eligible gap's
+// outcome at that horizon IS fully known by construction (filled by
+// then, or not), so there's nothing left to average or censor.
+function _gapHorizonStat(list,horizonDays){
+  const eligible=list.filter(e=>e.daysSince>=horizonDays);
+  if(!eligible.length)return{eligible:0,filledCount:0,openCount:0,filledPct:null,openPct:null};
+  const filledCount=eligible.filter(e=>e.filled&&e.daysToFill<=horizonDays).length;
+  const openCount=eligible.length-filledCount;
+  return{eligible:eligible.length,filledCount,openCount,filledPct:filledCount/eligible.length*100,openPct:openCount/eligible.length*100};
+}
+
 // Per-ticker fill-rate/avg-days summary. Small per-ticker sample size over
 // 2 years of history, same caveat as the RSI Backtest -- the aggregate
 // view across the watchlist is the more statistically meaningful lens.
@@ -1034,12 +1058,15 @@ function _computeGapSummaryForTicker(ticker,preloadedHist2y){
   if(!events)return null;
   const summarizeDir=(dir)=>{
     const list=events.filter(e=>e.direction===dir);
-    const filled=list.filter(e=>e.filled);
     return{
       count:list.length,
-      filledCount:filled.length,
-      fillRate:list.length?filled.length/list.length*100:null,
-      avgDaysToFill:filled.length?filled.reduce((a,e)=>a+e.daysToFill,0)/filled.length:null
+      filledCount:list.filter(e=>e.filled).length, // unbounded raw count -- not a rate/average, so not subject to the censoring bias above
+      horizons:{
+        sameDay:_gapHorizonStat(list,0),
+        within5:_gapHorizonStat(list,5),
+        within20:_gapHorizonStat(list,20),
+        within60:_gapHorizonStat(list,60), // .openPct here IS "still open after 60 days", over the same eligible set
+      },
     };
   };
   return{ticker,totalGaps:events.length,up:summarizeDir('up'),down:summarizeDir('down'),events};
@@ -1057,15 +1084,16 @@ function _computeGapAggregate(tickers){
     tickersWithData++;
     events.forEach(e=>{(e.direction==='up'?allUp:allDown).push(e);});
   });
-  const summarize=(list)=>{
-    const filled=list.filter(e=>e.filled);
-    return{
-      count:list.length,
-      filledCount:filled.length,
-      fillRate:list.length?filled.length/list.length*100:null,
-      avgDaysToFill:filled.length?filled.reduce((a,e)=>a+e.daysToFill,0)/filled.length:null
-    };
-  };
+  const summarize=(list)=>({
+    count:list.length,
+    filledCount:list.filter(e=>e.filled).length,
+    horizons:{
+      sameDay:_gapHorizonStat(list,0),
+      within5:_gapHorizonStat(list,5),
+      within20:_gapHorizonStat(list,20),
+      within60:_gapHorizonStat(list,60),
+    },
+  });
   return{up:summarize(allUp),down:summarize(allDown),tickersWithData,tickersTotal:tickers.length};
 }
 

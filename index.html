@@ -1036,6 +1036,11 @@
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
     <div class="commentary" style="font-size:12px;max-height:400px;overflow-y:auto">
+v3.2.3 -- 2026-09-23
+- Fixed a real hang: refreshing a single ticker, viewing any ticker (loadTicker), and Prefetch All could all get stuck indefinitely with no recovery if Finnhub or the Worker's Yahoo proxy was slow to respond -- 8 network calls across js/ticker.js and js/prefetch.js (earnings, upgrades, Yahoo quote, quoteSummary, news, and the end-of-run VIX history fetch) had no timeout at all, unlike neighboring calls in the same functions that already did. All 8 now use the same timeout-and-recover pattern already established elsewhere in this codebase, so a slow/unresponsive backend now degrades gracefully (partial data, clear failure) instead of leaving the UI stuck.
+- Found but NOT yet fixed (separate, smaller scope): the identical unprotected-await pattern also exists in api.js, earnings.js, etf.js, options.js, and two more spots in prefetch.js's ETF-sandbox section -- 9 more call sites. Worth its own pass.
+- Service worker: v499
+
 v3.2.2 -- 2026-09-23
 - Fixed a real, severe Fed Watch bug caught by review: a source-less legacy history entry (from a build before 495) surviving past its own meeting date could get read completely unconditionally as a LATER meeting's starting rate, with no check on where that rate actually came from. Confirmed via direct reproduction: a single stray legacy entry made an ordinary meeting read as a fabricated "1275bp cut." The migration now purges any history entry that isn't properly sourced, regardless of whether its date is in the future or the past, and the baseline lookup itself now also refuses to trust an unsourced entry even if one somehow exists.
 - Service worker: v498

@@ -13,6 +13,55 @@
 function _escHtml(s){
   return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+// Central ticker validator -- every place a ticker string can enter the
+// app from outside (the watchlist add field, the default-watchlist
+// settings field, and anywhere else a raw string might end up as a
+// ticker) should go through this rather than just trim+uppercase. A
+// ticker with quotes or HTML in it can break markup, inject an
+// attribute, or corrupt a storage key, since ticker strings get
+// interpolated into option elements, inline onclick handlers, storage
+// keys, and proxy request URLs in various places throughout this app.
+// Allows the Yahoo symbol shapes actually used here: plain equities
+// (AAPL), tickers with a hyphen (BRK-B) or dot (BF.B), and caret-prefixed
+// indices (^GSPC, ^VIX). Returns null for anything that doesn't match --
+// callers should treat that as "not a valid ticker," not silently
+// truncate or strip characters, since silently mutating input the person
+// typed is its own kind of confusing.
+// Validates that a YYYY-MM-DD string is a REAL calendar date, not just
+// shaped like one. Deliberately not `!isNaN(new Date(str).getTime())` --
+// JS's Date parsing is lenient about day overflow (2026-02-30 silently
+// parses as 2026-03-02 rather than being rejected), which would let an
+// impossible date slip through undetected. Same logic as the Cloudflare
+// Worker's own _isValidISODate (cloudflare-proxy/worker.js) -- duplicated
+// rather than shared, since the Worker runs in a completely separate
+// runtime with no access to this app's own JS files.
+function _isValidISODate(str){
+  const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
+  if(!m)return false;
+  const y=+m[1],mo=+m[2],d=+m[3];
+  if(mo<1||mo>12)return false;
+  const daysInMonth=new Date(Date.UTC(y,mo,0)).getUTCDate();
+  return d>=1&&d<=daysInMonth;
+}
+
+// Validates a numeric input against a finite range, with a safe fallback
+// for anything that doesn't qualify -- NaN, Infinity/-Infinity, or a
+// value outside [min,max]. parseFloat()/Number() alone don't catch
+// Infinity (parseFloat('Infinity') is a real, finite-looking number to
+// naive `||fallback` truthiness checks, since Infinity is truthy), and
+// HTML's own min/max attributes only constrain normal UI interaction --
+// they don't protect a value that arrives another way (a restored
+// backup, a manually-edited field). Use this at any point a number is
+// actually being SAVED or APPLIED, not just displayed.
+function finiteNumber(value,{min=-Infinity,max=Infinity,fallback=null}={}){
+  const n=Number(value);
+  return Number.isFinite(n)&&n>=min&&n<=max?n:fallback;
+}
+
+function normalizeTicker(value){
+  const t=String(value==null?'':value).trim().toUpperCase();
+  return/^[A-Z0-9^.-]{1,15}$/.test(t)?t:null;
+}
 // A remote URL used as an href -- only http:/https: pass through (escaped);
 // anything else (javascript:, data:, a malformed string) is rejected so a
 // crafted news item can't turn a link into script execution. Returns null on

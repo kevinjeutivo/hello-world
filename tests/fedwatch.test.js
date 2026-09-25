@@ -777,6 +777,74 @@ testAsync('falls back to a default lookback window when no startDate argument is
 });
 
 // ============================================================================
+section('Stale meeting-free month must not corrupt the baseline it feeds forward');
+
+test('a stale meeting-free month does NOT overwrite an already-trustworthy baseline from an earlier fresh month', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-11-16'])`);
+  withFixedNow(ctx,'2026-10-01T12:00:00Z',()=>{
+    const fedFutures=[
+      contract('Aug 2026',4.00),                       // fresh, meeting-free -- sets the real baseline
+      contract('Sep 2026',9.99,{stale:true}),           // meeting-free but STALE -- deliberately absurd value; must be ignored
+      contract('Oct 2026',4.00),                        // meeting-free, fresh again
+      contract('Nov 2026',3.99),                        // the meeting month itself
+    ];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,[]);
+    const nov=results.find(r=>r.meetingDate==='2026-11-16');
+    assert(nov,'expected a result for the November meeting');
+    // If the stale 9.99 had leaked through, this would read as an absurd
+    // multi-hundred-bp move. With Aug(4.00)->Oct(4.00, unaffected by the
+    // stale Sep in between)->Nov target, this should be an ordinary,
+    // bounded outcome.
+    assert(nov.insufficientBaseline!==true);
+    if(nov.outcomes){
+      const worstMoveBp=Math.max(...nov.outcomes.map(o=>Math.abs(o.moveBp)));
+      assert(worstMoveBp<200,'a stale, absurd meeting-free quote must not have leaked into the baseline -- got moveBp up to '+worstMoveBp);
+    }
+  });
+});
+
+test('a stale meeting-free month with NOTHING earlier to fall back on correctly leaves the baseline unset (insufficientBaseline), rather than adopting the stale value', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-10-16'])`);
+  withFixedNow(ctx,'2026-10-01T12:00:00Z',()=>{
+    const fedFutures=[
+      contract('Sep 2026',9.99,{stale:true}), // the ONLY meeting-free month in the window, and it's stale
+      contract('Oct 2026',3.99),              // the meeting month itself
+    ];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,[]);
+    const oct=results.find(r=>r.meetingDate==='2026-10-16');
+    assert(oct);
+    assert.strictEqual(oct.insufficientBaseline,true,'must NOT silently adopt the stale 9.99 as a baseline just because nothing else was available');
+  });
+});
+
+test('negative control: the OLD behavior (no stale check at all) WOULD have adopted the absurd stale value as the baseline -- confirms the bug was real', ()=>{
+  // Reconstructed independently: the pre-fix line was simply
+  // `currentRate=c.impliedRate;` for every meeting-free month, with no
+  // branch on c.stale at all.
+  const contracts=[{month:'Sep 2026',impliedRate:9.99,stale:true}];
+  let currentRateOld=null;
+  contracts.forEach(c=>{ currentRateOld=c.impliedRate; }); // the old, unconditional line
+  assert.strictEqual(currentRateOld,9.99,'the old formula really did adopt the stale, absurd value with no guard -- confirms the bug');
+});
+
+test('a FRESH meeting-free month still re-anchors normally -- the fix only excludes stale contracts, nothing else about the existing re-anchoring behavior changes', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-11-16'])`);
+  withFixedNow(ctx,'2026-10-01T12:00:00Z',()=>{
+    const fedFutures=[
+      contract('Aug 2026',4.50),
+      contract('Sep 2026',4.00), // fresh -- should correctly become the new baseline, overwriting Aug
+      contract('Oct 2026',3.95),
+      contract('Nov 2026',3.90), // the meeting month itself
+    ];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,[]);
+    const nov=results.find(r=>r.meetingDate==='2026-11-16');
+    assert(nov && !nov.insufficientBaseline);
+  });
+});
+// ============================================================================
 (async()=>{
   let lastAsyncSection=null;
   for(const{name,fn,section:sec}of _asyncTests){

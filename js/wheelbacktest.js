@@ -1375,8 +1375,7 @@ function _populateWheelBacktestDropdown(){
 // Conviction Scoring's own fallback, purely because that's this app's
 // existing convention, not because the two are linked.
 function getWheelBacktestTargetAPY(){
-  const stored=parseFloat(S.get('wheelbt_target_apy'));
-  return(!isNaN(stored)&&stored>0)?stored:WHEELBT_DEFAULT_TARGET_APY;
+  return finiteNumber(S.get('wheelbt_target_apy'),{min:0.01,max:500,fallback:WHEELBT_DEFAULT_TARGET_APY});
 }
 // On by default -- explicit 'false' is the only way to disable, so an
 // unset value (the normal case) keeps today's behavior.
@@ -1386,8 +1385,8 @@ function getTermStructureEnabled(){
 function setWheelBacktestTargetAPY(){
   const input=document.getElementById('wheelbt-target-apy-input');
   if(!input)return;
-  const val=parseFloat(input.value);
-  if(!isNaN(val)&&val>0){
+  const val=finiteNumber(input.value,{min:0.01,max:500});
+  if(val!=null){
     S.set('wheelbt_target_apy',val);
     refreshWheelBacktestViews();
   }

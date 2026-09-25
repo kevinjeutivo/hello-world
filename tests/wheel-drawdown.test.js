@@ -61,7 +61,7 @@ function buildDdPointHarness(){
   const ctx=vm.createContext({console});
   // The extracted closure reads/writes these as free variables from its
   // enclosing scope in the real file -- declare them here the same way.
-  vm.runInContext('let ddPeak=0,ddMax=0,eqFixedCap=null,eqPeak=0,eqDDMax=0,dailyCurve=null;',ctx);
+  vm.runInContext('let ddPeak=0,ddMax=0,eqFixedCap=null,peakEquity=null,eqDDMax=0,dailyCurve=null;',ctx);
   vm.runInContext(extractDdPointSource(),ctx);
   return ctx;
 }
@@ -111,20 +111,48 @@ test('a rising capital base alone (eq flat or rising) must NOT register as equit
   assert.strictEqual(eqDDMax,0,'the NEW equity-based metric must show ZERO drawdown -- dollar equity never fell on any day in this sequence');
 });
 
-test('a GENUINE equity decline (eq actually falls) registers correctly on BOTH metrics', ()=>{
+test('a GENUINE equity decline (eq actually falls, no prior gain) registers identically on both metrics', ()=>{
   const ctx=buildDdPointHarness();
   const ddPoint=vm.runInContext('_ddPoint',ctx);
-  // Fixed capital base throughout (no regime change) -- both metrics
-  // should track a real decline identically, since the denominator never
-  // moves in this scenario (see the no-regime-change invariant test below
-  // for why that's mathematically guaranteed even in the real simulator).
-  ddPoint(1,10,1000,10000);   // eq=$1000, peak
-  ddPoint(2,5,500,10000);     // eq drops to $500 -- a real $500 decline
-  ddPoint(3,7,700,10000);
+  // No gain before the decline -- peak equity never rises above the
+  // fixed starting capital, so the two metrics necessarily agree here
+  // (this is the one case where they SHOULD match; see the dedicated
+  // peak-equity test below for the case where they must NOT).
+  ddPoint(1,0,0,10000);      // equity=10000=starting capital, no move yet
+  ddPoint(2,-5,-500,10000);  // equity drops to 9500 -- a real $500 loss
+  ddPoint(3,-3,-300,10000);  // partial recovery to 9700
   const ddMax=vm.runInContext('ddMax',ctx);
   const eqDDMax=vm.runInContext('eqDDMax',ctx);
-  assert(Math.abs(ddMax-5)<1e-9,'peak 10% to trough 5% = 5pp drawdown on the capital-relative metric');
-  assert(Math.abs(eqDDMax-5)<1e-9,'same 5pp drawdown on the equity-based metric -- fixed base, so they must agree exactly here');
+  assert(Math.abs(ddMax-5)<1e-9,'peak 0% to trough -5% = 5pp drawdown on the capital-relative metric');
+  assert(Math.abs(eqDDMax-5)<1e-9,'(10000-9500)/10000 = 5% on the equity-based metric -- same here since peak equity never exceeded starting capital');
+});
+
+test("reviewer's exact worked example: equity $100 -> $200 -> $150 is a 25% drawdown from PEAK equity, not 50% of starting capital", ()=>{
+  const ctx=buildDdPointHarness();
+  const ddPoint=vm.runInContext('_ddPoint',ctx);
+  // Expressed as dollarPnL relative to a $100 starting capital: $100 of
+  // starting capital => equity path 100 -> 200 -> 150 means
+  // dollarPnL path 0 -> 100 -> 50.
+  ddPoint(1,0,0,100);
+  ddPoint(2,100,100,100);  // equity=200, new peak
+  ddPoint(3,50,50,100);    // equity=150 -- decline from the $200 peak, not from the $100 starting point
+  const eqDDMax=vm.runInContext('eqDDMax',ctx);
+  assert(Math.abs(eqDDMax-25)<1e-9,'(200-150)/200 = 25%, the standard maximum-drawdown reading for this path');
+});
+
+test('negative control: the earlier (build 504) formula -- normalizing by fixed STARTING capital instead of running peak equity -- gives the wrong 50% on this exact example, confirming the bug was real', ()=>{
+  // Reconstructed independently, exactly as the earlier build computed
+  // it: eqPct=dollarPnL/eqFixedCap*100, tracked with its own peak/max
+  // over that PERCENTAGE series (equivalent to normalizing the decline
+  // by the fixed starting capital rather than by peak equity).
+  const eqFixedCap=100;
+  let eqPeakPct=0,eqDDMaxOld=0;
+  [0,100,50].forEach(dollarPnL=>{
+    const eqPct=dollarPnL/eqFixedCap*100;
+    if(eqPct>eqPeakPct)eqPeakPct=eqPct;
+    if(eqPeakPct-eqPct>eqDDMaxOld)eqDDMaxOld=eqPeakPct-eqPct;
+  });
+  assert(Math.abs(eqDDMaxOld-50)<1e-9,'the old formula really did read this exact path as a 50% drawdown -- confirms the review\'s finding was accurate');
 });
 
 test('the fixed capital base is captured from the FIRST call, not recomputed or revised on later calls even as capBase itself keeps changing', ()=>{

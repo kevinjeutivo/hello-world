@@ -845,6 +845,43 @@ test('a FRESH meeting-free month still re-anchors normally -- the fix only exclu
   });
 });
 // ============================================================================
+section('Fed Watch display filter: prior month fetched/used internally, but not shown');
+
+test('_filterFedFuturesForDisplay drops a prior month, keeps current-and-forward', ()=>{
+  const ctx=buildContext();
+  const now=new Date('2026-09-24T12:00:00Z');
+  const fedFutures=[contract('Aug 2026',4.00),contract('Sep 2026',3.95),contract('Oct 2026',3.90)];
+  const shown=run(ctx,'_filterFedFuturesForDisplay')(fedFutures,now);
+  assert.deepStrictEqual([...shown.map(c=>c.month)],['Sep 2026','Oct 2026']);
+});
+
+test('the current month itself is always kept, even right at the boundary', ()=>{
+  const ctx=buildContext();
+  const now=new Date('2026-09-01T12:00:00Z'); // the very first day of September
+  const fedFutures=[contract('Aug 2026',4.00),contract('Sep 2026',3.95)];
+  const shown=run(ctx,'_filterFedFuturesForDisplay')(fedFutures,now);
+  assert.deepStrictEqual([...shown.map(c=>c.month)],['Sep 2026']);
+});
+
+test('a malformed month label is never silently dropped -- fails open, not closed', ()=>{
+  const ctx=buildContext();
+  const now=new Date('2026-09-24T12:00:00Z');
+  const fedFutures=[{month:'garbage',impliedRate:4.0,price:96},contract('Sep 2026',3.95)];
+  const shown=run(ctx,'_filterFedFuturesForDisplay')(fedFutures,now);
+  assert.strictEqual(shown.length,2,'a month label that cannot be parsed must be kept, not dropped');
+});
+
+test('the underlying fedFutures array used for the actual probability calculation is NOT affected by the display filter -- the prior month still bootstraps a baseline exactly as before', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-16'])`);
+  withFixedNow(ctx,'2026-09-01T12:00:00Z',()=>{ // the current month IS the meeting month, nothing earlier in a forward-only window
+    const fedFutures=[contract('Aug 2026',4.00),contract('Sep 2026',3.90)]; // Aug still present internally
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,[]);
+    const sep=results.find(r=>r.meetingDate==='2026-09-16');
+    assert(sep&&!sep.insufficientBaseline,'Aug must still be usable internally as a bootstrap, even though the display filter would hide it from the table');
+  });
+});
+// ============================================================================
 (async()=>{
   let lastAsyncSection=null;
   for(const{name,fn,section:sec}of _asyncTests){

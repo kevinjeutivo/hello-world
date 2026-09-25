@@ -134,7 +134,7 @@ function runDashboards(){
   document.getElementById('dashboard-progress').style.display='block';
   document.getElementById('dash-progress-bar').style.width='0%';
   document.getElementById('dash-progress-label').textContent='Scoring from cache...';
-  const targetAPY=parseFloat(document.getElementById('target-apy').value)||12;
+  const targetAPY=finiteNumber(document.getElementById('target-apy').value,{min:0,max:500,fallback:12});
   const putResults=[],ccResults=[];
   const today=new Date();
   for(let i=0;i<watchlist.length;i++){

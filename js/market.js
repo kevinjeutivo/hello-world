@@ -402,6 +402,27 @@ function _computeFedMeetingProbabilities(fedFutures,effrRows){
   return results;
 }
 
+function _isCurrentOrLaterMonth(monthLabel,now){
+  const[mAbbr,yStr]=(monthLabel||'').split(' ');
+  const m=_MONTH_ABBR[mAbbr],y=parseInt(yStr);
+  if(m==null||isNaN(y))return true; // malformed label -- don't silently drop it
+  return(y*12+m)>=(now.getFullYear()*12+now.getMonth());
+}
+// Fed Funds Futures display filter: current month forward only. The
+// underlying fedFutures array passed to callers of this (and to
+// _computeFedMeetingProbabilities/_earliestEffrStartNeeded) deliberately
+// still includes the prior month -- it's the one thing that can bootstrap
+// a baseline (or widen the NY Fed data window) when the current month
+// itself is a meeting month with nothing meeting-free earlier in the
+// window. This only trims what's actually RENDERED: once a prior month's
+// own meeting (if any) has resolved via NY Fed, there's nothing left for
+// a person to usefully read in that row; showing it anyway just makes an
+// otherwise forward-looking table look like it covers a stale extra
+// month that isn't actually relevant anymore.
+function _filterFedFuturesForDisplay(fedFutures,now){
+  return(fedFutures||[]).filter(c=>_isCurrentOrLaterMonth(c.month,now));
+}
+
 function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFutures,fedFuturesFailedMonths,fedFuturesStaleMonths,effrRows,tbill3m,tbill5y,tbill10y,marketNews,derived}){
   const{tb3Current,tb5yCurrent,tb10yCurrent,tb3Yr,tb5yYr,tb10yYr,spread35,spread310,spread510,spreadStr35,spreadStr310,spreadStr510,spyiYield,nbosYield,vixCurrent,spCurrent,spChg,spChgPct,nqCurrent,nqChg,nqChgPct,spLabels,spData}=derived;
 
@@ -447,9 +468,11 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
       const refIdx=_nowFutIdx>=0?_nowFutIdx:0;
       const firstRate=fedFutures[refIdx]?.impliedRate;
       const lastRate=fedFutures[fedFutures.length-1]?.impliedRate;
+      const displayFutures=_filterFedFuturesForDisplay(fedFutures,_nowD);
       // Compute cumulative cut/hike vs the current-month contract
-      const rows=fedFutures.map((c,i)=>{
-        const delta=i===refIdx?0:parseFloat((c.impliedRate-fedFutures[refIdx].impliedRate).toFixed(3));
+      const rows=displayFutures.map(c=>{
+        const isRef=c.month===_nowLabel;
+        const delta=isRef?0:parseFloat((c.impliedRate-firstRate).toFixed(3));
         const bps=Math.round(delta*100);
         const col=bps<-5?'var(--green)':bps>5?'var(--red)':'var(--text2)';
         const sign=bps>0?'+':'';
@@ -457,7 +480,7 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
           +'<td style="color:var(--text2)">'+c.month+(c.stale?' <span style="color:#64b5f6;font-size:8px" title="Carried forward -- this contract did not return a usable quote this fetch. Last known good: '+(c.staleAsOf||'unknown')+'">&#9679;</span>':'')+'</td>'
           +'<td style="font-family:var(--mono)">'+c.price.toFixed(3)+'</td>'
           +'<td style="font-family:var(--mono)">'+c.impliedRate.toFixed(3)+'%</td>'
-          +'<td style="color:'+col+';font-family:var(--mono)">'+(i===refIdx?'—':sign+bps+'bp')+'</td>'
+          +'<td style="color:'+col+';font-family:var(--mono)">'+(isRef?'—':sign+bps+'bp')+'</td>'
           +'</tr>';
       }).join('');
       const totalBps=Math.round((lastRate-firstRate)*100);
@@ -496,14 +519,16 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
         }).filter(Boolean);
         return '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);padding:3px 0">'+dateLabel+' meeting: '+parts.join(', ')+'</div>';
       }).join('');
+      const displayFailedMonths=(fedFuturesFailedMonths||[]).filter(m=>_isCurrentOrLaterMonth(m,_nowD));
+      const displayStaleMonths=(fedFuturesStaleMonths||[]).filter(m=>_isCurrentOrLaterMonth(m,_nowD));
       return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Fed Funds Futures (CME Implied Rates)</div>'
         +'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:8px">30-day futures price → implied rate (100 − price). Delta vs near-month contract.</div>'
         +'<div class="options-table-wrap"><table class="options-table">'
         +'<thead><tr><th style="text-align:left">Month</th><th>Price</th><th>Implied Rate</th><th>Δ vs Now</th></tr></thead>'
         +'<tbody>'+rows+'</tbody></table></div>'
-        +'<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:8px">'+summary+' ('+fedFutures.length+' months tracked, '+Math.abs(totalBps)+'bp total)</div>'
-        +(fedFuturesFailedMonths&&fedFuturesFailedMonths.length?'<div style="font-family:var(--mono);font-size:9px;color:var(--warn);margin-top:4px">Data unavailable for: '+fedFuturesFailedMonths.join(', ')+' -- that contract didn\'t return a usable quote this fetch (and no prior successful value exists to fall back on), so those meetings (if any fall in these months) are missing below, not intentionally excluded.</div>':'')
-        +(fedFuturesStaleMonths&&fedFuturesStaleMonths.length?'<div style="font-family:var(--mono);font-size:9px;color:#64b5f6;margin-top:4px">Using last known data for: '+fedFuturesStaleMonths.join(', ')+' -- that contract didn\'t return a usable quote this fetch, so the most recent successful value is shown instead of nothing.</div>':'')
+        +'<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:8px">'+summary+' ('+displayFutures.length+' months tracked, '+Math.abs(totalBps)+'bp total)</div>'
+        +(displayFailedMonths.length?'<div style="font-family:var(--mono);font-size:9px;color:var(--warn);margin-top:4px">Data unavailable for: '+displayFailedMonths.join(', ')+' -- that contract didn\'t return a usable quote this fetch (and no prior successful value exists to fall back on), so those meetings (if any fall in these months) are missing below, not intentionally excluded.</div>':'')
+        +(displayStaleMonths.length?'<div style="font-family:var(--mono);font-size:9px;color:#64b5f6;margin-top:4px">Using last known data for: '+displayStaleMonths.join(', ')+' -- that contract didn\'t return a usable quote this fetch, so the most recent successful value is shown instead of nothing.</div>':'')
         +(probRows?'<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--surface3)"><div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:2px">Meeting-by-meeting odds:</div>'+probRows+'</div>':'')
         +'</div>';
     })()}

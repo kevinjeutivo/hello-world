@@ -160,21 +160,27 @@ test('a data gap inside the recent lookback breaks the in-zone day count rather 
 section('_computeRSIBacktestForTicker index-mapping fix (direct reproduction of the reported bug)');
 
 // Deterministic scenario: 60 stable closes, ONE null gap, then a clean
-// 25-day decline (86 closes total -- comfortably past the function's own
-// 80-day minimum). Independently verified (see the PR discussion) that
-// this produces exactly one oversold ENTER event, at index 75, with no
-// exits. Forward returns at that index were computed independently
-// (fwdReturn, not via the backtest function) for windows 5 and 10; window
-// 20 runs past the end of the array and has no data.
+// 25-day decline (106 closes total -- comfortably past the function's own
+// 80-day minimum). A short "wobble" (mixed up/down, not monotonic)
+// immediately after the gap keeps the reseed's own first reading away
+// from the oversold extreme, so the eventual crossing is a genuine,
+// cleanly-detectable transition rather than landing exactly on the
+// first post-gap reading itself (which, after the state-initialization
+// fix below, correctly never counts as a transition on its own).
+// Independently verified (see the PR discussion) that this produces
+// exactly one oversold ENTER event, at index 85, with no exits, and
+// valid data for all three forward-return windows.
 function buildGapDeclineCloses(){
   const stable=Array.from({length:60},(_,i)=>100+Math.sin(i)*0.5);
-  const decline=[];let p=100;
-  for(let i=0;i<25;i++){p-=1.1;decline.push(+p.toFixed(2));}
-  return[...stable,null,...decline];
+  const wobble=Array.from({length:20},(_,i)=>100+Math.sin(i*1.3)*1.2);
+  const decline=[];let p=wobble[wobble.length-1];
+  for(let i=0;i<25;i++){p-=1.3;decline.push(+p.toFixed(2));}
+  return[...stable,null,...wobble,...decline];
 }
-const EXPECTED_ENTER_IDX=75;
-const EXPECTED_FWDRET_5=-6.58682634730539;
-const EXPECTED_FWDRET_10=-13.17365269461078;
+const EXPECTED_ENTER_IDX=85;
+const EXPECTED_FWDRET_5=-6.989247311827956;
+const EXPECTED_FWDRET_10=-13.978494623655912;
+const EXPECTED_FWDRET_20=-27.956989247311824;
 // What the OLD (pre-fix) code would have recorded instead, computed
 // independently by reconstructing exactly what it did (filter nulls,
 // strip leading nulls, then closeIdx=k+period on the shorter array) --
@@ -182,7 +188,7 @@ const EXPECTED_FWDRET_10=-13.17365269461078;
 // this scenario triggers it, not a hand-wave.
 function oldComputeRSI(closes,period=14){const filtered=closes.filter(c=>c!=null);const result=[];for(let i=0;i<filtered.length;i++){if(i<period){result.push(null);continue;}const sl=filtered.slice(i-period,i+1);let g=0,l=0;for(let j=1;j<sl.length;j++){const d=sl[j]-sl[j-1];if(d>0)g+=d;else l-=d;}const ag=g/period,al=l/period;if(al===0){result.push(100);continue;}result.push(100-100/(1+ag/al));}return result.filter(v=>v!==null);}
 
-test('negative control: reconstructing the OLD algorithm on this exact scenario points at the WRONG day (index 62, one period early) instead of the real crossing day (index 75)', ()=>{
+test('negative control: reconstructing the OLD algorithm on this exact scenario points at the WRONG day (index 84) instead of the real crossing day (index 85)', ()=>{
   const closes=buildGapDeclineCloses();
   const oldRsi=oldComputeRSI(closes,14);
   let was=false,oldEnterK=null;
@@ -191,10 +197,10 @@ test('negative control: reconstructing the OLD algorithm on this exact scenario 
     if(isOversold&&!was){oldEnterK=k;break;}
     was=isOversold;
   }
-  assert.strictEqual(oldEnterK,48);
+  assert.strictEqual(oldEnterK,70);
   const oldWrongCloseIdx=oldEnterK+14;
-  assert.strictEqual(oldWrongCloseIdx,62,'the old formula lands on index 62');
-  assert.notStrictEqual(oldWrongCloseIdx,EXPECTED_ENTER_IDX,'confirms it is NOT the real crossing day (75) -- the bug is real for this input');
+  assert.strictEqual(oldWrongCloseIdx,84,'the old formula lands one day early');
+  assert.notStrictEqual(oldWrongCloseIdx,EXPECTED_ENTER_IDX,'confirms it is NOT the real crossing day (85) -- the bug is real for this input');
 });
 
 test('the shipped (fixed) backtest function reports returns computed from the CORRECT day, not the null-shifted one', ()=>{
@@ -205,9 +211,9 @@ test('the shipped (fixed) backtest function reports returns computed from the CO
   assert(result,'expected a real result -- closes.length clears the 80-day minimum');
   const d=result.oversoldEnter;
   assert.strictEqual(d.occurrences,1,'exactly one oversold entry in this constructed series');
-  assert(Math.abs(d.windows[5].avgReturn-EXPECTED_FWDRET_5)<1e-9,'window-5 return must match the independently-computed fwdReturn at index 75 exactly');
-  assert(Math.abs(d.windows[10].avgReturn-EXPECTED_FWDRET_10)<1e-9,'window-10 return must match the independently-computed fwdReturn at index 75 exactly');
-  assert.strictEqual(d.windows[20],null,'window-20 runs past the end of this series -- correctly no data, not a wrong number');
+  assert(Math.abs(d.windows[5].avgReturn-EXPECTED_FWDRET_5)<1e-9,'window-5 return must match the independently-computed fwdReturn at index 85 exactly');
+  assert(Math.abs(d.windows[10].avgReturn-EXPECTED_FWDRET_10)<1e-9,'window-10 return must match the independently-computed fwdReturn at index 85 exactly');
+  assert(Math.abs(d.windows[20].avgReturn-EXPECTED_FWDRET_20)<1e-9,'window-20 return must match the independently-computed fwdReturn at index 85 exactly');
 });
 
 test('_computeRSIBacktestAggregate (the pooled/multi-ticker version) uses the same corrected index mapping', ()=>{
@@ -218,6 +224,60 @@ test('_computeRSIBacktestAggregate (the pooled/multi-ticker version) uses the sa
   assert.strictEqual(agg.tickersWithData,1);
   assert.strictEqual(agg.oversoldEnter.occurrences,1);
   assert(Math.abs(agg.oversoldEnter.windows[5].avgReturn-EXPECTED_FWDRET_5)<1e-9);
+});
+
+// ============================================================================
+section('State initialization and gap-reset (Fix: never fabricate a transition with no known prior state)');
+
+test('the FIRST valid RSI reading, even if already oversold, does not register as a fabricated "enter" -- there is no preceding observation to have transitioned FROM', ()=>{
+  const ctx=buildFullContext();
+  // Steep decline from day 0, so RSI is already deep in oversold territory
+  // the moment it first becomes computable (~day 14), then recovers later.
+  const closes=[];let p=200;
+  for(let i=0;i<20;i++){p-=6;closes.push(p);} // steep decline into oversold
+  for(let i=0;i<20;i++){p+=6;closes.push(p);} // eventual recovery
+  for(let i=0;i<50;i++){closes.push(p);}      // pad past the 80-day minimum
+  run(ctx,`S.set('hist2y_TEST',{closes:${JSON.stringify(closes)}})`);
+  const result=run(ctx,'_computeRSIBacktestForTicker')('TEST');
+  assert(result);
+  assert.strictEqual(result.oversoldEnter.occurrences,0,'no fabricated entry at the very first RSI reading');
+  assert.strictEqual(result.oversoldExit.occurrences,1,'the genuine recovery later IS a real, correctly-detected transition');
+});
+
+test('negative control: reconstructing the OLD state machine (wasOversold starting at false, not null) on this exact scenario DOES fabricate an entry -- confirms the bug was real', ()=>{
+  const closes=[];let p=200;
+  for(let i=0;i<20;i++){p-=6;closes.push(p);}
+  for(let i=0;i<20;i++){p+=6;closes.push(p);}
+  for(let i=0;i<50;i++){closes.push(p);}
+  const rsi=run(buildFullContext(),'computeRSI')(closes,14);
+  let wasOversold=false,fabricatedEnters=0; // the OLD, buggy initialization
+  for(let k=0;k<rsi.length;k++){
+    const v=rsi[k];
+    if(v==null)continue; // old code did not reset on gaps either, but this scenario has none
+    const isOversold=v<30;
+    if(isOversold&&!wasOversold)fabricatedEnters++;
+    wasOversold=isOversold;
+  }
+  assert.strictEqual(fabricatedEnters,1,'the old formula really did fabricate one entry at the first reading -- confirms the reported bug');
+});
+
+test('a data gap resets zone state -- oversold before AND after a gap does not fabricate a spurious exit/re-entry bridging it, and does not connect the two segments', ()=>{
+  const ctx=buildFullContext();
+  // Continued (non-flat, to avoid the zero-volatility RSI=100 edge case)
+  // decline on both sides of a gap, staying genuinely oversold throughout,
+  // then an eventual real recovery at the very end.
+  const closes=[];let p=200;
+  for(let i=0;i<20;i++){p-=6;closes.push(p);}
+  for(let i=0;i<10;i++){p-=0.5;closes.push(p);}
+  closes.push(null); // the gap
+  for(let i=0;i<20;i++){p-=0.5;closes.push(p);} // reseed window, still declining
+  for(let i=0;i<30;i++){p-=0.5;closes.push(p);} // past the 80-day minimum
+  for(let i=0;i<20;i++){p+=6;closes.push(p);}   // the one genuine recovery
+  run(ctx,`S.set('hist2y_TEST',{closes:${JSON.stringify(closes)}})`);
+  const result=run(ctx,'_computeRSIBacktestForTicker')('TEST');
+  assert(result);
+  assert.strictEqual(result.oversoldEnter.occurrences,0,'no fabricated entry at the first reading, and none bridging the gap');
+  assert.strictEqual(result.oversoldExit.occurrences,1,'only the one genuine recovery at the end counts');
 });
 
 

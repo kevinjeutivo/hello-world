@@ -188,7 +188,7 @@ const L3_TEXT   = '#00d4aa';
 
 function _defaultIncomeInputs(){
   // targetAPY defaults to global dashboard value if set, else 12
-  const globalAPY = parseFloat(document.getElementById('target-apy')?.value) || 12;
+  const globalAPY = finiteNumber(document.getElementById('target-apy')?.value,{min:0,max:500,fallback:12});
   return{
     tbillAmt:0, fdlxxAmt:0, spaxxAmt:0,
     spyiShares:0, nbosShares:0,
@@ -216,7 +216,7 @@ function _saveIncomeInputs(){
     nbosShares:  _numVal('inc-nbos-shares'),
     putsNotional:_numVal('inc-puts-notional'),
     ccStockAmt:  _numVal('inc-cc-stock-amt'),
-    targetAPY:   parseFloat(document.getElementById('inc-target-apy')?.value) || 12,
+    targetAPY:   finiteNumber(document.getElementById('inc-target-apy')?.value,{min:0,max:500,fallback:12}),
     // Preserve manual yield overrides and toggle states
     fdlxxYieldManual:existing.fdlxxYieldManual??null,
     spaxxYieldManual:existing.spaxxYieldManual??null,
@@ -247,7 +247,12 @@ function _saveManualYields(){
 
 function _numVal(id){
   const el=document.getElementById(id);
-  return el?Math.max(0,parseFloat(el.value.replace(/,/g,''))||0):0;
+  if(!el)return 0;
+  // A billion-dollar cap: generous enough to never constrain a real
+  // personal account, tight enough to catch an accidental extra zero,
+  // a corrupted paste, or Infinity (which `||0` doesn't catch, since
+  // Infinity is truthy).
+  return finiteNumber(el.value.replace(/,/g,''),{min:0,max:1e9,fallback:0});
 }
 
 function _fillInputs(inp){
@@ -877,14 +882,30 @@ function _renderAccountSwitcher(){
     const activeStyle = isActive
       ? `background:${color}22;border-color:${color};color:${color};font-weight:500;`
       : 'background:var(--surface2);border:1px solid var(--border);color:var(--text2);';
+    // a.id is always app-generated (_genAcctId: 'acct_'+timestamp+'_'+random)
+    // in normal use, but a tampered backup import could smuggle something
+    // else in -- validated here before it goes anywhere near an inline
+    // onclick string, since _escHtml alone doesn't prevent breaking out of
+    // a JS string literal embedded in an HTML attribute (the browser
+    // HTML-decodes the attribute value before the JS engine parses it as
+    // code, so an escaped quote there still becomes a real quote by the
+    // time it matters). Falls back to a version with no click handler at
+    // all rather than ever emitting an unsafe one.
+    const safeId=/^acct_[A-Za-z0-9_]{1,40}$/.test(a.id)?a.id:null;
+    const clickAttrs=safeId
+      ?`onclick="_switchAccount('${safeId}')"`
+      :'';
+    const renameClickAttrs=safeId
+      ?`onclick="event.stopPropagation();_openRenameAccountModal('${safeId}')"`
+      :'';
     return `<div class="acct-chip${isActive?' active':''}" ` +
       `style="display:inline-flex;align-items:center;flex-shrink:0;white-space:nowrap;gap:5px;` +
       `font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:6px;` +
       `border:1px solid;transition:all 0.2s;user-select:none;-webkit-user-select:none;` +
       `${activeStyle}">` +
-      `<span style="cursor:pointer" onclick="_switchAccount('${a.id}')">${a.name}</span>` +
+      `<span style="cursor:pointer" ${clickAttrs}>${_escHtml(a.name)}</span>` +
       `<span style="cursor:pointer;font-size:9px;opacity:0.6;line-height:1;padding-left:2px" ` +
-        `onclick="event.stopPropagation();_openRenameAccountModal('${a.id}')">✎</span>` +
+        `${renameClickAttrs}>✎</span>` +
       `</div>`;
   }).join('');
 
@@ -973,15 +994,16 @@ function _openRenameAccountModal(id){
     el.id = 'income-acct-rename-modal';
     document.body.appendChild(el);
   }
+  const safeId=/^acct_[A-Za-z0-9_]{1,40}$/.test(id)?id:null;
   el.innerHTML =
     '<div class="modal-box" style="max-height:80vh;overflow-y:auto">' +
       '<div class="modal-title modal-title-neutral">Rename Account</div>' +
-      '<div class="modal-body">Current name: <strong>' + acct.name + '</strong></div>' +
-      '<input class="input" id="rename-acct-inp" value="' + acct.name + '" maxlength="30" style="margin-bottom:8px">' +
+      '<div class="modal-body">Current name: <strong>' + _escHtml(acct.name) + '</strong></div>' +
+      '<input class="input" id="rename-acct-inp" value="' + _escHtml(acct.name) + '" maxlength="30" style="margin-bottom:8px">' +
       '<div style="display:flex;gap:8px;margin-top:8px">' +
         '<button class="btn btn-secondary btn-sm" onclick="_closeRenameAccountModal()">Cancel</button>' +
         '<button class="btn btn-primary btn-sm" onclick="_confirmRenameAccount()">Rename</button>' +
-        '<button class="btn btn-danger btn-sm" onclick="_openDeleteAccountModal(\'' + id + '\')">Delete…</button>' +
+        (safeId?'<button class="btn btn-danger btn-sm" onclick="_openDeleteAccountModal(\''+safeId+'\')">Delete…</button>':'') +
       '</div>' +
     '</div>';
   el.classList.add('open');
@@ -1047,11 +1069,11 @@ function _openDeleteAccountModal(id){
 
   el.innerHTML =
     '<div class="modal-box" style="max-height:80vh;overflow-y:auto">' +
-      '<div class="modal-title">Delete "' + acct.name + '"?</div>' +
+      '<div class="modal-title">Delete "' + _escHtml(acct.name) + '"?</div>' +
       '<div class="modal-body">This permanently deletes this account and all its data. This cannot be undone.</div>' +
       posWarning +
-      '<div style="font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:6px">Type <strong>' + acct.name.toUpperCase() + '</strong> to confirm:</div>' +
-      '<input class="input" id="delete-acct-confirm-inp" placeholder="' + acct.name.toUpperCase() + '" style="margin-bottom:12px" autocomplete="off">' +
+      '<div style="font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:6px">Type <strong>' + _escHtml(acct.name.toUpperCase()) + '</strong> to confirm:</div>' +
+      '<input class="input" id="delete-acct-confirm-inp" placeholder="' + _escHtml(acct.name.toUpperCase()) + '" style="margin-bottom:12px" autocomplete="off">' +
       '<div style="display:flex;gap:8px">' +
         '<button class="btn btn-secondary btn-sm" onclick="_closeDeleteAccountModal()">Cancel</button>' +
         '<button class="btn btn-danger btn-sm" id="delete-acct-confirm-btn" disabled onclick="_confirmDeleteAccount()">Delete</button>' +
@@ -1274,9 +1296,10 @@ function openIncomeOverview(){
     }
 
     const isActive = a.id === _activeAccountId;
-    return `<div style="background:${isActive?'var(--surface2)':'var(--surface)'};border:1px solid var(--border);border-left:3px solid ${color};border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer" onclick="_switchFromOverview('${a.id}')">` +
+    const safeOverviewId=/^acct_[A-Za-z0-9_]{1,40}$/.test(a.id)?a.id:null;
+    return `<div style="background:${isActive?'var(--surface2)':'var(--surface)'};border:1px solid var(--border);border-left:3px solid ${color};border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer" ${safeOverviewId?`onclick="_switchFromOverview('${safeOverviewId}')"`:''}>` +
       `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">` +
-        `<div style="font-family:var(--sans);font-size:13px;font-weight:700;color:${color}">${a.name}${isActive?' <span style="font-size:9px;color:var(--text3)">(active)</span>':''}</div>` +
+        `<div style="font-family:var(--sans);font-size:13px;font-weight:700;color:${color}">${_escHtml(a.name)}${isActive?' <span style="font-size:9px;color:var(--text3)">(active)</span>':''}</div>` +
         `<div style="font-family:var(--mono);font-size:10px;color:${urgencyColor}">${urgencyLabel}</div>` +
       `</div>` +
       `<div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.8">` +
@@ -1877,7 +1900,7 @@ function _confirmAddPosition(){
   const ticker   = document.getElementById('pos-ticker-sel')?.value;
   const expDate  = document.getElementById('pos-exp-sel')?.value;
   const strike   = parseFloat(document.getElementById('pos-strike-sel')?.value);
-  const contracts= Math.max(1, parseInt(document.getElementById('pos-contracts')?.value)||1);
+  const contracts= Math.round(finiteNumber(document.getElementById('pos-contracts')?.value,{min:1,max:10000,fallback:1}));
 
   if(!ticker || !expDate || !strike){
     toast('Please select ticker, expiration and strike');
@@ -2319,7 +2342,7 @@ function _confirmAddCC(){
   const ticker          = document.getElementById('cc-ticker-sel')?.value;
   const expDate         = document.getElementById('cc-exp-sel')?.value;
   const strike          = parseFloat(document.getElementById('cc-strike-sel')?.value);
-  const contracts       = Math.max(1, parseInt(document.getElementById('cc-contracts')?.value)||1);
+  const contracts       = Math.round(finiteNumber(document.getElementById('cc-contracts')?.value,{min:1,max:10000,fallback:1}));
   const stockPriceAtWrite = parseFloat(document.getElementById('cc-stock-price-at-write')?.value);
 
   if(!ticker||!expDate||!strike){

@@ -872,8 +872,8 @@ function navigateToTicker(t){
 
 function addTicker(){
   const inp=document.getElementById('new-ticker-input');
-  const t=inp.value.trim().toUpperCase();
-  if(!t)return;
+  const t=normalizeTicker(inp.value);
+  if(!t){if(inp.value.trim())toast('Not a valid ticker symbol');return;}
   if(watchlist.includes(t)){toast(t+' already in watchlist');return;}
   watchlist.push(t);S.set('watchlist',watchlist);
   inp.value='';renderWatchlist();populateSelects();toast('Added '+t);
@@ -883,7 +883,7 @@ function populateSelects(){
   // Dropdowns always alphabetical regardless of watchlist chip sort order
   const sorted=[...watchlist].sort((a,b)=>a.localeCompare(b));
   const opts='<option value="">-- Select --</option>'+
-    sorted.map(t=>'<option value="'+t+'">'+t+'</option>').join('');
+    sorted.map(t=>'<option value="'+_escHtml(t)+'">'+_escHtml(t)+'</option>').join('');
   document.getElementById('ticker-select').innerHTML=opts;
   document.getElementById('options-ticker-select').innerHTML=opts;
 }

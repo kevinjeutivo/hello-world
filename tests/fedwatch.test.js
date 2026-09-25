@@ -975,6 +975,54 @@ test('when nothing is displayed at all (empty array), returns null rather than t
 });
 
 // ============================================================================
+section('Regression: empty display must produce an explicit unavailable state, never NaN/false conclusions');
+
+test("direct reproduction of the reported bug: empty displayFutures must NOT produce NaN math or a fabricated 'hikes/cuts' conclusion", ()=>{
+  const ctx=buildContext();
+  const result=run(ctx,'_fedFuturesSummary')([]);
+  assert.strictEqual(result.tableUnavailable,true);
+  assert.strictEqual(result.summary,null,'must not claim ANY conclusion -- not "no change", not "hikes", not "cuts" -- when there is genuinely nothing to base one on');
+  assert(!Number.isNaN(result.totalBps),'totalBps must be a real, inert placeholder (0), never NaN leaking into a template string as literal "NaN"');
+});
+
+test("negative control: reconstructing the OLD logic (no unavailable check, firstRate/lastRate from undefined) on empty displayFutures DOES produce NaN, which JS then reads as a false 'hikes' conclusion -- confirms the bug was real", ()=>{
+  // Reconstructed independently: the pre-fix code went straight to
+  // computing firstRate/lastRate from the (hidden, hence effectively
+  // absent from what should matter) fedFutures array, with no guard.
+  const displayFutures=[]; // nothing to display
+  const firstRate=displayFutures[0]?.impliedRate; // undefined
+  const lastRate=displayFutures[displayFutures.length-1]?.impliedRate; // undefined
+  const oldTotalBps=Math.round((lastRate-firstRate)*100);
+  assert(Number.isNaN(oldTotalBps),'sanity: reconstructing the old formula really does produce NaN here');
+  const _absBps=Math.abs(oldTotalBps); // NaN
+  // The old branching: NaN comparisons are ALWAYS false in JS.
+  const oldSummary=_absBps<25
+    ?'Markets pricing no change'
+    :(oldTotalBps<0
+        ?(_absBps<50?'Markets pricing ~1 cut':'Markets pricing 2+ cuts')
+        :(_absBps<50?'Markets pricing ~1 hike':'Markets pricing 2+ hikes'));
+  assert.strictEqual(oldSummary,'Markets pricing 2+ hikes','the old formula really did fall through to a confident, fabricated "2+ hikes" claim from garbage NaN input -- confirms the bug was real, and that it was a confidently WRONG answer, not just a blank one');
+});
+
+test('a genuinely available table still produces the correct real summary -- this fix only changes the EMPTY case', ()=>{
+  const ctx=buildContext();
+  const displayFutures=[contract('Sep 2026',4.00),contract('Oct 2026',3.60)]; // a real 40bp cut priced in
+  const result=run(ctx,'_fedFuturesSummary')(displayFutures);
+  assert.strictEqual(result.tableUnavailable,false);
+  assert.strictEqual(result.totalBps,-40);
+  assert.strictEqual(result.summary,'Markets pricing ~1 cut');
+});
+
+test('a single-month displayFutures (only the current month, nothing forward) correctly reads as zero total change, not unavailable', ()=>{
+  const ctx=buildContext();
+  const displayFutures=[contract('Sep 2026',4.00)];
+  const result=run(ctx,'_fedFuturesSummary')(displayFutures);
+  assert.strictEqual(result.tableUnavailable,false,'one real displayed month is still real data, not the empty/unavailable case');
+  assert.strictEqual(result.totalBps,0);
+  assert.strictEqual(result.summary,'Markets pricing no change');
+});
+
+// ============================================================================
 (async()=>{
   let lastAsyncSection=null;
   for(const{name,fn,section:sec}of _asyncTests){

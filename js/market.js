@@ -269,6 +269,51 @@ function _computeFedMeetingProbabilities(fedFutures,effrRows){
     // shifted every meeting's split by one day.
     const daysBefore=meetingDay;
     const daysAfter=daysInMonth-daysBefore;
+    const meetingIsPast=meetingDateStr<_todayET();
+    // For a PAST meeting, the authoritative NY Fed resolution (or an
+    // existing nyfed-official history entry) needs no futures baseline at
+    // all -- it's a fact, sourced from the actual target-range history,
+    // completely independent of currentRate/postMeetingRate. Try it FIRST,
+    // before the baseline check below. This used to sit AFTER that check,
+    // which meant a meeting that had ALREADY been decided, with valid
+    // official data bracketing it, could still be reported as "odds
+    // unavailable" purely because the futures baseline was missing -- a
+    // real correctness bug (a completed meeting doesn't need one), not
+    // just a cosmetic ordering choice. Everything past this block DOES
+    // need a baseline (the futures-implied fallback computes a move
+    // relative to one, same as the forecast branch below it), so those
+    // stay exactly where they were, gated behind the same check as before.
+    if(meetingIsPast){
+      const nyfed=_resolveMeetingFromEffr(meetingDateStr,effrRows);
+      if(nyfed){
+        const outcome=nyfed.moveBp===0?'hold':(nyfed.moveBp>0?'hike'+nyfed.moveBp:'cut'+(-nyfed.moveBp));
+        results.push({month:c.month,meetingDate:meetingDateStr,resolved:true,outcome,source:'nyfed-official'});
+        currentRate=nyfed.resolvedRate;
+        if(!history[meetingDateStr]||history[meetingDateStr].rate!==currentRate||history[meetingDateStr].source!=='nyfed-official'){
+          history[meetingDateStr]={rate:currentRate,source:'nyfed-official',resolvedAt:_todayStr,moveBp:nyfed.moveBp};
+          historyChanged=true;
+        }
+        continue;
+      }
+      // This call didn't have (or couldn't bracket the meeting with) fresh
+      // EFFR data -- most commonly a caller that doesn't pass effrRows at
+      // all (js/options.js used to be exactly this, before it was fixed
+      // to pass the cached rows -- kept here as a second, caller-
+      // independent line of defense) or a temporary EFFR fetch failure.
+      // Reuse an existing nyfed-official record for this exact meeting if
+      // one's already been resolved -- also independent of any baseline,
+      // and never let a weaker read downgrade a stronger one on file.
+      const existing=history[meetingDateStr];
+      if(existing&&existing.source==='nyfed-official'&&existing.moveBp!=null){
+        const outcome=existing.moveBp===0?'hold':(existing.moveBp>0?'hike'+existing.moveBp:'cut'+(-existing.moveBp));
+        results.push({month:c.month,meetingDate:meetingDateStr,resolved:true,outcome,source:'nyfed-official'});
+        currentRate=existing.rate;
+        continue; // no history write -- nothing changed
+      }
+      // Neither path resolved it officially -- the only thing left is the
+      // futures-implied fallback, which DOES need a baseline. Fall
+      // through to the same check every other path uses.
+    }
     if(currentRate==null||daysAfter<=0){
       // Can't cleanly establish a pre-meeting baseline for this specific
       // meeting -- most commonly, it falls in the very first fetched
@@ -289,52 +334,21 @@ function _computeFedMeetingProbabilities(fedFutures,effrRows){
     // blends the known pre-meeting rate with the unknown post-meeting rate.
     const postMeetingRate=(c.impliedRate*daysInMonth-currentRate*daysBefore)/daysAfter;
     const impliedMove=postMeetingRate-currentRate;
-    // Once a meeting's own date is in the past, its outcome isn't a live
-    // probability anymore -- it's a fact, and the New York Fed's own
-    // published target range is the authoritative source for it, so that's
-    // tried FIRST. Only when that's unavailable (a fetch failure, or the
-    // EFFR window doesn't yet bracket the meeting on both sides -- e.g. it
-    // happened very recently) does this fall back to the same
-    // futures-implied classification used before this build, and even then
-    // only when this month's contract was genuinely fresh this fetch
-    // (c.stale) -- a carried-forward contract reflects whatever it last
-    // knew, not necessarily anything from after the meeting, so confidently
-    // stating an outcome from stale data would risk being flatly wrong
-    // rather than just imprecise.
-    const meetingIsPast=meetingDateStr<_todayET();
     if(meetingIsPast){
-      const nyfed=_resolveMeetingFromEffr(meetingDateStr,effrRows);
-      if(nyfed){
-        const outcome=nyfed.moveBp===0?'hold':(nyfed.moveBp>0?'hike'+nyfed.moveBp:'cut'+(-nyfed.moveBp));
-        results.push({month:c.month,meetingDate:meetingDateStr,resolved:true,outcome,source:'nyfed-official'});
-        currentRate=nyfed.resolvedRate;
-        if(!history[meetingDateStr]||history[meetingDateStr].rate!==currentRate||history[meetingDateStr].source!=='nyfed-official'){
-          history[meetingDateStr]={rate:currentRate,source:'nyfed-official',resolvedAt:_todayStr,moveBp:nyfed.moveBp};
-          historyChanged=true;
-        }
-        continue;
-      }
-      // This call didn't have (or couldn't bracket the meeting with) fresh
-      // EFFR data -- most commonly a caller that doesn't pass effrRows at
-      // all (js/options.js used to be exactly this, before it was fixed
-      // to pass the cached rows -- kept here as a second, caller-
-      // independent line of defense) or a temporary EFFR fetch failure.
-      // Before falling back to the weaker futures-implied method, reuse
-      // an existing nyfed-official record for this exact meeting if one's
-      // already been resolved -- never let a weaker read downgrade a
-      // stronger one that's already on file.
-      const existing=history[meetingDateStr];
-      if(existing&&existing.source==='nyfed-official'&&existing.moveBp!=null){
-        const outcome=existing.moveBp===0?'hold':(existing.moveBp>0?'hike'+existing.moveBp:'cut'+(-existing.moveBp));
-        results.push({month:c.month,meetingDate:meetingDateStr,resolved:true,outcome,source:'nyfed-official'});
-        currentRate=existing.rate;
-        continue; // no history write -- nothing changed
-      }
+      // Reaching here means NY Fed couldn't resolve this meeting (not
+      // covered yet, or effrRows unavailable) and there was no existing
+      // official record to reuse -- the only thing left is the same
+      // futures-implied classification used before this build, and even
+      // then only when this month's contract was genuinely fresh this
+      // fetch (c.stale) -- a carried-forward contract reflects whatever
+      // it last knew, not necessarily anything from after the meeting, so
+      // confidently stating an outcome from stale data would risk being
+      // flatly wrong rather than just imprecise.
       if(c.stale){
         // Not actually resolved -- explicitly NOT written to history, which
-        // is the core of this build's fix: a stale guess (or, before this
-        // build, a live forecast) read back later as though it were a
-        // settled fact is exactly the contamination this replaces.
+        // is the core of the build-495 fix: a stale guess (or, before
+        // that build, a live forecast) read back later as though it were
+        // a settled fact is exactly the contamination that replaced.
         results.push({month:c.month,meetingDate:meetingDateStr,outcomePending:true});
         currentRate=postMeetingRate;
         continue;
@@ -419,6 +433,10 @@ function _isCurrentOrLaterMonth(monthLabel,now){
 // a person to usefully read in that row; showing it anyway just makes an
 // otherwise forward-looking table look like it covers a stale extra
 // month that isn't actually relevant anymore.
+function _fedFuturesRefMonth(displayFutures,nowLabel){
+  return(displayFutures.find(c=>c.month===nowLabel)||displayFutures[0])?.month||null;
+}
+
 function _filterFedFuturesForDisplay(fedFutures,now){
   return(fedFutures||[]).filter(c=>_isCurrentOrLaterMonth(c.month,now));
 }
@@ -460,18 +478,25 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
       // occupy index 0 (see fetchFedFundsFutures), and that prior month's
       // own fetch can independently succeed or fail, position alone no
       // longer reliably identifies "now." Matched by month label instead,
-      // with a same-position fallback only if the current month's own
-      // contract somehow isn't present at all.
+      // with a fallback to the first DISPLAYED contract (never a hidden
+      // one) only if the current month's own contract somehow isn't
+      // present at all -- see the comment on refMonth below.
       const _nowD=new Date();
       const _nowLabel=new Date(_nowD.getFullYear(),_nowD.getMonth(),1).toLocaleDateString('en-US',{month:'short',year:'numeric'});
-      const _nowFutIdx=fedFutures.findIndex(c=>c.month===_nowLabel);
-      const refIdx=_nowFutIdx>=0?_nowFutIdx:0;
-      const firstRate=fedFutures[refIdx]?.impliedRate;
-      const lastRate=fedFutures[fedFutures.length-1]?.impliedRate;
       const displayFutures=_filterFedFuturesForDisplay(fedFutures,_nowD);
-      // Compute cumulative cut/hike vs the current-month contract
+      // Reference for deltas: the current month's own contract, if
+      // present -- otherwise the first DISPLAYED contract, never a
+      // hidden, filtered-out month. The display filter can leave a prior
+      // month (e.g. August, viewed in September) sitting at fedFutures[0]
+      // internally even though it's no longer shown -- falling back to
+      // that would make every visible delta, and the total, silently
+      // reference a number that isn't on the screen anywhere.
+      const refMonth=_fedFuturesRefMonth(displayFutures,_nowLabel);
+      const firstRate=fedFutures.find(c=>c.month===refMonth)?.impliedRate;
+      const lastRate=fedFutures[fedFutures.length-1]?.impliedRate;
+      // Compute cumulative cut/hike vs the reference contract
       const rows=displayFutures.map(c=>{
-        const isRef=c.month===_nowLabel;
+        const isRef=c.month===refMonth;
         const delta=isRef?0:parseFloat((c.impliedRate-firstRate).toFixed(3));
         const bps=Math.round(delta*100);
         const col=bps<-5?'var(--green)':bps>5?'var(--red)':'var(--text2)';

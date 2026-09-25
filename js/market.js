@@ -433,6 +433,39 @@ function _isCurrentOrLaterMonth(monthLabel,now){
 // a person to usefully read in that row; showing it anyway just makes an
 // otherwise forward-looking table look like it covers a stale extra
 // month that isn't actually relevant anymore.
+// Computes the table-level summary (or explicit unavailability) for the
+// Fed Funds Futures card, given only what's actually DISPLAYED. Returns
+// {tableUnavailable:true} when nothing survives the display filter --
+// deliberately never lets firstRate/lastRate come back undefined and
+// silently propagate into NaN arithmetic: NaN comparisons in JS are
+// always false, which made the summary text fall through to its LAST
+// branch every time regardless of what actually happened (a confidently
+// wrong "2+ hikes" conclusion from garbage data, not just a blank or an
+// honest error). Otherwise returns {tableUnavailable:false,totalBps,summary}
+// derived entirely from displayFutures itself, guaranteeing the summary
+// always covers exactly the months actually shown, never a hidden one.
+function _fedFuturesSummary(displayFutures){
+  if(!displayFutures||!displayFutures.length)return{tableUnavailable:true,totalBps:0,summary:null};
+  const firstRate=displayFutures[0]?.impliedRate;
+  const lastRate=displayFutures[displayFutures.length-1]?.impliedRate;
+  const totalBps=Math.round((lastRate-firstRate)*100);
+  const _absBps=Math.abs(totalBps);
+  // Symmetric by construction across both directions, rather than the
+  // previous cut-only branches with a same-text fallback for anything
+  // that didn't match -- that fallback silently caught positive
+  // (hike-direction) totalBps too, since nothing there checked sign,
+  // producing "Markets pricing 1-2 cuts" even when the underlying
+  // futures prices were falling (implied rate rising, a hike signal) --
+  // exactly contradicting the correctly-signed meeting-by-meeting
+  // breakdown below it.
+  const summary=_absBps<25
+    ?'Markets pricing no change'
+    :(totalBps<0
+        ?(_absBps<50?'Markets pricing ~1 cut':'Markets pricing 2+ cuts')
+        :(_absBps<50?'Markets pricing ~1 hike':'Markets pricing 2+ hikes'));
+  return{tableUnavailable:false,totalBps,summary};
+}
+
 function _fedFuturesRefMonth(displayFutures,nowLabel){
   return(displayFutures.find(c=>c.month===nowLabel)||displayFutures[0])?.month||null;
 }
@@ -484,45 +517,40 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
       const _nowD=new Date();
       const _nowLabel=new Date(_nowD.getFullYear(),_nowD.getMonth(),1).toLocaleDateString('en-US',{month:'short',year:'numeric'});
       const displayFutures=_filterFedFuturesForDisplay(fedFutures,_nowD);
-      // Reference for deltas: the current month's own contract, if
-      // present -- otherwise the first DISPLAYED contract, never a
-      // hidden, filtered-out month. The display filter can leave a prior
-      // month (e.g. August, viewed in September) sitting at fedFutures[0]
-      // internally even though it's no longer shown -- falling back to
-      // that would make every visible delta, and the total, silently
-      // reference a number that isn't on the screen anywhere.
-      const refMonth=_fedFuturesRefMonth(displayFutures,_nowLabel);
-      const firstRate=fedFutures.find(c=>c.month===refMonth)?.impliedRate;
-      const lastRate=fedFutures[fedFutures.length-1]?.impliedRate;
-      // Compute cumulative cut/hike vs the reference contract
-      const rows=displayFutures.map(c=>{
-        const isRef=c.month===refMonth;
-        const delta=isRef?0:parseFloat((c.impliedRate-firstRate).toFixed(3));
-        const bps=Math.round(delta*100);
-        const col=bps<-5?'var(--green)':bps>5?'var(--red)':'var(--text2)';
-        const sign=bps>0?'+':'';
-        return '<tr>'
-          +'<td style="color:var(--text2)">'+c.month+(c.stale?' <span style="color:#64b5f6;font-size:8px" title="Carried forward -- this contract did not return a usable quote this fetch. Last known good: '+(c.staleAsOf||'unknown')+'">&#9679;</span>':'')+'</td>'
-          +'<td style="font-family:var(--mono)">'+c.price.toFixed(3)+'</td>'
-          +'<td style="font-family:var(--mono)">'+c.impliedRate.toFixed(3)+'%</td>'
-          +'<td style="color:'+col+';font-family:var(--mono)">'+(isRef?'—':sign+bps+'bp')+'</td>'
-          +'</tr>';
-      }).join('');
-      const totalBps=Math.round((lastRate-firstRate)*100);
-      const _absBps=Math.abs(totalBps);
-      // Symmetric by construction across both directions, rather than the
-      // previous cut-only branches with a same-text fallback for anything
-      // that didn't match -- that fallback silently caught positive
-      // (hike-direction) totalBps too, since nothing there checked sign,
-      // producing "Markets pricing 1-2 cuts" even when the underlying
-      // futures prices were falling (implied rate rising, a hike signal)
-      // -- exactly contradicting the correctly-signed meeting-by-meeting
-      // breakdown below it.
-      const summary=_absBps<25
-        ?'Markets pricing no change'
-        :(totalBps<0
-            ?(_absBps<50?'Markets pricing ~1 cut':'Markets pricing 2+ cuts')
-            :(_absBps<50?'Markets pricing ~1 hike':'Markets pricing 2+ hikes'));
+      // Only the raw table/summary below can be genuinely unavailable.
+      // Meeting-by-meeting odds (further down) are computed from the
+      // full internal fedFutures plus NY Fed data independently -- a
+      // past meeting can still resolve officially even when every
+      // current/forward futures contract is unavailable, so that section
+      // is never suppressed just because the table above it is.
+      const{tableUnavailable,totalBps,summary}=_fedFuturesSummary(displayFutures);
+      let rows='';
+      if(!tableUnavailable){
+        // Reference for deltas: the current month's own contract, if
+        // present -- otherwise the first DISPLAYED contract, never a
+        // hidden, filtered-out month. The display filter can leave a
+        // prior month (e.g. August, viewed in September) sitting at
+        // fedFutures[0] internally even though it's no longer shown --
+        // falling back to that would make every visible delta, and the
+        // total, silently reference a number that isn't on the screen
+        // anywhere.
+        const refMonth=_fedFuturesRefMonth(displayFutures,_nowLabel);
+        const firstRate=displayFutures[0]?.impliedRate;
+        // Compute cumulative cut/hike vs the reference contract
+        rows=displayFutures.map(c=>{
+          const isRef=c.month===refMonth;
+          const delta=isRef?0:parseFloat((c.impliedRate-firstRate).toFixed(3));
+          const bps=Math.round(delta*100);
+          const col=bps<-5?'var(--green)':bps>5?'var(--red)':'var(--text2)';
+          const sign=bps>0?'+':'';
+          return '<tr>'
+            +'<td style="color:var(--text2)">'+c.month+(c.stale?' <span style="color:#64b5f6;font-size:8px" title="Carried forward -- this contract did not return a usable quote this fetch. Last known good: '+(c.staleAsOf||'unknown')+'">&#9679;</span>':'')+'</td>'
+            +'<td style="font-family:var(--mono)">'+c.price.toFixed(3)+'</td>'
+            +'<td style="font-family:var(--mono)">'+c.impliedRate.toFixed(3)+'%</td>'
+            +'<td style="color:'+col+';font-family:var(--mono)">'+(isRef?'—':sign+bps+'bp')+'</td>'
+            +'</tr>';
+        }).join('');
+      }
       const meetingProbs=_computeFedMeetingProbabilities(fedFutures,effrRows);
       const probRows=meetingProbs.map(p=>{
         const dateLabel=new Date(p.meetingDate+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric'});
@@ -548,10 +576,12 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
       const displayStaleMonths=(fedFuturesStaleMonths||[]).filter(m=>_isCurrentOrLaterMonth(m,_nowD));
       return '<div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Fed Funds Futures (CME Implied Rates)</div>'
         +'<div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:8px">30-day futures price → implied rate (100 − price). Delta vs near-month contract.</div>'
-        +'<div class="options-table-wrap"><table class="options-table">'
-        +'<thead><tr><th style="text-align:left">Month</th><th>Price</th><th>Implied Rate</th><th>Δ vs Now</th></tr></thead>'
-        +'<tbody>'+rows+'</tbody></table></div>'
-        +'<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:8px">'+summary+' ('+displayFutures.length+' months tracked, '+Math.abs(totalBps)+'bp total)</div>'
+        +(tableUnavailable
+          ?'<div style="font-family:var(--mono);font-size:11px;color:var(--text3)">Current and forward contract data unavailable.</div>'
+          :'<div class="options-table-wrap"><table class="options-table">'
+            +'<thead><tr><th style="text-align:left">Month</th><th>Price</th><th>Implied Rate</th><th>Δ vs Now</th></tr></thead>'
+            +'<tbody>'+rows+'</tbody></table></div>'
+            +'<div style="font-family:var(--mono);font-size:11px;color:var(--accent);margin-top:8px">'+summary+' ('+displayFutures.length+' months tracked, '+Math.abs(totalBps)+'bp total)</div>')
         +(displayFailedMonths.length?'<div style="font-family:var(--mono);font-size:9px;color:var(--warn);margin-top:4px">Data unavailable for: '+displayFailedMonths.join(', ')+' -- that contract didn\'t return a usable quote this fetch (and no prior successful value exists to fall back on), so those meetings (if any fall in these months) are missing below, not intentionally excluded.</div>':'')
         +(displayStaleMonths.length?'<div style="font-family:var(--mono);font-size:9px;color:#64b5f6;margin-top:4px">Using last known data for: '+displayStaleMonths.join(', ')+' -- that contract didn\'t return a usable quote this fetch, so the most recent successful value is shown instead of nothing.</div>':'')
         +(probRows?'<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--surface3)"><div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:2px">Meeting-by-meeting odds:</div>'+probRows+'</div>':'')

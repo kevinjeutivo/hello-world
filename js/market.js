@@ -233,13 +233,20 @@ function _computeFedMeetingProbabilities(fedFutures,effrRows){
     });
     if(!meetingDateStr){
       // No meeting this month -- its implied rate becomes the new
-      // baseline, always (not just when we don't have one yet). Every
-      // meeting-free month is a fresh, independently-priced read of the
-      // rate at that point -- letting it re-anchor here, rather than only
-      // ever using the FIRST such month, stops small pricing noise from
-      // one contract silently compounding forward through the day-
-      // weighted chain across every meeting after it.
-      currentRate=c.impliedRate;
+      // baseline, always (not just when we don't have one yet) -- UNLESS
+      // this specific contract is stale (carried forward from a fetch
+      // that didn't return a usable quote). A stale meeting-free month
+      // could be frozen at a PRE-meeting price if a decision happened
+      // after its last successful quote but before this one -- using it
+      // as a baseline for whatever comes next would silently feed a
+      // wrong starting point into a live probability calculation. Simply
+      // not touching currentRate here is the safe move: either an
+      // earlier trustworthy anchor is already in place and stays
+      // correct, or currentRate is still null and falls through to the
+      // existing history-based fallback (or an honest
+      // "insufficientBaseline") a few lines below -- never a fabricated
+      // number either way.
+      if(!c.stale)currentRate=c.impliedRate;
       continue;
     }
     if(currentRate==null){

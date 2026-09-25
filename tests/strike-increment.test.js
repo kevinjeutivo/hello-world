@@ -1,25 +1,34 @@
 #!/usr/bin/env node
 'use strict';
-// tests/strike-increment.test.js -- deterministic tests for inferring a
-// ticker's strike increment from its real cached options chain, instead
+// tests/strike-increment.test.js -- deterministic tests for selecting a
+// ticker's strike directly from its real cached options chain, instead
 // of guessing purely from price via a generic price-tier rule.
 //
-// The old _realisticStrikeIncrement(spot) used a universal rule (<=$25:
-// $2.50, <=$200: $5, else $10) with no awareness of the specific ticker.
-// Real strike ladders vary by liquidity, program eligibility, and split
-// history -- plenty of actively-traded names under $200 actually have $1
-// strikes. The fix infers each ticker's typical increment from its own
-// currently cached real options chain when there's enough data to trust,
-// falling back to the generic rule otherwise.
+// This has gone through two designs. Build 504 inferred a single
+// SYNTHETIC increment (the smallest gap between adjacent cached strikes)
+// and did grid arithmetic on it. A later review found that fragile: a
+// single irregular or adjusted strike could dominate a minimum-gap
+// reading, and grid rounding on top of even a correct increment could
+// still construct a strike price that was never actually listed. It also
+// found the inference was being recomputed on every simulated cycle --
+// once per candidate entry date, duration, and window -- when the
+// underlying cached chain data doesn't change within a single backtest
+// run at all.
 //
-// This file also includes the end-to-end regression check that would
-// have caught a real bug found while building this fix: _ticker_ was
-// referenced inside _simulateWheelWindow before it was actually added as
-// a parameter there -- an uncaught ReferenceError that would have
-// crashed every wheel backtest run, with no try/catch anywhere in the
-// call chain to mask it. Caught by direct end-to-end reproduction before
-// shipping, not by this test suite catching it after the fact -- but the
-// scenario is captured here specifically so it can't silently regress.
+// This build fixes both: _inferStrikeLadder returns the real, pooled,
+// sorted array of cached strikes (not a synthetic number), and
+// _snapStrikeToRealistic selects directly from it -- no grid math, so no
+// way to construct an off-ladder price. The ladder is computed ONCE per
+// ticker by the outermost caller (_computeWheelBacktest, etc.) and
+// threaded down through every simulated cycle, not re-derived each time.
+//
+// This file also keeps the end-to-end regression check from the original
+// build: an early version referenced `ticker` inside _simulateWheelWindow
+// before it was actually a parameter there -- an uncaught ReferenceError
+// that would have crashed every wheel backtest run, with no try/catch
+// anywhere in the call chain to mask it. Caught by direct end-to-end
+// reproduction before shipping; captured here so it can't silently
+// regress as the threaded parameter's name/shape keeps changing.
 //
 // Runs the actual shipped source in a Node vm context.
 //
@@ -79,55 +88,32 @@ function test(name,fn){
 function section(name){ console.log('\n== '+name+' =='); }
 
 // ============================================================================
-section('_inferStrikeIncrement');
+section('_inferStrikeLadder');
 
 test('returns null when there is no cached options data at all for the ticker', ()=>{
   const ctx=buildContext();
-  assert.strictEqual(run(ctx,'_inferStrikeIncrement')('NOTHING'),null);
+  assert.strictEqual(run(ctx,'_inferStrikeLadder')('NOTHING'),null);
 });
 
-test('returns null when there are too few cached strikes to trust (below _MIN_STRIKES_FOR_INCREMENT_INFERENCE)', ()=>{
+test('returns null when there are too few cached strikes to trust', ()=>{
   const ctx=buildContext();
   seedChain(ctx,'THIN',95,98,1); // only 4 strikes
-  assert.strictEqual(run(ctx,'_inferStrikeIncrement')('THIN'),null);
+  assert.strictEqual(run(ctx,'_inferStrikeLadder')('THIN'),null);
 });
 
-test('correctly infers a $1 increment from a realistic $1-spaced chain', ()=>{
+test('returns the real strikes as a sorted, deduplicated array -- not a synthetic increment', ()=>{
   const ctx=buildContext();
-  seedChain(ctx,'FINE',70,130,1);
-  const inc=run(ctx,'_inferStrikeIncrement')('FINE');
-  assert(Math.abs(inc-1)<1e-9);
-});
-
-test('correctly infers a $5 increment from a $5-spaced chain', ()=>{
-  const ctx=buildContext();
-  seedChain(ctx,'COARSE',50,150,5);
-  const inc=run(ctx,'_inferStrikeIncrement')('COARSE');
-  assert(Math.abs(inc-5)<1e-9);
-});
-
-test('uses the SMALLEST common gap, not the average, when a chain has genuinely mixed spacing (fine near the money, coarser further out -- realistic)', ()=>{
-  const ctx=buildContext();
-  const ctx2=ctx;
-  // Fine ($1) strikes near the money, coarser ($5) strikes further out --
-  // build this by hand since seedChain assumes one uniform step.
-  const expEpoch=Math.floor(Date.now()/1000)+30*86400;
-  const expDateStr=new Date(expEpoch*1000).toISOString().split('T')[0];
-  run(ctx2,`S.set('options_MIXED',{data:{optionChain:{result:[{expirationDates:[${expEpoch}]}]}}})`);
-  const strikes=[];
-  for(let s=70;s<=90;s+=5)strikes.push({s}); // coarse, far OTM
-  for(let s=95;s<=105;s+=1)strikes.push({s}); // fine, near the money
-  for(let s=110;s<=130;s+=5)strikes.push({s}); // coarse, far OTM
-  run(ctx2,`S.set('options_exp_MIXED_${expDateStr}',{puts:${JSON.stringify(strikes)},calls:${JSON.stringify(strikes)}})`);
-  const inc=run(ctx2,'_inferStrikeIncrement')('MIXED');
-  assert(Math.abs(inc-1)<1e-9,'the finer near-the-money spacing should win, not an average of $1 and $5');
+  seedChain(ctx,'FINE',70,80,1);
+  const ladder=run(ctx,'_inferStrikeLadder')('FINE');
+  assert(Array.isArray(ladder));
+  assert.strictEqual(ladder.length,11); // 70..80 inclusive, step 1
+  assert.strictEqual(ladder[0],70);
+  assert.strictEqual(ladder[ladder.length-1],80);
+  for(let i=1;i<ladder.length;i++)assert(ladder[i]>ladder[i-1],'must be strictly ascending');
 });
 
 test('pools strikes across MULTIPLE cached expirations, not just one', ()=>{
   const ctx=buildContext();
-  // Two separate expirations, each individually below the minimum
-  // strike count, but together clearing it -- and each contributing a
-  // $1 gap somewhere.
   const exp1=Math.floor(Date.now()/1000)+30*86400;
   const exp1Str=new Date(exp1*1000).toISOString().split('T')[0];
   const exp2=Math.floor(Date.now()/1000)+60*86400;
@@ -135,48 +121,121 @@ test('pools strikes across MULTIPLE cached expirations, not just one', ()=>{
   run(ctx,`S.set('options_POOL',{data:{optionChain:{result:[{expirationDates:[${exp1},${exp2}]}]}}})`);
   run(ctx,`S.set('options_exp_POOL_${exp1Str}',{puts:${JSON.stringify([95,96,97].map(s=>({s})))},calls:[]})`);
   run(ctx,`S.set('options_exp_POOL_${exp2Str}',{puts:${JSON.stringify([98,99,100].map(s=>({s})))},calls:[]})`);
-  const inc=run(ctx,'_inferStrikeIncrement')('POOL');
-  assert(Math.abs(inc-1)<1e-9);
+  const ladder=run(ctx,'_inferStrikeLadder')('POOL');
+  assert.deepStrictEqual([...ladder],[95,96,97,98,99,100]);
+});
+
+test('a single irregular strike no longer dominates anything -- it is just one more entry in the ladder, not a synthetic increment derived from it', ()=>{
+  const ctx=buildContext();
+  // Mostly $5-spaced, with one irregular $1-off strike thrown in (e.g. an
+  // adjusted/special strike). The old min-gap design would have inferred
+  // a $1 "increment" from this single outlier and applied it everywhere.
+  const strikes=[70,75,80,85,86,90,95,100];
+  const expEpoch=Math.floor(Date.now()/1000)+30*86400;
+  const expDateStr=new Date(expEpoch*1000).toISOString().split('T')[0];
+  run(ctx,`S.set('options_IRREG',{data:{optionChain:{result:[{expirationDates:[${expEpoch}]}]}}})`);
+  run(ctx,`S.set('options_exp_IRREG_${expDateStr}',{puts:${JSON.stringify(strikes.map(s=>({s})))},calls:[]})`);
+  const ladder=run(ctx,'_inferStrikeLadder')('IRREG');
+  assert.deepStrictEqual([...ladder],strikes);
+  // Snapping near the irregular strike selects a REAL strike either way --
+  // never a constructed $1-grid price like 87 or 88 that was never listed.
+  const snapped=run(ctx,'_snapStrikeToRealistic')(83,100,'put',ladder);
+  assert(strikes.includes(snapped),'the snapped strike must be one of the actually-listed strikes');
 });
 
 // ============================================================================
-section('_snapStrikeToRealistic: uses inference when trustworthy, falls back otherwise');
+section('_snapStrikeToRealistic: direct ladder selection');
 
-test('with a trustworthy cached chain, snaps to the INFERRED increment, not the generic tier rule', ()=>{
+test('with a real ladder, snaps to the nearest REAL strike toward the money -- not a constructed grid price', ()=>{
   const ctx=buildContext();
-  seedChain(ctx,'FINE',70,130,1);
-  const snapped=run(ctx,'_snapStrikeToRealistic')(87.3,100,'put','FINE');
-  assert.strictEqual(snapped,88,'a put snaps via Math.ceil (toward the money) -- nearest real $1 strike at or above 87.3');
+  const realLadder=[70,71,72,73,74,75,76,77,78,79,80];
+  const snapped=run(ctx,'_snapStrikeToRealistic')(74.3,100,'put',realLadder);
+  assert.strictEqual(snapped,75,'a put snaps toward the money -- smallest real strike >= 74.3');
 });
 
-test('without cached data, falls back to the generic tier rule exactly as before', ()=>{
+test('a call snaps toward the money -- largest real strike <= raw theoretical strike', ()=>{
+  const realLadder=[110,111,112,113,114,115];
   const ctx=buildContext();
-  const snapped=run(ctx,'_snapStrikeToRealistic')(87.3,100,'put','NOTHING');
-  assert.strictEqual(snapped,90,'the old $5-tier rule for a $100 spot: ceil(87.3/5)*5=90');
+  const snapped=run(ctx,'_snapStrikeToRealistic')(112.7,100,'call',realLadder);
+  assert.strictEqual(snapped,112);
 });
 
-test('with no ticker argument at all, behaves identically to the pre-fix signature (backward compatible)', ()=>{
+test('without any ladder, falls back to the generic tier rule exactly as before', ()=>{
+  const ctx=buildContext();
+  const snapped=run(ctx,'_snapStrikeToRealistic')(87.3,100,'put',null);
+  assert.strictEqual(snapped,90,'the tier rule for a $100 spot: ceil(87.3/5)*5=90');
+});
+
+test('with no ladder argument at all, behaves identically to the tier-rule fallback', ()=>{
   const ctx=buildContext();
   const snapped=run(ctx,'_snapStrikeToRealistic')(87.3,100,'put');
   assert.strictEqual(snapped,90);
 });
 
-// ============================================================================
-section('End-to-end regression: the full call chain (_simulateOneCycle -> _snapStrikeToRealistic -> _inferStrikeIncrement -> _cachedExpEntries/_getStrikesForExpiration) runs without throwing, and inference actually changes the outcome');
-
-test('a real cached $1 chain changes the simulated strike vs. the same setup with no cache -- proves ticker threads all the way through, not just at the top level', ()=>{
+test("a raw strike outside the ladder's cached range falls back to the tier rule rather than guessing beyond real data", ()=>{
   const ctx=buildContext();
-  seedChain(ctx,'TEST',70,130,1);
-  const hist=buildSyntheticHist(400,0.02,1);
-  const cycWith=run(ctx,'_simulateOneCycle')(hist,60,1,1,'put',0.04,1.0,null,0,'TEST');
-  const cycWithout=run(ctx,'_simulateOneCycle')(hist,60,1,1,'put',0.04,1.0,null,0,'NOCACHE');
-  assert(cycWith,'expected a completed cycle with the cached chain present');
-  assert(cycWithout,'expected a completed cycle for the no-cache comparison too');
-  assert.notStrictEqual(cycWith.strike,cycWithout.strike,'the cached-chain strike should differ from the generic-tier-rule strike for this scenario');
-  assert.strictEqual(cycWithout.strike%5,0,'sanity: the no-cache case really did use the $5 tier rule');
+  const realLadder=[95,96,97,98,99]; // doesn't reach anywhere near 40
+  const snapped=run(ctx,'_snapStrikeToRealistic')(40,100,'put',realLadder);
+  assert.strictEqual(snapped,40,'40 is already an exact $10-tier multiple, so the fallback returns it unchanged');
 });
 
-test('_simulateOneCycle never throws when ticker is omitted entirely (older call shape, still supported)', ()=>{
+test('regression: a rawStrike far below every cached strike must NOT select the nearest cached entry anyway -- the ladder has no real information about that price region', ()=>{
+  const ctx=buildContext();
+  const realLadder=[95,96,97,98,99]; // all clustered near spot; says nothing about $40
+  const snapped=run(ctx,'_snapStrikeToRealistic')(40,100,'put',realLadder);
+  assert.notStrictEqual(snapped,95,'must not silently pick 95 just because it is the smallest cached strike >= 40 -- that is not a meaningful snap toward a $40 target');
+});
+
+test('"too close to spot" pushes out to the ADJACENT REAL LADDER STRIKE, not an arithmetic offset', ()=>{
+  const ctx=buildContext();
+  const realLadder=[95,96,97,98,99,100];
+  // rawStrike snaps to 99.6->100 which is essentially AT spot (100) --
+  // must push out to the next REAL strike below it (99), not to some
+  // computed 100-increment value.
+  const snapped=run(ctx,'_snapStrikeToRealistic')(99.6,100,'put',realLadder);
+  assert.strictEqual(snapped,99);
+});
+
+test('returns null when a real ladder is available but conclusively has no valid OTM strike in this direction', ()=>{
+  const ctx=buildContext();
+  const realLadder=[100]; // only the ATM strike itself is cached
+  const snapped=run(ctx,'_snapStrikeToRealistic')(100,100,'put',realLadder);
+  assert.strictEqual(snapped,null);
+});
+
+// ============================================================================
+section('Performance: the ladder is computed ONCE per ticker per backtest run, not once per window/cycle');
+
+test('_inferStrikeLadder is called exactly once across a whole _computeWheelBacktest run with several windows', ()=>{
+  const ctx=buildContext();
+  seedChain(ctx,'TEST',70,150,1);
+  const hist=buildSyntheticHist(700,0.02,1); // long enough for several monthly windows
+  run(ctx,`S.set('hist2y_TEST',${JSON.stringify(hist)})`);
+  const original=run(ctx,'_inferStrikeLadder');
+  let callCount=0;
+  ctx._inferStrikeLadder=(...args)=>{callCount++;return original(...args);};
+  const result=run(ctx,'_computeWheelBacktest')('TEST',1,1,'default');
+  assert(result,'expected a real result from this scenario');
+  assert(result.sampleSize>=2,'sanity: this run should have covered multiple windows, or the test below proves nothing');
+  assert.strictEqual(callCount,1,'must be computed exactly once for the whole run, not once per window');
+});
+
+// ============================================================================
+section('End-to-end regression: the full call chain runs without throwing, and ladder selection actually changes the outcome');
+
+test('a real cached $1 ladder changes the simulated strike vs. no ladder at all -- proves the ladder threads all the way through every simulated cycle', ()=>{
+  const ctx=buildContext();
+  const ladder=[70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130];
+  const hist=buildSyntheticHist(400,0.02,1);
+  const cycWith=run(ctx,'_simulateOneCycle')(hist,60,1,1,'put',0.04,1.0,null,0,ladder);
+  const cycWithout=run(ctx,'_simulateOneCycle')(hist,60,1,1,'put',0.04,1.0,null,0,null);
+  assert(cycWith,'expected a completed cycle with the ladder present');
+  assert(cycWithout,'expected a completed cycle for the no-ladder comparison too');
+  assert(ladder.includes(cycWith.strike),'the ladder-selected strike must be one of the real, listed strikes');
+  assert.strictEqual(cycWithout.strike%5,0,'sanity: the no-ladder case really did use the $5 tier rule');
+});
+
+test('_simulateOneCycle never throws when ladder is omitted entirely (older call shape, still supported)', ()=>{
   const ctx=buildContext();
   const hist=buildSyntheticHist(400,0.02,2);
   assert.doesNotThrow(()=>{
@@ -184,13 +243,14 @@ test('_simulateOneCycle never throws when ticker is omitted entirely (older call
   });
 });
 
-test('_simulateWheelWindow (the actual outer entry point) never throws with a ticker argument, across several different synthetic price paths', ()=>{
+test('_simulateWheelWindow (the actual outer entry point) never throws with a ladder argument, across several different synthetic price paths', ()=>{
   const ctx=buildContext();
   seedChain(ctx,'TEST',70,150,1);
+  const ladder=run(ctx,'_inferStrikeLadder')('TEST');
   for(let seed=0;seed<5;seed++){
     const hist=buildSyntheticHist(400,0.02,seed*37);
     assert.doesNotThrow(()=>{
-      run(ctx,'_simulateWheelWindow')(hist,60,1,1,0.04,undefined,null,null,null,null,undefined,'TEST');
+      run(ctx,'_simulateWheelWindow')(hist,60,1,1,0.04,undefined,null,null,null,null,undefined,ladder);
     },'seed '+seed);
   }
 });

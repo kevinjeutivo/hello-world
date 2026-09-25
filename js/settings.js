@@ -406,20 +406,47 @@ function saveFomcDates(){
   const ta=document.getElementById('fomc-dates-textarea');
   if(!ta)return;
   const lines=ta.value.split('\n').map(l=>l.trim()).filter(l=>l.length);
-  const valid=[],invalid=[];
+  const valid=[],invalid=[],duplicateMonths=[];
+  const CURRENT_YEAR=new Date().getFullYear();
+  const seenMonths=new Set();
   lines.forEach(l=>{
     // Strictly YYYY-MM-DD -- matches the format used throughout the rest
-    // of the app, and avoids ambiguous MM/DD vs DD/MM parsing.
-    if(/^\d{4}-\d{2}-\d{2}$/.test(l)&&!isNaN(new Date(l+'T12:00:00Z').getTime()))valid.push(l);
-    else invalid.push(l);
+    // of the app, and avoids ambiguous MM/DD vs DD/MM parsing. Uses the
+    // same real-calendar-date check as the Worker's EFFR route (not
+    // `!isNaN(new Date(...))`, which silently rolls e.g. 2026-02-30
+    // forward into March rather than rejecting it).
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(l)||!_isValidISODate(l)){invalid.push(l);return;}
+    const year=parseInt(l.slice(0,4),10);
+    // A generous window either side of "now" -- wide enough to never
+    // reject a real, deliberately-entered date, narrow enough to catch
+    // an obvious typo (a transposed digit landing decades off).
+    if(year<CURRENT_YEAR-5||year>CURRENT_YEAR+10){invalid.push(l);return;}
+    const monthKey=l.slice(0,7); // YYYY-MM
+    if(seenMonths.has(monthKey)){duplicateMonths.push(l);return;}
+    seenMonths.add(monthKey);
+    valid.push(l);
   });
   if(invalid.length){
-    toast('Not saved -- '+invalid.length+' line(s) not in YYYY-MM-DD format: '+invalid.slice(0,3).join(', ')+(invalid.length>3?'...':''),5000);
+    toast('Not saved -- '+invalid.length+' line(s) invalid (not a real YYYY-MM-DD calendar date, or outside a reasonable year range): '+invalid.slice(0,3).join(', ')+(invalid.length>3?'...':''),5000);
+    return;
+  }
+  if(duplicateMonths.length){
+    // The FOMC has never actually held two scheduled meetings in the same
+    // calendar month -- this almost always means a typo'd duplicate
+    // rather than a genuine second meeting, so it's treated as a hard
+    // stop rather than a silent accept.
+    toast('Not saved -- more than one meeting in the same month: '+duplicateMonths.slice(0,3).join(', ')+(duplicateMonths.length>3?'...':'')+'. The FOMC has never held two scheduled meetings in one calendar month -- if this is a typo, fix the duplicate date and save again.',6000);
     return;
   }
   if(!valid.length){
     toast('Not saved -- list is empty. Use Reset to Defaults to start over.',4000);
     return;
+  }
+  // The FOMC normally holds 8 meetings/year -- not enforced as a hard
+  // rule (a genuine reason to track more or fewer is possible), just
+  // surfaced so an obviously-wrong count doesn't save silently unnoticed.
+  if(valid.length<6||valid.length>10){
+    toast('Saved '+valid.length+' meeting date(s) -- unusual count (FOMC normally holds 8/year). Double-check if this wasn\'t intentional.',5000);
   }
   const deduped=[...new Set(valid)].sort();
   S.set('fomc_meeting_dates_override',deduped);
@@ -462,9 +489,9 @@ function saveSettings(){
   if(key){FINNHUB_KEY=key;S.set('finnhub_key',key);}
   const wf=_normalizeWorkerFragment(document.getElementById('worker-fragment-settings-input').value);
   if(wf){S.set('worker_fragment',wf);WORKER_URL=_buildWorkerUrl(wf);}
-  const wl=document.getElementById('default-watchlist-input').value.split(',').map(t=>t.trim().toUpperCase()).filter(t=>t.length>0);
+  const wl=document.getElementById('default-watchlist-input').value.split(',').map(t=>normalizeTicker(t)).filter(Boolean);
   if(wl.length>0){watchlist=wl;S.set('watchlist',wl);}
-  vixThreshold=parseInt(document.getElementById('vix-threshold-input').value)||20;
+  vixThreshold=Math.round(finiteNumber(document.getElementById('vix-threshold-input').value,{min:1,max:200,fallback:20}));
   S.set('vix_threshold',String(vixThreshold));
   const _prefetchSleepMs=Math.min(5000,Math.max(100,parseInt(document.getElementById('prefetch-sleep-input').value)||100));
   S.set('prefetch_sleep_ms',String(_prefetchSleepMs));

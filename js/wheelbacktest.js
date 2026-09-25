@@ -857,14 +857,23 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
   // the window (e.g. rolling into a higher-priced share regime raises the
   // average), which can make the ratio fall even when actual dollar
   // equity hasn't -- a real, confirmed artifact of the denominator, not
-  // of any capital loss. This second series instead normalizes the exact
-  // same dollar P&L by a FIXED capital base -- the capital actually
-  // committed on the window's own first day, captured once below and
-  // never revised -- giving a standard Drawdown_t=(Peak-Equity_t)/Peak
-  // reading that can't have that artifact, because its denominator never
-  // moves. See tests/wheel-drawdown.test.js for a constructed case where
-  // the two disagree.
-  let eqFixedCap=null,eqPeak=0,eqDDMax=0;
+  // of any capital loss.
+  // This second series instead builds a genuine equity curve
+  // (equity_t = starting capital + cumulative $ P&L, using a FIXED
+  // starting capital -- the capital actually committed on the window's
+  // own first day, captured once below and never revised) and computes
+  // the STANDARD drawdown definition against it: at each point, the
+  // decline from the RUNNING PEAK EQUITY reached so far, as a percentage
+  // OF THAT PEAK -- Drawdown_t=(Peak_equity_t-Equity_t)/Peak_equity_t.
+  // Peak equity is itself a moving reference (it only ever rises), not a
+  // second fixed value -- an earlier build normalized the decline by the
+  // fixed starting capital instead of the peak actually reached, which
+  // overstates drawdown for any window with real gains before a pullback
+  // (a $100->$200->$150 path is a genuine 25% drawdown from its $200
+  // peak, not 50% of the original $100 -- see tests/wheel-drawdown.test.js
+  // for the corrected worked example and a negative control reproducing
+  // the earlier, wrong 50% reading).
+  let eqFixedCap=null,peakEquity=null,eqDDMax=0;
   const dailyCurve=(opts&&opts.keepDailyCurve)?[]:null;
   const _ddPoint=(idx,pct,dollarPnL,capBase)=>{
     if(pct==null||!isFinite(pct))return;
@@ -872,10 +881,13 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     if(ddPeak-pct>ddMax)ddMax=ddPeak-pct;
     if(dailyCurve)dailyCurve.push({idx,pct});
     if(dollarPnL!=null&&isFinite(dollarPnL)&&capBase>0){
-      if(eqFixedCap==null)eqFixedCap=capBase; // first valid day of the window -- the fixed base for the rest of it
-      const eqPct=dollarPnL/eqFixedCap*100;
-      if(eqPct>eqPeak)eqPeak=eqPct;
-      if(eqPeak-eqPct>eqDDMax)eqDDMax=eqPeak-eqPct;
+      if(eqFixedCap==null){eqFixedCap=capBase;peakEquity=eqFixedCap;} // starting equity = starting capital, before this window's own first day of P&L
+      const equity=eqFixedCap+dollarPnL;
+      if(equity>peakEquity)peakEquity=equity;
+      if(peakEquity>0){
+        const dd=(peakEquity-equity)/peakEquity*100;
+        if(dd>eqDDMax)eqDDMax=dd;
+      }
     }
   };
   // One day's cash interest, calendar-day weighted -- same formula as the
@@ -1049,7 +1061,7 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     stillHoldingShares:costBasis!=null,
     unrealizedShareGainLoss,cashInterest,shareDividends,unrealizedShareDividends,
     maxDrawdownDailyPct:ddMax, // daily mark-to-model, relative to the RUNNING TIME-WEIGHTED AVERAGE capital base (not a strict equity drawdown -- see maxDrawdownEquityPct for that; kept for comparison/backward reference)
-    maxDrawdownEquityPct:eqDDMax, // same daily $ P&L, normalized by a FIXED capital base instead -- a true Drawdown_t=(Peak-Equity_t)/Peak reading, the figure shown as "Max drawdown" in the UI
+    maxDrawdownEquityPct:eqDDMax, // standard Drawdown_t=(Peak_equity_t-Equity_t)/Peak_equity_t -- Peak_equity_t is a RUNNING peak (rises as new highs are reached), not the fixed starting capital -- the figure shown as "Max drawdown" in the UI
     maxDrawdownAtExpPct:_maxDrawdownPct(trades), // sampled only at expirations (pre-478 metric) -- kept for comparison
     ...(dailyCurve?{dailyCurve}:{}),
   };

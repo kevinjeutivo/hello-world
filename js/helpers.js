@@ -812,7 +812,16 @@ function _computeRSIBacktestForTicker(ticker){
     // the move is over).
     const oversoldEnterIdx=[],oversoldExitIdx=[];
     const overboughtEnterIdx=[],overboughtExitIdx=[];
-    let wasOversold=false,wasOverbought=false;
+    // null = "no known prior state" -- true/false only once we've actually
+    // observed a real reading. Starts null (haven't seen anything yet) and
+    // resets to null on every gap, so a transition is only ever recorded
+    // when there's a genuine prior observation to transition FROM. Without
+    // this, the very first valid RSI reading (if already oversold/
+    // overbought) read as a fabricated "entry" with no actual preceding
+    // observation, and a gap's stale pre-gap state could keep being
+    // compared against readings on the other side of the gap -- silently
+    // connecting two logically disconnected stretches of history.
+    let wasOversold=null,wasOverbought=null;
     for(let k=0;k<rsi.length;k++){
       const v=rsi[k];
       // rsi[k] now corresponds directly to closes[k] -- computeRSI no
@@ -820,15 +829,21 @@ function _computeRSIBacktestForTicker(ticker){
       // offset is needed (or correct) here anymore. A null position
       // (pre-seeding window, or a genuine data gap) has no signal to
       // read -- skip it rather than let `null<30`/`null>70` silently
-      // evaluate against 0.
-      if(v==null)continue;
+      // evaluate against 0, AND reset the known-state trackers, since
+      // whatever zone we were in before the gap isn't a trustworthy
+      // predecessor for whatever comes after it.
+      if(v==null){wasOversold=null;wasOverbought=null;continue;}
       const closeIdx=k;
       const isOversold=v<RSI_OVERSOLD_THRESHOLD;
       const isOverbought=v>RSI_OVERBOUGHT_THRESHOLD;
-      if(isOversold&&!wasOversold)oversoldEnterIdx.push(closeIdx);
-      if(!isOversold&&wasOversold)oversoldExitIdx.push(closeIdx);
-      if(isOverbought&&!wasOverbought)overboughtEnterIdx.push(closeIdx);
-      if(!isOverbought&&wasOverbought)overboughtExitIdx.push(closeIdx);
+      if(wasOversold!=null){
+        if(isOversold&&!wasOversold)oversoldEnterIdx.push(closeIdx);
+        if(!isOversold&&wasOversold)oversoldExitIdx.push(closeIdx);
+      }
+      if(wasOverbought!=null){
+        if(isOverbought&&!wasOverbought)overboughtEnterIdx.push(closeIdx);
+        if(!isOverbought&&wasOverbought)overboughtExitIdx.push(closeIdx);
+      }
       wasOversold=isOversold;
       wasOverbought=isOverbought;
     }
@@ -897,20 +912,23 @@ function _computeRSIBacktestAggregate(tickers){
       tickersWithData++;
 
       const idxByCat={oversoldEnter:[],oversoldExit:[],overboughtEnter:[],overboughtExit:[]};
-      let wasOversold=false,wasOverbought=false;
+      // Same fix as _computeRSIBacktestForTicker above -- see its comment
+      // for the full explanation. null = no known prior state.
+      let wasOversold=null,wasOverbought=null;
       for(let k=0;k<rsi.length;k++){
         const v=rsi[k];
-        // Same fix as _computeRSIBacktestForTicker above: rsi[k] maps
-        // directly to closes[k] now, and a null position is skipped
-        // rather than compared against the thresholds.
-        if(v==null)continue;
+        if(v==null){wasOversold=null;wasOverbought=null;continue;}
         const closeIdx=k;
         const isOversold=v<RSI_OVERSOLD_THRESHOLD;
         const isOverbought=v>RSI_OVERBOUGHT_THRESHOLD;
-        if(isOversold&&!wasOversold)idxByCat.oversoldEnter.push(closeIdx);
-        if(!isOversold&&wasOversold)idxByCat.oversoldExit.push(closeIdx);
-        if(isOverbought&&!wasOverbought)idxByCat.overboughtEnter.push(closeIdx);
-        if(!isOverbought&&wasOverbought)idxByCat.overboughtExit.push(closeIdx);
+        if(wasOversold!=null){
+          if(isOversold&&!wasOversold)idxByCat.oversoldEnter.push(closeIdx);
+          if(!isOversold&&wasOversold)idxByCat.oversoldExit.push(closeIdx);
+        }
+        if(wasOverbought!=null){
+          if(isOverbought&&!wasOverbought)idxByCat.overboughtEnter.push(closeIdx);
+          if(!isOverbought&&wasOverbought)idxByCat.overboughtExit.push(closeIdx);
+        }
         wasOversold=isOversold;
         wasOverbought=isOverbought;
       }

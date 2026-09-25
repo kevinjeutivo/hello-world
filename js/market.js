@@ -447,7 +447,7 @@ function _renderMarketContent(el,{ts,isLive,tsEpoch,fredTs,fredTsEpoch,fedFuture
         const col=bps<-5?'var(--green)':bps>5?'var(--red)':'var(--text2)';
         const sign=bps>0?'+':'';
         return '<tr>'
-          +'<td style="color:var(--text2)">'+c.month+(c.stale?' <span style="color:#64b5f6;font-size:8px" title="Carried forward -- this contract did not return a usable quote this fetch">&#9679;</span>':'')+'</td>'
+          +'<td style="color:var(--text2)">'+c.month+(c.stale?' <span style="color:#64b5f6;font-size:8px" title="Carried forward -- this contract did not return a usable quote this fetch. Last known good: '+(c.staleAsOf||'unknown')+'">&#9679;</span>':'')+'</td>'
           +'<td style="font-family:var(--mono)">'+c.price.toFixed(3)+'</td>'
           +'<td style="font-family:var(--mono)">'+c.impliedRate.toFixed(3)+'%</td>'
           +'<td style="color:'+col+';font-family:var(--mono)">'+(i===refIdx?'—':sign+bps+'bp')+'</td>'
@@ -574,6 +574,52 @@ function toggleTBillSpan(span){
   if(data)_drawTBillChart(data.tbill3m,data.tbill5y,data.tbill10y,span);
 }
 
+// Carries forward a previously-successful contract value for any month
+// that failed THIS SPECIFIC fetch -- an implied Fed Funds rate barely
+// moves day to day, so a slightly-stale prior value is far more useful
+// than nothing. But only up to a point: a carried-forward contract stays
+// usable for at most MAX_STALE_MS before it's dropped entirely (treated
+// as a genuine fetch failure) rather than silently continuing to
+// influence FOMC probabilities from an arbitrarily old quote.
+// Preserves the ORIGINAL staleness timestamp across repeated carry-
+// forwards, rather than re-stamping it to "now" every time this runs
+// (which happens on every partial-success save, stale months included --
+// without this, a contract stuck for weeks would still show a "just
+// now"-ish staleAsOf purely because OTHER months kept succeeding and
+// re-triggering a cache write, which would make any maximum-age check
+// meaningless).
+const FED_FUTURES_MAX_STALE_MS=5*86400000; // ~5 calendar days -- a long weekend/holiday plus a few stale days, roughly "a few trading days" without needing a full trading calendar
+function _carryForwardStaleFedFutures(fedFutures,fedFuturesFailedMonths,prevCache,mktTsEpoch){
+  if(!fedFuturesFailedMonths.length)return{fedFutures,fedFuturesFailedMonths,fedFuturesStaleMonths:[]};
+  const prevContracts=prevCache?.data||[];
+  const stillMissing=[],fedFuturesStaleMonths=[];
+  fedFuturesFailedMonths.forEach(monthLabel=>{
+    const prev=prevContracts.find(c=>c.month===monthLabel);
+    if(prev){
+      const staleAsOfEpoch=prev.stale?(prev.staleAsOfEpoch||prevCache.tsEpoch||null):(prevCache.tsEpoch||null);
+      const staleAsOf=prev.stale?(prev.staleAsOf||prevCache.ts||null):(prevCache.ts||null);
+      const ageMs=staleAsOfEpoch!=null?(mktTsEpoch-staleAsOfEpoch):null;
+      if(ageMs!=null&&ageMs>FED_FUTURES_MAX_STALE_MS){
+        stillMissing.push(monthLabel); // too old to trust any further -- treat exactly like a genuine fetch failure
+      }else{
+        fedFutures.push({...prev,stale:true,staleAsOf,staleAsOfEpoch});
+        fedFuturesStaleMonths.push(monthLabel);
+      }
+    }
+    else stillMissing.push(monthLabel);
+  });
+  if(fedFuturesStaleMonths.length){
+    // Re-sort chronologically -- the carried-over entries were just
+    // appended, not inserted in order. Parses "Aug 2026" style labels
+    // rather than sorting the strings directly, since e.g. "Feb 2027" <
+    // "Jan 2027" alphabetically despite coming after it in time.
+    const _monthNames=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const _toDate=lbl=>{const[m,y]=lbl.split(' ');return new Date(parseInt(y),_monthNames.indexOf(m),1);};
+    fedFutures.sort((a,b)=>_toDate(a.month)-_toDate(b.month));
+  }
+  return{fedFutures,fedFuturesFailedMonths:stillMissing,fedFuturesStaleMonths};
+}
+
 async function loadMarketTab(){
   if(offlineMode){await restoreMarketFromCache();return;}
   const el=document.getElementById('market-content');
@@ -642,36 +688,16 @@ async function loadMarketTab(){
         fedFutures=fedResult.contracts;
         fedFuturesFailedMonths=fedResult.failedMonths||[];
         // Carry forward a previously-successful value for any month that
-        // failed THIS SPECIFIC fetch -- an implied Fed Funds rate barely
-        // moves day to day, so a slightly-stale prior value is far more
-        // useful than nothing. Previously, a partial fetch failure (some
-        // months fine, one or two not) silently dropped those months
-        // entirely, even though a perfectly good recent value was still
-        // sitting in cache -- the fallback below only ever covered a
-        // TOTAL fetch failure, never a per-month gap within an otherwise
-        // successful one. Same seed-from-previous-cache principle already
-        // used elsewhere in this app (quoteSummary fields, ticker names).
-        if(fedFuturesFailedMonths.length){
-          const prevCache=S.get('fed_futures');
-          const prevContracts=prevCache?.data||[];
-          const stillMissing=[];
-          fedFuturesFailedMonths.forEach(monthLabel=>{
-            const prev=prevContracts.find(c=>c.month===monthLabel);
-            if(prev){fedFutures.push({...prev,stale:true,staleAsOf:prevCache.ts||null});fedFuturesStaleMonths.push(monthLabel);}
-            else stillMissing.push(monthLabel);
-          });
-          if(fedFuturesStaleMonths.length){
-            // Re-sort chronologically -- the carried-over entries were
-            // just appended, not inserted in order. Parses "Aug 2026"
-            // style labels rather than sorting the strings directly,
-            // since e.g. "Feb 2027" < "Jan 2027" alphabetically despite
-            // coming after it in time.
-            const _monthNames=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            const _toDate=lbl=>{const[m,y]=lbl.split(' ');return new Date(parseInt(y),_monthNames.indexOf(m),1);};
-            fedFutures.sort((a,b)=>_toDate(a.month)-_toDate(b.month));
-          }
-          fedFuturesFailedMonths=stillMissing; // only genuinely never-seen months remain "failed"
-        }
+        // failed THIS SPECIFIC fetch, up to a maximum usable age -- see
+        // _carryForwardStaleFedFutures above. Previously, a partial fetch
+        // failure (some months fine, one or two not) silently dropped
+        // those months entirely, even though a perfectly good recent
+        // value was still sitting in cache -- the fallback below only
+        // ever covered a TOTAL fetch failure, never a per-month gap
+        // within an otherwise successful one. Same seed-from-previous-
+        // cache principle already used elsewhere in this app
+        // (quoteSummary fields, ticker names).
+        ({fedFutures,fedFuturesFailedMonths,fedFuturesStaleMonths}=_carryForwardStaleFedFutures(fedFutures,fedFuturesFailedMonths,S.get('fed_futures'),mktTsEpoch));
         S.set('fed_futures',{data:fedFutures,failedMonths:fedFuturesFailedMonths,ts:mktTs,tsEpoch:mktTsEpoch});
       }
     }catch{}

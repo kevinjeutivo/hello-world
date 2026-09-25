@@ -347,26 +347,23 @@ function _realisticStrikeIncrement(spot){
   return spot<=25?2.5:spot<=200?5:10;
 }
 
-// Infers a ticker's typical strike increment from its currently cached
-// REAL options chains (pooling every cached expiration, since any single
-// one might be missing a strike or two), instead of guessing purely from
-// price via the tier rule above. Real strike ladders vary by ticker --
-// liquidity, program eligibility, split history -- and plenty of
-// actively-traded names under $200 actually have $1 strikes, not the $5
-// the tier rule assumes; using it uniformly can pick a farther-OTM
-// strike than a real trader could have, or wrongly call a yield floor
-// unreachable when a real intermediate strike existed.
-// Uses the SMALLEST common gap between adjacent cached strikes, not the
-// average -- real chains typically get coarser further from the money,
-// and the strikes this backtest actually selects are usually reasonably
-// close to it, so the finest observed spacing is the more representative
-// reading for what's actually being picked from.
+// Infers a ticker's real strike LADDER from its currently cached options
+// chains (pooling every cached expiration, since any single one might be
+// missing a strike or two) -- returned as a sorted array of actual
+// strikes, so the caller can select directly from real strikes rather
+// than computing a synthetic increment and doing grid arithmetic on it.
+// Direct selection is the more robust of the two approaches an increment
+// alone allows: a single irregular or adjusted strike could otherwise
+// dominate a MINIMUM-gap increment (or skew a modal one), and grid math
+// built on top of even a correctly-inferred increment can still land on
+// a price that was never actually a listed strike. Selecting from the
+// real, observed strikes can't have either problem.
 // Necessarily approximate (today's chain, applied to a simulated trade
 // from possibly years in the past -- see the Guide) and returns null
 // (meaning: fall back to the generic tier rule) whenever there's too
 // little cached data to trust it.
 const _MIN_STRIKES_FOR_INCREMENT_INFERENCE=6;
-function _inferStrikeIncrement(ticker){
+function _inferStrikeLadder(ticker){
   if(!ticker)return null;
   try{
     const expEntries=_cachedExpEntries(ticker);
@@ -377,13 +374,7 @@ function _inferStrikeIncrement(ticker){
       _getCallStrikesForExpiration(ticker,date).forEach(s=>{if(s>0)allStrikes.add(s);});
     });
     const sorted=[...allStrikes].sort((a,b)=>a-b);
-    if(sorted.length<_MIN_STRIKES_FOR_INCREMENT_INFERENCE)return null;
-    let minGap=Infinity;
-    for(let i=1;i<sorted.length;i++){
-      const gap=sorted[i]-sorted[i-1];
-      if(gap>0.001&&gap<minGap)minGap=gap; // >0.001 excludes float-noise duplicates, not a real second strike
-    }
-    return(isFinite(minGap)&&minGap>0)?minGap:null;
+    return sorted.length>=_MIN_STRIKES_FOR_INCREMENT_INFERENCE?sorted:null;
   }catch{return null;}
 }
 
@@ -394,13 +385,50 @@ function _inferStrikeIncrement(ticker){
 // itself (can happen when spot sits very close to a grid line -- not
 // realistic with real market prices to the degree seen in clean
 // synthetic test data, but the underlying case is real near tier
-// boundaries), pushes one more full increment out: a strike
-// indistinguishable from spot isn't a genuine OTM position, and no real
-// options chain would treat it as meaningfully different from ATM.
-// Returns null if the increment is coarse enough that no valid OTM
-// strike exists at all in this direction.
-function _snapStrikeToRealistic(rawStrike,spot,optionType,ticker){
-  const increment=(ticker&&_inferStrikeIncrement(ticker))||_realisticStrikeIncrement(spot);
+// boundaries), pushes one step further out: a strike indistinguishable
+// from spot isn't a genuine OTM position, and no real options chain
+// would treat it as meaningfully different from ATM.
+// Returns null if no valid OTM strike exists at all in this direction.
+//
+// `ladder` (optional): a real strike ladder from _inferStrikeLadder,
+// computed ONCE by the caller (see _simulateWheelWindow) and passed down
+// -- selects directly from these actual strikes when the raw theoretical
+// strike falls within their range. Falls back to the generic price-tier
+// increment (computed fresh, not from the ladder) when there's no
+// trustworthy ladder, or the raw strike falls outside what it covers.
+function _snapStrikeToRealistic(rawStrike,spot,optionType,ladder){
+  // A ladder only has real information about the price region it
+  // actually spans. If rawStrike falls entirely outside that range (a
+  // very cheap or very expensive theoretical strike relative to what's
+  // cached), picking "the nearest available entry anyway" would silently
+  // return something arbitrarily far from the real target -- not a
+  // meaningful snap, just whatever happened to be cached. Fall through
+  // to the generic tier rule in that case instead of guessing beyond
+  // what the real data actually covers.
+  if(ladder&&ladder.length&&rawStrike>=ladder[0]&&rawStrike<=ladder[ladder.length-1]){
+    let candidate=null,candidateIdx=-1;
+    if(optionType==='put'){
+      for(let i=0;i<ladder.length;i++){if(ladder[i]>=rawStrike){candidate=ladder[i];candidateIdx=i;break;}}
+    }else{
+      for(let i=ladder.length-1;i>=0;i--){if(ladder[i]<=rawStrike){candidate=ladder[i];candidateIdx=i;break;}}
+    }
+    if(candidate!=null){
+      const EPS=Math.max(candidate,spot)*0.001;
+      const tooCloseToSpot=optionType==='put'?candidate>=spot-EPS:candidate<=spot+EPS;
+      if(tooCloseToSpot){
+        // Push one step further out using the ADJACENT REAL STRIKE, not
+        // an arithmetic offset -- stays on the real ladder either way.
+        const nextIdx=optionType==='put'?candidateIdx-1:candidateIdx+1;
+        candidate=(nextIdx>=0&&nextIdx<ladder.length)?ladder[nextIdx]:null;
+      }
+      if(candidate!=null){
+        const stillOTM=optionType==='put'?candidate<spot:candidate>spot;
+        if(stillOTM)return candidate;
+      }
+      return null; // a real ladder covered this range and conclusively had no valid OTM strike here
+    }
+  }
+  const increment=_realisticStrikeIncrement(spot);
   let snapped=optionType==='put'
     ?Math.ceil(rawStrike/increment)*increment
     :Math.floor(rawStrike/increment)*increment;
@@ -411,7 +439,7 @@ function _snapStrikeToRealistic(rawStrike,spot,optionType,ticker){
   return stillOTM?snapped:null;
 }
 
-function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r,termSlope,earningsAvoidDates,q,ticker){
+function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r,termSlope,earningsAvoidDates,q,ladder){
   const closes=hist2y.closes,timestamps=hist2y.timestamps;
   const n=closes.length;
   const S0=closes[entryIdx];
@@ -463,7 +491,7 @@ function _simulateOneCycle(hist2y,entryIdx,monthsOut,targetFloorPct,optionType,r
   if(T<=0)return null;
   const K_raw=_solveStrikeForYieldFloor(S0,T,r,sigma,targetFloorPct,optionType,q);
   if(K_raw==null||!isFinite(K_raw))return null; // floor not reachable at this DTE -- caller tries a different DTE or waits
-  const K=_snapStrikeToRealistic(K_raw,S0,optionType,ticker);
+  const K=_snapStrikeToRealistic(K_raw,S0,optionType,ladder);
   if(K==null)return null; // increment too coarse at this price level -- would cross the money, not a valid OTM strike
   const premium=optionType==='put'?_bsPutPrice(S0,K,T,r,sigma,q):_bsCallPrice(S0,K,T,r,sigma,q);
   if(!isFinite(premium)||premium<0)return null;
@@ -587,7 +615,7 @@ function _monthsOutSearchOrder(baseMonthsOut,maxMonthsOut){
 // day instead of the day actually traded. Now recomputed fresh for every
 // idx the search actually visits, same as _simulateWheelWindow's main loop
 // already does for the first day of each cycle.
-function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFloorPct,optionType,rFallback,maxMonthsOut,earningsAvoidDates,dividends,irxHist2y,ticker){
+function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFloorPct,optionType,rFallback,maxMonthsOut,earningsAvoidDates,dividends,irxHist2y,ladder){
   const n=hist2y.closes.length;
   const searchOrder=_monthsOutSearchOrder(baseMonthsOut,maxMonthsOut);
   let idx=candidateEntryIdx;
@@ -598,7 +626,7 @@ function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFl
     const q=dateMs!=null?_dividendYieldAsOf(dividends,new Date(dateMs),hist2y.closes[idx]):0;
     const termSlope=getTermStructureEnabled()?_estimateTermStructureSlope(hist2y,idx):null;
     for(const m of searchOrder){
-      const cyc=_simulateOneCycle(hist2y,idx,m,targetFloorPct,optionType,r,termSlope,earningsAvoidDates,q,ticker);
+      const cyc=_simulateOneCycle(hist2y,idx,m,targetFloorPct,optionType,r,termSlope,earningsAvoidDates,q,ladder);
       if(cyc)return cyc;
     }
     idx+=1; // no DTE (shorter or longer) cleared the floor on this entry day, or all spanned an earnings date -- wait for the next trading day
@@ -612,7 +640,7 @@ function _findFloorClearingCycle(hist2y,candidateEntryIdx,baseMonthsOut,targetFl
 // window's ~1 year is used up or the available price history runs out.
 const WHEELBT_MAX_MONTHS_OUT=3; // matches the app's existing 3-expiry data-fetch cap elsewhere
 
-function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTradingDays,earningsDates,earningsAvoidTypes,dividends,irxHist2y,opts,ticker){
+function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTradingDays,earningsDates,earningsAvoidTypes,dividends,irxHist2y,opts,ladder){
   const closes=hist2y.closes;
   const startPrice=closes[startIdx];
   if(startPrice==null||startPrice<=0)return null;
@@ -688,7 +716,7 @@ function _simulateWheelWindow(hist2y,startIdx,monthsOut,targetFloorPct,r,maxTrad
     // for whichever day it actually ends up trying (see its own comment) --
     // this call only supplies the flat-rate fallback and the raw dividend/
     // ^IRX series it needs to do that per-day lookup itself.
-    const cyc=_findFloorClearingCycle(hist2y,curIdx,monthsOut,targetFloorPct,mode,r,WHEELBT_MAX_MONTHS_OUT,applyEarnings?earningsDates:null,dividends,irxHist2y,ticker);
+    const cyc=_findFloorClearingCycle(hist2y,curIdx,monthsOut,targetFloorPct,mode,r,WHEELBT_MAX_MONTHS_OUT,applyEarnings?earningsDates:null,dividends,irxHist2y,ladder);
     if(!cyc)break; // couldn't clear the floor at any DTE, at any remaining entry day -- stop here
     cyc.cyclePosition=trades.length+1; // 1-indexed position in the FULL sequence -- lets a truncated display show "cycle N of M" even when the shown slice doesn't start at the window's own true beginning
     trades.push(cyc);
@@ -1131,7 +1159,8 @@ function _computeWheelBacktestFullHistory(ticker,monthsOut,targetFloorPct,strate
   const irxHist2y=S.get('hist2y_irx')||null;
   const starts=_enumerateMonthlyStartIndices(h2);
   if(!starts.length)return null;
-  const win=_simulateWheelWindow(h2,starts[0],monthsOut,targetFloorPct,r,Infinity,earningsDates,earningsAvoidTypes,dividends,irxHist2y,undefined,ticker);
+  const ladder=_inferStrikeLadder(ticker); // computed once -- this function only ever simulates one window
+  const win=_simulateWheelWindow(h2,starts[0],monthsOut,targetFloorPct,r,Infinity,earningsDates,earningsAvoidTypes,dividends,irxHist2y,undefined,ladder);
   if(!win||!win.trades.length)return null;
   return{
     ticker,trades:win.trades,startIdx:win.startIdx,endIdx:win.endIdx,
@@ -1155,8 +1184,9 @@ function _computeWheelBacktest(ticker,monthsOut,targetFloorPct,strategy){
   const irxHist2y=S.get('hist2y_irx')||null;
 
   const windows=[];
+  const ladder=_inferStrikeLadder(ticker); // computed once for this whole run, not once per window (there can be a couple dozen)
   _enumerateMonthlyStartIndices(h2).forEach(startIdx=>{
-    const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,undefined,earningsDates,earningsAvoidTypes,dividends,irxHist2y,undefined,ticker);
+    const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,undefined,earningsDates,earningsAvoidTypes,dividends,irxHist2y,undefined,ladder);
     if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS)windows.push(win);
   });
   if(!windows.length)return null;
@@ -1241,8 +1271,9 @@ function _computeWheelBacktestAggregate(tickers,monthsOut,targetFloorPct,strateg
     const dividends=S.get('div_hist_'+t)?.distributions||null;
     let gotAny=false;
     perTickerReturns[t]=[];
+    const ladder=_inferStrikeLadder(t); // once per ticker, not once per window
     _enumerateMonthlyStartIndices(h2).forEach(startIdx=>{
-      const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,undefined,earningsDates,earningsAvoidTypes,dividends,irxHist2y,undefined,t);
+      const win=_simulateWheelWindow(h2,startIdx,monthsOut,targetFloorPct,r,undefined,earningsDates,earningsAvoidTypes,dividends,irxHist2y,undefined,ladder);
       if(win&&win.elapsedCalendarDaysApprox>=MIN_COMPLETE_DAYS){
         allReturns.push(win.annualizedReturnPct);
         allAssignmentRates.push(win.assignmentRatePct);

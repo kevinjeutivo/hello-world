@@ -1038,6 +1038,13 @@
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
     <div class="commentary" style="font-size:12px;max-height:400px;overflow-y:auto">
+v3.9.3 -- 2026-09-24
+- Fixed a real correctness bug caught by review: a completed FOMC meeting with valid official New York Fed data bracketing it could still be reported as "odds unavailable" purely because no futures baseline existed -- even though official resolution never needed one in the first place. The order was backwards: the old code checked for a baseline BEFORE attempting NY Fed resolution, when official resolution (and reusing an already-resolved history entry) needs no baseline at all. Now tried first, for any past meeting, before the baseline requirement -- which only the weaker futures-implied fallback actually needs.
+- Fixed a real regression from build 509's own display fix: when the current month's own contract is entirely missing (not just hidden -- genuinely absent), the fallback reference for the table's delta/total columns could silently point at a hidden prior month (e.g. August) that the display filter had already excluded from view -- making every visible number reference a month not shown anywhere on screen. The fallback now correctly uses the first actually-DISPLAYED month instead.
+- 8 new deterministic tests, including negative controls reconstructing both old behaviors to confirm each bug was real.
+- Noted but not fixed (explicitly lower priority, confirmed real but narrow): the inferred strike ladder pools put and call strikes into one array, so a strike observed only on one side could theoretically be selected for a simulated position of the other type. Most liquid chains have symmetric put/call strikes, so this mainly matters for thinner names.
+- Service worker: v510
+
 v3.9.2 -- 2026-09-24
 - Fed Watch: the prior month (e.g. August, when viewing in September) no longer appears in the Fed Funds Futures table, "months tracked" count, or the data-availability/staleness notes -- it's still fetched and used internally exactly as before (bootstrapping a baseline when the current month is itself a meeting month with nothing earlier to anchor to, and widening how far back the NY Fed data fetch reaches), just no longer shown, since once you're looking at the screen there's nothing left in that row to usefully read. Display-only change -- the underlying probability calculations are unaffected.
 - 4 new deterministic tests, including direct confirmation that the prior month still successfully bootstraps a baseline internally even though the display filter hides it from the table.

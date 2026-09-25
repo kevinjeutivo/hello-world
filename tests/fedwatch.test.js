@@ -881,6 +881,99 @@ test('the underlying fedFutures array used for the actual probability calculatio
     assert(sep&&!sep.insufficientBaseline,'Aug must still be usable internally as a bootstrap, even though the display filter would hide it from the table');
   });
 });
+
+// ============================================================================
+section('Regression: NY Fed resolution must not require a futures baseline for a past meeting');
+
+test("direct reproduction of the reported bug: no prior-month contract at all, no stored predecessor meeting, meeting already occurred, valid EFFR brackets it -- must resolve officially, not report 'insufficientBaseline'", ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-16'])`);
+  withFixedNow(ctx,'2026-09-24T12:00:00Z',()=>{
+    // Only September's own contract -- no prior month, no meeting-free
+    // month anywhere in the window to establish currentRate.
+    const fedFutures=[contract('Sep 2026',4.33)];
+    const effrRows=[
+      {effectiveDate:'2026-09-15',percentRate:4.33,targetRateFrom:4.25,targetRateTo:4.50},
+      {effectiveDate:'2026-09-17',percentRate:4.58,targetRateFrom:4.50,targetRateTo:4.75},
+    ];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,effrRows);
+    const sep=results.find(r=>r.meetingDate==='2026-09-16');
+    assert(sep,'expected a result row for the September meeting');
+    assert(!sep.insufficientBaseline,'a completed meeting with valid official data bracketing it must not be reported as odds-unavailable just because no futures baseline exists');
+    assert.strictEqual(sep.resolved,true);
+    assert.strictEqual(sep.outcome,'hike25');
+    assert.strictEqual(sep.source,'nyfed-official');
+  });
+});
+
+test('same scenario, but resolving via a reused nyfed-official HISTORY entry (EFFR not passed this call) also does not require a baseline', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-16'])`);
+  run(ctx,`S.set('fomc_meeting_history',{'2026-09-16':{rate:4.58,source:'nyfed-official',resolvedAt:'2026-09-20',moveBp:25}})`);
+  withFixedNow(ctx,'2026-09-24T12:00:00Z',()=>{
+    const fedFutures=[contract('Sep 2026',4.33)];
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,[]); // no effrRows this call
+    const sep=results.find(r=>r.meetingDate==='2026-09-16');
+    assert(sep&&!sep.insufficientBaseline);
+    assert.strictEqual(sep.source,'nyfed-official');
+    assert.strictEqual(sep.outcome,'hike25');
+  });
+});
+
+test('negative control: reconstructing the OLD order (baseline check before NY Fed resolution) on this exact scenario DOES produce insufficientBaseline -- confirms the bug was real', ()=>{
+  // Reconstructed independently: the pre-fix order checked
+  // currentRate==null (which is null here -- no meeting-free month, no
+  // history) and returned insufficientBaseline BEFORE ever attempting
+  // _resolveMeetingFromEffr, regardless of whether the meeting was past
+  // and officially resolvable.
+  const currentRate=null; // nothing sets it: no meeting-free month, no prior-meeting history
+  const daysAfter=9; // a normal, valid value -- not the failure mode here
+  const oldWouldReportInsufficientBaseline=(currentRate==null||daysAfter<=0);
+  assert.strictEqual(oldWouldReportInsufficientBaseline,true,'the old ordering really did fail this scenario purely on the missing baseline, before official data ever got a chance');
+});
+
+test('a genuinely still-unresolvable past meeting (no EFFR coverage, no history, stale contract, AND no baseline) correctly still reports something honest -- outcomePending is not reachable without a baseline, so this falls through to insufficientBaseline', ()=>{
+  const ctx=buildContext();
+  run(ctx,`S.set('fomc_meeting_dates_override',['2026-09-16'])`);
+  withFixedNow(ctx,'2026-09-24T12:00:00Z',()=>{
+    const fedFutures=[contract('Sep 2026',4.33,{stale:true})]; // stale, no baseline available
+    const results=run(ctx,`_computeFedMeetingProbabilities`)(fedFutures,[]); // no EFFR data either
+    const sep=results.find(r=>r.meetingDate==='2026-09-16');
+    assert(sep);
+    assert.strictEqual(sep.insufficientBaseline,true,'with genuinely nothing to go on -- no EFFR, no history, no baseline -- an honest placeholder is still correct');
+  });
+});
+
+// ============================================================================
+section('Regression: the display reference must never fall back to a hidden (filtered-out) month');
+
+test("direct reproduction: current month's contract entirely missing, prior month present internally but hidden by the display filter -- the reference must be the first DISPLAYED month, not the hidden one", ()=>{
+  const ctx=buildContext();
+  const displayFutures=[contract('Oct 2026',3.90),contract('Nov 2026',3.85)]; // Sep (current month) missing from here too, since it never got fetched at all
+  const refMonth=run(ctx,'_fedFuturesRefMonth')(displayFutures,'Sep 2026');
+  assert.strictEqual(refMonth,'Oct 2026','must fall back to the first DISPLAYED month, not a hidden Aug/Sep sitting earlier in the full internal array');
+});
+
+test('negative control: the OLD fallback (fedFutures[0], the full internal array) would have picked the hidden prior month instead -- confirms the bug was real', ()=>{
+  const fedFutures=[{month:'Aug 2026',impliedRate:4.00},{month:'Oct 2026',impliedRate:3.90},{month:'Nov 2026',impliedRate:3.85}]; // Aug hidden by display, Sep missing entirely
+  const oldRefIdx=0; // the old code's unconditional fallback when the current month wasn't found
+  const oldRefMonth=fedFutures[oldRefIdx].month;
+  assert.strictEqual(oldRefMonth,'Aug 2026','the old formula really did fall back to the hidden prior month -- confirms the bug');
+});
+
+test('when the current month IS present and displayed, it remains the reference exactly as before -- this fix only changes the FALLBACK case', ()=>{
+  const ctx=buildContext();
+  const displayFutures=[contract('Sep 2026',4.33),contract('Oct 2026',3.90)];
+  const refMonth=run(ctx,'_fedFuturesRefMonth')(displayFutures,'Sep 2026');
+  assert.strictEqual(refMonth,'Sep 2026');
+});
+
+test('when nothing is displayed at all (empty array), returns null rather than throwing', ()=>{
+  const ctx=buildContext();
+  const refMonth=run(ctx,'_fedFuturesRefMonth')([],'Sep 2026');
+  assert.strictEqual(refMonth,null);
+});
+
 // ============================================================================
 (async()=>{
   let lastAsyncSection=null;

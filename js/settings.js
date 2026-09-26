@@ -1016,7 +1016,14 @@ const IMPORT_STATIC_VALIDATORS={
   prefetch_sleep_ms: v=>{const n=finiteNumber(v,{min:100,max:5000});return n==null?null:Math.round(n);},
   fetch_upgrades_enabled: _validateStringBool('true','false'),
   wheelbt_term_structure_enabled: _validateEnum(['true','false']),
-  dashboard_notes: _validateSafeString(5000),
+  // Dashboard notes genuinely have no length limit in normal live editing
+  // (confirmed against the actual save path -- no maxlength, no JS
+  // truncation; the Guide even says so explicitly). A 5000-char import
+  // cap would have silently truncated a real, legitimately long note on
+  // restore, contradicting that. 100,000 chars is still a real bound
+  // (guards against a pathological multi-megabyte value) but far beyond
+  // anything a person would plausibly type by hand.
+  dashboard_notes: _validateSafeString(100000),
   bb_gap_overlay: _validateEnum(['on','off']),
   gap_list_filter: _validateSafeString(30),
   tax_state: v=>(typeof v==='string'&&/^[A-Z]{2}$/.test(v))?v:null,

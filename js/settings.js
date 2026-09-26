@@ -761,6 +761,396 @@ function shareExport(){
 
 let _parsedImportData=null;
 
+// ── Backup-import write-side validation (Phases 1-3, complete) ───────────────
+// Mirrors EXPORT_KEYS_STATIC and _buildExportData's prefix families above --
+// those already define what's durable/worth backing up; this defines what a
+// VALID value for each of those keys actually looks like, so confirmImport()
+// stops writing whatever a parsed backup file happens to contain. A key not
+// covered here (not in the registry, or its own value fails validation) is
+// dropped rather than written -- see _validateImportKeys below for exactly
+// how "dropped" is decided and reported.
+//
+// Phase 1: watchlist, income_accounts_meta + per-account positions/inputs,
+// fomc_meeting_dates_override, and the simple scalar settings in
+// EXPORT_KEYS_STATIC.
+// Phase 2: the historical-cache prefix families -- earnings_hist_/
+// earnings_confirmed_/earnings_pending_ (fully field-validated), and
+// multiple_hist_/fwdpe_track_/nextfy_hist_/nextfy_track_ (validated more
+// leniently -- see the comment above _finiteOrNull below for why).
+// Phase 3: fed_futures, watchlist_note_, rp_compare_, income_acct_*_mmf_yield
+// (found during Phase 3 scoping -- had silently fallen through every
+// earlier phase, since no prior prefix regex happened to match it), and
+// the legacy pre-account-migration flat keys (income_inputs, put_positions,
+// cc_positions, income_mmf_yields -- same shape as their per-account
+// equivalents, reusing the same validators).
+//
+// Every key EXPORT_KEYS_STATIC and _buildExportData's prefix sweep actually
+// produce is now covered by a validator. What's still NOT covered is a key
+// that isn't in this registry AT ALL -- see the comment on "unrecognized
+// entirely" in _validateImportKeys below for why that's still deliberately
+// passed through rather than rejected.
+
+function _validateBoolean(v){ return v===true||v===false?v:null; }
+function _validateEnum(values){ return v=>values.includes(v)?v:null; }
+// For settings whose exact enum wasn't worth fully cataloging for Phase 1 --
+// still bounded and type-checked (never writes a non-string, never writes
+// something absurdly long), just not validated against a specific known set.
+function _validateSafeString(maxLen){ return v=>(typeof v==='string')?v.slice(0,maxLen):null; }
+
+function _validateTickerArray(v,maxLen){
+  if(!Array.isArray(v))return null;
+  const out=[];
+  for(const t of v){
+    const nt=normalizeTicker(t);
+    if(nt&&!out.includes(nt))out.push(nt);
+    if(out.length>=maxLen)break;
+  }
+  return out;
+}
+function _validateDateArray(v,maxLen){
+  if(!Array.isArray(v))return null;
+  const out=[];
+  for(const d of v){
+    if(typeof d==='string'&&_isValidISODate(d)&&!out.includes(d))out.push(d);
+    if(out.length>=maxLen)break;
+  }
+  return out;
+}
+function _validateConvictionWeights(v){
+  if(!v||typeof v!=='object')return null;
+  const keys=['ivr','rsi','range','apy','earnings','ma','upside','beta','oiGap'];
+  const out={};
+  keys.forEach(k=>{ out[k]=finiteNumber(v[k],{min:0,max:3,fallback:1.0}); });
+  return out;
+}
+function _validateAccountMeta(a){
+  if(!a||typeof a!=='object')return null;
+  if(typeof a.id!=='string'||!/^acct_[A-Za-z0-9_]{1,40}$/.test(a.id))return null;
+  if(typeof a.name!=='string'||!a.name.trim())return null;
+  return{id:a.id,name:a.name.slice(0,30)};
+}
+// Shared by both put and CC positions -- isCall adds the one CC-only field.
+function _validatePosition(p,isCall){
+  if(!p||typeof p!=='object')return null;
+  const ticker=normalizeTicker(p.ticker);
+  if(!ticker)return null;
+  const strike=finiteNumber(p.strike,{min:0.01,max:100000});
+  if(strike==null)return null;
+  if(typeof p.expDate!=='string'||!_isValidISODate(p.expDate))return null;
+  const contractsRaw=finiteNumber(p.contracts,{min:1,max:10000});
+  if(contractsRaw==null)return null;
+  const contracts=Math.round(contractsRaw);
+  // A malformed/missing id is regenerated rather than rejecting the whole
+  // position -- the id is an internal handle (used for roll-tracking and
+  // removal), not user data, so there's nothing to lose by giving it a
+  // fresh one.
+  const id=(typeof p.id==='string'&&/^pos_[A-Za-z0-9_]{1,30}$/.test(p.id))?p.id:('pos_'+Date.now()+'_'+Math.random().toString(36).slice(2,7));
+  const addedTs=(typeof p.addedTs==='string'&&!isNaN(Date.parse(p.addedTs)))?p.addedTs:new Date().toISOString();
+  const out={id,ticker,strike,expDate:p.expDate,contracts,addedTs};
+  if(typeof p.rolledAt==='string'&&!isNaN(Date.parse(p.rolledAt)))out.rolledAt=p.rolledAt;
+  if(isCall){
+    const spw=finiteNumber(p.stockPriceAtWrite,{min:0.01,max:100000});
+    if(spw!=null)out.stockPriceAtWrite=spw;
+  }
+  return out;
+}
+function _validateIncomeInputs(v){
+  if(!v||typeof v!=='object')return null;
+  const num=(x,max)=>finiteNumber(x,{min:0,max:max||1e9,fallback:0});
+  return{
+    tbillAmt:num(v.tbillAmt), fdlxxAmt:num(v.fdlxxAmt), spaxxAmt:num(v.spaxxAmt),
+    spyiShares:num(v.spyiShares,1e9), nbosShares:num(v.nbosShares,1e9),
+    putsNotional:num(v.putsNotional), ccStockAmt:num(v.ccStockAmt),
+    targetAPY:finiteNumber(v.targetAPY,{min:0,max:500,fallback:12}),
+    fdlxxYieldManual:(v.fdlxxYieldManual==null)?null:finiteNumber(v.fdlxxYieldManual,{min:0,max:100,fallback:null}),
+    spaxxYieldManual:(v.spaxxYieldManual==null)?null:finiteNumber(v.spaxxYieldManual,{min:0,max:100,fallback:null}),
+    fdlxxUseManual:v.fdlxxUseManual===true,
+    spaxxUseManual:v.spaxxUseManual===true,
+  };
+}
+// Shared by both per-account (income_acct_ID_put_positions) and legacy flat
+// (put_positions, pre-migration) keys -- identical shape either way, since
+// the migration step just copies the flat key's value verbatim into the
+// per-account one (see runIncomeMigration in js/income.js).
+function _validatePutPositionsArray(v){ return Array.isArray(v)?v.map(p=>_validatePosition(p,false)).filter(Boolean).slice(0,1000):null; }
+function _validateCcPositionsArray(v){ return Array.isArray(v)?v.map(p=>_validatePosition(p,true)).filter(Boolean).slice(0,1000):null; }
+function _validateMmfYield(v){
+  if(!v||typeof v!=='object')return null;
+  return{
+    fdlxx:_finiteOrNull(v.fdlxx,{min:0,max:20}),
+    spaxx:_finiteOrNull(v.spaxx,{min:0,max:20}),
+    ts:(typeof v.ts==='string')?v.ts.slice(0,60):null,
+  };
+}
+function _validateFedFuturesContract(c){
+  if(!c||typeof c!=='object')return null;
+  if(typeof c.month!=='string'||!/^[A-Za-z]{3} \d{4}$/.test(c.month))return null; // "Sep 2026" style label -- toLocaleDateString's own format
+  const impliedRate=finiteNumber(c.impliedRate,{min:-5,max:50}); // generous either side of any real-world Fed funds rate
+  if(impliedRate==null)return null;
+  const price=finiteNumber(c.price,{min:50,max:110}); // 100-impliedRate convention
+  if(price==null)return null;
+  const out={ticker:(typeof c.ticker==='string')?c.ticker.slice(0,20):null,month:c.month,price,impliedRate};
+  if(c.stale===true){
+    out.stale=true;
+    out.staleAsOf=(typeof c.staleAsOf==='string')?c.staleAsOf.slice(0,60):null;
+    out.staleAsOfEpoch=_finiteOrNull(c.staleAsOfEpoch,{min:0,max:Date.now()+31536000000});
+  }
+  return out;
+}
+function _validateFedFutures(v){
+  if(!v||typeof v!=='object'||!Array.isArray(v.data))return null;
+  return{
+    data:v.data.map(_validateFedFuturesContract).filter(Boolean).slice(0,20),
+    failedMonths:Array.isArray(v.failedMonths)?v.failedMonths.filter(m=>typeof m==='string').map(m=>m.slice(0,20)).slice(0,20):[],
+    ts:(typeof v.ts==='string')?v.ts.slice(0,60):'',
+    tsEpoch:_finiteOrNull(v.tsEpoch,{min:0,max:Date.now()+31536000000}),
+  };
+}
+
+const IMPORT_STATIC_VALIDATORS={
+  watchlist: v=>_validateTickerArray(v,500),
+  tz_pref: _validateEnum(['PT','UTC','local']),
+  font_size: v=>finiteNumber(v,{min:10,max:24}),
+  vix_threshold: v=>{const n=finiteNumber(v,{min:1,max:200});return n==null?null:Math.round(n);},
+  offline_mode: _validateBoolean,
+  watchlist_sort: _validateEnum(['alpha','opportunity']),
+  heatmap_mode: _validateEnum(['off','change','ivr']),
+  watchlist_filter_mode: _validateEnum(['all','positions','starred']),
+  watchlist_starred: v=>_validateTickerArray(v,500),
+  put_pos_sort: _validateSafeString(30),
+  cc_pos_sort: _validateSafeString(30),
+  options_cutoff_et: v=>{const n=finiteNumber(v,{min:0,max:23});return n==null?null:Math.round(n);},
+  rp_earnings_toggle: _validateBoolean,
+  rp_total_return: _validateBoolean,
+  conviction_weights: _validateConvictionWeights,
+  earnings_view_mode: _validateEnum(['upcoming','recent']),
+  dashboard_view_mode: _validateEnum(['puts','cc','rsi','risk','gap','notes']),
+  vol_badge_state: _validateSafeString(30),
+  last_ticker: v=>normalizeTicker(v),
+  etf_research_tickers: v=>_validateTickerArray(v,500),
+  income_accounts_meta: v=>Array.isArray(v)?v.map(_validateAccountMeta).filter(Boolean).slice(0,50):null,
+  income_active_account: v=>(typeof v==='string'&&/^acct_[A-Za-z0-9_]{1,40}$/.test(v))?v:null,
+  income_migration_v1: _validateBoolean,
+  debug_options_fetch: _validateBoolean,
+  prefetch_sleep_ms: v=>{const n=finiteNumber(v,{min:100,max:5000});return n==null?null:Math.round(n);},
+  fetch_upgrades_enabled: _validateBoolean,
+  wheelbt_term_structure_enabled: _validateEnum(['true','false']),
+  dashboard_notes: _validateSafeString(5000),
+  bb_gap_overlay: _validateEnum(['on','off']),
+  gap_list_filter: _validateSafeString(30),
+  tax_state: v=>(typeof v==='string'&&/^[A-Z]{2}$/.test(v))?v:null,
+  state_tax_rate: v=>finiteNumber(v,{min:0,max:20}),
+  fomc_meeting_dates_override: v=>_validateDateArray(v,50),
+  fed_futures: _validateFedFutures,
+  // Legacy flat income keys (pre-account-migration backups) -- same shape
+  // as their per-account equivalents below, since runIncomeMigration just
+  // copies these verbatim into the per-account keyed versions.
+  income_inputs: _validateIncomeInputs,
+  income_mmf_yields: _validateMmfYield,
+  put_positions: _validatePutPositionsArray,
+  cc_positions: _validateCcPositionsArray,
+};
+
+// ── Phase 2: the historical-cache prefix families ────────────────────────────
+// earnings_hist_/confirmed_/pending_ have simple, fully-known shapes (a
+// small, fixed set of fields per entry, each a controlled-vocabulary
+// string, a date, or a small number) and get FULLY validated field-by-
+// field, same rigor as Phase 1.
+//
+// multiple_hist_/fwdpe_track_/nextfy_hist_/nextfy_track_ are different: per
+// the app's own comments where these are written (js/ticker.js), this data
+// is genuinely irreplaceable -- there's no historical forward-estimate
+// endpoint to re-derive it from. That raises the stakes of getting a strict
+// per-field validator WRONG (silently corrupting or dropping a real
+// historical record because one rarely-seen nested field's exact shape was
+// misjudged) higher than the stakes of validating it thoroughly. So these
+// get a deliberately different, LENIENT strategy: the fields that are
+// dates (used in comparisons elsewhere) or feed directly into arithmetic
+// (prices, EPS figures, P/E ratios) are validated and individually nulled
+// if invalid -- never rejecting the whole record over one bad number, the
+// same instinct as Phase 1's per-item array filtering, just applied at the
+// FIELD level here because a single record carries much more that would be
+// lost if the whole thing were discarded. The deeply-nested diagnostic
+// sub-objects (ttmComponents, yahooAnnual, priceCandidates, firstSeen,
+// lastSeen) get only a type check (a real object, not a string/array
+// pretending to be one) rather than a field-by-field validator, since
+// they're written once and read back only for on-screen debug/diagnostic
+// display (see the various JSON.stringify(...) debug views in
+// js/ticker.js), not fed into further calculations.
+
+function _finiteOrNull(x,opts){ return x==null?null:finiteNumber(x,{...opts,fallback:null}); }
+// Normalizes to a real object or an explicit null -- never passes through
+// undefined (checking-and-passing-through the original value would leave
+// an absent field as `undefined`, which JSON.stringify silently drops,
+// rather than a real, explicit null in the stored record).
+function _plainObjectOrNull(v){ return(v!=null&&typeof v==='object'&&!Array.isArray(v))?v:null; }
+// Shared by fwdpe_track_ and nextfy_hist_/nextfy_track_ entries -- both are
+// {date, <a handful of numeric fields>} records, just with different field
+// names.
+function _validateNumericEntry(en,numFields){
+  if(!en||typeof en!=='object')return null;
+  if(typeof en.date!=='string'||!_isValidISODate(en.date))return null;
+  const out={date:en.date};
+  numFields.forEach(f=>{ out[f]=_finiteOrNull(en[f],{min:-1e7,max:1e7}); });
+  return out;
+}
+
+function _validateEarningsHistEntry(e){
+  if(!e||typeof e!=='object')return null;
+  if(typeof e.date!=='string'||!_isValidISODate(e.date))return null;
+  const source=['auto-confirmed','gap-estimated','time-estimated','manual-override'].includes(e.source)?e.source:null;
+  if(!source)return null; // always set by the app -- absent/garbage means this entry isn't real
+  const out={
+    date:e.date,
+    hour:['bmo','amc'].includes(e.hour)?e.hour:null,
+    gapPct:_finiteOrNull(e.gapPct,{min:-100,max:1000}),
+    direction:['up','down'].includes(e.direction)?e.direction:null,
+    source,
+  };
+  if(e.override&&typeof e.override==='object'&&typeof e.override.date==='string'&&_isValidISODate(e.override.date)){
+    out.override={date:e.override.date,hour:['bmo','amc'].includes(e.override.hour)?e.override.hour:null};
+  }
+  return out;
+}
+function _validateEarningsHist(v){
+  if(!v||typeof v!=='object'||!Array.isArray(v.data))return null;
+  return{
+    data:v.data.map(_validateEarningsHistEntry).filter(Boolean).slice(0,500),
+    ts:(typeof v.ts==='string')?v.ts.slice(0,60):'',
+    tsEpoch:_finiteOrNull(v.tsEpoch,{min:0,max:Date.now()+31536000000}),
+  };
+}
+function _validateEarningsConfirmed(v){
+  if(!Array.isArray(v))return null;
+  return v.filter(e=>e&&typeof e==='object'&&typeof e.date==='string'&&_isValidISODate(e.date))
+    .map(e=>({date:e.date,hour:['bmo','amc'].includes(e.hour)?e.hour:null,addedTs:(typeof e.addedTs==='string')?e.addedTs.slice(0,60):null}))
+    .slice(0,20);
+}
+function _validateEarningsPending(v){
+  if(!Array.isArray(v))return null;
+  return v.filter(e=>e&&typeof e==='object'&&typeof e.date==='string'&&_isValidISODate(e.date))
+    .map(e=>({date:e.date,hour:['bmo','amc'].includes(e.hour)?e.hour:null,savedTs:(typeof e.savedTs==='string')?e.savedTs.slice(0,60):null}))
+    .slice(0,10);
+}
+
+function _validateMultipleHistEntry(e){
+  if(!e||typeof e!=='object')return null;
+  if(typeof e.quarterEndDate!=='string'||!_isValidISODate(e.quarterEndDate))return null; // the one required/anchor field
+  return{
+    quarterEndDate:e.quarterEndDate,
+    reportDate:(typeof e.reportDate==='string'&&_isValidISODate(e.reportDate))?e.reportDate:null,
+    reportHour:['bmo','amc'].includes(e.reportHour)?e.reportHour:null,
+    reportDateSource:(typeof e.reportDateSource==='string')?e.reportDateSource.slice(0,30):null,
+    reportDateWasOverride:e.reportDateWasOverride===true,
+    priceAtReport:_finiteOrNull(e.priceAtReport,{min:0,max:1e7}),
+    priceCandidates:_plainObjectOrNull(e.priceCandidates),
+    ttmEpsAsOfReport:_finiteOrNull(e.ttmEpsAsOfReport,{min:-1e6,max:1e6}),
+    ttmComponents:_plainObjectOrNull(e.ttmComponents),
+    ttmPE:_finiteOrNull(e.ttmPE,{min:-10000,max:10000}),
+    epsActual:_finiteOrNull(e.epsActual,{min:-1e6,max:1e6}),
+    epsEstimateQuarterly:_finiteOrNull(e.epsEstimateQuarterly,{min:-1e6,max:1e6}),
+    yahooAnnual:_plainObjectOrNull(e.yahooAnnual),
+    firstSeen:_plainObjectOrNull(e.firstSeen),
+    lastSeen:_plainObjectOrNull(e.lastSeen),
+  };
+}
+function _validateMultipleHist(v){
+  return Array.isArray(v)?v.map(_validateMultipleHistEntry).filter(Boolean).slice(0,200):null;
+}
+const _FWDPE_ENTRY_NUM_FIELDS=['price','quarterlyEpsEst','projTtmEps','forwardPE','yahooAnnualFwdEps','yahooForwardPE'];
+function _validateFwdpeTrackGroup(g){
+  if(!g||typeof g!=='object')return null;
+  if(typeof g.targetQuarterEnd!=='string'||!_isValidISODate(g.targetQuarterEnd))return null;
+  const entries=Array.isArray(g.entries)?g.entries.map(en=>_validateNumericEntry(en,_FWDPE_ENTRY_NUM_FIELDS)).filter(Boolean).slice(0,50):[];
+  return{targetQuarterEnd:g.targetQuarterEnd,entries};
+}
+function _validateFwdpeTrack(v){
+  return Array.isArray(v)?v.map(_validateFwdpeTrackGroup).filter(Boolean).slice(0,10):null;
+}
+
+const _NEXTFY_ENTRY_NUM_FIELDS=['price','nextFYEps','multiple'];
+function _validateNextfyHistEntry(h){
+  if(!h||typeof h!=='object')return null;
+  if(typeof h.fyEndDate!=='string'||!_isValidISODate(h.fyEndDate))return null;
+  return{
+    fyEndDate:h.fyEndDate,
+    resolvedDate:(typeof h.resolvedDate==='string'&&_isValidISODate(h.resolvedDate))?h.resolvedDate:null,
+    entries:Array.isArray(h.entries)?h.entries.map(en=>_validateNumericEntry(en,_NEXTFY_ENTRY_NUM_FIELDS)).filter(Boolean).slice(0,50):[],
+  };
+}
+function _validateNextfyHist(v){
+  return Array.isArray(v)?v.map(_validateNextfyHistEntry).filter(Boolean).slice(0,50):null;
+}
+function _validateNextfyTrack(v){
+  if(!v||typeof v!=='object')return null;
+  if(typeof v.targetFYEnd!=='string'||!_isValidISODate(v.targetFYEnd))return null;
+  return{
+    targetFYEnd:v.targetFYEnd,
+    entries:Array.isArray(v.entries)?v.entries.map(en=>_validateNumericEntry(en,_NEXTFY_ENTRY_NUM_FIELDS)).filter(Boolean).slice(0,50):[],
+    pendingFYEnd:(typeof v.pendingFYEnd==='string'&&_isValidISODate(v.pendingFYEnd))?v.pendingFYEnd:null,
+  };
+}
+
+const IMPORT_PREFIX_VALIDATORS=[
+  {test:k=>/^income_acct_[A-Za-z0-9_]{1,40}_put_positions$/.test(k), validate:_validatePutPositionsArray},
+  {test:k=>/^income_acct_[A-Za-z0-9_]{1,40}_cc_positions$/.test(k), validate:_validateCcPositionsArray},
+  {test:k=>/^income_acct_[A-Za-z0-9_]{1,40}_inputs$/.test(k), validate:_validateIncomeInputs},
+  // Found while scoping Phase 3: this family was never matched by any
+  // Phase 1/2 prefix regex (all three of those end in _put_positions$/
+  // _cc_positions$/_inputs$, none of which match _mmf_yield$), so it had
+  // been silently falling through to the unvalidated pass-through branch
+  // since Phase 1 shipped, despite being genuine per-account data covered
+  // by the export side's generic income_acct_ prefix sweep.
+  {test:k=>/^income_acct_[A-Za-z0-9_]{1,40}_mmf_yield$/.test(k), validate:_validateMmfYield},
+  {test:k=>/^earnings_hist_[A-Za-z0-9^.-]{1,15}$/.test(k), validate:_validateEarningsHist},
+  {test:k=>/^earnings_confirmed_[A-Za-z0-9^.-]{1,15}$/.test(k), validate:_validateEarningsConfirmed},
+  {test:k=>/^earnings_pending_[A-Za-z0-9^.-]{1,15}$/.test(k), validate:_validateEarningsPending},
+  {test:k=>/^multiple_hist_[A-Za-z0-9^.-]{1,15}$/.test(k), validate:_validateMultipleHist},
+  {test:k=>/^fwdpe_track_[A-Za-z0-9^.-]{1,15}$/.test(k), validate:_validateFwdpeTrack},
+  {test:k=>/^nextfy_hist_[A-Za-z0-9^.-]{1,15}$/.test(k), validate:_validateNextfyHist},
+  {test:k=>/^nextfy_track_[A-Za-z0-9^.-]{1,15}$/.test(k), validate:_validateNextfyTrack},
+  {test:k=>/^watchlist_note_[A-Za-z0-9^.-]{1,15}$/.test(k), validate:v=>(typeof v==='string')?v.slice(0,500):null},
+  {test:k=>/^rp_compare_[A-Za-z0-9^.-]{1,15}$/.test(k), validate:v=>normalizeTicker(v)},
+];
+
+// Walks every key in a parsed backup file's `keys` object and validates it
+// against the registries above. A key not in either registry at all --
+// unrecognized entirely -- and a key whose value fails its own validator --
+// recognized, but malformed -- are both dropped, with a reason recorded for
+// each so the person restoring a backup can see what happened rather than
+// silently losing data. One bad key (or one bad ITEM inside an array key,
+// since the array validators above already filter per-item) never blocks
+// the rest of an otherwise-good backup from importing.
+function _validateImportKeys(keys){
+  const accepted={};
+  const rejected=[];
+  Object.entries(keys||{}).forEach(([k,v])=>{
+    if(Object.prototype.hasOwnProperty.call(IMPORT_STATIC_VALIDATORS,k)){
+      const result=IMPORT_STATIC_VALIDATORS[k](v);
+      if(result!=null)accepted[k]=result;
+      else rejected.push({key:k,reason:'malformed value'});
+      return;
+    }
+    const prefixMatch=IMPORT_PREFIX_VALIDATORS.find(p=>p.test(k));
+    if(prefixMatch){
+      const result=prefixMatch.validate(v);
+      if(result!=null)accepted[k]=result;
+      else rejected.push({key:k,reason:'malformed value'});
+      return;
+    }
+    // Reaching here means the key is genuinely unrecognized -- every
+    // durable key EXPORT_KEYS_STATIC/_buildExportData actually produces
+    // is now covered by a validator as of Phase 3. Still passed through
+    // unvalidated rather than rejected: rejecting outright would require
+    // being CERTAIN this registry is exhaustive, and a person's own
+    // export from a future build (a new key this build doesn't know
+    // about yet) shouldn't be treated as hostile just because it's newer
+    // than this code.
+    accepted[k]=v;
+  });
+  return{accepted,rejected};
+}
+
 function previewImport(){
   const raw=document.getElementById('import-textarea').value.trim();
   if(!raw){toast('Paste JSON backup first');return;}
@@ -985,8 +1375,19 @@ function previewImport(){
     }
   }catch{}
 
-  // Total key count
+  // Total key count, plus what validation actually found -- shown BEFORE
+  // the user taps Restore, not just reported afterward, so a skipped key
+  // isn't a surprise.
+  const{rejected}=_validateImportKeys(keys);
   lines.push('<div style="color:var(--text3);margin-top:4px;border-top:1px solid var(--border);padding-top:6px">'+Object.keys(keys).length+' keys total in backup.</div>');
+  if(rejected.length){
+    const shown=rejected.slice(0,10);
+    lines.push('<div style="color:var(--warn);margin-top:2px">'+rejected.length+' key'+(rejected.length!==1?'s':'')+' will be skipped (unrecognized or malformed):</div>');
+    lines.push('<div style="color:var(--text3);padding-left:10px;font-size:10px">'+
+      shown.map(r=>_escHtml(r.key)+' ('+_escHtml(r.reason)+')').join('<br>')+
+      (rejected.length>shown.length?'<br>… and '+(rejected.length-shown.length)+' more':'')+
+    '</div>');
+  }
 
   const preview=document.getElementById('import-preview');
   preview.innerHTML=lines.join('');
@@ -998,14 +1399,15 @@ function previewImport(){
 function confirmImport(){
   if(!_parsedImportData?.keys){toast('No valid backup to restore');return;}
   const keys=_parsedImportData.keys;
+  const{accepted,rejected}=_validateImportKeys(keys);
   let count=0;
-  Object.entries(keys).forEach(([k,v])=>{
+  Object.entries(accepted).forEach(([k,v])=>{
     try{S.set(k,v);count++;}catch(e){console.warn('Import failed for key',k,e);}
   });
   // If this is a pre-migration backup (has old flat keys, no income_accounts_meta),
   // clear the migration flag so runIncomeMigration() re-runs on next income tab load
-  const isPreMigration = !keys.income_accounts_meta &&
-    (keys.income_inputs || keys.put_positions || keys.cc_positions);
+  const isPreMigration = !accepted.income_accounts_meta &&
+    (accepted.income_inputs || accepted.put_positions || accepted.cc_positions);
   if(isPreMigration){
     S.del('income_migration_v1');
     console.log('Pre-migration backup detected -- income migration will re-run on next income tab load');
@@ -1015,7 +1417,7 @@ function confirmImport(){
   document.getElementById('import-preview').style.display='none';
   document.getElementById('import-textarea').value='';
   closeDataPortabilityModal();
-  toast('Restored '+count+' keys. Reload the app to apply.',4000);
+  toast('Restored '+count+' keys'+(rejected.length?' ('+rejected.length+' skipped -- see preview before restoring next time)':'')+'. Reload the app to apply.',rejected.length?6000:4000);
 }
 
 // ── Refresh Health Badge & Modal ──────────────────────────────────────────

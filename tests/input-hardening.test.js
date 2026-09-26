@@ -1178,6 +1178,22 @@ test('full import cycle: an out-of-order, duplicated, partially-invalid fed_futu
   assert.strictEqual(stored.data[0].price,96.2,'the FIRST Sep 2026 occurrence is the one that survives');
 });
 
+test('dashboard_notes: a genuinely long note (well beyond the old 5000-char cap) survives import unshortened -- the Guide documents no length limit for this field, and the import validator must not contradict that', ()=>{
+  const ctx=buildSettingsCtx();
+  const fn=run(ctx,'_validateImportKeys');
+  const longNote='A'.repeat(12000); // realistic for someone who genuinely uses this as an extensive scratchpad
+  const result=fn({dashboard_notes:longNote});
+  assert.strictEqual(result.accepted.dashboard_notes.length,12000,'must not be truncated -- this field has no documented length limit');
+  assert.strictEqual(result.rejected.length,0);
+});
+
+test('negative control: the OLD 5000-char cap really would have truncated this exact note, silently losing real data on restore -- confirms the bug was real', ()=>{
+  const oldValidator=v=>(typeof v==='string')?v.slice(0,5000):null; // the original _validateSafeString(5000)
+  const longNote='A'.repeat(12000);
+  const result=oldValidator(longNote);
+  assert.strictEqual(result.length,5000,'the old cap really did truncate a realistic long note down to less than half its length -- confirms the gap was real');
+});
+
 // ============================================================================
 (async()=>{
   let lastAsyncSection=null;

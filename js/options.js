@@ -93,6 +93,35 @@ function _validateOptionsData(data){
     return{valid:false,reason:'synthetic data: '+Math.round(zeroBidAsk/allContracts.length*100)+'% zero bid/ask'};
   }
 
+  // Basic per-field sanity, not just synthetic-PATTERN detection above --
+  // a chain could pass both checks above while still containing garbage
+  // in individual fields (NaN slipping through from a malformed response,
+  // a strike of 0 or negative, or an IV so extreme it can only be
+  // corrupted data rather than a real quote, even for a genuinely
+  // volatile name). Same ratio-based approach as the checks above: a FEW
+  // odd contracts within an otherwise-normal chain isn't flagged (real
+  // chains sometimes have a stray bad print), but a chain where this is
+  // pervasive is rejected outright, same as the synthetic-pattern cases.
+  const badStrikes=allContracts.filter(c=>!(Number.isFinite(c.strike)&&c.strike>0)).length;
+  if(allContracts.length>=3&&badStrikes/allContracts.length>0.2){
+    return{valid:false,reason:'invalid data: '+Math.round(badStrikes/allContracts.length*100)+'% non-positive or non-finite strikes'};
+  }
+  const nonFiniteQuote=allContracts.filter(c=>
+    (c.bid!=null&&!Number.isFinite(c.bid))||
+    (c.ask!=null&&!Number.isFinite(c.ask))||
+    (c.impliedVolatility!=null&&!Number.isFinite(c.impliedVolatility))
+  ).length;
+  if(allContracts.length>=3&&nonFiniteQuote/allContracts.length>0.2){
+    return{valid:false,reason:'invalid data: '+Math.round(nonFiniteQuote/allContracts.length*100)+'% non-finite bid/ask/IV'};
+  }
+  // 20.0 = 2000% IV -- generous enough to never flag genuinely volatile
+  // names (even extreme earnings-week or meme-stock IV rarely reaches
+  // this), narrow enough to catch a clearly corrupted value.
+  const extremeIV=allContracts.filter(c=>c.impliedVolatility!=null&&Number.isFinite(c.impliedVolatility)&&c.impliedVolatility>20).length;
+  if(allContracts.length>=3&&extremeIV/allContracts.length>0.2){
+    return{valid:false,reason:'invalid data: '+Math.round(extremeIV/allContracts.length*100)+'% implausibly extreme IV'};
+  }
+
   return{valid:true,reason:'ok'};
 }
 

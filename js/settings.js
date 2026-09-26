@@ -780,7 +780,7 @@ function previewImport(){
   try{
     const wl=Array.isArray(keys.watchlist)?keys.watchlist:(JSON.parse(keys.watchlist||'[]'));
     lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">WATCHLIST ('+wl.length+' tickers)</span>');
-    lines.push('<div style="color:var(--text2);padding-left:10px">'+wl.join(', ')+'</div></div>');
+    lines.push('<div style="color:var(--text2);padding-left:10px">'+wl.map(t=>_escHtml(t)).join(', ')+'</div></div>');
   }catch{}
 
   // Earnings overrides
@@ -793,8 +793,8 @@ function previewImport(){
       const overrides=(hist.data||[]).filter(e=>e.override);
       if(overrides.length){
         earningsSummary.push('<div style="color:var(--text2);padding-left:10px">'+
-          ticker+': '+overrides.length+' override'+(overrides.length>1?'s':'')+' — '+
-          overrides.map(e=>e.override.date+(e.override.hour?' '+e.override.hour.toUpperCase():'')).join(', ')+
+          _escHtml(ticker)+': '+overrides.length+' override'+(overrides.length>1?'s':'')+' — '+
+          overrides.map(e=>_escHtml(e.override.date+(e.override.hour?' '+String(e.override.hour).toUpperCase():''))).join(', ')+
         '</div>');
       }
     }catch{}
@@ -817,7 +817,7 @@ function previewImport(){
         lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">PUT POSITIONS ('+puts.length+')</span>');
         puts.forEach(p=>{
           lines.push('<div style="color:var(--text2);padding-left:10px">'+
-            p.ticker+' $'+p.strike+' put · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
+            _escHtml(p.ticker)+' $'+_escHtml(p.strike)+' put · exp '+_escHtml(p.expDate)+' · '+_escHtml(p.contracts)+' contract'+(p.contracts>1?'s':'')+
           '</div>');
         });
         lines.push('</div>');
@@ -830,8 +830,8 @@ function previewImport(){
         lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">COVERED CALL POSITIONS ('+ccs.length+')</span>');
         ccs.forEach(p=>{
           lines.push('<div style="color:var(--text2);padding-left:10px">'+
-            p.ticker+' $'+p.strike+' call · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
-            ' · written @ $'+p.stockPriceAtWrite+
+            _escHtml(p.ticker)+' $'+_escHtml(p.strike)+' call · exp '+_escHtml(p.expDate)+' · '+_escHtml(p.contracts)+' contract'+(p.contracts>1?'s':'')+
+            ' · written @ $'+_escHtml(p.stockPriceAtWrite)+
           '</div>');
         });
         lines.push('</div>');
@@ -855,7 +855,7 @@ function previewImport(){
           const incKey = 'income_'+a.id+'_inputs';
           const inc = (keys[incKey]&&typeof keys[incKey]==='object') ? keys[incKey] : (keys[incKey] ? JSON.parse(String(keys[incKey])) : {});
           // Account header line
-          lines.push('<div style="color:var(--accent);padding-left:10px;margin-top:6px;font-weight:600">'+a.name+'</div>');
+          lines.push('<div style="color:var(--accent);padding-left:10px;margin-top:6px;font-weight:600">'+_escHtml(a.name)+'</div>');
           // Layer 1 summary if configured
           if(inc.tbillAmt||inc.fdlxxAmt||inc.spaxxAmt){
             const l1Parts=[];
@@ -869,7 +869,7 @@ function previewImport(){
             lines.push('<div style="color:var(--text2);padding-left:20px">Puts ('+puts.length+'):</div>');
             puts.forEach(p=>{
               lines.push('<div style="color:var(--text2);padding-left:30px">'+
-                p.ticker+' $'+p.strike+' · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
+                _escHtml(p.ticker)+' $'+_escHtml(p.strike)+' · exp '+_escHtml(p.expDate)+' · '+_escHtml(p.contracts)+' contract'+(p.contracts>1?'s':'')+
               '</div>');
             });
           }else{
@@ -880,14 +880,14 @@ function previewImport(){
             lines.push('<div style="color:var(--text2);padding-left:20px">CCs ('+ccs.length+'):</div>');
             ccs.forEach(p=>{
               lines.push('<div style="color:var(--text2);padding-left:30px">'+
-                p.ticker+' $'+p.strike+' call · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+
-                (p.stockPriceAtWrite?' · written @ $'+p.stockPriceAtWrite:'')+
+                _escHtml(p.ticker)+' $'+_escHtml(p.strike)+' call · exp '+_escHtml(p.expDate)+' · '+_escHtml(p.contracts)+' contract'+(p.contracts>1?'s':'')+
+                (p.stockPriceAtWrite?' · written @ $'+_escHtml(p.stockPriceAtWrite):'')+
               '</div>');
             });
           }else{
             lines.push('<div style="color:var(--text3);padding-left:20px">No CC positions</div>');
           }
-        }catch(e){ lines.push('<div style="color:var(--text2);padding-left:10px">'+a.name+': (data unreadable)</div>'); }
+        }catch(e){ lines.push('<div style="color:var(--text2);padding-left:10px">'+_escHtml(a.name)+': (data unreadable)</div>'); }
       });
       lines.push('</div>');
     }else if(keys.income_inputs||keys.put_positions||keys.cc_positions){
@@ -899,8 +899,8 @@ function previewImport(){
         const ccs=Array.isArray(keys.cc_positions)?keys.cc_positions:(keys.cc_positions?JSON.parse(String(keys.cc_positions)):[]);
         if(inc.tbillAmt)lines.push('<div style="color:var(--text2);padding-left:10px">T-Bills: $'+Number(inc.tbillAmt).toLocaleString()+'</div>');
         if(inc.fdlxxAmt)lines.push('<div style="color:var(--text2);padding-left:10px">FDLXX: $'+Number(inc.fdlxxAmt).toLocaleString()+'</div>');
-        puts.forEach(p=>lines.push('<div style="color:var(--text2);padding-left:10px">'+p.ticker+' $'+p.strike+' put · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+'</div>'));
-        ccs.forEach(p=>lines.push('<div style="color:var(--text2);padding-left:10px">'+p.ticker+' $'+p.strike+' call · exp '+p.expDate+' · '+p.contracts+' contract'+(p.contracts>1?'s':'')+(p.stockPriceAtWrite?' · written @ $'+p.stockPriceAtWrite:'')+'</div>'));
+        puts.forEach(p=>lines.push('<div style="color:var(--text2);padding-left:10px">'+_escHtml(p.ticker)+' $'+_escHtml(p.strike)+' put · exp '+_escHtml(p.expDate)+' · '+_escHtml(p.contracts)+' contract'+(p.contracts>1?'s':'')+'</div>'));
+        ccs.forEach(p=>lines.push('<div style="color:var(--text2);padding-left:10px">'+_escHtml(p.ticker)+' $'+_escHtml(p.strike)+' call · exp '+_escHtml(p.expDate)+' · '+_escHtml(p.contracts)+' contract'+(p.contracts>1?'s':'')+(p.stockPriceAtWrite?' · written @ $'+_escHtml(p.stockPriceAtWrite):'')+'</div>'));
       }catch{}
       lines.push('</div>');
     }
@@ -908,8 +908,8 @@ function previewImport(){
 
   // Settings
   lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">SETTINGS</span>');
-  if(keys.tz_pref)lines.push('<div style="color:var(--text2);padding-left:10px">Timezone: '+keys.tz_pref+'</div>');
-  if(keys.font_size)lines.push('<div style="color:var(--text2);padding-left:10px">Font size: '+keys.font_size+'px</div>');
+  if(keys.tz_pref)lines.push('<div style="color:var(--text2);padding-left:10px">Timezone: '+_escHtml(keys.tz_pref)+'</div>');
+  if(keys.font_size)lines.push('<div style="color:var(--text2);padding-left:10px">Font size: '+_escHtml(keys.font_size)+'px</div>');
   if(keys.options_cutoff_et){
     const cutoffHourET=typeof keys.options_cutoff_et==='number'?keys.options_cutoff_et:parseInt(String(keys.options_cutoff_et));
     // Display in user's timezone (same as Settings dropdown), not raw ET
@@ -930,7 +930,7 @@ function previewImport(){
   if(keys.conviction_weights){
     try{
       const cw=(keys.conviction_weights&&typeof keys.conviction_weights==='object')?keys.conviction_weights:JSON.parse(keys.conviction_weights);
-      const cwStr=Object.entries(cw).map(([k,v])=>k+':'+v).join(', ');
+      const cwStr=Object.entries(cw).map(([k,v])=>_escHtml(k)+':'+_escHtml(v)).join(', ');
       lines.push('<div style="color:var(--text2);padding-left:10px">Conviction weights: '+cwStr+'</div>');
     }catch{}
   }
@@ -944,7 +944,7 @@ function previewImport(){
       _confKeys.forEach(k=>{
         const t=k.replace('earnings_confirmed_','');
         const entries=Array.isArray(keys[k])?keys[k]:(JSON.parse(keys[k]||'[]'));
-        if(entries.length)lines.push('<div style="color:var(--text2);padding-left:10px">'+t+': '+entries.length+' confirmed date'+(entries.length>1?'s':'')+' ('+entries.map(e=>e.date+(e.hour?' '+e.hour.toUpperCase():'')).join(', ')+')</div>');
+        if(entries.length)lines.push('<div style="color:var(--text2);padding-left:10px">'+_escHtml(t)+': '+entries.length+' confirmed date'+(entries.length>1?'s':'')+' ('+entries.map(e=>_escHtml(e.date+(e.hour?' '+String(e.hour).toUpperCase():''))).join(', ')+')</div>');
       });
       lines.push('</div>');
     }
@@ -958,7 +958,7 @@ function previewImport(){
     if(typeof keys.dashboard_notes==='string'&&keys.dashboard_notes.trim()){
       const note=keys.dashboard_notes;
       lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">NOTES ('+note.length+' char'+(note.length!==1?'s':'')+')</span>');
-      lines.push('<div style="color:var(--text2);padding-left:10px">'+note.slice(0,100).replace(/</g,'&lt;').replace(/>/g,'&gt;')+(note.length>100?'…':'')+'</div></div>');
+      lines.push('<div style="color:var(--text2);padding-left:10px">'+_escHtml(note.slice(0,100))+(note.length>100?'…':'')+'</div></div>');
     }
   }catch{}
 
@@ -970,7 +970,7 @@ function previewImport(){
       lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">WATCHLIST NOTES ('+tickers.length+' ticker'+(tickers.length!==1?'s':'')+')</span>');
       tickers.forEach(t=>{
         const note=typeof keys['watchlist_note_'+t]==='string'?keys['watchlist_note_'+t]:'';
-        lines.push('<div style="color:var(--text2);padding-left:10px">'+t+': '+note.slice(0,60)+(note.length>60?'…':'')+'</div>');
+        lines.push('<div style="color:var(--text2);padding-left:10px">'+_escHtml(t)+': '+_escHtml(note.slice(0,60))+(note.length>60?'…':'')+'</div>');
       });
       lines.push('</div>');
     }
@@ -981,7 +981,7 @@ function previewImport(){
     const sbT=Array.isArray(keys.etf_research_tickers)?keys.etf_research_tickers:(JSON.parse(keys.etf_research_tickers||'[]'));
     if(sbT.length){
       lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">ETF RESEARCH SANDBOX ('+sbT.length+' ticker'+(sbT.length>1?'s':'')+')</span>');
-      lines.push('<div style="color:var(--text2);padding-left:10px">'+sbT.join(', ')+'</div></div>');
+      lines.push('<div style="color:var(--text2);padding-left:10px">'+sbT.map(t=>_escHtml(t)).join(', ')+'</div></div>');
     }
   }catch{}
 

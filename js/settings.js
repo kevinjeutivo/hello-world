@@ -790,7 +790,37 @@ let _parsedImportData=null;
 // entirely" in _validateImportKeys below for why that's still deliberately
 // passed through rather than rejected.
 
-function _validateBoolean(v){ return v===true||v===false?v:null; }
+// This codebase does NOT store toggle/checkbox settings as real JS
+// booleans -- confirmed by grepping each key's own READ-side comparison,
+// not assumed, after a real backup surfaced that an earlier version of
+// this registry had gotten six different keys wrong by assuming they
+// were (a literal true/false checker rejected every one of them, since
+// none were ever actually stored that way). Every key below that's
+// boolean-SHAPED is stored as one of a couple of string conventions
+// instead.
+function _validateStringBool(trueVal,falseVal){
+  return v=>(v===trueVal||v===falseVal)?v:null;
+}
+function _validateVolBadgeEntry(e){
+  if(!e||typeof e!=='object')return null;
+  const multiplier=_finiteOrNull(e.multiplier,{min:0,max:1000});
+  if(multiplier==null)return null;
+  if(typeof e.date!=='string'||!_isValidISODate(e.date))return null;
+  return{multiplier,date:e.date,liveTriggered:e.liveTriggered===true};
+}
+// vol_badge_state is a per-ticker OBJECT MAP ({AAPL:{...},MSFT:{...}}),
+// not a simple string -- another wrong assumption from the original pass.
+function _validateVolBadgeState(v){
+  if(!v||typeof v!=='object'||Array.isArray(v))return null;
+  const out={};
+  Object.entries(v).forEach(([ticker,entry])=>{
+    const nt=normalizeTicker(ticker);
+    if(!nt)return;
+    const validEntry=_validateVolBadgeEntry(entry);
+    if(validEntry)out[nt]=validEntry;
+  });
+  return out;
+}
 function _validateEnum(values){ return v=>values.includes(v)?v:null; }
 // For settings whose exact enum wasn't worth fully cataloging for Phase 1 --
 // still bounded and type-checked (never writes a non-string, never writes
@@ -912,28 +942,28 @@ const IMPORT_STATIC_VALIDATORS={
   tz_pref: _validateEnum(['PT','UTC','local']),
   font_size: v=>finiteNumber(v,{min:10,max:24}),
   vix_threshold: v=>{const n=finiteNumber(v,{min:1,max:200});return n==null?null:Math.round(n);},
-  offline_mode: _validateBoolean,
+  offline_mode: _validateStringBool('true','false'),
   watchlist_sort: _validateEnum(['alpha','opportunity']),
   heatmap_mode: _validateEnum(['off','change','ivr']),
   watchlist_filter_mode: _validateEnum(['all','positions','starred']),
   watchlist_starred: v=>_validateTickerArray(v,500),
-  put_pos_sort: _validateSafeString(30),
-  cc_pos_sort: _validateSafeString(30),
+  put_pos_sort: _validateEnum(['ticker','expiry']),
+  cc_pos_sort: _validateEnum(['ticker','expiry']),
   options_cutoff_et: v=>{const n=finiteNumber(v,{min:0,max:23});return n==null?null:Math.round(n);},
-  rp_earnings_toggle: _validateBoolean,
-  rp_total_return: _validateBoolean,
+  rp_earnings_toggle: _validateStringBool('on','off'),
+  rp_total_return: _validateStringBool('on','off'),
   conviction_weights: _validateConvictionWeights,
   earnings_view_mode: _validateEnum(['upcoming','recent']),
-  dashboard_view_mode: _validateEnum(['puts','cc','rsi','risk','gap','notes']),
-  vol_badge_state: _validateSafeString(30),
+  dashboard_view_mode: _validateEnum(['puts','cc','rsi','risk','gap','notes','wheelbt','valuation']),
+  vol_badge_state: _validateVolBadgeState,
   last_ticker: v=>normalizeTicker(v),
   etf_research_tickers: v=>_validateTickerArray(v,500),
   income_accounts_meta: v=>Array.isArray(v)?v.map(_validateAccountMeta).filter(Boolean).slice(0,50):null,
   income_active_account: v=>(typeof v==='string'&&/^acct_[A-Za-z0-9_]{1,40}$/.test(v))?v:null,
-  income_migration_v1: _validateBoolean,
-  debug_options_fetch: _validateBoolean,
+  income_migration_v1: v=>v==='1'?v:null, // only ever written as the literal string '1'; absent means not-yet-migrated
+  debug_options_fetch: _validateStringBool('true','false'),
   prefetch_sleep_ms: v=>{const n=finiteNumber(v,{min:100,max:5000});return n==null?null:Math.round(n);},
-  fetch_upgrades_enabled: _validateBoolean,
+  fetch_upgrades_enabled: _validateStringBool('true','false'),
   wheelbt_term_structure_enabled: _validateEnum(['true','false']),
   dashboard_notes: _validateSafeString(5000),
   bb_gap_overlay: _validateEnum(['on','off']),

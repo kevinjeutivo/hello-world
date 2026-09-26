@@ -914,6 +914,147 @@ test('direct reproduction of the actual reported bug: a real 312-key backup with
 });
 
 // ============================================================================
+section('Regression: fixes from the Build 517 follow-up review');
+
+test('Must-fix 1: a CC position missing stockPriceAtWrite is dropped entirely, not imported with the field absent', ()=>{
+  const ctx=buildSettingsCtx();
+  const fn=run(ctx,'_validatePosition');
+  assert.strictEqual(fn({ticker:'AAPL',strike:110,expDate:'2026-10-16',contracts:1},true),null,'missing stockPriceAtWrite means this cannot be a valid CC position');
+  assert.strictEqual(fn({ticker:'AAPL',strike:110,expDate:'2026-10-16',contracts:1,stockPriceAtWrite:Infinity},true),null,'an invalid (non-finite) write price is equally disqualifying');
+});
+
+test('a well-formed CC position (valid stockPriceAtWrite) still imports normally -- this fix only changes the missing/invalid case', ()=>{
+  const ctx=buildSettingsCtx();
+  const fn=run(ctx,'_validatePosition');
+  const result=fn({ticker:'AAPL',strike:110,expDate:'2026-10-16',contracts:1,stockPriceAtWrite:105.5},true);
+  assert.strictEqual(result.stockPriceAtWrite,105.5);
+});
+
+test('direct reproduction: a malformed CC in a mixed array is dropped, the well-formed one survives, via a full import cycle', ()=>{
+  const{ctx,dom}=buildSettingsContext();
+  const backup={keys:{cc_positions:[
+    {ticker:'AAPL',strike:110,expDate:'2026-10-16',contracts:1}, // missing stockPriceAtWrite -- would have crashed rendering before this fix
+    {ticker:'MSFT',strike:420,expDate:'2026-11-20',contracts:1,stockPriceAtWrite:410},
+  ]}};
+  dom._els['import-textarea']={value:JSON.stringify(backup)};
+  run(ctx,'previewImport')();
+  run(ctx,'confirmImport')();
+  const stored=run(ctx,`S.get('cc_positions')`);
+  assert.strictEqual(stored.length,1);
+  assert.strictEqual(stored[0].ticker,'MSFT');
+});
+
+test('Must-fix 2: slimExpData drops a contract with an invalid strike entirely, but keeps the rest of the chain', ()=>{
+  const ctx=buildOptionsContext();
+  const fn=run(ctx,'slimExpData');
+  const raw={optionChain:{result:[{options:[{
+    puts:[
+      {strike:90,bid:1.2,ask:1.4,lastPrice:1.3,openInterest:150,volume:20,impliedVolatility:0.35},
+      {strike:-5,bid:1.0,ask:1.1,lastPrice:1.05,openInterest:100,volume:10,impliedVolatility:0.3}, // invalid strike -- dropped
+      {strike:NaN,bid:1.0,ask:1.1,lastPrice:1.05,openInterest:100,volume:10,impliedVolatility:0.3}, // invalid strike -- dropped
+    ],
+    calls:[],
+  }]}]}};
+  const result=fn(raw);
+  assert.strictEqual(result.puts.length,1,'only the two invalid-strike contracts are dropped');
+  assert.strictEqual(result.puts[0].s,90);
+});
+
+test('Must-fix 2: a garbage (non-numeric) bid never reaches the cached representation -- normalized to 0, not passed through raw', ()=>{
+  const ctx=buildOptionsContext();
+  const fn=run(ctx,'slimExpData');
+  const raw={optionChain:{result:[{options:[{
+    puts:[{strike:100,bid:'garbage',ask:1.25,lastPrice:1.2,openInterest:150,volume:20,impliedVolatility:0.35}],
+    calls:[],
+  }]}]}};
+  const result=fn(raw);
+  assert.strictEqual(result.puts.length,1,'the contract survives -- only its bad field is normalized, since strike itself was fine');
+  assert.strictEqual(result.puts[0].b,0,'the garbage bid becomes a safe 0, never the raw string');
+  assert.strictEqual(typeof result.puts[0].b,'number');
+});
+
+test('negative control: reconstructing the OLD slimExpData (a plain passthrough) on this exact garbage-bid contract confirms the raw string really would have reached the cache -- the bug was real', ()=>{
+  const oldSlim=c=>({s:c.strike,b:c.bid,a:c.ask,l:c.lastPrice,oi:c.openInterest,v:c.volume,iv:c.impliedVolatility});
+  const result=oldSlim({strike:100,bid:'garbage',ask:1.25,lastPrice:1.2,openInterest:150,volume:20,impliedVolatility:0.35});
+  assert.strictEqual(result.b,'garbage','the old code really did pass the raw garbage value straight through to the cached representation -- confirms the bug');
+});
+
+test('Must-fix 2: every invalid quote field (negative, Infinity, NaN, out-of-range) is independently normalized to 0, not just bid', ()=>{
+  const ctx=buildOptionsContext();
+  const fn=run(ctx,'slimExpData');
+  const raw={optionChain:{result:[{options:[{
+    puts:[{strike:100,bid:-5,ask:Infinity,lastPrice:NaN,openInterest:-1,volume:1e20,impliedVolatility:'not a number'}],
+    calls:[],
+  }]}]}};
+  const result=fn(raw);
+  const c=result.puts[0];
+  assert.strictEqual(c.b,0); assert.strictEqual(c.a,0); assert.strictEqual(c.l,0);
+  assert.strictEqual(c.oi,0); assert.strictEqual(c.v,0); assert.strictEqual(c.iv,0);
+});
+
+test('a fully well-formed chain is completely unaffected by this fix -- every real value passes through unchanged', ()=>{
+  const ctx=buildOptionsContext();
+  const fn=run(ctx,'slimExpData');
+  const raw={optionChain:{result:[{options:[{
+    puts:[{strike:95,bid:1.1,ask:1.3,lastPrice:1.2,openInterest:200,volume:30,impliedVolatility:0.32}],
+    calls:[{strike:105,bid:0.9,ask:1.05,lastPrice:0.95,openInterest:180,volume:25,impliedVolatility:0.29}],
+  }]}]}};
+  const result=fn(raw);
+  assert.strictEqual(result.puts[0].b,1.1);
+  assert.strictEqual(result.calls[0].iv,0.29);
+});
+
+test('Should-fix (partial): duplicate account IDs in an imported backup are deduplicated, keeping the first occurrence', ()=>{
+  const ctx=buildSettingsCtx();
+  const result=run(ctx,'_validateImportKeys')({income_accounts_meta:[
+    {id:'acct_1234567890_ab3de',name:'Fidelity (first)'},
+    {id:'acct_1234567890_ab3de',name:'Fidelity (duplicate)'},
+    {id:'acct_9999999999_zz999',name:'Schwab'},
+  ]});
+  const accts=result.accepted.income_accounts_meta;
+  assert.strictEqual(accts.length,2,'the duplicate id is dropped, not both copies kept');
+  assert.strictEqual(accts[0].name,'Fidelity (first)','the FIRST occurrence is kept, not the second');
+});
+
+test('negative control: the ORIGINAL account-meta validator (no dedup) on this exact input WOULD have kept both duplicate-id accounts -- confirms the gap was real', ()=>{
+  const oldValidator=v=>Array.isArray(v)?v.filter(a=>a&&typeof a==='object'&&/^acct_[A-Za-z0-9_]{1,40}$/.test(a.id)&&a.name).map(a=>({id:a.id,name:String(a.name).slice(0,30)})):null;
+  const result=oldValidator([{id:'acct_1234567890_ab3de',name:'Fidelity (first)'},{id:'acct_1234567890_ab3de',name:'Fidelity (duplicate)'}]);
+  assert.strictEqual(result.length,2,'the old formula really did keep both accounts sharing one id -- confirms the gap was real');
+});
+
+test('Should-fix: an oversized backup (too many keys) is rejected before any parsing/restoring is attempted', ()=>{
+  const{ctx,dom}=buildSettingsContext();
+  const hugeKeys={};
+  for(let i=0;i<5001;i++)hugeKeys['watchlist_note_T'+i]='x';
+  dom._els['import-textarea']={value:JSON.stringify({keys:hugeKeys})};
+  run(ctx,'previewImport')();
+  assert.strictEqual(dom._els['import-preview'],undefined,'the preview element must never even be touched -- the oversized backup is rejected before that point');
+});
+
+test('a normal-sized backup is completely unaffected by the new size cap', ()=>{
+  const{ctx,dom}=buildSettingsContext();
+  const backup={keys:{watchlist:['AAPL','MSFT']}};
+  dom._els['import-textarea']={value:JSON.stringify(backup)};
+  run(ctx,'previewImport')();
+  assert(dom._els['import-preview'].innerHTML.length>0,'an ordinary backup still previews normally');
+});
+
+test('UX fix: the unusual-meeting-count warning is now folded into the SAME toast as the save confirmation, not overwritten by a second one', ()=>{
+  const toastCalls=[];
+  const dom=makeDomStub();
+  dom._els['fomc-dates-textarea']={value:['2026-01-15','2026-02-15','2026-03-15'].join('\n')}; // an unusually short (3-meeting) list
+  const ctx=vm.createContext({console,localStorage:makeLocalStorage(),window:{},toast:(...args)=>toastCalls.push(args),document:dom,tzPref:'local',Intl});
+  const src=p=>fs.readFileSync(path.join(ROOT,p),'utf8');
+  vm.runInContext(src('js/storage.js'),ctx,{filename:'js/storage.js'});
+  vm.runInContext(src('js/helpers.js'),ctx,{filename:'js/helpers.js'});
+  vm.runInContext(src('js/settings.js'),ctx,{filename:'js/settings.js'});
+  run(ctx,'saveFomcDates')();
+  assert.strictEqual(toastCalls.length,1,'exactly one toast call -- the warning is no longer a separate call that gets immediately overwritten');
+  assert(/unusual count/.test(toastCalls[0][0]),'the merged message still contains the warning');
+  assert(/saved/i.test(toastCalls[0][0]),'and still confirms the save itself');
+});
+
+// ============================================================================
 (async()=>{
   let lastAsyncSection=null;
   for(const{name,fn,section:sec}of _asyncTests){

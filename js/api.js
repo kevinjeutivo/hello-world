@@ -36,9 +36,31 @@ async function yahooHistory(symbol,range='6mo',interval='1d'){
   const r=await fetch(url);if(!r.ok)throw new Error(`History proxy ${r.status}`);
   const d=await r.json();if(d.error)throw new Error(d.error);
   const result=d.chart?.result?.[0];if(!result)throw new Error('No history data');
+  const rawTimestamps=result.timestamp;
+  const q=result.indicators?.quote?.[0];
+  // A malformed/truncated response (missing the arrays this function's
+  // whole return shape depends on) used to fail as an unrelated-looking
+  // TypeError several lines down (q.close on an undefined q) rather than
+  // a clear, catchable error here.
+  if(!Array.isArray(rawTimestamps)||!rawTimestamps.length||!q||!Array.isArray(q.close)){
+    throw new Error('Malformed history response -- missing timestamp or price data');
+  }
   const adjcloses=result.indicators.adjclose?.[0]?.adjclose||null;
-  const q=result.indicators.quote[0];
-  return{timestamps:result.timestamp.map(t=>new Date(t*1000)),closes:q.close,volumes:q.volume||[],adjcloses,opens:q.open||null,highs:q.high||null,lows:q.low||null};
+  // Yahoo's arrays are SUPPOSED to be positionally aligned and equal
+  // length, but a malformed/truncated response can have them drift --
+  // normalize to the shortest array actually present rather than let a
+  // length mismatch silently misalign price to date downstream (RSI, gap
+  // detection, and other index-based logic throughout this app all
+  // assume timestamps[i] and closes[i] describe the same day). A no-op
+  // for any well-formed response, where the lengths already match.
+  const n=Math.min(rawTimestamps.length,q.close.length);
+  const timestamps=rawTimestamps.slice(0,n).map(t=>new Date(t*1000));
+  const closes=q.close.slice(0,n);
+  const volumes=(q.volume||[]).slice(0,n);
+  const opens=q.open?q.open.slice(0,n):null;
+  const highs=q.high?q.high.slice(0,n):null;
+  const lows=q.low?q.low.slice(0,n):null;
+  return{timestamps,closes,volumes,adjcloses:adjcloses?adjcloses.slice(0,n):null,opens,highs,lows};
 }
 
 function slimOptionsData(json){

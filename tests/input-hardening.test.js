@@ -1084,6 +1084,37 @@ test("direct reproduction: a storage write failure is now honestly reported, not
   assert(/FAILED TO SAVE/.test(finalMsg),'the completion message must explicitly mention the failed save, not just report a clean success');
 });
 
+test('the completion message names the actual failing key and separately names the key(s) never attempted, matching what the in-app guide says it will do', ()=>{
+  const{ctx,dom}=buildSettingsContextWithFailingKeys(['font_size']);
+  // watchlist succeeds, font_size is the one real S.set failure, tz_pref
+  // comes after it so it's skipped by the early-stop and never attempted.
+  const backup={keys:{watchlist:['AAPL'],font_size:16,tz_pref:'PT'}};
+  dom._els['import-textarea']={value:JSON.stringify(backup)};
+  run(ctx,'previewImport')();
+  run(ctx,`(function(){ toast=function(msg){ globalThis.__lastToast=msg; }; })()`);
+  run(ctx,'confirmImport')();
+  const finalMsg=run(ctx,'globalThis.__lastToast');
+  assert(/FAILED TO SAVE:\s*font_size/.test(finalMsg),'the key that actually failed to save must be named');
+  assert(/not attempted/.test(finalMsg),'keys skipped by the early-stop must be described as not attempted, not lumped in as failed');
+  assert(/tz_pref/.test(finalMsg),'the key that was never attempted must be named');
+});
+
+test('the not-attempted key list truncates at 10 names with a "… and N more" tail, matching the preview\'s existing truncation convention, so a large backup can\'t produce an unwieldy toast', ()=>{
+  const{ctx,dom}=buildSettingsContextWithFailingKeys(['font_size']);
+  // font_size fails second; 15 further unrecognized-but-passthrough keys
+  // follow it and are all skipped by the early-stop.
+  const trailingKeys={};
+  for(let i=1;i<=15;i++)trailingKeys['custom_unrecognized_key_'+i]='x';
+  const backup={keys:{watchlist:['AAPL'],font_size:16,...trailingKeys}};
+  dom._els['import-textarea']={value:JSON.stringify(backup)};
+  run(ctx,'previewImport')();
+  run(ctx,`(function(){ toast=function(msg){ globalThis.__lastToast=msg; }; })()`);
+  run(ctx,'confirmImport')();
+  const finalMsg=run(ctx,'globalThis.__lastToast');
+  assert(/custom_unrecognized_key_1\b/.test(finalMsg),'the first not-attempted key should be named');
+  assert(/… and 5 more/.test(finalMsg),'15 not-attempted keys, 10 shown, should leave exactly 5 more');
+});
+
 test('negative control: reconstructing the ORIGINAL confirmImport loop (try/catch around a function that never throws) on a failing S.set confirms it really did silently count the failure as a success', ()=>{
   let setCallCount=0;
   const oldSet=()=>false; // exactly what a real quota failure returns -- never throws

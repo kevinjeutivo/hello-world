@@ -1038,6 +1038,16 @@
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
     <div class="commentary" style="font-size:12px;max-height:400px;overflow-y:auto">
+v4.1.0 -- 2026-09-24
+- Second, "smaller fixes" build of the input-validation review. All items from the "additional hardening" list are now addressed except the still-deferred backup-import write-side schema.
+- Watchlist notes: found and fixed the same incomplete hand-rolled escaper (only handling &lt;/&gt;, missing &amp;/"/') at four separate render sites, not just the one originally flagged -- the note-edit textarea, the ticker-page note preview, the watchlist-chip preview, and the backup-import notes preview. All now use the standard escaping helper consistently.
+- Backup-import preview: turned out to be the largest item in this pass. Nearly every field pulled from an uploaded backup file -- watchlist tickers, account names, position tickers/dates, conviction-weight data, confirmed-earnings tickers, ETF sandbox tickers -- was interpolated unescaped into the preview shown before the user even confirms the import. All now escaped. Distinct from the still-deferred write-side schema work: this closes the "a malicious backup executes script the moment you look at it" gap specifically.
+- yahooHistory(): now validates that the timestamp/price arrays actually exist (a malformed response previously crashed several lines later with an unrelated-looking TypeError) and normalizes mismatched array lengths by truncating to the shorter one, rather than risk misaligning price to date downstream.
+- _validateOptionsData(): now also rejects a chain where a meaningful share of contracts have non-positive/non-finite strikes, non-finite bid/ask/IV, or implausibly extreme IV (>2000%) -- previously only checked for known synthetic-data PATTERNS (halving IV, all-zero bid/ask), not basic per-field sanity.
+- Cloudflare Worker: ticker/range/interval/quoteSummary-module parameters and the Finnhub proxy path are now allowlisted to the exact shapes this app's own client code sends. The upstream host was always fixed (not general SSRF), but this closes off using the shared Worker/API key for unintended Yahoo or Finnhub requests if the Worker URL is known to more than the app itself.
+- 18 new deterministic tests, including a fetch-mocking harness for yahooHistory and a stripped-export-wrapper harness for testing the Worker's validation logic directly, matching the pattern already established for the EFFR route.
+- Service worker: v513 (note: cloudflare-proxy/worker.js deploys separately, via the Cloudflare dashboard -- not part of this service-worker bump)
+
 v4.0.0 -- 2026-09-24
 - Input-hardening pass, first of two builds addressing a focused security/correctness review. This build covers the tractable, well-contained fixes; the largest item (a fully schema-validated backup import) is deliberately deferred to its own build rather than rushed.
 - Ticker input is now validated centrally (normalizeTicker) everywhere a raw string can become a watchlist ticker (Add Ticker, the default-watchlist setting) -- previously any nonempty string was accepted and interpolated unescaped into option elements.

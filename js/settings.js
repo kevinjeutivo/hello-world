@@ -445,13 +445,17 @@ function saveFomcDates(){
   // The FOMC normally holds 8 meetings/year -- not enforced as a hard
   // rule (a genuine reason to track more or fewer is possible), just
   // surfaced so an obviously-wrong count doesn't save silently unnoticed.
-  if(valid.length<6||valid.length>10){
-    toast('Saved '+valid.length+' meeting date(s) -- unusual count (FOMC normally holds 8/year). Double-check if this wasn\'t intentional.',5000);
-  }
+  // Folded into the SAME toast as the save confirmation below, not a
+  // separate one fired first -- two toasts back to back meant this
+  // warning was replaced by the unconditional "saved" toast before
+  // there was any real chance to read it.
+  const unusualCountNote=(valid.length<6||valid.length>10)
+    ?' -- unusual count (FOMC normally holds 8/year); double-check if unintentional'
+    :'';
   const deduped=[...new Set(valid)].sort();
   S.set('fomc_meeting_dates_override',deduped);
   ta.value=deduped.join('\n');
-  toast('FOMC meeting dates saved ('+deduped.length+' dates)',3000);
+  toast('FOMC meeting dates saved ('+deduped.length+' dates)'+unusualCountNote,unusualCountNote?6000:3000);
 }
 function resetFomcDatesToDefault(){
   S.del('fomc_meeting_dates_override');
@@ -879,8 +883,15 @@ function _validatePosition(p,isCall){
   const out={id,ticker,strike,expDate:p.expDate,contracts,addedTs};
   if(typeof p.rolledAt==='string'&&!isNaN(Date.parse(p.rolledAt)))out.rolledAt=p.rolledAt;
   if(isCall){
-    const spw=finiteNumber(p.stockPriceAtWrite,{min:0.01,max:100000});
-    if(spw!=null)out.stockPriceAtWrite=spw;
+    // Required, not optional -- the normal entry workflow (income.js)
+    // always requires a positive write price before a CC can even be
+    // created, and several render paths call .toFixed(2) on it directly
+    // with no guard. An optional field here let a malformed import
+    // produce a CC position that crashes on render or on the delete-
+    // confirmation dialog.
+    const spw=finiteNumber(p.stockPriceAtWrite,{min:0.01,max:100000,fallback:null});
+    if(spw==null)return null;
+    out.stockPriceAtWrite=spw;
   }
   return out;
 }
@@ -958,7 +969,22 @@ const IMPORT_STATIC_VALIDATORS={
   vol_badge_state: _validateVolBadgeState,
   last_ticker: v=>normalizeTicker(v),
   etf_research_tickers: v=>_validateTickerArray(v,500),
-  income_accounts_meta: v=>Array.isArray(v)?v.map(_validateAccountMeta).filter(Boolean).slice(0,50):null,
+  income_accounts_meta: v=>{
+    if(!Array.isArray(v))return null;
+    const seenIds=new Set();
+    const out=[];
+    v.map(_validateAccountMeta).filter(Boolean).forEach(a=>{
+      // Two accounts sharing an id would both read/write the SAME
+      // per-account storage keys (income_acct_<id>_...) -- silently
+      // merging two distinct accounts into one. Keep the first, drop
+      // later duplicates, same as every other array validator here
+      // dropping one bad item rather than the whole key.
+      if(seenIds.has(a.id))return;
+      seenIds.add(a.id);
+      out.push(a);
+    });
+    return out.slice(0,50);
+  },
   income_active_account: v=>(typeof v==='string'&&/^acct_[A-Za-z0-9_]{1,40}$/.test(v))?v:null,
   income_migration_v1: v=>v==='1'?v:null, // only ever written as the literal string '1'; absent means not-yet-migrated
   debug_options_fetch: _validateStringBool('true','false'),
@@ -1184,9 +1210,15 @@ function _validateImportKeys(keys){
 function previewImport(){
   const raw=document.getElementById('import-textarea').value.trim();
   if(!raw){toast('Paste JSON backup first');return;}
+  // Generous either side of any realistic backup this app would actually
+  // produce (even a heavy user's full cache across many tickers is well
+  // under this), tight enough to stop a pathological or malicious file
+  // from freezing the browser on JSON.parse or flooding storage.
+  if(raw.length>20*1024*1024){toast('Backup file too large (max 20MB) -- not parsed');return;}
   let parsed;
   try{parsed=JSON.parse(raw);}catch(e){toast('Invalid JSON — could not parse backup');return;}
   if(!parsed.keys||typeof parsed.keys!=='object'){toast('Invalid backup format — missing keys');return;}
+  if(Object.keys(parsed.keys).length>5000){toast('Backup has too many keys (max 5000) -- not restored');return;}
   _parsedImportData=parsed;
 
   const keys=parsed.keys;

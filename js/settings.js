@@ -1495,10 +1495,16 @@ function confirmImport(){
   const keys=_parsedImportData.keys;
   const{accepted,rejected}=_validateImportKeys(keys);
   let count=0;
-  const failed=[];
+  // Kept separate rather than one combined "failed" bucket: `justFailed` is
+  // the key whose S.set() call actually returned false, `notAttempted` is
+  // every key after it that was never even tried once the early-stop kicked
+  // in. Conflating the two would mislead -- most of `notAttempted` didn't
+  // fail, they were skipped as a precaution.
+  const justFailed=[];
+  const notAttempted=[];
   let stoppedEarly=false;
   for(const[k,v]of Object.entries(accepted)){
-    if(stoppedEarly){failed.push(k);continue;}
+    if(stoppedEarly){notAttempted.push(k);continue;}
     // S.set returns false on ANY write failure (quota exceeded, private-
     // mode SecurityError, an unserializable value) -- it never throws, so
     // the old try/catch here never actually caught anything, and every
@@ -1506,7 +1512,7 @@ function confirmImport(){
     if(S.set(k,v)){
       count++;
     }else{
-      failed.push(k);
+      justFailed.push(k);
       // Once one write has genuinely failed, storage is very likely
       // still full (or in whatever state caused the failure) for every
       // remaining key too -- stop attempting them rather than burning
@@ -1532,9 +1538,17 @@ function confirmImport(){
   closeDataPortabilityModal();
   const noteParts=[];
   if(rejected.length)noteParts.push(rejected.length+' skipped (unrecognized/malformed)');
-  if(failed.length)noteParts.push(failed.length+' FAILED TO SAVE -- storage may be full; try Clear Market Data Cache in Settings, then re-import');
+  // Same truncate-at-10 convention as the rejected-keys list in the preview
+  // above, so a large backup can't blow up the toast.
+  const _namedList=list=>{
+    const shown=list.slice(0,10);
+    return shown.join(', ')+(list.length>shown.length?', … and '+(list.length-shown.length)+' more':'');
+  };
+  if(justFailed.length)noteParts.push('FAILED TO SAVE: '+_namedList(justFailed)+' -- storage may be full; try Clear Market Data Cache in Settings, then re-import');
+  if(notAttempted.length)noteParts.push(notAttempted.length+' more not attempted (storage still likely full): '+_namedList(notAttempted));
+  const anyFailure=justFailed.length||notAttempted.length;
   const toastMsg='Restored '+count+' key'+(count!==1?'s':'')+(noteParts.length?' ('+noteParts.join('; ')+')':'')+'. Reload the app to apply.';
-  toast(toastMsg,failed.length?9000:(rejected.length?6000:4000));
+  toast(toastMsg,anyFailure?9000:(rejected.length?6000:4000));
 }
 
 // ── Refresh Health Badge & Modal ──────────────────────────────────────────

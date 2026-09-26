@@ -1055,6 +1055,130 @@ test('UX fix: the unusual-meeting-count warning is now folded into the SAME toas
 });
 
 // ============================================================================
+section('Regression: fixes from the Build 518 follow-up review');
+
+// Builds a settings context whose S.set can be told to fail for specific
+// keys, to simulate a real quota-exceeded scenario without actually
+// exhausting Node's in-memory localStorage stand-in.
+function buildSettingsContextWithFailingKeys(failingKeys){
+  const{ctx,dom}=buildSettingsContext();
+  run(ctx,`S.set=(function(){
+    const orig=S.set;
+    const failing=new Set(${JSON.stringify(failingKeys)});
+    return function(k,v){
+      if(failing.has(k))return false; // simulates a real quota/storage failure -- S.set genuinely returns false, never throws
+      return orig(k,v);
+    };
+  })();`);
+  return{ctx,dom};
+}
+
+test("direct reproduction: a storage write failure is now honestly reported, not silently counted as restored -- S.set's return value is actually checked", ()=>{
+  const{ctx,dom}=buildSettingsContextWithFailingKeys(['font_size']);
+  const backup={keys:{watchlist:['AAPL'],font_size:16,tz_pref:'PT'}};
+  dom._els['import-textarea']={value:JSON.stringify(backup)};
+  run(ctx,'previewImport')();
+  run(ctx,`(function(){ toast=function(msg){ globalThis.__lastToast=msg; }; })()`);
+  run(ctx,'confirmImport')();
+  const finalMsg=run(ctx,'globalThis.__lastToast');
+  assert(/FAILED TO SAVE/.test(finalMsg),'the completion message must explicitly mention the failed save, not just report a clean success');
+});
+
+test('negative control: reconstructing the ORIGINAL confirmImport loop (try/catch around a function that never throws) on a failing S.set confirms it really did silently count the failure as a success', ()=>{
+  let setCallCount=0;
+  const oldSet=()=>false; // exactly what a real quota failure returns -- never throws
+  let count=0;
+  try{oldSet();count++;}catch(e){/* never reached -- S.set never throws */}
+  assert.strictEqual(count,1,'the old try/catch pattern really did increment count even though the write returned false -- confirms the bug was real');
+});
+
+test('a storage failure stops further write attempts rather than continuing through the rest of a large import', ()=>{
+  const{ctx,dom}=buildSettingsContextWithFailingKeys(['tz_pref']);
+  const backup={keys:{tz_pref:'PT',font_size:16,vix_threshold:25,last_ticker:'AAPL'}};
+  dom._els['import-textarea']={value:JSON.stringify(backup)};
+  run(ctx,'previewImport')();
+  run(ctx,`(function(){ toast=function(){}; })()`);
+  run(ctx,'confirmImport')();
+  // tz_pref is alphabetically/insertion-first in this object -- once it
+  // fails, font_size/vix_threshold/last_ticker should never even be
+  // attempted (all should be null -- never written).
+  assert.strictEqual(run(ctx,`S.get('font_size')`),null,'a key after the first failure must never even be attempted');
+  assert.strictEqual(run(ctx,`S.get('vix_threshold')`),null);
+});
+
+test('a fully successful import (no storage failures) is completely unaffected by this fix -- still reports a clean count with no failure note', ()=>{
+  const{ctx,dom}=buildSettingsContext();
+  const backup={keys:{watchlist:['AAPL','MSFT'],tz_pref:'PT'}};
+  dom._els['import-textarea']={value:JSON.stringify(backup)};
+  run(ctx,'previewImport')();
+  let lastMsg=null;
+  run(ctx,`(function(){ toast=function(msg){ globalThis.__lastToast=msg; }; })()`);
+  run(ctx,'confirmImport')();
+  const finalMsg=run(ctx,'globalThis.__lastToast');
+  assert(!/FAILED/.test(finalMsg));
+  assert(/Restored 2 keys/.test(finalMsg));
+});
+
+test('Fed-futures month validation now rejects a non-month 3-letter string ("Foo 2026") -- the original regex accepted any 3 letters', ()=>{
+  const ctx=buildSettingsCtx();
+  const fn=run(ctx,'_validateFedFuturesContract');
+  assert.strictEqual(fn({ticker:'ZQU26.CBT',month:'Foo 2026',price:95.67,impliedRate:4.33}),null);
+  assert(fn({ticker:'ZQU26.CBT',month:'Sep 2026',price:95.67,impliedRate:4.33}),'a real month abbreviation still passes');
+});
+
+test('negative control: the ORIGINAL month regex really did accept "Foo 2026" -- confirms the gap was real', ()=>{
+  assert.strictEqual(/^[A-Za-z]{3} \d{4}$/.test('Foo 2026'),true,'the old regex really did match any 3 letters, not just real month abbreviations');
+});
+
+test('Fed-futures import deduplicates contracts sharing the same month, keeping the first occurrence', ()=>{
+  const ctx=buildSettingsCtx();
+  const fn=run(ctx,'_validateFedFutures');
+  const result=fn({data:[
+    {ticker:'ZQU26.CBT',month:'Sep 2026',price:95.67,impliedRate:4.33},
+    {ticker:'ZQU26-DUP.CBT',month:'Sep 2026',price:90.00,impliedRate:10.00}, // duplicate month -- dropped
+  ],failedMonths:[],ts:'x',tsEpoch:1});
+  assert.strictEqual(result.data.length,1);
+  assert.strictEqual(result.data[0].ticker,'ZQU26.CBT','the first occurrence is kept');
+});
+
+test('Fed-futures import sorts contracts chronologically, regardless of the order they appear in the backup', ()=>{
+  const ctx=buildSettingsCtx();
+  const fn=run(ctx,'_validateFedFutures');
+  const result=fn({data:[
+    {ticker:'x',month:'Feb 2027',price:95.5,impliedRate:4.5},
+    {ticker:'x',month:'Sep 2026',price:96.0,impliedRate:4.0},
+    {ticker:'x',month:'Dec 2026',price:95.7,impliedRate:4.3},
+  ],failedMonths:[],ts:'x',tsEpoch:1});
+  assert.deepStrictEqual([...result.data.map(c=>c.month)],['Sep 2026','Dec 2026','Feb 2027'],'must be chronological, not the append order from the backup');
+});
+
+test('sorting correctly handles a year boundary (Dec of one year before Jan of the next)', ()=>{
+  const ctx=buildSettingsCtx();
+  const fn=run(ctx,'_validateFedFutures');
+  const result=fn({data:[
+    {ticker:'x',month:'Jan 2027',price:95.5,impliedRate:4.5},
+    {ticker:'x',month:'Dec 2026',price:96.0,impliedRate:4.0},
+  ],failedMonths:[],ts:'x',tsEpoch:1});
+  assert.deepStrictEqual([...result.data.map(c=>c.month)],['Dec 2026','Jan 2027']);
+});
+
+test('full import cycle: an out-of-order, duplicated, partially-invalid fed_futures backup ends up correctly sorted, deduplicated, and filtered after restore', ()=>{
+  const{ctx,dom}=buildSettingsContext();
+  const backup={keys:{fed_futures:{data:[
+    {ticker:'x',month:'Nov 2026',price:95.8,impliedRate:4.2},
+    {ticker:'x',month:'Foo 2026',price:95.0,impliedRate:5.0}, // invalid month -- dropped
+    {ticker:'x',month:'Sep 2026',price:96.2,impliedRate:3.8},
+    {ticker:'x',month:'Sep 2026',price:99.9,impliedRate:0.1}, // duplicate month -- dropped
+  ],failedMonths:[],ts:'x',tsEpoch:1}}};
+  dom._els['import-textarea']={value:JSON.stringify(backup)};
+  run(ctx,'previewImport')();
+  run(ctx,'confirmImport')();
+  const stored=run(ctx,`S.get('fed_futures')`);
+  assert.deepStrictEqual([...stored.data.map(c=>c.month)],['Sep 2026','Nov 2026']);
+  assert.strictEqual(stored.data[0].price,96.2,'the FIRST Sep 2026 occurrence is the one that survives');
+});
+
+// ============================================================================
 (async()=>{
   let lastAsyncSection=null;
   for(const{name,fn,section:sec}of _asyncTests){

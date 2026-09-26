@@ -42,11 +42,40 @@ function _getQualifyingFomcMeetings(){
 // Strips the optionChain wrapper, unused fields (inTheMoney, expiration, hasMiniOptions),
 // and shortens field names to save ~10KB per expiry cache entry.
 // Readers must use .puts/.calls directly on the cache object.
+// Strike is load-bearing (it's how a contract gets found/matched
+// elsewhere) -- a contract with an invalid one is dropped entirely
+// rather than kept with a patched-up value. Every other numeric field
+// defaults to 0 when invalid, not null: several render paths call
+// .toFixed()/.toLocaleString() directly on these fields with no guard,
+// and 0 is safe there in every case, while null crashes the ones that
+// don't do arithmetic on the value first (r.bid.toFixed(2) does;
+// (r.iv*100).toFixed(1) doesn't, since the multiplication coerces
+// null to 0 before .toFixed() is ever called on it -- an inconsistency
+// not worth relying on when a single safe default covers every case).
+function _slimContract(c){
+  const s=Number(c.strike);
+  if(!Number.isFinite(s)||s<=0)return null;
+  const safeNum=(x,max)=>{
+    const n=Number(x);
+    return(Number.isFinite(n)&&n>=0&&n<=max)?n:0;
+  };
+  return{
+    s,
+    b:safeNum(c.bid,100000),
+    a:safeNum(c.ask,100000),
+    l:safeNum(c.lastPrice,100000),
+    oi:safeNum(c.openInterest,1e8),
+    v:safeNum(c.volume,1e8),
+    iv:safeNum(c.impliedVolatility,100),
+  };
+}
 function slimExpData(data){
   const opts=data?.optionChain?.result?.[0]?.options?.[0];
   if(!opts)return null;
-  const slim=c=>({s:c.strike,b:c.bid,a:c.ask,l:c.lastPrice,oi:c.openInterest,v:c.volume,iv:c.impliedVolatility});
-  return{puts:(opts.puts||[]).map(slim),calls:(opts.calls||[]).map(slim)};
+  return{
+    puts:(opts.puts||[]).map(_slimContract).filter(Boolean),
+    calls:(opts.calls||[]).map(_slimContract).filter(Boolean),
+  };
 }
 
 // Expand a slimmed per-expiry cache entry back to a contract object for readers.

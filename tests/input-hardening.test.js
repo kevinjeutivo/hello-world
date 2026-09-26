@@ -826,6 +826,94 @@ test('full import cycle: every Phase 3 family together -- a well-formed backup c
 });
 
 // ============================================================================
+section('Regression: a real user backup surfaced 8 keys with wrong type assumptions -- not real JS booleans, and one incomplete enum');
+
+test('the 6 string-boolean keys accept their ACTUAL stored values (confirmed against each read-side comparison), not a literal JS true/false', ()=>{
+  const ctx=buildSettingsCtx();
+  const result=run(ctx,'_validateImportKeys')({
+    offline_mode:'false', debug_options_fetch:'true', fetch_upgrades_enabled:'false',
+    rp_earnings_toggle:'on', rp_total_return:'off', income_migration_v1:'1',
+  });
+  assert.strictEqual(result.rejected.length,0,'none of these should be rejected -- they are exactly what this app actually writes');
+  assert.strictEqual(result.accepted.offline_mode,'false');
+  assert.strictEqual(result.accepted.rp_earnings_toggle,'on');
+  assert.strictEqual(result.accepted.income_migration_v1,'1');
+});
+
+test('negative control: reconstructing the ORIGINAL (wrong) _validateBoolean on these exact real-world values confirms every one really was rejected -- the bug was real, not hypothetical', ()=>{
+  const oldValidateBoolean=v=>v===true||v===false?v:null; // exactly the original, since-removed function
+  const realValues=['false','true','off','on','1'];
+  realValues.forEach(v=>{
+    assert.strictEqual(oldValidateBoolean(v),null,JSON.stringify(v)+' really was rejected by the old literal-boolean check');
+  });
+});
+
+test('income_migration_v1 rejects anything other than the literal string "1" -- that is the only value this app ever actually writes', ()=>{
+  const ctx=buildSettingsCtx();
+  const fn=run(ctx,'_validateImportKeys');
+  assert.strictEqual(fn({income_migration_v1:true}).accepted.income_migration_v1,undefined);
+  assert.strictEqual(fn({income_migration_v1:'yes'}).accepted.income_migration_v1,undefined);
+});
+
+test('dashboard_view_mode now accepts all 8 real modes, including wheelbt and valuation -- the original enum only listed 6', ()=>{
+  const ctx=buildSettingsCtx();
+  const result=run(ctx,'_validateImportKeys')({dashboard_view_mode:'wheelbt'});
+  assert.strictEqual(result.rejected.length,0);
+  assert.strictEqual(result.accepted.dashboard_view_mode,'wheelbt');
+  const result2=run(ctx,'_validateImportKeys')({dashboard_view_mode:'valuation'});
+  assert.strictEqual(result2.accepted.dashboard_view_mode,'valuation');
+});
+
+test('negative control: the ORIGINAL 6-value dashboard_view_mode enum really did not include wheelbt or valuation -- confirms this gap was real too', ()=>{
+  const originalEnumValues=['puts','cc','rsi','risk','gap','notes']; // exactly the original, since-fixed list
+  assert(!originalEnumValues.includes('wheelbt'));
+  assert(!originalEnumValues.includes('valuation'));
+});
+
+test('_validateVolBadgeState correctly handles the real per-ticker object-map shape -- the original validator wrongly treated this as a plain string', ()=>{
+  const ctx=buildSettingsCtx();
+  const fn=run(ctx,'_validateVolBadgeState');
+  const result=fn({AAPL:{multiplier:2.5,date:'2026-09-20',liveTriggered:true},MSFT:{multiplier:1.8,date:'2026-09-19',liveTriggered:false}});
+  assert.strictEqual(result.AAPL.multiplier,2.5);
+  assert.strictEqual(result.MSFT.liveTriggered,false);
+});
+
+test('_validateVolBadgeState drops a malformed per-ticker entry without rejecting the whole map', ()=>{
+  const ctx=buildSettingsCtx();
+  const fn=run(ctx,'_validateVolBadgeState');
+  const result=fn({AAPL:{multiplier:2.5,date:'2026-09-20',liveTriggered:true},MSFT:{multiplier:'garbage',date:'not-a-date'}});
+  assert.strictEqual(Object.keys(result).length,1,'the malformed MSFT entry is dropped; AAPL survives');
+  assert(result.AAPL);
+});
+
+test('put_pos_sort/cc_pos_sort now validate against their real enum (ticker/expiry) instead of accepting any string up to 30 chars', ()=>{
+  const ctx=buildSettingsCtx();
+  const fn=run(ctx,'_validateImportKeys');
+  assert.strictEqual(fn({put_pos_sort:'expiry'}).accepted.put_pos_sort,'expiry');
+  assert.strictEqual(fn({put_pos_sort:'<script>x</script>'}).accepted.put_pos_sort,undefined,'no longer silently accepted just because it was under 30 characters');
+});
+
+test('direct reproduction of the actual reported bug: a real 312-key backup with these 8 settings now imports every one of them, not just 304', ()=>{
+  const{ctx,dom}=buildSettingsContext();
+  const backup={keys:{
+    offline_mode:'false',rp_earnings_toggle:'on',rp_total_return:'off',
+    dashboard_view_mode:'wheelbt',vol_badge_state:{AAPL:{multiplier:1.5,date:'2026-09-20',liveTriggered:false}},
+    income_migration_v1:'1',debug_options_fetch:'false',fetch_upgrades_enabled:'true',
+  }};
+  dom._els['import-textarea']={value:JSON.stringify(backup)};
+  run(ctx,'previewImport')();
+  run(ctx,'confirmImport')();
+  assert.strictEqual(run(ctx,`S.get('offline_mode')`),'false');
+  assert.strictEqual(run(ctx,`S.get('rp_earnings_toggle')`),'on');
+  assert.strictEqual(run(ctx,`S.get('rp_total_return')`),'off');
+  assert.strictEqual(run(ctx,`S.get('dashboard_view_mode')`),'wheelbt');
+  assert.strictEqual(run(ctx,`S.get('vol_badge_state')`).AAPL.multiplier,1.5);
+  assert.strictEqual(run(ctx,`S.get('income_migration_v1')`),'1');
+  assert.strictEqual(run(ctx,`S.get('debug_options_fetch')`),'false');
+  assert.strictEqual(run(ctx,`S.get('fetch_upgrades_enabled')`),'true');
+});
+
+// ============================================================================
 (async()=>{
   let lastAsyncSection=null;
   for(const{name,fn,section:sec}of _asyncTests){

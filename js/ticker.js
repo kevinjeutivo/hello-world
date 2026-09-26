@@ -1870,7 +1870,7 @@ function _tickerNoteSectionHtml(ticker){
   const note=S.get('watchlist_note_'+ticker)||'';
   return `<div id="ticker-note-section" data-ticker="${ticker}" onclick="_openNoteModal('${ticker}')" style="cursor:pointer;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px;font-family:var(--mono);font-size:11px">`+
     (note?
-      `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><span style="color:var(--text2);white-space:pre-wrap;word-break:break-word;flex:1">${note.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span><span style="flex-shrink:0;color:var(--accent3);font-size:10px">Edit</span></div>`
+      `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><span style="color:var(--text2);white-space:pre-wrap;word-break:break-word;flex:1">${_escHtml(note)}</span><span style="flex-shrink:0;color:var(--accent3);font-size:10px">Edit</span></div>`
     :
       `<span style="color:var(--text3)">+ Add note</span>`
     )+

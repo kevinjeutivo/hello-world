@@ -923,9 +923,17 @@ function _validateMmfYield(v){
     ts:(typeof v.ts==='string')?v.ts.slice(0,60):null,
   };
 }
+// Duplicated rather than shared with market.js's own _MONTH_ABBR -- this
+// validator's own test harness loads settings.js in isolation (same
+// reasoning as _isValidISODate above being duplicated from the Worker).
+const _FED_FUTURES_MONTH_ORDER=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function _validateFedFuturesContract(c){
   if(!c||typeof c!=='object')return null;
-  if(typeof c.month!=='string'||!/^[A-Za-z]{3} \d{4}$/.test(c.month))return null; // "Sep 2026" style label -- toLocaleDateString's own format
+  if(typeof c.month!=='string')return null;
+  const mm=c.month.match(/^([A-Za-z]{3}) (\d{4})$/);
+  // Must be a REAL month abbreviation, not just any 3 letters -- the
+  // original regex would have accepted "Foo 2026".
+  if(!mm||!_FED_FUTURES_MONTH_ORDER.includes(mm[1]))return null;
   const impliedRate=finiteNumber(c.impliedRate,{min:-5,max:50}); // generous either side of any real-world Fed funds rate
   if(impliedRate==null)return null;
   const price=finiteNumber(c.price,{min:50,max:110}); // 100-impliedRate convention
@@ -938,10 +946,27 @@ function _validateFedFuturesContract(c){
   }
   return out;
 }
+function _fedFuturesMonthSortKey(monthLabel){
+  const mm=monthLabel.match(/^([A-Za-z]{3}) (\d{4})$/);
+  return parseInt(mm[2],10)*12+_FED_FUTURES_MONTH_ORDER.indexOf(mm[1]);
+}
 function _validateFedFutures(v){
   if(!v||typeof v!=='object'||!Array.isArray(v.data))return null;
+  const seenMonths=new Set();
+  const contracts=v.data.map(_validateFedFuturesContract).filter(Boolean).filter(c=>{
+    if(seenMonths.has(c.month))return false; // dedup -- keep the first occurrence
+    seenMonths.add(c.month);
+    return true;
+  });
+  // Fed Watch's meeting-probability calculation processes months in
+  // chronological order -- each meeting-free month sets the baseline for
+  // whatever meeting comes next in that loop. A normal network fetch
+  // always builds this array in order already, but an imported backup
+  // isn't guaranteed to (a hand-edited or reordered file), so this is
+  // enforced here rather than trusted.
+  contracts.sort((a,b)=>_fedFuturesMonthSortKey(a.month)-_fedFuturesMonthSortKey(b.month));
   return{
-    data:v.data.map(_validateFedFuturesContract).filter(Boolean).slice(0,20),
+    data:contracts.slice(0,20),
     failedMonths:Array.isArray(v.failedMonths)?v.failedMonths.filter(m=>typeof m==='string').map(m=>m.slice(0,20)).slice(0,20):[],
     ts:(typeof v.ts==='string')?v.ts.slice(0,60):'',
     tsEpoch:_finiteOrNull(v.tsEpoch,{min:0,max:Date.now()+31536000000}),
@@ -1463,9 +1488,28 @@ function confirmImport(){
   const keys=_parsedImportData.keys;
   const{accepted,rejected}=_validateImportKeys(keys);
   let count=0;
-  Object.entries(accepted).forEach(([k,v])=>{
-    try{S.set(k,v);count++;}catch(e){console.warn('Import failed for key',k,e);}
-  });
+  const failed=[];
+  let stoppedEarly=false;
+  for(const[k,v]of Object.entries(accepted)){
+    if(stoppedEarly){failed.push(k);continue;}
+    // S.set returns false on ANY write failure (quota exceeded, private-
+    // mode SecurityError, an unserializable value) -- it never throws, so
+    // the old try/catch here never actually caught anything, and every
+    // key silently counted as "restored" even when the write failed.
+    if(S.set(k,v)){
+      count++;
+    }else{
+      failed.push(k);
+      // Once one write has genuinely failed, storage is very likely
+      // still full (or in whatever state caused the failure) for every
+      // remaining key too -- stop attempting them rather than burning
+      // through the rest of a large import one doomed write at a time.
+      // S.set also fires its own "storage full" toast on every quota
+      // failure with no once-per-session guard, so continuing would mean
+      // the person sees that toast fire repeatedly in a row.
+      stoppedEarly=true;
+    }
+  }
   // If this is a pre-migration backup (has old flat keys, no income_accounts_meta),
   // clear the migration flag so runIncomeMigration() re-runs on next income tab load
   const isPreMigration = !accepted.income_accounts_meta &&
@@ -1479,7 +1523,11 @@ function confirmImport(){
   document.getElementById('import-preview').style.display='none';
   document.getElementById('import-textarea').value='';
   closeDataPortabilityModal();
-  toast('Restored '+count+' keys'+(rejected.length?' ('+rejected.length+' skipped -- see preview before restoring next time)':'')+'. Reload the app to apply.',rejected.length?6000:4000);
+  const noteParts=[];
+  if(rejected.length)noteParts.push(rejected.length+' skipped (unrecognized/malformed)');
+  if(failed.length)noteParts.push(failed.length+' FAILED TO SAVE -- storage may be full; try Clear Market Data Cache in Settings, then re-import');
+  const toastMsg='Restored '+count+' key'+(count!==1?'s':'')+(noteParts.length?' ('+noteParts.join('; ')+')':'')+'. Reload the app to apply.';
+  toast(toastMsg,failed.length?9000:(rejected.length?6000:4000));
 }
 
 // ── Refresh Health Badge & Modal ──────────────────────────────────────────

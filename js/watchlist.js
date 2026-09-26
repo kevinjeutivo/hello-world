@@ -80,7 +80,7 @@ function _openNoteModal(ticker){
     '<div class="modal-box" style="max-height:80vh;overflow-y:auto">'+
       '<div class="modal-title modal-title-neutral">Note for '+ticker+'</div>'+
       '<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">Appears below the ticker row. Max 500 characters.</div>'+
-      '<textarea id="wnm-text" maxlength="500" rows="8" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:12px;padding:8px;resize:none;outline:none">'+existing.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</textarea>'+
+      '<textarea id="wnm-text" maxlength="500" rows="8" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:12px;padding:8px;resize:none;outline:none">'+_escHtml(existing)+'</textarea>'+
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">'+
         '<span id="wnm-counter" style="font-family:var(--mono);font-size:9px;color:var(--text3)">'+existing.length+'/500</span>'+
         '<div id="wnm-btns" style="display:flex;gap:8px">'+
@@ -853,7 +853,7 @@ function renderWatchlist(){
       (gapBadge?'<div style="width:100%;margin-top:4px">'+gapBadge+'</div>':'')+
       (note?
         '<div onclick="event.stopPropagation();_toggleNoteExpand(\''+t+'\')" style="width:100%;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-family:var(--mono);font-size:10px;color:var(--text2);cursor:pointer;display:flex;align-items:flex-start;gap:4px">'+
-          '<span style="flex:1;'+(expanded?'white-space:normal;word-break:break-word':'white-space:nowrap;overflow:hidden;text-overflow:ellipsis')+'">'+note.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</span>'+
+          '<span style="flex:1;'+(expanded?'white-space:normal;word-break:break-word':'white-space:nowrap;overflow:hidden;text-overflow:ellipsis')+'">'+_escHtml(note)+'</span>'+
           '<span style="flex-shrink:0;color:var(--text3);font-size:8px;padding-top:1px">'+(expanded?'▲':'▼')+'</span>'+
         '</div>'
       :'')+

@@ -90,6 +90,15 @@ export default {
 
     // ── All Yahoo requests need cookie+crumb ──
     if (!ticker) return corsJson({ error: 'ticker parameter required' }, 400);
+    // The upstream host is fixed (always Yahoo), so this isn't general
+    // SSRF, but ticker/range/interval/modules flow directly into the
+    // request URL below with no validation before this -- allowlisting
+    // the shapes this app actually sends reduces how far someone with
+    // just the shared Worker URL (no app, no key of their own) could
+    // push a shared Finnhub/Yahoo-session key toward unexpected requests.
+    const modulesParam = url.searchParams.get('modules') || 'financialData';
+    const paramError = _validateYahooRequestParams(type, ticker, range, interval, modulesParam);
+    if (paramError) return corsJson({ error: paramError }, 400);
 
     try {
       // Step 1: Get Yahoo session cookie
@@ -218,6 +227,25 @@ function corsJson(obj, status = 200) {
   });
 }
 
+// Validates the Yahoo-request parameters against the shapes/values this
+// app's own client code actually sends (js/api.js), before any of them
+// reach the upstream request URL. Returns an error string, or null when
+// everything checks out. type is only relevant for the 'modules' check
+// (only the summary/quoteSummary endpoint uses it); ticker/range/interval
+// apply to every Yahoo request type.
+function _validateYahooRequestParams(type, ticker, range, interval, modulesParam) {
+  if (!/^[A-Za-z0-9^.-]{1,15}$/.test(ticker)) return 'invalid ticker format';
+  const VALID_RANGES = new Set(['1d','5d','1mo','3mo','6mo','1y','2y','3y','5y','10y','ytd','max']);
+  if (!VALID_RANGES.has(range)) return 'invalid range';
+  const VALID_INTERVALS = new Set(['1m','2m','5m','15m','30m','60m','90m','1h','1d','5d','1wk','1mo','3mo']);
+  if (!VALID_INTERVALS.has(interval)) return 'invalid interval';
+  if (type === 'summary') {
+    const VALID_MODULES = new Set(['financialData','defaultKeyStatistics','earningsTrend','recommendationTrend','earningsHistory','assetProfile','topHoldings','quoteType','summaryDetail']);
+    if (!String(modulesParam).split(',').every(m => VALID_MODULES.has(m))) return 'invalid modules';
+  }
+  return null;
+}
+
 // Proxies the New York Fed Markets Data API's EFFR (Effective Federal Funds
 // Rate) endpoint -- a plain, public, CORS-enabled JSON API that needs no key
 // and none of the Yahoo cookie/crumb machinery above. Deliberately narrow:
@@ -296,6 +324,16 @@ async function handleFinnhubProxy(url, env) {
 
   const path = url.searchParams.get('path');
   if (!path) return corsJson({ error: 'path parameter required' }, 400);
+  // Only the endpoint families api.js actually calls (see js/api.js: fh()
+  // callers in market.js, prefetch.js, ticker.js). The upstream host is
+  // fixed either way, so this isn't SSRF, but without this, anyone who
+  // has just the shared Worker URL -- no app, no Finnhub key of their
+  // own -- could route arbitrary Finnhub API calls through the owner's
+  // shared key.
+  const ALLOWED_FINNHUB_PATH_PREFIXES = ['/calendar/earnings?', '/stock/upgrade-downgrade?', '/news?', '/company-news?'];
+  if (!ALLOWED_FINNHUB_PATH_PREFIXES.some(p => path.startsWith(p))) {
+    return corsJson({ error: 'path not allowed' }, 400);
+  }
 
   try {
     const targetUrl = `https://finnhub.io/api/v1${path}&token=${key}`;

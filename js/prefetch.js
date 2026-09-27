@@ -195,8 +195,6 @@ async function prefetchAll(){
       // Process options
       if(_optsRes){
         _opts=_optsRes;
-        const _pInWindow=_isOptionsLiveWindow();
-        const _pHasSameDay=_hasGoodSameDayCache('options_'+t);
         const _pv=_validateOptionsData(_opts);
         if(_pv.valid){
           if(S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),tsEpoch:Date.now()})){
@@ -212,9 +210,6 @@ async function prefetchAll(){
             const _ex=S.get('options_'+t);
             _pMainStatus=(_ex&&!_ex.synthetic)?'preserved':'unavailable';
           }
-        }else if(!_pInWindow&&_pHasSameDay){
-          console.log(t+': outside live window, fetch INVALID ('+_pv.reason+') -- preserving same-day options cache');
-          _pMainStatus='preserved'; // _hasGoodSameDayCache already excludes synthetic entries
         }else if(!S.get('options_'+t)){
           S.set('options_'+t,{data:slimOptionsData(_opts),ts:nowPT(),tsEpoch:Date.now(),synthetic:true});
           // stays 'unavailable' -- a synthetic placeholder isn't usable data, even though writing it can itself succeed
@@ -287,14 +282,9 @@ async function prefetchAll(){
             if(_ex&&!_ex.synthetic)_pExpPreserved++;
             return;
           }
-          const _pExpInWindow=_isOptionsLiveWindow();
-          const _pExpHasSameDay=_hasGoodSameDayCache(_pExpKey);
           const _ev=_validateOptionsData(data);
           if(_ev.valid){
             const _ps=slimExpData(data);if(_ps&&S.set(_pExpKey,{..._ps,ts:nowPT(),tsEpoch:Date.now()}))_pExpFresh++;
-          }else if(!_pExpInWindow&&_pExpHasSameDay){
-            console.log(t+' '+pair.date+': outside live window, fetch INVALID ('+_ev.reason+') -- preserving same-day exp cache');
-            _pExpPreserved++; // _hasGoodSameDayCache already excludes synthetic entries
           }else if(!S.get(_pExpKey)){
             const _ps=slimExpData(data);if(_ps)S.set(_pExpKey,{..._ps,ts:nowPT(),tsEpoch:Date.now(),synthetic:true});
             // neither fresh nor preserved -- a synthetic placeholder isn't usable data, even though writing it can itself succeed

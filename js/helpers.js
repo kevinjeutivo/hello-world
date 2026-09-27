@@ -217,8 +217,6 @@ function tsChip(ts,isLive,epoch){
   return `<div class="ts-chip ${cls}" data-ts-iso="${isoTs}" data-ts-display="${ts||''}"${epochAttr}>${isLive?'live':'cached'} ${ts||'unknown'}${ageStr}</div>`;
 }
 
-function tzLabel(){return tzPref==='PT'?'PT':tzPref==='UTC'?'UTC':'local';}
-
 function relTime(ts){
   try{const d=new Date(typeof ts==='number'?ts*1000:ts);const diff=(Date.now()-d)/1000;if(diff<3600)return Math.round(diff/60)+'m ago';if(diff<86400)return Math.round(diff/3600)+'h ago';return Math.round(diff/86400)+'d ago';}catch{return String(ts);}
 }

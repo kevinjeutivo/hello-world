@@ -80,7 +80,6 @@ async function checkFlightModeReady(){
   el.innerHTML='<div style="color:var(--text3)">Checking...</div>';
   try{
   const now=Date.now();
-  const maxAge=24*60*60*1000; // 24 hours -- reasonable for a flight
   const checks=[];
 
   // Helper: age in hours
@@ -167,7 +166,6 @@ async function checkFlightModeReady(){
   // Overall
   const hasRed=checks.some(c=>c.status==='red');
   const hasAmber=checks.some(c=>c.status==='amber');
-  const overall=hasRed?'red':hasAmber?'amber':'green';
   const overallLabel=hasRed?'NOT READY -- fetch data before flying':hasAmber?'MOSTLY READY -- minor gaps':'READY FOR FLIGHT';
   const overallColor=hasRed?'var(--red)':hasAmber?'var(--warn)':'var(--green)';
 
@@ -350,34 +348,6 @@ async function workerHealthCheck(){
   }
 }
 
-// Populate the options cache cutoff dropdown with hours 1pm-11pm ET
-// expressed in the currently selected timezone.
-function _populateCutoffSelect(){
-  const sel=document.getElementById('options-cutoff-input');
-  if(!sel)return;
-  const savedET=parseInt(S.get('options_cutoff_et')||'18');
-  // ET hours 13-23 (1pm-11pm)
-  const etHours=Array.from({length:11},(_,i)=>i+13);
-  // Compute offset from ET to display timezone
-  // ET = America/New_York; get current offset difference
-  function etToDisplay(etHour){
-    // Create a date with that ET hour today
-    const now=new Date();
-    const etStr=now.toLocaleDateString('en-US',{timeZone:'America/New_York'});
-    const [m,d,y]=etStr.split('/');
-    const pad=n=>String(n).padStart(2,'0');
-    // Build ISO string in ET
-    const etDate=new Date(`${y}-${pad(m)}-${pad(d)}T${pad(etHour)}:00:00`);
-    // Get display in selected timezone
-    const tz=document.getElementById('tz-pref-input')?.value||tzPref||'PT';
-    const tzName=tz==='PT'?'America/Los_Angeles':tz==='UTC'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const label=etDate.toLocaleTimeString('en-US',{timeZone:tzName,hour:'numeric',minute:'2-digit',hour12:true});
-    const tzLabel=tz==='PT'?'PT':tz==='UTC'?'UTC':'local';
-    return label+' '+tzLabel;
-  }
-  sel.innerHTML=etHours.map(h=>`<option value="${h}"${h===savedET?' selected':''}>${etToDisplay(h)}</option>`).join('');
-}
-
 // Populate the state dropdown (Income tab tax-equivalent yield setting).
 // Options built from US_STATES (income.js) rather than hand-written here,
 // so there's one list to keep in sync, not two.
@@ -477,7 +447,6 @@ function openSettings(){
   document.getElementById('wheelbt-term-structure-input').checked=S.get('wheelbt_term_structure_enabled')!=='false';
   document.getElementById('font-size-input').value=fontSize;
   loadWeightSliders();
-  _populateCutoffSelect();
   _populateTaxStateSelect();
   _renderFomcDatesEditor();
   document.getElementById('state-tax-rate-input').value=getStateTaxRatePct();
@@ -501,8 +470,6 @@ function saveSettings(){
   S.set('prefetch_sleep_ms',String(_prefetchSleepMs));
   tzPref=document.getElementById('tz-pref-input').value;
   S.set('tz_pref',tzPref);
-  const cutoffET=parseInt(document.getElementById('options-cutoff-input')?.value)||18;
-  S.set('options_cutoff_et',String(cutoffET));
   offlineMode=document.getElementById('offline-mode-input').checked;
   S.set('offline_mode',String(offlineMode));
   S.set('debug_options_fetch',String(document.getElementById('debug-options-fetch-input').checked));
@@ -512,8 +479,6 @@ function saveSettings(){
   fontSize=document.getElementById('font-size-input').value||'19';
   S.set('font_size',fontSize);
   applyFontSize(fontSize);
-  // Re-populate cutoff select so labels reflect new timezone
-  _populateCutoffSelect();
   const cv=S.get('vix_hist');
   if(cv?.closes){const c=cv.closes.filter(x=>x!==null);if(c.length)updateVIXIndicator(c[c.length-1]);}
   closeSettings();
@@ -558,7 +523,7 @@ function clearMarketDataCache(){
   const PRESERVE=new Set([
     'watchlist','tz_pref','font_size','vix_threshold','offline_mode',
     'watchlist_sort','heatmap_mode','watchlist_filter_mode','watchlist_starred','put_pos_sort','cc_pos_sort',
-    'options_cutoff_et','rp_earnings_toggle','earnings_view_mode','dashboard_view_mode',
+    'rp_earnings_toggle','earnings_view_mode','dashboard_view_mode',
     'vol_badge_state','conviction_weights','last_ticker',
     'income_accounts_meta','income_active_account','income_migration_v1',
     'debug_options_fetch','prefetch_sleep_ms','fetch_upgrades_enabled','wheelbt_term_structure_enabled',
@@ -616,7 +581,7 @@ function clearMarketDataCache(){
 const EXPORT_KEYS_STATIC=[
   'watchlist','tz_pref','font_size','vix_threshold',
   'offline_mode','watchlist_sort','heatmap_mode','watchlist_filter_mode','watchlist_starred','put_pos_sort','cc_pos_sort',
-  'options_cutoff_et','rp_earnings_toggle','rp_total_return','conviction_weights','earnings_view_mode','dashboard_view_mode',
+  'rp_earnings_toggle','rp_total_return','conviction_weights','earnings_view_mode','dashboard_view_mode',
   'vol_badge_state','last_ticker',
   'etf_research_tickers',
   'income_accounts_meta','income_active_account','income_migration_v1',
@@ -985,7 +950,6 @@ const IMPORT_STATIC_VALIDATORS={
   watchlist_starred: v=>_validateTickerArray(v,500),
   put_pos_sort: _validateEnum(['ticker','expiry']),
   cc_pos_sort: _validateEnum(['ticker','expiry']),
-  options_cutoff_et: v=>{const n=finiteNumber(v,{min:0,max:23});return n==null?null:Math.round(n);},
   rp_earnings_toggle: _validateStringBool('on','off'),
   rp_total_return: _validateStringBool('on','off'),
   conviction_weights: _validateConvictionWeights,
@@ -1394,23 +1358,6 @@ function previewImport(){
   lines.push('<div style="margin-bottom:6px"><span style="color:var(--text3)">SETTINGS</span>');
   if(keys.tz_pref)lines.push('<div style="color:var(--text2);padding-left:10px">Timezone: '+_escHtml(keys.tz_pref)+'</div>');
   if(keys.font_size)lines.push('<div style="color:var(--text2);padding-left:10px">Font size: '+_escHtml(keys.font_size)+'px</div>');
-  if(keys.options_cutoff_et){
-    const cutoffHourET=typeof keys.options_cutoff_et==='number'?keys.options_cutoff_et:parseInt(String(keys.options_cutoff_et));
-    // Display in user's timezone (same as Settings dropdown), not raw ET
-    try{
-      const _tz=typeof tzPref!=='undefined'?(tzPref==='PT'?'America/Los_Angeles':tzPref==='UTC'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone):'America/Los_Angeles';
-      const _tzLabel=typeof tzPref!=='undefined'?(tzPref==='UTC'?'UTC':tzPref==='local'?'local':'PT'):'PT';
-      const now=new Date();
-      const etStr=now.toLocaleDateString('en-US',{timeZone:'America/New_York'});
-      const [m,d,y]=etStr.split('/');
-      const pad=n=>String(n).padStart(2,'0');
-      const etDate=new Date(y+'-'+pad(m)+'-'+pad(d)+'T'+pad(cutoffHourET)+':00:00');
-      const displayLabel=etDate.toLocaleTimeString('en-US',{timeZone:_tz,hour:'numeric',minute:'2-digit',hour12:true});
-      lines.push('<div style="color:var(--text2);padding-left:10px">Options cache cutoff: '+displayLabel+' '+_tzLabel+'</div>');
-    }catch{
-      lines.push('<div style="color:var(--text2);padding-left:10px">Options cache cutoff: ET hour '+cutoffHourET+'</div>');
-    }
-  }
   if(keys.conviction_weights){
     try{
       const cw=(keys.conviction_weights&&typeof keys.conviction_weights==='object')?keys.conviction_weights:JSON.parse(keys.conviction_weights);

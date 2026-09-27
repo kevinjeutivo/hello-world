@@ -708,7 +708,7 @@
     <div class="guide-kv"><span class="guide-key">Force Refresh Everything</span><span class="guide-val">Also refreshes the VIX tab, ETF tab, Market tab, Earnings tab, and runs conviction scoring. Use when you want a complete picture, not just ticker data.</span></div>
     <div class="guide-kv"><span class="guide-key">Refresh Ticker</span><span class="guide-val">Refreshes a single ticker including options chain. Always fetches live — no cache skip. Use when you want the most current data for a specific ticker.</span></div>
     <div class="guide-h3">Options Live Window</div>
-    <div class="guide-kv"><span class="guide-key">What it is</span><span class="guide-val">9:30am – your configured cutoff (default 6pm) ET on weekdays. During this window, options data reflects live or recent market activity.</span></div>
+    <div class="guide-kv"><span class="guide-key">What it is</span><span class="guide-val">9:30am – 6pm ET on weekdays. During this window, options data reflects live or recent market activity.</span></div>
     <div class="guide-kv"><span class="guide-key">Outside window</span><span class="guide-val">Yahoo returns synthetic placeholder data with artificial IV values. The app detects this pattern and preserves your last good cache rather than overwriting with synthetic data.</span></div>
     <div class="guide-kv"><span class="guide-key">Smart skip</span><span class="guide-val">Prefetch skips re-fetching options if the cache is fresh from the most recent session and no new session has opened since. Saves network calls on intraday re-prefetches.</span></div>
     <div class="guide-h3">Cache &amp; Storage</div>
@@ -822,7 +822,6 @@
     <div class="input-group"><label class="input-label">State (for tax-equivalent yield)</label><select class="input" id="tax-state-sel" onchange="setTaxState()"></select></div>
     <div class="input-group"><label class="input-label">Your Marginal State Tax Rate (%)</label><input class="input" type="number" id="state-tax-rate-input" min="0" max="100" step="0.1" onchange="setStateTaxRate()"></div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">Used to gross up T-bill and FDLXX yields to their tax-equivalent value on the Income tab, since both are exempt from state income tax. Enter your own known marginal rate -- this isn't looked up automatically, since your actual rate depends on your specific income and filing status. Selecting a state with no income tax zeroes the rate automatically (still editable).</div>
-    <div class="input-group"><label class="input-label">Options cache write cutoff</label><select class="input" id="options-cutoff-input"></select></div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.6">After this time, existing same-day options cache is preserved rather than overwritten with potentially synthetic after-hours data.</div>
     <div class="input-group" style="display:flex;align-items:center;justify-content:space-between">
       <label class="input-label" style="margin-bottom:0">Offline Mode (skip all network fetches, serve from cache only)</label>
@@ -1683,8 +1682,7 @@ applyFontSize(fontSize);
 let watchlistSort=S.get('watchlist_sort')||'manual';
 let currentBBSpan='2y'; // timeframe for Bollinger Band chart
 let currentRPSpan='2y';  // timeframe for Relative Performance chart (independent)
-if(!S.get('options_cutoff_et'))S.set('options_cutoff_et','18');
-_updateRefreshHealthBadge(); // default 6pm ET // manual | alpha | opportunity
+_updateRefreshHealthBadge(); // manual | alpha | opportunity
 
 const DEFAULT_WATCHLIST=['NVDA','AMZN','GOOGL','GLW','MS','PANW','NET','NFLX','SHOP','ORCL','TSLA'];
 const EXP_COLORS=['#00d4aa','#ff6b35','#7c6af7','#ffa502'];

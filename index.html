@@ -100,11 +100,13 @@
   </div>
   <div id="dash-puts-card" class="card">
     <div class="card-title"><span class="dot" style="background:var(--red)"></span>Put-Selling Conviction</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">Algorithmic screening output, not a personalized recommendation.</div>
     <div id="put-dash-ts"></div>
     <div id="put-dashboard-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Press Run to generate</div></div>
   </div>
   <div id="dash-cc-card" class="card" style="display:none">
     <div class="card-title"><span class="dot" style="background:var(--green)"></span>Covered Call Conviction</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px">Algorithmic screening output, not a personalized recommendation.</div>
     <div id="cc-dash-ts"></div>
     <div id="cc-dashboard-content"><div class="empty"><div class="empty-icon">&#x1F4CA;</div>Press Run to generate</div></div>
   </div>
@@ -512,7 +514,7 @@
     <span class="gs-chevron" id="gc-conviction">&#9658;</span>
   </div>
   <div class="gs-body" id="gb-conviction">
-    <div class="commentary" style="margin-bottom:10px">A weighted nine-factor algorithm scoring each ticker's suitability for put-selling or covered-call writing. Score runs -5 to +21. Weights are adjustable in Settings.</div>
+    <div class="commentary" style="margin-bottom:10px">A weighted nine-factor algorithm scoring each ticker's suitability for put-selling or covered-call writing. Score runs -5 to +21. Weights are adjustable in Settings. This is an algorithmic screen, not a personalized recommendation -- the "Screened Strike" shown per ticker is the strike the algorithm selected against your Target APY, not a suggestion to trade it.</div>
     <div class="guide-h3">Put Conviction Factors</div>
     <div class="guide-kv"><span class="guide-key">HVR / IV Rank</span><span class="guide-val">Elevated volatility rank = more premium. Highest weight factor. HVR &gt;70 scores full points; &lt;30 scores negative (thin premiums).</span></div>
     <div class="guide-kv"><span class="guide-key">RSI</span><span class="guide-val">Oversold conditions (RSI &lt;40) favor put selling — stock more likely to bounce. Overbought (RSI &gt;70) is a negative signal for naked puts.</span></div>

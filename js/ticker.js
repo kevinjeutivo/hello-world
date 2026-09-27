@@ -2928,10 +2928,6 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span,cmpSerie
     .map((d,i)=>({d:_tkDateStr(d),i}))
     .filter(({d})=>d&&new Date(d+'T00:00:00Z')>=cutoff)
     .map(({d})=>d);
-  const spDates=hist2ySP.timestamps
-    .map((d,i)=>({d:_tkDateStr(d),i}))
-    .filter(({d})=>d&&new Date(d+'T00:00:00Z')>=cutoff)
-    .map(({d})=>d);
   const _stockFiltered=hist2y.timestamps
     .map((d,i)=>({d:_tkDateStr(d),c:hist2y.closes[i]}))
     .filter(({d})=>d&&new Date(d+'T00:00:00Z')>=cutoff);
@@ -3553,7 +3549,6 @@ async function refreshSingleTicker(){
     let optionsLoaded=false;
     // Manual refresh always fetches options -- user explicitly requested fresh data.
     // Validation still guards against writing synthetic/zeroed data over good cache.
-    const _rtInWindow=_isOptionsLiveWindow();
     // Three flags, not one -- they answer different questions and the
     // fallback check below needs to tell them apart:
     // _tickerFetchFailed: did the live fetch ITSELF fail (network error,
@@ -3595,9 +3590,10 @@ async function refreshSingleTicker(){
           const _ex=S.get('options_'+t);
           if(!_ex||_ex.synthetic)_tickerWriteFailed=true;
         }
-        // Only fetch per-expiry chains if main chain fetch was valid AND we're in live window
-        // Outside live window: use _shouldSkipOptionsFetch to correctly honor
-        // "Friday cache is still good on Monday pre-market" without re-fetching synthetic data
+        // Per-expiry chains are fetched whenever the main chain produced
+        // usable options data this run (_savedOpts), regardless of window --
+        // manual refresh always wants fresh data; validation below still
+        // guards each expiry write individually.
         const _savedOpts=S.get('options_'+t);
         if(_savedOpts){
           _pruneExpiredOptionExpiries(t);
@@ -3629,8 +3625,6 @@ async function refreshSingleTicker(){
             const _expv=_validateOptionsData(data);
             if(_expv.valid){
               {const _s=slimExpData(data);if(_s){if(!S.set(_expKey,{..._s,ts:nowPT(),tsEpoch:Date.now()}))_anyExpWriteFailed=true;}}
-            }else if(!_rtInWindow&&_hasGoodSameDayCache(_expKey)){
-              console.log(t+' '+pair.date+': outside live window, fetch INVALID ('+_expv.reason+') -- preserving same-day exp cache');
             }else if(!S.get(_expKey)){
               {const _s=slimExpData(data);if(_s)S.set(_expKey,{..._s,ts:nowPT(),tsEpoch:Date.now(),synthetic:true});}
               // Same reasoning as the ticker-level branch above -- writing a

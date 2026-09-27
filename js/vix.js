@@ -4,9 +4,6 @@
 // Globals used: vixThreshold, WORKER_URL, S
 // Dependencies: helpers.js, ui.js, storage.js
 
-// How old VIX cached data can be (minutes) before a tab switch triggers a
-// live refresh.  30 minutes matches the staleness threshold used elsewhere.
-const VIX_CACHE_FRESH_MINS=30;
 // During market hours use a shorter threshold so intraday VIX stays current
 function _vixEffectiveCacheMins(){
   try{const ms=getMarketState().state;return(ms==='open'||ms==='premarket'||ms==='afterhours')?5:30;}

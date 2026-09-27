@@ -154,13 +154,18 @@ function _validateOptionsData(data){
   return{valid:true,reason:'ok'};
 }
 
-// ── Options cache write-protection window ────────────────────────────────────
+// ── Options live-window check ─────────────────────────────────────────────
+// Fixed at 6pm ET -- previously a per-user Settings dropdown
+// (options_cutoff_et), removed since the only thing that ever read it was
+// this repair pass, for which the exact hour doesn't matter (see below).
+const OPTIONS_CUTOFF_ET_HOUR=18;
 // Returns true if the current ET time is within the live options window
-// (market open 9:30am ET through the user-configured cutoff hour, default 6pm ET).
-// Outside this window, existing same-day good cache is preserved.
+// (market open 9:30am ET through 6pm ET on weekdays).
+// Used only to gate the synthetic-cache repair pass below -- write-protection
+// against bad/empty options data is handled entirely by _validateOptionsData()
+// plus "does a real (non-synthetic) cache already exist", independent of clock time.
 function _isOptionsLiveWindow(){
   try{
-    const cutoffHourET=parseInt(S.get('options_cutoff_et')||'18');
     const now=new Date();
     const etFmt=new Intl.DateTimeFormat('en-US',{
       timeZone:'America/New_York',
@@ -180,113 +185,9 @@ function _isOptionsLiveWindow(){
     const etMin=parseInt(parts.find(p=>p.type==='minute').value);
     const etMins=etHour*60+etMin;
     const openMins=9*60+30;   // 9:30am ET
-    const cutoffMins=cutoffHourET*60; // e.g. 18:00 ET
+    const cutoffMins=OPTIONS_CUTOFF_ET_HOUR*60; // 18:00 ET
     return etMins>=openMins&&etMins<cutoffMins;
   }catch{return true;} // default to allowing write on error
-}
-
-// Returns true if the existing cached options were written during the most recent
-// trading session's live window. Protects good data written yesterday (or Friday)
-// from being overwritten during overnight/pre-market/weekend hours.
-function _hasGoodSameDayCache(cacheKey){
-  const existing=S.get(cacheKey);
-  if(!existing||existing.synthetic)return false;
-  const _wEpoch=_recEpoch(existing);
-  if(_wEpoch==null)return false;
-  try{
-    const written=new Date(_wEpoch);
-    // Good cache is valid until the NEXT trading session's live window opens
-    // (9:30am ET on the next trading day). Until then, preserve it.
-    // Strategy: if we are currently outside the live window, the cache written
-    // during any prior live window (up to 5 calendar days ago to cover weekends)
-    // is considered good and worth preserving.
-    const now=new Date();
-    const ageMs=now.getTime()-written.getTime();
-    const ageDays=ageMs/86400000;
-    // Cache older than 5 days is always stale (covers long weekends)
-    if(ageDays>5)return false;
-    // Cache written during a live window is good -- check it was written
-    // between 9:30am and the cutoff on its day
-    const writtenET=written.toLocaleTimeString('en-US',{
-      timeZone:'America/New_York',hour:'numeric',minute:'numeric',hour12:false
-    });
-    const parts=writtenET.split(':');
-    const wHour=parseInt(parts[0]),wMin=parseInt(parts[1]);
-    const wMins=wHour*60+wMin;
-    const cutoffHourET=parseInt(S.get('options_cutoff_et')||'18');
-    // Was it written during the live window on its day?
-    return wMins>=570&&wMins<(cutoffHourET*60);
-  }catch{return false;}
-}
-
-
-// Returns true if the options cache is fresh enough that a network fetch can be
-// skipped entirely. Conditions for skipping:
-//   1. Cache exists, is non-synthetic, and was written during a live window
-//   2. The most recent trading session's live window has NOT opened since the cache was written
-//      (i.e. we're in the same session or no new session has started since last fetch)
-// Always fetches if cache is >5 days old (multi-day gap / user returning after absence).
-function _shouldSkipOptionsFetch(cacheKey){
-  try{
-    const existing=S.get(cacheKey);
-    if(!existing||existing.synthetic)return false; // no cache or synthetic -- must fetch
-    const _wEpoch=_recEpoch(existing);
-    if(_wEpoch==null)return false;
-    const written=new Date(_wEpoch);
-
-    const now=new Date();
-    const ageMs=now.getTime()-written.getTime();
-    if(ageMs>5*86400000)return false; // >5 days old -- always fetch
-
-    const cutoffHourET=parseInt(S.get('options_cutoff_et')||'18');
-
-    // Helper: get ET hour+min from a Date
-    const etParts=d=>{
-      const p=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'numeric',weekday:'short',hour12:false}).formatToParts(d);
-      return{hour:parseInt(p.find(x=>x.type==='hour').value),min:parseInt(p.find(x=>x.type==='minute').value),weekday:p.find(x=>x.type==='weekday').value};
-    };
-
-    const w=etParts(written);
-    const wMins=w.hour*60+w.min;
-    const openMins=9*60+30; // 9:30am ET
-    const cutoffMins=cutoffHourET*60;
-
-    // Was cache written during a live window?
-    const writtenInLiveWindow=wMins>=openMins&&wMins<cutoffMins&&w.weekday!=='Sat'&&w.weekday!=='Sun';
-    if(!writtenInLiveWindow)return false; // cache not from a live window -- fetch
-
-    // Has a new trading session opened since the cache was written?
-    // Find the most recent 9:30am ET on a weekday on or before now
-    const nowET=etParts(now);
-    const nowMins=nowET.hour*60+nowET.min;
-
-    // Count trading days between written date and now
-    // Simple approach: if written today and no new session has opened, skip
-    const writtenDate=written.toLocaleDateString('en-US',{timeZone:'America/New_York'});
-    const todayDate=now.toLocaleDateString('en-US',{timeZone:'America/New_York'});
-    const sameDay=writtenDate===todayDate;
-
-    // If currently inside the live window, always allow fetch --
-    // user may want freshest after-hours data before their configured cutoff
-    const nowInLiveWindow=nowMins>=openMins&&nowMins<cutoffMins&&nowET.weekday!=='Sat'&&nowET.weekday!=='Sun';
-    if(nowInLiveWindow)return false; // inside live window -- always fetch
-
-    // Outside live window: skip if cache is from the same day's session
-    if(sameDay)return true; // same day, outside window -- cache is the best available
-
-    // Different day -- check if a new session has opened since the cache was written
-    const isWeekday=nowET.weekday!=='Sat'&&nowET.weekday!=='Sun';
-    const newSessionOpenedToday=isWeekday&&nowMins>=openMins;
-
-    if(newSessionOpenedToday){
-      // A new trading session has opened since the cache was written -- fetch fresh
-      return false;
-    }
-
-    // No new session has opened (overnight, weekend, pre-market) -- skip
-    return true;
-
-  }catch{return false;} // on any error, default to fetching
 }
 
 // Options tab: load, build table, OI chart.
@@ -407,8 +308,6 @@ async function loadOptionsForTicker(){
     }else{
       // Fetch live options data
       try{data=await yahooOptionsViaProxy(t);
-        const _inWindow=_isOptionsLiveWindow();
-        const _hasSameDay=_hasGoodSameDayCache('options_'+t);
         const _optVal=_validateOptionsData(data);
         if(_optVal.valid){
           // Validation passed -- write regardless of live window.
@@ -426,17 +325,12 @@ async function loadOptionsForTicker(){
           // rather than falsely claiming this render reflects fresh data.
           isLive=_wrote;
           _debugPath='live fetch valid -- wrote fresh cache (ts: '+fetchTs+')'+(_wrote?'':' [cache write failed -- see toast]');
-        }else if(!_inWindow&&_hasSameDay){
-          // Outside window AND validation failed -- preserve same-day cache
-          // since the fresh fetch is synthetic/empty and we have something better.
-          data=S.get('options_'+t).data;
-          _debugPath='outside live window, fetch INVALID ('+_optVal.reason+') -- kept same-day cache';
         }else if(!S.get('options_'+t)){
           S.set('options_'+t,{data:slimOptionsData(data),ts:fetchTs,tsEpoch:fetchTsEpoch,synthetic:true});
           _debugPath='live fetch INVALID ('+_optVal.reason+'), no prior cache -- wrote synthetic-flagged data anyway';
         }else{
           data=S.get('options_'+t).data;
-          _debugPath='live fetch INVALID ('+_optVal.reason+') -- preserved existing good cache, discarded fresh fetch';
+          _debugPath='live fetch INVALID ('+_optVal.reason+') -- preserved existing cache, discarded fresh fetch';
         }
       }catch(e){const cached=S.get('options_'+t);if(cached){data=cached.data;isLive=false;fetchTs=cached.ts;fetchTsEpoch=cached.tsEpoch;showOfflineBanner(cached.ts,cached.tsEpoch);_debugPath='fetch threw ('+(e?.message||'unknown error')+') -- fell back to cache';}else throw new Error('No options data available');}
     }
@@ -469,17 +363,12 @@ async function loadOptionsForTicker(){
         const _expKey='options_exp_'+t+'_'+pair.date;
         try{
           const ed=await yahooOptionsViaProxy(t,String(pair.ts));
-          const _expInWindow=_isOptionsLiveWindow();
-          const _expHasSameDay=_hasGoodSameDayCache(_expKey);
           const _expVal=_validateOptionsData(ed);
           if(_expVal.valid){
             // Validation passed -- write regardless of live window.
             const _slimmed=slimExpData(ed);
             if(_slimmed)S.set(_expKey,{..._slimmed,ts:nowPT(),tsEpoch:Date.now()});
             if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp fetch valid -- wrote fresh',4000);
-          }else if(!_expInWindow&&_expHasSameDay){
-            // Outside window AND invalid -- preserve same-day cache.
-            if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': outside window, fetch INVALID ('+_expVal.reason+') -- kept same-day cache',5000);
           }else{
             const _existing=S.get(_expKey);
             const ok=_existing&&!_existing.synthetic;
@@ -517,7 +406,6 @@ async function loadOptionsForTicker(){
     const snapTs=S.get('snap_'+t)?.ts||'';
     if(isLive&&snapTs){
       try{
-        const optAge=0;// just fetched
         const _snapEp=_recEpoch(S.get('snap_'+t));
         const snapAgeMins=_snapEp==null?0:(Date.now()-_snapEp)/60000;
         if(snapAgeMins>30){

@@ -25,6 +25,105 @@ function _computeBeatMissStreak(actuals){
   return{beatStreak,missStreak};
 }
 
+// Determines an Upcoming-card's report-day lifecycle state from VERIFIED
+// DATA ONLY -- never from a fetch timestamp, which only proves when we last
+// asked Yahoo something, not whether Yahoo's backend had actually processed
+// today's report by then. Yahoo's quoteSummary and the Finnhub calendar
+// update on their own independent schedules; a post-boundary fetch can
+// still return pre-earnings data.
+//
+// Three states:
+//   'before'      -- the scheduled announcement (by ET clock) hasn't
+//                     happened yet, or this card's date is still in the future
+//   'unconfirmed' -- the scheduled boundary has passed (or its timing is
+//                     unknown), but no earningsHistory entry matching this
+//                     event's own fiscal period carries a verified
+//                     actual+estimate pair yet
+//   'confirmed'   -- an earningsHistory entry matching this event's own
+//                     fiscal period has both an actual AND a matching
+//                     estimate, so beat/miss can be shown
+//
+// "Matching" an entry to this event uses the same ~45-day period-end-to-
+// announcement proximity window already used elsewhere in this file to
+// EXCLUDE this event from "previous quarter" figures -- reused here (via
+// isTodaysPeriod) for the opposite purpose, so the two can never drift
+// apart into disagreeing about which entry belongs to which event.
+//
+// eh: an earningsHistoryYahoo array (unsorted is fine). ed: a Date for the
+// announcement date (noon UTC, matching this file's existing convention).
+// earningsDate: that same date as 'YYYY-MM-DD'. earningsHour: 'bmo'|'amc'|null.
+// nowEpoch: injectable for testing; defaults to the real current time.
+function _classifyEarningsCardState(eh,ed,earningsDate,earningsHour,nowEpoch){
+  const sorted=(eh||[]).filter(e=>e.date).sort((a,b)=>b.date.localeCompare(a.date));
+  const isTodaysPeriod=e=>{
+    const daysBefore=(ed-new Date(e.date+'T12:00:00Z'))/86400000;
+    return daysBefore>=0&&daysBefore<45;
+  };
+  const todaysEntry=sorted.find(isTodaysPeriod);
+  const prevEntries=sorted.filter(e=>!isTodaysPeriod(e));
+  const confirmed=!!(todaysEntry&&todaysEntry.epsActual!=null&&todaysEntry.epsEstimate!=null);
+
+  let state;
+  if(confirmed){
+    state='confirmed';
+  }else if(earningsDate!==_todayET()){
+    state='before'; // a future (or, defensively, a past) calendar date -- unambiguous either way without data
+  }else{
+    const boundary=_todayReportBoundaryEpoch(earningsHour);
+    state=(boundary!=null&&(nowEpoch??Date.now())<boundary)?'before':'unconfirmed';
+  }
+
+  const prevActualEntry=prevEntries.find(e=>e.epsActual!=null);
+  const prevActuals=prevEntries.filter(e=>e.epsActual!=null&&e.epsEstimate!=null);
+  const{beatStreak:prevBeatStreak,missStreak:prevMissStreak}=_computeBeatMissStreak(prevActuals);
+
+  let todayBeatStreak=0,todayMissStreak=0;
+  if(confirmed){
+    // Recomputed over EVERY verified actual/estimate pair, today's included
+    // -- not the same array as prevActuals, which deliberately excludes it.
+    const allActuals=sorted.filter(e=>e.epsActual!=null&&e.epsEstimate!=null);
+    ({beatStreak:todayBeatStreak,missStreak:todayMissStreak}=_computeBeatMissStreak(allActuals));
+  }
+
+  return{
+    state,
+    prevActual:prevActualEntry?prevActualEntry.epsActual:null,
+    prevSurprisePct:prevActualEntry?prevActualEntry.surprisePercent:null,
+    prevSurpriseDollar:prevActualEntry?prevActualEntry.surpriseDollar:null,
+    prevBeatStreak,prevMissStreak,
+    todayActual:confirmed?todaysEntry.epsActual:null,
+    todayEstimate:confirmed?todaysEntry.epsEstimate:null,
+    todaySurprisePct:confirmed?todaysEntry.surprisePercent:null,
+    todaySurpriseDollar:confirmed?todaysEntry.surpriseDollar:null,
+    todayBeatStreak,todayMissStreak,
+    todaysPeriodEndDate:todaysEntry?todaysEntry.date:null
+  };
+}
+
+// Looks up the forward EPS estimate from earningsTrend's nearest period
+// ("0q"). When afterPeriodEndDate is given (state 'confirmed' only), the
+// estimate is withheld unless its own period-end is genuinely later than
+// that date -- Yahoo's earningsTrend and earningsHistory update on
+// independent schedules, so History can show today's verified actual while
+// Trend hasn't rolled forward yet and is still describing the very period
+// that just reported. Showing that stale figure labeled "next quarter"
+// would combine two different quarters under one label, which is exactly
+// what this guard exists to prevent. In 'before'/'unconfirmed' states,
+// afterPeriodEndDate is null and whatever Trend currently has is returned
+// as-is, with its own period-end always shown alongside it so nothing is
+// asserted beyond what the date itself says.
+function _nextForwardEstimate(earningsTrend,afterPeriodEndDate){
+  try{
+    const et=earningsTrend;
+    if(!et||!et.length)return{epsEst:null,epsEstEndDate:null};
+    const cur=et.find(p=>p.period==='0q')||et[0];
+    if(cur?.epsMean==null)return{epsEst:null,epsEstEndDate:null};
+    const epsEstEndDate=cur.endDate||null;
+    if(afterPeriodEndDate&&epsEstEndDate&&epsEstEndDate<=afterPeriodEndDate)return{epsEst:null,epsEstEndDate:null};
+    return{epsEst:cur.epsMean,epsEstEndDate};
+  }catch{return{epsEst:null,epsEstEndDate:null};}
+}
+
 // ── Upcoming / Recent view toggle ─────────────────────────────────────────────
 let earningsViewMode = S.get('earnings_view_mode')||'upcoming';
 const RECENT_EARNINGS_WINDOW_DAYS = 45;
@@ -348,20 +447,26 @@ async function loadEarningsTab(){
         const actuals=eh.filter(e=>e.epsActual!=null&&e.epsEstimate!=null);
         ({beatStreak,missStreak}=_computeBeatMissStreak(actuals));
       }catch{}
-      // Upcoming EPS estimate: Yahoo earningsTrend (forward-looking, already fetched via quoteSummary)
+      // Upcoming EPS estimate: Yahoo earningsTrend (forward-looking, already
+      // fetched via quoteSummary). This is a data-build-time snapshot, kept
+      // as a fallback; renderEarningsCards recomputes the forward estimate
+      // itself from the freshest snap available at render time (see
+      // _nextForwardEstimate), since a purely cache-restored render can
+      // happen long after this fetch.
       let epsEstEndDate=null;
       if(epsEst===null){try{const et=snap.earningsTrend;if(et&&et.length){const cur=et.find(p=>p.period==='0q')||et[0];if(cur?.epsMean!=null){epsEst=cur.epsMean;epsEstEndDate=cur.endDate||null;}}}catch{}}
-      // Freshness, relative to THIS card's own earnings event -- only ever
-      // non-null on the event's actual report day itself (see
-      // _earningsFreshnessLabel), the one window where a same-day report
-      // could have already updated earningsTrend/earningsHistoryYahoo
-      // without any other visible signal that it happened.
-      const freshnessLabel=_earningsFreshnessLabel(_effEarningsDate,_effEarningsHour,snap.summaryTsEpoch);
+      // NOTE: this card's report-day state (before/unconfirmed/confirmed)
+      // and its "through previous report"/"today" EPS figures are NOT
+      // computed here -- renderEarningsCards computes them itself, from the
+      // freshest snap available at render time, via _classifyEarningsCardState.
+      // Doing it here would bake in whatever was true at THIS fetch's
+      // moment, which goes stale the instant the tab is reopened later
+      // without a new fetch -- exactly the class of bug this was built to fix.
       let news=[];try{const cn=S.get('news_'+t);if(cn)news=cn.items;else{news=await fetchNews(t);S.set('news_'+t,{items:(news||[]).slice(0,10).map(n=>({headline:n.headline,summary:n.summary?n.summary.slice(0,200):null,url:n.url,source:n.source,datetime:n.datetime,sentiment:n.sentiment})),ts:nowPT(),tsEpoch:Date.now()});}}catch{}
       const ivrVal=computeIVR(t,snap.week52High,snap.week52Low,snap.price);const ivr=ivrInfo(ivrVal);
       let impliedMove=null,impliedMoveExp=null;try{if(snap.price){const _cov=_expEntryCovering(t,_effEarningsDate,_effEarningsHour);if(_cov){const _atm=_atmStraddle(_cov.entry,snap.price);if(_atm){impliedMove=(_atm.straddle/snap.price*100).toFixed(1);impliedMoveExp=_cov.date;}}}}catch{} // straddle from the first expiration that spans the report, not merely the nearest one
       const daysUntil=du; // already computed above via daysUntilDate
-      earningsAllData.push({ticker:t,snap,earningsDate:_effEarningsDate,earningsHour:_effEarningsHour,daysUntil,epsEst,epsEstEndDate,epsActualPrev,surprisePrev,surpriseDollarPrev,beatStreak,missStreak,ivrVal,ivrBadge:ivr.badge,impliedMove,impliedMoveExp,freshnessLabel,news:news.slice(0,3)});
+      earningsAllData.push({ticker:t,snap,earningsDate:_effEarningsDate,earningsHour:_effEarningsHour,daysUntil,epsEst,epsEstEndDate,epsActualPrev,surprisePrev,surpriseDollarPrev,beatStreak,missStreak,ivrVal,ivrBadge:ivr.badge,impliedMove,impliedMoveExp,news:news.slice(0,3)});
     }catch{}
     if(i<watchlist.length-1)await sleep(400);
   }
@@ -384,25 +489,74 @@ function renderEarningsCards(isLive=false){
     const cardCls=e.daysUntil<=7?'earnings-card earnings-card-urgent':e.daysUntil<=21?'earnings-card earnings-card-soon':'earnings-card earnings-card-normal';
     const timing=e.earningsHour==='bmo'?' (before open)':e.earningsHour==='amc'?' (after close)':'';
     const urgency=e.daysUntil===0?'TODAY':e.daysUntil===1?'TOMORROW':'In '+e.daysUntil+' days';
+
+    // Report-day state (before/unconfirmed/confirmed), computed fresh on
+    // every render from whatever snap is freshest in storage right now --
+    // not from whatever was true when earningsAllData was last fetched, and
+    // never from a fetch timestamp. See _classifyEarningsCardState.
+    const liveSnap=S.get('snap_'+e.ticker)||e.snap;
+    const ed=new Date(e.earningsDate+'T12:00:00Z');
+    const cls=_classifyEarningsCardState(liveSnap.earningsHistoryYahoo||[],ed,e.earningsDate,e.earningsHour);
+    const fwd=_nextForwardEstimate(liveSnap.earningsTrend,cls.state==='confirmed'?cls.todaysPeriodEndDate:null);
+    const badgeBeatStreak=cls.state==='confirmed'?cls.todayBeatStreak:cls.prevBeatStreak;
+    const badgeMissStreak=cls.state==='confirmed'?cls.todayMissStreak:cls.prevMissStreak;
+
     let guidance='';
-    if(e.daysUntil<=14){guidance='Earnings within 2 weeks -- avoid options expirations that straddle this date. ';if(e.ivrVal&&e.ivrVal>60)guidance+='IV elevated ahead of earnings -- go wider OTM if selling options. ';guidance+='Consider waiting until after the announcement for IV crush to remove event risk.';}
-    else if(e.daysUntil<=35){guidance='Earnings in 2-5 weeks. Confirm your expirations do not straddle this date. ';if(e.beatStreak>=3)guidance+='Strong beat streak -- put selling may be favorable on post-announcement pullbacks. ';if(e.missStreak>=2)guidance+='Recent miss streak -- elevated event risk, consider wider strikes or avoiding this name around earnings. ';}
-    else{guidance='Earnings far enough out that near-term options are generally safe. ';if(e.impliedMove)guidance+=`Options imply about +/-${e.impliedMove}% by the ${_expLabel(e.impliedMoveExp)} expiration, which spans earnings.`;}
+    if(cls.state==='before'){
+      if(e.daysUntil<=14){guidance='Earnings within 2 weeks -- avoid options expirations that straddle this date. ';if(e.ivrVal&&e.ivrVal>60)guidance+='IV elevated ahead of earnings -- go wider OTM if selling options. ';guidance+='Consider waiting until after the announcement for IV crush to remove event risk.';}
+      else if(e.daysUntil<=35){guidance='Earnings in 2-5 weeks. Confirm your expirations do not straddle this date. ';if(badgeBeatStreak>=3)guidance+='Strong beat streak -- put selling may be favorable on post-announcement pullbacks. ';if(badgeMissStreak>=2)guidance+='Recent miss streak -- elevated event risk, consider wider strikes or avoiding this name around earnings. ';}
+      else{guidance='Earnings far enough out that near-term options are generally safe. ';if(e.impliedMove)guidance+=`Options imply about +/-${e.impliedMove}% by the ${_expLabel(e.impliedMoveExp)} expiration, which spans earnings.`;}
+    }else if(cls.state==='unconfirmed'){
+      // The announcement has happened (or plausibly has -- timing unknown),
+      // but nothing here claims it's still ahead of us the way the 'before'
+      // guidance does.
+      guidance='Earnings reported today, but not yet confirmed in our data -- IV crush is likely already underway. Confirm the actual results directly before writing or rolling options on this name; a verified comparison will appear here once Yahoo updates.';
+    }else{ // confirmed
+      const beat=cls.todaySurprisePct!=null?cls.todaySurprisePct>0:(cls.todaySurpriseDollar!=null?cls.todaySurpriseDollar>0:null);
+      guidance='Earnings reported today'+(beat===true?' -- beat estimate.':beat===false?' -- missed estimate.':'.')+' IV crush has likely already occurred. ';
+      if(badgeBeatStreak>=3)guidance+='Strong beat streak including today -- post-announcement pullbacks may offer favorable put-selling setups. ';
+      if(badgeMissStreak>=2)guidance+='Miss streak including today -- elevated event risk, consider wider strikes or avoiding this name around earnings. ';
+    }
+
     const newsHtml=e.news?.length?e.news.map(n=>{const s=newsSentiment(n.headline);return`<div style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:3px"><span style="${s.css}">${sentDot(s)}</span> ${_escHtml(n.headline.slice(0,80))}...</div>`;}).join(''):'';
     const starLabel=starred.has(e.ticker)?'<span style="font-size:15px;color:#ffc107;margin-left:4px" title="Starred">&#9733;</span>':'';
+    const streakQualifier=cls.state==='confirmed'?' (incl. today)':cls.state==='unconfirmed'?' (thru prior report)':'';
+    const streakBadge=badgeBeatStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(0,200,150,0.2);color:var(--green)">Beat Streak: ${badgeBeatStreak}Qs${streakQualifier}</span>`:'';
+    const missBadge=badgeMissStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,71,87,0.2);color:var(--red)">Miss Streak: ${badgeMissStreak}Qs${streakQualifier}</span>`:'';
+
+    // EPS grid: entirely different content per state so figures from
+    // different fiscal periods are never combined under one label.
+    let epsGridHtml;
+    if(cls.state==='before'){
+      epsGridHtml=`<div><span style="color:var(--text3);font-size:9px;display:block">EPS ESTIMATE${fwd.epsEstEndDate?' (period end '+fwd.epsEstEndDate+')':''}</span>${fwd.epsEst!=null?`$${fwd.epsEst.toFixed(2)}`:'N/A'}</div>
+        <div><span style="color:var(--text3);font-size:9px;display:block">PRIOR ACTUAL</span>${cls.prevActual!=null?`$${cls.prevActual.toFixed(2)}`:'N/A'}</div>
+        ${cls.prevSurprisePct!=null?`<div style="grid-column:span 2"><span style="color:${cls.prevSurprisePct>0?'var(--green)':'var(--red)'}">${cls.prevSurprisePct>0?'+':''}${cls.prevSurprisePct.toFixed(1)}% surprise last Q</span></div>`
+          :cls.prevSurpriseDollar!=null?`<div style="grid-column:span 2"><span style="color:${cls.prevSurpriseDollar>0?'var(--green)':'var(--red)'}" title="Estimate too close to zero for a meaningful percentage">${cls.prevSurpriseDollar>0?'+':''}$${cls.prevSurpriseDollar.toFixed(2)} surprise last Q</span></div>`
+          :''}`;
+    }else if(cls.state==='unconfirmed'){
+      epsGridHtml=`<div style="grid-column:span 2"><span style="color:var(--warn)">Today's EPS comparison unavailable</span></div>
+        <div><span style="color:var(--text3);font-size:9px;display:block">EPS ACTUAL (THROUGH PREVIOUS REPORT)</span>${cls.prevActual!=null?`$${cls.prevActual.toFixed(2)}`:'N/A'}</div>
+        <div><span style="color:var(--text3);font-size:9px;display:block">NEXT QUARTER ESTIMATE${fwd.epsEstEndDate?' (period end '+fwd.epsEstEndDate+')':''}</span>${fwd.epsEst!=null?`$${fwd.epsEst.toFixed(2)}`:'N/A'}</div>
+        ${cls.prevSurprisePct!=null?`<div style="grid-column:span 2"><span style="color:${cls.prevSurprisePct>0?'var(--green)':'var(--red)'}">${cls.prevSurprisePct>0?'+':''}${cls.prevSurprisePct.toFixed(1)}% surprise (through previous report)</span></div>`
+          :cls.prevSurpriseDollar!=null?`<div style="grid-column:span 2"><span style="color:${cls.prevSurpriseDollar>0?'var(--green)':'var(--red)'}" title="Estimate too close to zero for a meaningful percentage">${cls.prevSurpriseDollar>0?'+':''}$${cls.prevSurpriseDollar.toFixed(2)} surprise (through previous report)</span></div>`
+          :''}`;
+    }else{ // confirmed
+      epsGridHtml=`<div><span style="color:var(--text3);font-size:9px;display:block">EPS ACTUAL (TODAY)</span>${cls.todayActual!=null?`$${cls.todayActual.toFixed(2)}`:'N/A'}</div>
+        <div><span style="color:var(--text3);font-size:9px;display:block">EPS ESTIMATE (TODAY)</span>${cls.todayEstimate!=null?`$${cls.todayEstimate.toFixed(2)}`:'N/A'}</div>
+        ${cls.todaySurprisePct!=null?`<div style="grid-column:span 2"><span style="font-weight:600;color:${cls.todaySurprisePct>0?'var(--green)':'var(--red)'}">${cls.todaySurprisePct>0?'+':''}${cls.todaySurprisePct.toFixed(1)}% surprise today</span></div>`
+          :cls.todaySurpriseDollar!=null?`<div style="grid-column:span 2"><span style="font-weight:600;color:${cls.todaySurpriseDollar>0?'var(--green)':'var(--red)'}" title="Estimate too close to zero for a meaningful percentage">${cls.todaySurpriseDollar>0?'+':''}$${cls.todaySurpriseDollar.toFixed(2)} surprise today</span></div>`
+          :''}
+        ${fwd.epsEst!=null?`<div style="grid-column:span 2;padding-top:4px;border-top:1px solid rgba(255,255,255,0.05)"><span style="color:var(--text3);font-size:9px;display:block">NEXT QUARTER ESTIMATE${fwd.epsEstEndDate?' (period end '+fwd.epsEstEndDate+')':''}</span>$${fwd.epsEst.toFixed(2)}</div>`:''}`;
+    }
+
     return`<div class="${cardCls}" onclick="navigateToTicker('${e.ticker}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
         <div><span style="font-family:var(--sans);font-size:20px;font-weight:700;color:var(--accent)">${e.ticker}</span>${starLabel}${e.snap.price?`<span style="font-family:var(--mono);font-size:13px;color:var(--text2);margin-left:8px">$${e.snap.price.toFixed(2)}</span>`:''}</div>
         <div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--warn)">${urgency}</div><div style="font-family:var(--mono);font-size:11px;color:var(--text2)">${e.earningsDate}${timing}</div></div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">${e.ivrBadge||''}${e.impliedMove?`<span title="From the ${_expLabel(e.impliedMoveExp)} options expiration (first one spanning earnings)" style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(124,106,247,0.2);color:#b39ddb">Implied +/-${e.impliedMove}%</span>`:''}${e.beatStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(0,200,150,0.2);color:var(--green)">Beat Streak: ${e.beatStreak}Qs</span>`:''}${e.missStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,71,87,0.2);color:var(--red)">Miss Streak: ${e.missStreak}Qs</span>`:''}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">${e.ivrBadge||''}${e.impliedMove?`<span title="From the ${_expLabel(e.impliedMoveExp)} options expiration (first one spanning earnings)" style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(124,106,247,0.2);color:#b39ddb">Implied +/-${e.impliedMove}%</span>`:''}${streakBadge}${missBadge}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;font-family:var(--mono);font-size:11px">
-        <div><span style="color:var(--text3);font-size:9px;display:block">EPS ESTIMATE${e.epsEstEndDate?' (period end '+e.epsEstEndDate+')':''}</span>${e.epsEst!==null?`$${e.epsEst.toFixed(2)}`:'N/A'}</div>
-        <div><span style="color:var(--text3);font-size:9px;display:block">PRIOR ACTUAL</span>${e.epsActualPrev!==null?`$${e.epsActualPrev.toFixed(2)}`:'N/A'}</div>
-        ${e.freshnessLabel?`<div style="grid-column:span 2"><span style="color:var(--text2)">${e.freshnessLabel}</span></div>`:''}
-        ${e.surprisePrev!==null?`<div style="grid-column:span 2"><span style="color:${e.surprisePrev>0?'var(--green)':'var(--red)'}">${e.surprisePrev>0?'+':''}${e.surprisePrev.toFixed(1)}% surprise last Q</span></div>`
-          :e.surpriseDollarPrev!=null?`<div style="grid-column:span 2"><span style="color:${e.surpriseDollarPrev>0?'var(--green)':'var(--red)'}" title="Estimate too close to zero for a meaningful percentage">${e.surpriseDollarPrev>0?'+':''}$${e.surpriseDollarPrev.toFixed(2)} surprise last Q</span></div>`
-          :''}
+        ${epsGridHtml}
         ${e.snap.shortRatio?`<div><span style="color:var(--text3);font-size:9px;display:block">SHORT RATIO</span>${e.snap.shortRatio.toFixed(1)}d</div>`:''}
         ${e.snap.beta?`<div><span style="color:var(--text3);font-size:9px;display:block">BETA</span>${e.snap.beta.toFixed(2)}</div>`:''}
       </div>

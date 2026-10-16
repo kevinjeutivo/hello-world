@@ -158,6 +158,10 @@ let _activeMenuTicker=null;
 function _posExpiryStatusWL(pos){
   // Inline version of _posExpiryStatus from income.js -- avoids cross-module dependency
   const today=new Date();today.setHours(0,0,0,0);
+  if(pos.rolledAt){
+    const rolled=new Date(pos.rolledAt);rolled.setHours(0,0,0,0);
+    return Math.round((today-rolled)/86400000)>7?'remove':'expired-linger';
+  }
   const exp=new Date(pos.expDate+'T12:00:00Z');
   const d=Math.round((exp-today)/86400000);
   if(d<-7)return'remove';
@@ -180,11 +184,11 @@ function _getIncomePositionsForTicker(ticker){
     let puts=[],ccs=[];
     try{
       puts=(S.get('income_'+a.id+'_put_positions')||[])
-        .filter(p=>p&&p.ticker===ticker&&_posExpiryStatusWL(p)!=='remove');
+        .filter(p=>p&&p.ticker===ticker&&!p.rolledAt&&['active','expiring-soon','expiring-imminent'].includes(_posExpiryStatusWL(p)));
     }catch(e){console.warn('put_positions read failed for account',a.id,e?.message);}
     try{
       ccs=(S.get('income_'+a.id+'_cc_positions')||[])
-        .filter(p=>p&&p.ticker===ticker&&_posExpiryStatusWL(p)!=='remove');
+        .filter(p=>p&&p.ticker===ticker&&!p.rolledAt&&['active','expiring-soon','expiring-imminent'].includes(_posExpiryStatusWL(p)));
     }catch(e){console.warn('cc_positions read failed for account',a.id,e?.message);}
     if(puts.length||ccs.length) result.push({acctName:a.name,acctId:a.id,acctIdx:i,puts,ccs});
   });

@@ -184,6 +184,13 @@ test('the VP chart label and the analysis text both call formatVPLevel',()=>{
   assert(/formatVPLevel\(nr,currentPrice\)/.test(vpSection),'resistance analysis text must use formatVPLevel');
 });
 
+test('the 52-week high/low chart labels also use formatVPLevel, not a flat .toFixed(0)',()=>{
+  assert(!tickerSrc.includes("'52H $'+w52h.toFixed(0)"),'52H label should no longer round to whole dollars unconditionally');
+  assert(!tickerSrc.includes("'52L $'+w52l.toFixed(0)"),'52L label should no longer round to whole dollars unconditionally');
+  assert(/fillText\('52H '\+formatVPLevel\(w52h,currentPrice\)/.test(tickerSrc),'52H label must use formatVPLevel');
+  assert(/fillText\('52L '\+formatVPLevel\(w52l,currentPrice\)/.test(tickerSrc),'52L label must use formatVPLevel');
+});
+
 test('support/resistance classification (vpBelow/vpAbove) still compares unrounded vpLevels against unrounded currentPrice',()=>{
   const vpSection=tickerSrc.slice(tickerSrc.indexOf('const vpBelow='),tickerSrc.indexOf('const vpBelow=')+300);
   assert(vpSection.includes('vpLevels.filter(l=>l<=currentPrice)'),'classification must stay based on the unrounded comparison, not a rounded one');

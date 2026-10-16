@@ -1259,52 +1259,32 @@ function openIncomeOverview(){
     const _cashRemaining = _cashAvail - putNotional;
     const _cashColor = _cashRemaining >= 0 ? 'var(--text2)' : 'var(--red)';
 
-    // Urgency: find worst status across all active positions
-    const allActive = [...activePuts, ...activeCCs];
-    let urgency = 'none';
-    let urgencyColor = 'var(--text3)';
-    let urgencyLabel = '';
-
-    let itmPutFlag = '';
-    let itmCCFlag = '';
-    let expiringPutFlag = '';
-    let expiringCCFlag = '';
-    if(allActive.length){
-      const statuses = allActive.map(p => _posExpiryStatus(p));
-      if(statuses.includes('expiring-imminent')){ urgency='imminent'; urgencyColor='var(--red)'; urgencyLabel='⚠ Expires ≤2d'; }
-      else if(statuses.includes('expiring-soon')){ urgency='soon'; urgencyColor='var(--warn)'; urgencyLabel='⚡ Expires ≤7d'; }
-      else{ urgencyLabel=''; }
-
-      // Expiring counts per type
-      const expiringPuts = activePuts.filter(p => { const s=_posExpiryStatus(p); return s==='expiring-soon'||s==='expiring-imminent'; });
-      const expiringCCs  = activeCCs.filter(p  => { const s=_posExpiryStatus(p); return s==='expiring-soon'||s==='expiring-imminent'; });
-      const expiringColor = statuses.includes('expiring-imminent') ? 'var(--red)' : 'var(--warn)';
-      if(expiringPuts.length) expiringPutFlag = `<span style="color:${expiringColor};font-size:10px;margin-left:6px">⚡ ${expiringPuts.length} expiring</span>`;
-      if(expiringCCs.length)  expiringCCFlag  = `<span style="color:${expiringColor};font-size:10px;margin-left:6px">⚡ ${expiringCCs.length} expiring</span>`;
-
-      // ITM check on puts and covered calls
-      const itmPuts = activePuts.filter(p => {
-        const pricing = _getPosPricing(p);
-        return pricing.itm === true;
-      });
-      const itmCCs = activeCCs.filter(p => {
-        const pricing = _getPosPricing(p, true);
-        return pricing.itm === true;
-      });
-      if(itmPuts.length) itmPutFlag = `<span style="color:var(--red);font-size:10px;margin-left:6px">⚠ ${itmPuts.length} ITM put${itmPuts.length!==1?'s':''}</span>`;
-      if(itmCCs.length) itmCCFlag = `<span style="color:var(--red);font-size:10px;margin-left:6px">⚠ ${itmCCs.length} ITM CC${itmCCs.length!==1?'s':''}</span>`;
-    }
+    // Independent per-type status badges. The red intersection appears only
+    // when an active ITM position actually expires within two days.
+    const _overviewBadges = (positions, isCC) => {
+      const imminent = p => _posExpiryStatus(p) === 'expiring-imminent';
+      const expiring = positions.filter(imminent);
+      const itm = positions.filter(p => _getPosPricing(p, isCC).itm === true);
+      const urgent = itm.filter(imminent);
+      const badge = (label, color) => `<span style="display:inline-block;white-space:nowrap;border:1px solid ${color};border-radius:5px;padding:1px 5px;color:${color};font-size:10px;line-height:1.5">${label}</span>`;
+      const labels = [];
+      if(expiring.length) labels.push(badge(`⚡ ${expiring.length} expiring`, 'var(--warn)'));
+      if(itm.length) labels.push(badge(`${itm.length} ITM`, 'var(--text2)'));
+      if(urgent.length) labels.push(badge(`${urgent.length} ITM + expiring`, 'var(--red)'));
+      return labels.length ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin:3px 0 6px">${labels.join('')}</div>` : '';
+    };
+    const putBadges = _overviewBadges(activePuts, false);
+    const ccBadges = _overviewBadges(activeCCs, true);
 
     const isActive = a.id === _activeAccountId;
     const safeOverviewId=/^acct_[A-Za-z0-9_]{1,40}$/.test(a.id)?a.id:null;
     return `<div style="background:${isActive?'var(--surface2)':'var(--surface)'};border:1px solid var(--border);border-left:3px solid ${color};border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer" ${safeOverviewId?`onclick="_switchFromOverview('${safeOverviewId}')"`:''}>` +
       `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">` +
         `<div style="font-family:var(--sans);font-size:13px;font-weight:700;color:${color}">${_escHtml(a.name)}${isActive?' <span style="font-size:9px;color:var(--text3)">(active)</span>':''}</div>` +
-        `<div style="font-family:var(--mono);font-size:10px;color:${urgencyColor}">${urgencyLabel}</div>` +
       `</div>` +
       `<div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.8">` +
-        `<div>Puts: ${activePuts.length} position${activePuts.length!==1?'s':''} · ${_fmtDollar(putNotional)} notional${expiringPutFlag}${itmPutFlag}</div>` +
-        `<div>CCs: ${activeCCs.length} position${activeCCs.length!==1?'s':''} · ${_fmtDollar(ccNotional)} notional${expiringCCFlag}${itmCCFlag}</div>` +
+        `<div>Puts: ${activePuts.length} position${activePuts.length!==1?'s':''} · ${_fmtDollar(putNotional)} notional</div>${putBadges}` +
+        `<div>CCs: ${activeCCs.length} position${activeCCs.length!==1?'s':''} · ${_fmtDollar(ccNotional)} notional</div>${ccBadges}` +
         `<div style="color:${_cashColor}">Cash for new CSPs: ${_fmtDollar(_cashRemaining)} remaining</div>` +
       `</div>` +
     `</div>`;

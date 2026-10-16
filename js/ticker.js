@@ -3339,7 +3339,7 @@ function renderVPChart(hist1y,currentPrice,w52h,w52l){
           c.setLineDash([4,4]);c.lineWidth=1.5;c.strokeStyle='rgba(0,212,170,0.8)';
           c.beginPath();c.moveTo(xL,y);c.lineTo(vpBarX-2,y);c.stroke();c.setLineDash([]);
           c.fillStyle='rgba(0,212,170,0.9)';
-          c.fillText('S/R $'+lvl.toFixed(0),xL+2,clampY(y-3));
+          c.fillText('S/R '+formatVPLevel(lvl,currentPrice).text,xL+2,clampY(y-3));
         });
 
         // ── 52W high/low ──
@@ -3348,14 +3348,14 @@ function renderVPChart(hist1y,currentPrice,w52h,w52l){
           c.setLineDash([6,3]);c.lineWidth=1.2;c.strokeStyle='rgba(255,71,87,0.7)';
           c.beginPath();c.moveTo(xL,y);c.lineTo(vpBarX-2,y);c.stroke();c.setLineDash([]);
           c.fillStyle='rgba(255,71,87,0.9)';c.font='bold 9px DM Mono,monospace';
-          c.fillText('52H $'+w52h.toFixed(0),xL+2,clampY(y-3));
+          c.fillText('52H '+formatVPLevel(w52h,currentPrice).text,xL+2,clampY(y-3));
         }
         if(w52l&&w52l>=yA.min&&w52l<=yA.max){
           const y=yA.getPixelForValue(w52l);
           c.setLineDash([6,3]);c.lineWidth=1.2;c.strokeStyle='rgba(0,200,150,0.7)';
           c.beginPath();c.moveTo(xL,y);c.lineTo(vpBarX-2,y);c.stroke();c.setLineDash([]);
           c.fillStyle='rgba(0,200,150,0.9)';c.font='bold 9px DM Mono,monospace';
-          c.fillText('52L $'+w52l.toFixed(0),xL+2,clampY(y+10));
+          c.fillText('52L '+formatVPLevel(w52l,currentPrice).text,xL+2,clampY(y+10));
         }
 
         // ── Round numbers (subtle) ──
@@ -3381,11 +3381,23 @@ function renderVPChart(hist1y,currentPrice,w52h,w52l){
       }
     }]
   });
+  // Classification (which bucket a level falls into) stays based on the
+  // UNROUNDED prices, exactly as before -- only how each chosen level gets
+  // DISPLAYED changes (formatVPLevel, helpers.js). Mixing rounded-for-display
+  // values into this comparison would reintroduce the same class of bug.
   const vpBelow=vpLevels.filter(l=>l<=currentPrice);const vpAbove=vpLevels.filter(l=>l>currentPrice);
   const ns=vpBelow.length?Math.max(...vpBelow):null;const nr=vpAbove.length?Math.min(...vpAbove):null;
   let analysis='Volume Profile shows where the most shares traded over the past year. High-volume zones act as support (from above) and resistance (from below).\n';
-  if(ns){const pct=((currentPrice-ns)/currentPrice*100).toFixed(1);analysis+=`\nNearest VP support: $${ns.toFixed(0)} (${pct}% below). Selling puts above this level aligns with natural market maker buying.\n`;}
-  if(nr){const pct=((nr-currentPrice)/currentPrice*100).toFixed(1);analysis+=`\nNearest VP resistance: $${nr.toFixed(0)} (${pct}% above). For covered calls, selling just below this uses natural resistance as a buffer.\n`;}
+  if(ns!=null){
+    const fmt=formatVPLevel(ns,currentPrice);
+    if(fmt.atCurrent)analysis+=`\nNearest VP support: at current price (${fmt.text}).\n`;
+    else{const pct=((currentPrice-ns)/currentPrice*100).toFixed(1);analysis+=`\nNearest VP support: ${fmt.text} (${pct}% below). Selling puts above this level aligns with natural market maker buying.\n`;}
+  }
+  if(nr!=null){
+    const fmt=formatVPLevel(nr,currentPrice);
+    if(fmt.atCurrent)analysis+=`\nNearest VP resistance: at current price (${fmt.text}).\n`;
+    else{const pct=((nr-currentPrice)/currentPrice*100).toFixed(1);analysis+=`\nNearest VP resistance: ${fmt.text} (${pct}% above). For covered calls, selling just below this uses natural resistance as a buffer.\n`;}
+  }
   analysis+='\nBlue line = current price. Teal = VP levels. Orange dashed = 50d MA. Purple dashed = 200d MA.\nRight panel: horizontal volume bars. Teal = highest-volume zones (strongest S/R).';
   const vpEl=document.getElementById('vp-analysis');if(vpEl)vpEl.innerHTML=`<div class="commentary" style="margin-top:8px">${analysis}</div>`;
 }

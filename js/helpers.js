@@ -1210,6 +1210,35 @@ function computeVolumeProfile(closes,volumes,nBuckets=40,topN=5){const pairs=clo
 
 function getRoundNumbers(price,w=0.25){const low=price*(1-w),high=price*(1+w);const step=price>=500?50:price>=100?25:price>=50?10:5;const rounds=[];let v=Math.floor(low/step)*step;while(v<=high){if(v>=low&&v<=high)rounds.push(v);v+=step;}return rounds;}
 
+// Formats a support/resistance (or similar reference) price level for
+// display such that, after rounding, a level genuinely above currentPrice
+// can never display as equal to or less than currentPrice's own displayed
+// value -- and symmetrically for a level below. This controls DISPLAY
+// PRECISION ONLY: whether a level counts as support or resistance must
+// already be decided from the unrounded prices before calling this: this
+// function never reclassifies, it only chooses how many decimals to show.
+//
+// Levels within half a cent of currentPrice are reported as "at current
+// price" explicitly (atCurrent:true) rather than forced into an
+// above/below framing that isn't meaningful at that distance -- callers
+// should drop any "% above/below" wording and any buffer-based guidance
+// (e.g. covered-call buffer) when atCurrent is true, since there's no
+// meaningful room for either.
+function formatVPLevel(level,currentPrice){
+  const ATOL=0.005; // half a cent -- effectively the same price
+  if(Math.abs(level-currentPrice)<ATOL)return{text:'$'+level.toFixed(2),atCurrent:true};
+  const isAbove=level>currentPrice;
+  for(let decimals=2;decimals<=4;decimals++){
+    const lvlNum=parseFloat(level.toFixed(decimals));
+    const curNum=parseFloat(currentPrice.toFixed(decimals));
+    if(isAbove?lvlNum>curNum:lvlNum<curNum)return{text:'$'+level.toFixed(decimals),atCurrent:false};
+  }
+  // Given the ATOL guard above already requires at least a half-cent gap,
+  // 4 decimals is always enough to preserve ordering -- this is an honesty
+  // fallback for a case that shouldn't be reachable, not a silent default.
+  return{text:'$'+level.toFixed(4),atCurrent:false};
+}
+
 // computeIVR: Historical Volatility Rank (HVR)
 // Compares today's 21-day realized volatility against its own 1-year range.
 // Apples-to-apples comparison eliminates the volatility risk premium bias.

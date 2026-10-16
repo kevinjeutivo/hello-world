@@ -213,7 +213,12 @@ test('an entry outside the 45-day window on the near side (e.g. 44 days before) 
   const almostOut=periodEndStr(44);
   const justOut=periodEndStr(45);
   const r1=classify([{date:almostOut,epsActual:1,epsEstimate:0.9,surprisePercent:11.1,surpriseDollar:0.1}],todayET,'bmo');
-  const r2=classify([{date:justOut,epsActual:1,epsEstimate:0.9,surprisePercent:11.1,surpriseDollar:0.1}],todayET,'bmo');
+  // r2 has no matching entry (by design -- that's what's under test), so
+  // unlike r1 its state falls through to the before/unconfirmed boundary
+  // check, which depends on nowEpoch -- pin it reliably past the boundary
+  // so this doesn't flake depending on what time of day the suite runs.
+  const boundary=boundaryEpoch('bmo');
+  const r2=classify([{date:justOut,epsActual:1,epsEstimate:0.9,surprisePercent:11.1,surpriseDollar:0.1}],todayET,'bmo',boundary+60000);
   assert.strictEqual(r1.state,'confirmed',"44 days before should still match today's event");
   assert.strictEqual(r2.state,'unconfirmed',"45 days before should be treated as a genuinely separate (prior) quarter, not today's");
 });

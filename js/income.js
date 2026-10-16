@@ -1243,8 +1243,8 @@ function openIncomeOverview(){
     const ccs  = (S.get(_acctKeyFor(a.id, 'cc_positions'))  || [])
       .filter(p => _posExpiryStatus(p) !== 'remove');
 
-    const activePuts = puts.filter(p => !p.rolledAt && _posExpiryStatus(p) !== 'expired-linger');
-    const activeCCs  = ccs.filter(p  => !p.rolledAt && _posExpiryStatus(p) !== 'expired-linger');
+    const activePuts = puts.filter(p => _posExpiryStatus(p) !== 'expired-linger');
+    const activeCCs  = ccs.filter(p  => _posExpiryStatus(p) !== 'expired-linger');
 
     const putNotional = activePuts.reduce((s,p) => s + _posNotional(p), 0);
     const ccNotional  = activeCCs.reduce((s,p)  => s + _ccPosNotional(p), 0);

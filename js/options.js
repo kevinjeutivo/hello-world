@@ -342,19 +342,7 @@ async function loadOptionsForTicker(){
     // Yahoo is strict about timestamp matching -- using a converted date string
     // causes empty options arrays to be returned.
     const rawExpTimestamps=yr?.expirationDates||[];
-    const allExpPairs=rawExpTimestamps.map(ts=>({
-      ts,
-      date:new Date(ts*1000).toISOString().split('T')[0]
-    }));
-    // Prefer standard monthly expirations (3rd Fri/Thu, 15th-21st)
-    let monthlyPairs=allExpPairs.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;}).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
-    if(monthlyPairs.length===0){
-      const twoWeeksOut=Date.now()+14*86400000;
-      monthlyPairs=allExpPairs.filter(p=>p.ts*1000>=twoWeeksOut).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
-      if(monthlyPairs.length===0)monthlyPairs=allExpPairs.sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
-    }
-    const monthly=monthlyPairs.map(p=>p.date);
-    currentExpirations=monthly;selectedExpirations=[...monthly];
+    const monthlyPairs=_futureMonthlyOptionPairs(rawExpTimestamps);
     _pruneExpiredOptionExpiries(t);
     // Per-expiry chains only when we actually fetched the main chain live.
     // Cache-served navigations skip this block entirely -- no network calls.
@@ -378,6 +366,14 @@ async function loadOptionsForTicker(){
         }catch(e){if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp fetch ERROR: '+(e?.message||'unknown'),5000);console.warn(t+' '+pair.date+': exp fetch error',e?.message);}
       }));
     }
+    // Show only future expirations with real, usable cached chains. An absent
+    // January chain must not displace good November/December chains or produce
+    // an empty button. Invalid/synthetic refreshes never qualify.
+    const monthly=monthlyPairs.map(p=>p.date).filter(e=>{
+      const entry=S.get('options_exp_'+t+'_'+e);
+      return entry&&!entry.synthetic&&(_expPuts(entry).length>0||_expCalls(entry).length>0);
+    });
+    currentExpirations=monthly;selectedExpirations=[...monthly];
     const chipsEl=document.getElementById('exp-chips');
     chipsEl.innerHTML=monthly.map(e=>{
       const _ec=S.get('options_exp_'+t+'_'+e);
@@ -386,8 +382,13 @@ async function loadOptionsForTicker(){
       const _ecTitle=_ecTs?('Cached '+_ecTs+(_ecAge?' ('+_ecAge+')':'')):'No timestamp (legacy cache)';
       return`<div class="exp-chip selected" id="chip-${e}" onclick="toggleExp('${e}')" title="${_ecTitle}">${e}</div>`;
     }).join('');
-    document.getElementById('exp-section').style.display='block';
+    document.getElementById('exp-section').style.display=monthly.length?'block':'none';
     loadOptionsPrefs();
+    if(!monthly.length){
+      document.getElementById('options-content').innerHTML='<div class="card"><div class="empty">No valid future options chains cached. Try refreshing when market data is available.</div></div>';
+      document.getElementById('oi-chart-section').style.display='none';
+      return;
+    }
     // Check for OI data availability -- show amber box if missing. Uses
     // the per-expiration cache for the nearest just-fetched monthly date
     // directly (monthly[0]), rather than yr's own embedded data -- the

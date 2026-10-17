@@ -1750,7 +1750,9 @@ function setWheelBacktestExampleRunMode(mode){
 // result" that the Scope dropdown controls. Shares the Preferred
 // Expiration and Target APY settings from the main card, so it stays
 // consistent with whatever that's currently showing.
-function _wheelBacktestRankingRowHtml(r,rank,target,starred){
+function _wheelBacktestRankingRowHtml(r,rank,target,starred,mode){
+  const selected=mode==='worst'?r.worst:r.median;
+  const metricLabel=mode==='worst'?'Worst':'Median';
   const isStarred=starred&&starred.has(r.ticker);
   const starLabel=isStarred?`<span style="font-size:11px;color:#ffc107" title="Starred">&#9733;</span>`:'';
   return`<div style="padding:8px 0;border-bottom:1px solid var(--surface3)">
@@ -1764,7 +1766,7 @@ function _wheelBacktestRankingRowHtml(r,rank,target,starred){
         <span onclick="_wheelBacktestViewTickerFromRanking('${r.ticker}')" style="font-size:9px;color:var(--accent);text-decoration:underline;cursor:pointer;padding:3px 4px;white-space:nowrap">View analysis</span>
       </span>
       <span style="flex:1;display:flex;justify-content:flex-end">
-        <span style="font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent);white-space:nowrap">${r.median>=0?'+':''}${r.median.toFixed(1)}%</span>
+        <span style="font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent);white-space:nowrap"><span style="font-size:9px;color:var(--text3);margin-right:5px">${metricLabel}</span>${selected>=0?'+':''}${selected.toFixed(1)}%</span>
       </span>
     </div>
     ${_wheelBacktestRangeBarSvg(r.worst,r.median,r.best,target)}
@@ -1821,6 +1823,27 @@ function renderWheelBacktestRanking(){
 let _wheelbtLastRankingResult=null;
 let _wheelbtLastRankingTarget=null;
 let _wheelbtRankingFilterMode='all';
+let _wheelbtRankingMode='median'; // UI-only; defaults to existing behavior each launch
+function setWheelBacktestRankingMode(mode){
+  if(mode!=='median'&&mode!=='worst')return;
+  _wheelbtRankingMode=mode;
+  _renderWheelBacktestRankingFromResult(_wheelbtLastRankingResult,_wheelbtLastRankingTarget);
+}
+function _syncWheelBacktestRankingModeUI(){
+  for(const mode of ['median','worst']){
+    const btn=document.getElementById('wheelbt-ranking-mode-'+mode);
+    if(!btn)continue;
+    const active=mode===_wheelbtRankingMode;
+    btn.style.background=active?'var(--accent)':'var(--surface3)';
+    btn.style.color=active?'#000':'var(--text3)';
+    btn.setAttribute('aria-pressed',String(active));
+  }
+  const desc=document.getElementById('wheelbt-ranking-description');
+  if(desc)desc.textContent=_wheelbtRankingMode==='worst'
+    ?'Every qualifying watchlist ticker ranked by its lowest simulated return across evaluated windows (highest minimum first) -- not a maximum-loss forecast. Ranking covers the whole watchlist regardless of Scope above. Uses Preferred Expiration and Target APY from the card above.'
+    :'Every qualifying watchlist ticker ranked by median simulated return (highest first) -- regardless of the Scope selection above. Uses the Preferred Expiration and Target APY settings from the card above.';
+}
+
 function setWheelBacktestRankingFilter(mode){
   _wheelbtRankingFilterMode=mode;
   const allBtn=document.getElementById('wheelbt-ranking-filter-all');
@@ -1837,12 +1860,13 @@ function setWheelBacktestRankingFilter(mode){
 function _renderWheelBacktestRankingFromResult(result,target){
   const content=document.getElementById('wheelbt-ranking-content');
   if(!content)return;
+  _syncWheelBacktestRankingModeUI();
   if(!result||!result.perTickerRanking||!result.perTickerRanking.length){
     content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>Not enough cached price history to rank any watchlist ticker yet. Run Prefetch All or Full Refresh first, and allow time for 2 years of history to accumulate.</div>';
     return;
   }
   const starred=_starredTickers();
-  let list=result.perTickerRanking;
+  let list=[...result.perTickerRanking];
   if(_wheelbtRankingFilterMode==='starred'){
     list=list.filter(r=>starred.has(r.ticker));
     if(!list.length){
@@ -1850,11 +1874,12 @@ function _renderWheelBacktestRankingFromResult(result,target){
       return;
     }
   }
+  list.sort((a,b)=>b[_wheelbtRankingMode]-a[_wheelbtRankingMode] || a.ticker.localeCompare(b.ticker));
   // Renumbered relative to whatever's actually shown -- when filtered to
   // Starred, "#1" means "your best-ranked starred ticker," not its
   // original rank among the whole watchlist.
   content.innerHTML='<div style="font-size:9px;color:var(--text3);line-height:1.4;padding:0 2px 10px">Modeled from realized volatility, not real historical option quotes -- a rough scenario model, not a live-tradeable backtest. Rankings can shift meaningfully once real option-chain data is used.</div>'
-    +list.map((r,i)=>_wheelBacktestRankingRowHtml(r,i+1,target,starred)).join('');
+    +list.map((r,i)=>_wheelBacktestRankingRowHtml(r,i+1,target,starred,_wheelbtRankingMode)).join('');
 }
 
 // ── Coordinator ──────────────────────────────────────────────────────────

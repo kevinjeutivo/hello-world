@@ -2560,6 +2560,36 @@ function _urgencyFactorForDays(days){
   return 0.6;
 }
 
+// Active OTM positions near the strike, kept separate from the existing ITM ranking.
+function _computeApproachingStrike(threshold){
+  const accounts=S.get('income_accounts_meta')||[];
+  const rows=[];
+  const today=new Date();today.setHours(0,0,0,0);
+  accounts.forEach(acct=>{
+    const collect=(pos,isCall)=>{
+      const status=_posExpiryStatus(pos);
+      if(status==='remove'||status==='expired-linger'||pos.rolledAt)return;
+      const price=_getPosPricing(pos,isCall).currentPrice;
+      const strike=Number(pos.strike);
+      if(!Number.isFinite(price)||price<=0||!Number.isFinite(strike)||strike<=0)return;
+      // A call is OTM below its strike; a put is OTM above its strike.
+      if(isCall?price>=strike:price<=strike)return;
+      const distancePct=Math.abs(strike-price)/price*100;
+      if(distancePct>threshold)return;
+      const exp=new Date(pos.expDate+'T12:00:00Z');
+      if(!Number.isFinite(exp.getTime()))return;
+      const daysToExpiry=Math.round((exp-today)/86400000);
+      if(daysToExpiry<0)return;
+      rows.push({ticker:pos.ticker,accountId:acct.id,accountName:acct.name||acct.id,
+        isCall,strike,currentPrice:price,distancePct,daysToExpiry});
+    };
+    (S.get('income_'+acct.id+'_put_positions')||[]).forEach(pos=>collect(pos,false));
+    (S.get('income_'+acct.id+'_cc_positions')||[]).forEach(pos=>collect(pos,true));
+  });
+  rows.sort((a,b)=>a.daysToExpiry-b.daysToExpiry||a.distancePct-b.distancePct||a.ticker.localeCompare(b.ticker));
+  return rows;
+}
+
 function _computeAssignmentRisk(){
   const accounts=S.get('income_accounts_meta')||[];
   const rows=[];

@@ -629,6 +629,14 @@ function _supplementConfirmedEarnings(ticker,earningsCalendar){
 // "current" expiration set is in play: a held position can't have a past
 // expDate without already having been auto-evicted elsewhere in the app, so
 // this doesn't need to reconcile against any specific selection to be correct.
+// Future standard monthly expirations from Yahoo metadata. Compare date strings in
+// UTC (not local midnight) so the expiration remains selectable on its date.
+function _futureMonthlyOptionPairs(rawTimestamps, today=fmtDate(new Date())){
+  const pairs=(rawTimestamps||[]).filter(ts=>Number.isFinite(ts)&&ts>0).map(ts=>({ts,date:new Date(ts*1000).toISOString().slice(0,10)})).filter(p=>p.date>=today).sort((a,b)=>a.date.localeCompare(b.date));
+  const monthly=pairs.filter(p=>{const d=new Date(p.date+'T12:00:00Z');return(d.getUTCDay()===5||d.getUTCDay()===4)&&d.getUTCDate()>=15&&d.getUTCDate()<=21;});
+  return (monthly.length?monthly:pairs).slice(0,3);
+}
+
 function _pruneExpiredOptionExpiries(ticker){
   try{
     const prefix='options_exp_'+ticker+'_';

@@ -421,11 +421,7 @@ function renderAssignmentRisk(){
   const content=document.getElementById('assignment-risk-content');
   if(!content)return;
   const rows=_computeAssignmentRisk();
-  if(!rows.length){
-    content.innerHTML='<div class="empty"><div class="empty-icon">&#x1F4CA;</div>No positions currently ITM</div>';
-    return;
-  }
-  content.innerHTML=rows.map(r=>{
+  const itmHtml=rows.length?rows.map(r=>{
     const kindLabel=r.isCall?'Call':'Put';
     const urgentColor=r.daysToExpiry<=7?'var(--red)':r.daysToExpiry<=21?'var(--warn)':'var(--text2)';
     const tvStr=r.timeValue!=null?'$'+r.timeValue.toFixed(0):'--';
@@ -445,7 +441,36 @@ function renderAssignmentRisk(){
       </div>
       ${earningsStr?`<div style="font-family:var(--mono);font-size:10px;margin-top:2px">${earningsStr}</div>`:''}
     </div>`;
-  }).join('');
+  }).join(''):'<div class="empty">No positions currently ITM</div>';
+  const threshold=Number(S.get('risk_proximity_pct'))||2;
+  const nearby=_computeApproachingStrike(threshold);
+  const controls='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">'
+    +'<span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--warn)">Approaching Strike ('+nearby.length+')</span>'
+    +'<label style="font-family:var(--mono);font-size:10px;color:var(--text3)">Within <select class="input" style="font-size:11px;padding:3px" onchange="setRiskProximityThreshold(this.value)">'
+    +[1,2,3,5].map(n=>'<option value="'+n+'"'+(n===threshold?' selected':'')+'>'+n+'%</option>').join('')+'</select></label></div>';
+  const nearHtml=nearby.length?nearby.map(r=>{
+    const kind=r.isCall?'Call':'Put';
+    const urgency=r.daysToExpiry<=2?'var(--warn)':'var(--text3)';
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--surface3)">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer" onclick="navigateToTicker('${r.ticker}')">${r.ticker}</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--text3);cursor:pointer;text-decoration:underline" onclick="navigateToAccount('${r.accountId}')">${r.accountName}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;margin-top:3px">
+        <span style="color:var(--text2)">${kind} $${formatStrike(r.strike)} vs $${r.currentPrice.toFixed(2)}</span>
+        <span style="color:var(--warn);font-weight:600">${r.distancePct.toFixed(1)}% OTM</span>
+      </div>
+      <div style="font-family:var(--mono);font-size:10px;color:${urgency};margin-top:2px">${r.daysToExpiry===0?'Expires today':r.daysToExpiry+'d to expiry'}</div>
+    </div>`;
+  }).join(''):'<div class="empty">No active OTM positions within '+threshold+'% of their strike</div>';
+  content.innerHTML=itmHtml+'<div style="border-top:1px solid var(--border);margin:18px 0 12px;padding-top:14px">'
+    +controls+'<div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">Active OTM positions · soonest expiry first, then closest strike. Based on cached prices.</div>'
+    +nearHtml+'</div>';
+}
+
+function setRiskProximityThreshold(value){
+  if(!['1','2','3','5'].includes(String(value)))return;
+  if(S.set('risk_proximity_pct',String(value)))renderAssignmentRisk();
 }
 
 // ── Valuation view (sector-grouped P/E & PEG comparison) ────────────────────

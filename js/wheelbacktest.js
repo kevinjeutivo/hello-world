@@ -1753,6 +1753,8 @@ function setWheelBacktestExampleRunMode(mode){
 function _wheelBacktestRankingRowHtml(r,rank,target,starred,mode){
   const selected=mode==='worst'?r.worst:r.median;
   const metricLabel=mode==='worst'?'Worst':'Median';
+  const otherLabel=mode==='worst'?'Median':'Worst';
+  const other=mode==='worst'?r.median:r.worst;
   const isStarred=starred&&starred.has(r.ticker);
   const starLabel=isStarred?`<span style="font-size:11px;color:#ffc107" title="Starred">&#9733;</span>`:'';
   return`<div style="padding:8px 0;border-bottom:1px solid var(--surface3)">
@@ -1765,8 +1767,9 @@ function _wheelBacktestRankingRowHtml(r,rank,target,starred,mode){
       <span style="flex:1;display:flex;justify-content:center">
         <span onclick="_wheelBacktestViewTickerFromRanking('${r.ticker}')" style="font-size:9px;color:var(--accent);text-decoration:underline;cursor:pointer;padding:3px 4px;white-space:nowrap">View analysis</span>
       </span>
-      <span style="flex:1;display:flex;justify-content:flex-end">
+      <span style="flex:1;display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:2px;min-width:0">
         <span style="font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent);white-space:nowrap"><span style="font-size:9px;color:var(--text3);margin-right:5px">${metricLabel}</span>${selected>=0?'+':''}${selected.toFixed(1)}%</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--text3);white-space:nowrap">${otherLabel}: ${other>=0?'+':''}${other.toFixed(1)}%</span>
       </span>
     </div>
     ${_wheelBacktestRangeBarSvg(r.worst,r.median,r.best,target)}

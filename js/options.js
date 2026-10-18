@@ -206,6 +206,7 @@ function updateSlider(id){
 function clearOptionsState(){
   document.getElementById('exp-section').style.display='none';
   const freshness=document.getElementById('options-freshness-container');if(freshness)freshness.innerHTML='';
+  _optionsFreshnessFailures=[];
   document.getElementById('options-content').innerHTML='';
   document.getElementById('options-earnings-warn').innerHTML='';
   document.getElementById('oi-chart-section').style.display='none';
@@ -228,6 +229,7 @@ function setMode(mode){
   }
 }
 
+let _optionsFreshnessFailures=[];
 // Build 538: presentation only. Never treat a fetch timestamp as a quote timestamp.
 function _optionsFreshnessModel(t,expirations){
   const rows=expirations.slice().sort().map(date=>{
@@ -256,6 +258,18 @@ function _optionsFreshnessHtml(model,failures=[]){
 function _renderOptionsFreshness(t,expirations,failures=[]){
   const el=document.getElementById('options-freshness-container');
   if(el)el.innerHTML=_optionsFreshnessHtml(_optionsFreshnessModel(t,expirations),failures);
+}
+
+// Refresh presentation from existing cache only. In particular, a Ticker-tab
+// manual refresh can update these records without changing the Options ticker.
+function _syncOptionsFreshness(){
+  const selected=document.getElementById('options-ticker-select')?.value||'';
+  const el=document.getElementById('options-freshness-container');
+  if(!el||!selected||selected!==lastOptionsTickerLoaded||!currentExpirations.length)return;
+  const wasOpen=!!el.querySelector('details')?.open;
+  _renderOptionsFreshness(selected,currentExpirations,_optionsFreshnessFailures);
+  const details=el.querySelector('details');
+  if(details)details.open=wasOpen;
 }
 
 function toggleExp(e){
@@ -288,6 +302,7 @@ function saveOptionsPrefs(){
 
 async function loadOptionsForTicker(){
   const t=document.getElementById('options-ticker-select').value;if(!t){clearOptionsState();return;}
+  _optionsFreshnessFailures=[];
   _pruneExpiredOptionExpiries(t);
   // Repair: clear any synthetic per-expiry cache written outside the live window
   // so stale synthetic data doesn't display as real data
@@ -416,6 +431,7 @@ async function loadOptionsForTicker(){
       return`<div class="exp-chip selected" id="chip-${e}" onclick="toggleExp('${e}')" title="${_ecTitle}">${e}</div>`;
     }).join('');
     document.getElementById('exp-section').style.display=monthly.length?'block':'none';
+    _optionsFreshnessFailures=_failedExpirations;
     _renderOptionsFreshness(t,monthly,_failedExpirations);
     loadOptionsPrefs();
     if(!monthly.length){

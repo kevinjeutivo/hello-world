@@ -205,6 +205,7 @@ function updateSlider(id){
 
 function clearOptionsState(){
   document.getElementById('exp-section').style.display='none';
+  const freshness=document.getElementById('options-freshness-container');if(freshness)freshness.innerHTML='';
   document.getElementById('options-content').innerHTML='';
   document.getElementById('options-earnings-warn').innerHTML='';
   document.getElementById('oi-chart-section').style.display='none';
@@ -225,6 +226,36 @@ function setMode(mode){
   if(currentOptionsData&&lastOptionsTickerLoaded&&optSel===lastOptionsTickerLoaded){
     buildOptionsTable();
   }
+}
+
+// Build 538: presentation only. Never treat a fetch timestamp as a quote timestamp.
+function _optionsFreshnessModel(t,expirations){
+  const rows=expirations.slice().sort().map(date=>{
+    const cache=S.get('options_exp_'+t+'_'+date);
+    const epoch=_recEpoch(cache);
+    return {date,ts:cache?.ts||'',epoch,age:epoch==null?'--':relAge('',epoch)};
+  });
+  const metadata=S.get('options_'+t);
+  const snap=S.get('snap_'+t);
+  return {rows,metadata:{ts:metadata?.ts||'',epoch:_recEpoch(metadata)},price:{ts:snap?.ts||'',epoch:_recEpoch(snap)}};
+}
+function _optionsFreshnessHtml(model,failures=[]){
+  const shortDate=d=>{const parts=d.split('-');const m=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][Number(parts[1])-1]||'--';return m+' '+Number(parts[2]);};
+  const summary=model.rows.map(r=>shortDate(r.date)+': '+r.age).join(' · ')||'No cached chains';
+  const time=(r)=>r.epoch==null?'--':_escHtml(r.ts||new Date(r.epoch).toLocaleString());
+  const line=(label,rec)=>'<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:5px 0"><span style="color:var(--text3)">'+_escHtml(label)+'</span><span>'+time(rec)+'</span></div>';
+  return '<details id="options-freshness" style="font-family:var(--mono);font-size:10px;color:var(--text2);margin:0 0 9px">'
+    +'<summary style="cursor:pointer;line-height:1.6;overflow-wrap:anywhere;color:var(--text3)">Fetched · '+_escHtml(summary)+'</summary>'
+    +'<div style="padding:8px 10px;margin-top:5px;border:1px solid var(--border);border-radius:7px">'
+    +(failures.length?'<div style="color:var(--warn);margin-bottom:8px">Refresh unsuccessful for '+_escHtml(failures.join(', '))+'. Previously cached chains retained where available.</div>':'')
+    +model.rows.map(r=>line(r.date,r)).join('')
+    +line('Expiration metadata',model.metadata)+line('Underlying price',model.price)
+    +'<div style="color:var(--text3);margin-top:8px;line-height:1.5">Fetched times show when Income Engine received data, not when Yahoo updated individual option quotes. Missing timestamps are shown as --.</div>'
+    +'</div></details>';
+}
+function _renderOptionsFreshness(t,expirations,failures=[]){
+  const el=document.getElementById('options-freshness-container');
+  if(el)el.innerHTML=_optionsFreshnessHtml(_optionsFreshnessModel(t,expirations),failures);
 }
 
 function toggleExp(e){
@@ -346,6 +377,7 @@ async function loadOptionsForTicker(){
     _pruneExpiredOptionExpiries(t);
     // Per-expiry chains only when we actually fetched the main chain live.
     // Cache-served navigations skip this block entirely -- no network calls.
+    const _failedExpirations=[];
     if(_fetchedLive){
       await Promise.all(monthlyPairs.map(async pair=>{
         const _expKey='options_exp_'+t+'_'+pair.date;
@@ -358,12 +390,13 @@ async function loadOptionsForTicker(){
             if(_slimmed)S.set(_expKey,{..._slimmed,ts:nowPT(),tsEpoch:Date.now()});
             if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp fetch valid -- wrote fresh',4000);
           }else{
+            _failedExpirations.push(pair.date);
             const _existing=S.get(_expKey);
             const ok=_existing&&!_existing.synthetic;
             if(!ok){const _s=slimExpData(ed);if(_s)S.set(_expKey,{..._s,ts:nowPT(),tsEpoch:Date.now(),synthetic:true});if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp INVALID ('+_expVal.reason+') no prior cache -- wrote synthetic',5000);}
             else{if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp INVALID ('+_expVal.reason+') -- kept stale cache',5000);console.warn(t+' '+pair.date+': rejecting fresh fetch ('+_expVal.reason+'), preserving cache from '+(_existing?.ts||'unknown ts'));}
           }
-        }catch(e){if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp fetch ERROR: '+(e?.message||'unknown'),5000);console.warn(t+' '+pair.date+': exp fetch error',e?.message);}
+        }catch(e){_failedExpirations.push(pair.date);if(S.get('debug_options_fetch')==='true')toast(t+' '+pair.date+': exp fetch ERROR: '+(e?.message||'unknown'),5000);console.warn(t+' '+pair.date+': exp fetch error',e?.message);}
       }));
     }
     // Show only future expirations with real, usable cached chains. An absent
@@ -383,6 +416,7 @@ async function loadOptionsForTicker(){
       return`<div class="exp-chip selected" id="chip-${e}" onclick="toggleExp('${e}')" title="${_ecTitle}">${e}</div>`;
     }).join('');
     document.getElementById('exp-section').style.display=monthly.length?'block':'none';
+    _renderOptionsFreshness(t,monthly,_failedExpirations);
     loadOptionsPrefs();
     if(!monthly.length){
       document.getElementById('options-content').innerHTML='<div class="card"><div class="empty">No valid future options chains cached. Try refreshing when market data is available.</div></div>';

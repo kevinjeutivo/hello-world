@@ -14,12 +14,50 @@ function setDashboardViewMode(mode){
   _syncDashboardViewModeUI();
 }
 
+// Counts active ITM positions approaching expiration across every income account.
+// Reuses the same status and pricing decisions as the Income tab and ITM Risk view.
+function _dashboardITMExpiryAlert(){
+  const result={soon:0,imminent:0};
+  const accounts=S.get('income_accounts_meta')||[];
+  for(const acct of accounts){
+    for(const [suffix,isCall] of [['put_positions',false],['cc_positions',true]]){
+      for(const pos of S.get('income_'+acct.id+'_'+suffix)||[]){
+        try{
+          const status=_posExpiryStatus(pos);
+          if(status!=='expiring-soon'&&status!=='expiring-imminent')continue;
+          const pricing=_getPosPricing(pos,isCall);
+          if(pricing.currentPrice==null||!Number.isFinite(Number(pricing.currentPrice))||Number(pricing.currentPrice)<=0||pricing.itm!==true)continue;
+          if(status==='expiring-imminent')result.imminent++;
+          else result.soon++;
+        }catch{} // A malformed record must not prevent the other accounts from rendering.
+      }
+    }
+  }
+  return result;
+}
+
+function _renderDashboardITMExpiryAlert(){
+  const badge=document.getElementById('dash-risk-expiry-alert');
+  if(!badge)return;
+  const {soon,imminent}=_dashboardITMExpiryAlert();
+  const count=soon+imminent;
+  badge.style.display=count?'inline-flex':'none';
+  badge.textContent=count?String(count):'';
+  badge.style.background=imminent?'var(--red)':'var(--warn)';
+  badge.style.color=imminent?'#fff':'#111';
+  badge.title=imminent
+    ?`${count} active ITM position(s) expiring within 7 days; ${imminent} within 2 days`
+    :count?`${count} active ITM position(s) expiring within 7 days`:'';
+  badge.setAttribute('aria-label',badge.title);
+}
+
 function _syncDashboardViewModeUI(){
   const putsBtn=document.getElementById('dash-view-puts'),ccBtn=document.getElementById('dash-view-cc'),rsiBtn=document.getElementById('dash-view-rsi'),riskBtn=document.getElementById('dash-view-risk'),gapBtn=document.getElementById('dash-view-gap'),notesBtn=document.getElementById('dash-view-notes'),wheelbtBtn=document.getElementById('dash-view-wheelbt'),valuationBtn=document.getElementById('dash-view-valuation');
   if(putsBtn)putsBtn.style.opacity=dashboardViewMode==='puts'?'1':'0.4';
   if(ccBtn)ccBtn.style.opacity=dashboardViewMode==='cc'?'1':'0.4';
   if(rsiBtn)rsiBtn.style.opacity=dashboardViewMode==='rsi'?'1':'0.4';
   if(riskBtn)riskBtn.style.opacity=dashboardViewMode==='risk'?'1':'0.4';
+  _renderDashboardITMExpiryAlert();
   if(gapBtn)gapBtn.style.opacity=dashboardViewMode==='gap'?'1':'0.4';
   if(notesBtn)notesBtn.style.opacity=dashboardViewMode==='notes'?'1':'0.4';
   if(wheelbtBtn)wheelbtBtn.style.opacity=dashboardViewMode==='wheelbt'?'1':'0.4';

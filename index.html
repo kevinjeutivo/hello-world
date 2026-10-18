@@ -279,6 +279,7 @@
       <button class="mode-btn" id="mode-calls" onclick="setMode('calls')">Sell Calls</button>
     </div>
     <div id="exp-section" style="display:none">
+      <div id="options-freshness-container"></div>
       <label class="input-label">Expirations (tap to toggle)</label>
       <div class="exp-chips" id="exp-chips"></div>
       <div class="slider-wrap"><div class="slider-row"><span class="slider-label">% Below Price</span><span class="slider-val" id="pct-below-val">20%</span></div><input type="range" id="pct-below" min="1" max="50" value="20" oninput="updateSlider('pct-below')"></div>

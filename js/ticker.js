@@ -1225,7 +1225,13 @@ function _nextFYRevisionRows(entries){
     const delta=(i&&eps!==null&&old!==null)?eps-old:null;
     return {date:e?.date??null,eps,delta,deltaPct:delta!==null&&old!==0?delta/Math.abs(old)*100:null,
       multiple:typeof e?.multiple==='number'&&Number.isFinite(e.multiple)?e.multiple:null,isFirst:i===0};
-  }).reverse();
+  }).map((row,i)=>({...row,_recordIndex:i})).sort((a,b)=>{
+    // Dates can repeat or move backwards when cached price history lags.
+    // Sort for display only; deltas were computed in original recording order.
+    const ad=typeof a.date==='string'?a.date:'';
+    const bd=typeof b.date==='string'?b.date:'';
+    return bd.localeCompare(ad)||b._recordIndex-a._recordIndex;
+  }).map(({_recordIndex,...row})=>row);
 }
 
 function _nextFYRevisionTable(entries){

@@ -3735,6 +3735,8 @@ async function refreshSingleTicker(){
     // Re-render ticker tab with fresh data
     currentTicker=t;
     await loadTicker();
+    // A manual refresh may update option caches while the Options tab remains mounted.
+    if(document.getElementById('options-ticker-select')?.value===t)_syncOptionsFreshness();
     toast(t+' refreshed'+(optionsLoaded?' including options':''),3000);
     // Update health record for this ticker
     try{

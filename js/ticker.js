@@ -1215,6 +1215,59 @@ function _mhOnSliderInput(ticker){
   multChart.update('none');
 }
 
+// Pure transformation of recorded observations; rows are newest first.
+function _nextFYRevisionRows(entries){
+  if(!Array.isArray(entries))return [];
+  return entries.map((e,i)=>{
+    const prev=i?entries[i-1]:null;
+    const eps=(typeof e?.nextFYEps==='number'&&Number.isFinite(e.nextFYEps))?e.nextFYEps:null;
+    const old=(typeof prev?.nextFYEps==='number'&&Number.isFinite(prev.nextFYEps))?prev.nextFYEps:null;
+    const delta=(i&&eps!==null&&old!==null)?eps-old:null;
+    return {date:e?.date??null,eps,delta,deltaPct:delta!==null&&old!==0?delta/Math.abs(old)*100:null,
+      multiple:typeof e?.multiple==='number'&&Number.isFinite(e.multiple)?e.multiple:null,isFirst:i===0};
+  }).reverse();
+}
+
+function _nextFYRevisionTable(entries){
+  const rows=_nextFYRevisionRows(entries);
+  if(rows.length<2)return '<div style="color:var(--text3);font-size:10px">No revisions noticed yet -- only the initial estimate has been recorded.</div>';
+  const fmt=(v,d)=>v===null?'--':v.toFixed(d);
+  const signed=(v,d)=>v===null?'--':(v>0?'+':'')+v.toFixed(d);
+  return rows.map(r=>{
+    const color=r.delta===null?'var(--text3)':r.delta>0?'var(--green)':r.delta<0?'var(--red)':'var(--text3)';
+    const change=r.isFirst?'first observed':signed(r.delta,Math.abs(r.delta??0)<0.005?4:2)+' ('+signed(r.deltaPct,2)+'%)';
+    return '<div style="display:grid;grid-template-columns:75px 55px minmax(0,1fr) 43px;gap:5px;padding:5px 0;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:9px;align-items:center">'
+      +'<span style="color:var(--text3)">'+_escHtml(String(r.date??'--'))+'</span>'
+      +'<span>$'+fmt(r.eps,2)+'</span>'
+      +'<span style="color:'+color+';overflow-wrap:anywhere">'+_escHtml(change)+'</span>'
+      +'<span style="text-align:right">'+(r.multiple===null?'--':fmt(r.multiple,1)+'x')+'</span></div>';
+  }).join('');
+}
+
+function _nextFYRevisionSection(track,hist){
+  const archived=(Array.isArray(hist)?hist:[]).slice().reverse().map((h,i)=>
+    '<div class="gs-header" onclick="_nextFYToggleRevisions(\'nextfy-revisions-archive-'+i+'\',\'nextfy-revisions-chevron-'+i+'\')" style="margin-top:6px">'
+    +'<span style="font-family:var(--mono);font-size:10px;color:var(--text3)">FY end '+_escHtml(String(h?.fyEndDate??'--'))+'</span>'
+    +'<span class="gs-chevron" id="nextfy-revisions-chevron-'+i+'">&#9658;</span></div>'
+    +'<div class="gs-body" id="nextfy-revisions-archive-'+i+'">'+_nextFYRevisionTable(h?.entries)+'</div>'
+  ).join('');
+  return '<div class="gs-header" onclick="_nextFYToggleRevisions(\'nextfy-revisions-body\',\'nextfy-revisions-chevron\')" style="margin-top:9px">'
+    +'<span style="font-family:var(--mono);font-size:10px;color:var(--text2)">EPS estimate revisions noticed</span>'
+    +'<span class="gs-chevron" id="nextfy-revisions-chevron">&#9658;</span></div>'
+    +'<div class="gs-body" id="nextfy-revisions-body" style="max-height:180px;overflow-y:auto">'
+    +'<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin:6px 0">Current FY</div>'
+    +_nextFYRevisionTable(track?.entries)+archived
+    +'<div style="font-size:9px;color:var(--text3);margin-top:8px">Dates are when this app first noticed a new estimate. Revisions between refreshes can be missed, so this is a sampled record, not a complete change log.</div>'
+    +'</div>';
+}
+function _nextFYToggleRevisions(bodyId,chevronId){
+  const body=document.getElementById(bodyId),chevron=document.getElementById(chevronId);
+  if(!body)return;
+  const open=!body.classList.contains('open');
+  body.classList.toggle('open',open);
+  if(chevron)chevron.classList.toggle('open',open);
+}
+
 function _buildNextFYCard(ticker){
   const track=S.get('nextfy_track_'+ticker);
   const hist=S.get('nextfy_hist_'+ticker)||[];
@@ -1233,6 +1286,7 @@ function _buildNextFYCard(ticker){
   const body=hasAny
     ?legendHtml+'<div class="chart-wrap" style="height:140px"><canvas id="nextfy-price-chart"></canvas></div>'
      +'<div class="chart-wrap" style="height:140px;margin-top:4px"><canvas id="nextfy-mult-chart"></canvas></div>'
+     +_nextFYRevisionSection(track,hist)
      +'<div id="nextfy-slider-container" style="margin-top:10px"></div>'
      +'<div class="commentary" style="margin-top:10px">Price divided by next fiscal year\'s consensus EPS estimate -- the mainstream "next year\'s earnings multiple" figure most analyst coverage actually means, deliberately kept separate from the TTM-composite basis in the Multiple History card above (a different metric, not another view of the same one). Drag the slider to explore what price a different multiple implies by fiscal year-end, holding the next-FY EPS estimate fixed. Rolls to a new fiscal year automatically once this one\'s "+1y" target advances, archiving the prior year\'s full tracked series permanently.</div>'
      +debugToggle

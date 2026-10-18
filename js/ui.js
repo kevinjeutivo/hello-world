@@ -507,7 +507,7 @@ function showTab(name){
       // Ticker changed -- reset scroll and load fresh
       _tabScrollPos['options']=0;
       loadOptionsForTicker();
-    }else restoreOIChartFromCache();
+    }else{restoreOIChartFromCache();_syncOptionsFreshness();}
   }
   if(name==='vix'){const vc=document.getElementById('vix-content');if(!vc||vc.querySelector('.empty'))restoreVIXFromCache();}
   if(name==='earnings'){const ec=document.getElementById('earnings-content');if(!ec||ec.querySelector('.empty'))renderCurrentEarningsView();}

@@ -15,4 +15,23 @@ const missing=ctx._nextFYRevisionRows([{nextFYEps:null},{nextFYEps:2}]);assert.e
 const html=ctx._nextFYRevisionSection({entries},[{fyEndDate:'2025-12-31',entries}]);assert.match(html,/FY end 2025-12-31/);assert.match(html,/sampled record/);assert.match(html,/EPS estimate revisions noticed/);
 assert.match(src,/\+_nextFYRevisionSection\(track,hist\)/);
 assert(src.indexOf('+_nextFYRevisionSection(track,hist)')<src.indexOf("+'<div id=\"nextfy-slider-container\""));
+// Date order can disagree with observation order when the cached trading date lags.
+const unordered=[
+  {date:'2026-09-08',nextFYEps:15.52,multiple:14.5},
+  {date:'2026-09-11',nextFYEps:15.57,multiple:14.2},
+  {date:'2026-09-11',nextFYEps:15.52,multiple:14.2},
+  {date:'2026-09-10',nextFYEps:15.57,multiple:14.0},
+  {date:'2026-09-15',nextFYEps:15.61,multiple:13.6}
+];
+const snapshot=JSON.stringify(unordered);
+const sorted=ctx._nextFYRevisionRows(unordered);
+assert.deepEqual(Array.from(sorted,r=>r.date),['2026-09-15','2026-09-11','2026-09-11','2026-09-10','2026-09-08']);
+assert.equal(sorted[1].eps,15.52); // later of the two Sep 11 observations first
+assert.equal(sorted[2].eps,15.57);
+assert(Math.abs(sorted[1].delta+0.05)<1e-10);
+assert(Math.abs(sorted[2].delta-0.05)<1e-10);
+assert(Math.abs(sorted[3].delta-0.05)<1e-10); // delta follows recording order, not display order
+assert.equal(JSON.stringify(unordered),snapshot); // never mutate stored history
+const rendered=ctx._nextFYRevisionTable(unordered);
+assert(rendered.indexOf('2026-09-10')>rendered.lastIndexOf('2026-09-11'));
 console.log('Next-FY revision tests passed');

@@ -282,7 +282,7 @@ function _buildEarningsHistory(ticker){
     const snap=S.get('snap_'+t);
     const nextEarnings=snap?.earningsDate||null;
     const today=_todayET();
-    const confirmed=S.get('earnings_confirmed_'+t)||[];
+    const confirmed=(S.get('earnings_confirmed_'+t)||[]).filter(c=>_isVerifiedEarningsDate(t,c.date));
     let results=[];
 
     // ── Part 1: backward-stepping + gap refinement ──────────────────────────
@@ -368,7 +368,7 @@ function _buildEarningsHistory(ticker){
       .sort((a,b)=>a.date.localeCompare(b.date));
 
     const _existing=S.get('earnings_hist_'+t);
-    const _existingData=_existing?.data||[];
+    const _existingData=(_existing?.data||[]).filter(e=>e.override||_isVerifiedEarningsDate(t,e.date)||e.source!=='auto-confirmed');
     if(sorted.length||_existingData.some(e=>e.override)){
       // Preserve any existing manual overrides before overwriting. Each old
       // override can only match one fresh entry (fixes a real bug: two
@@ -598,6 +598,47 @@ function _todayETStart(){
   return new Date(dateStr+'T00:00:00'+offsetStr);
 }
 
+// A past calendar observation is not proof of an earnings announcement.
+// A future report in the same ~quarter window is positive evidence that an
+// automatically tracked past date may be a superseded estimate. Never
+// override a user's explicit correction with this heuristic.
+function _earningsConflictsWithUpcoming(ticker,pastDate){
+  if(!pastDate)return false;
+  const next=S.get('snap_'+ticker)?.earningsDate;
+  if(!next||next<=pastDate||next<_todayET())return false;
+  const delta=(Date.parse(next+'T12:00:00Z')-Date.parse(pastDate+'T12:00:00Z'))/86400000;
+  return delta>0&&delta<=45;
+}
+// Yahoo earningsHistory entries use fiscal-quarter dates, not announcement
+// dates. Require a reported EPS actual for a quarter ending 0-75 days before
+// the proposed announcement, and no subsequent quarterly actual before it.
+function _hasEarningsActualEvidence(ticker,eventDate){
+  if(!eventDate||_earningsConflictsWithUpcoming(ticker,eventDate))return false;
+  const history=S.get('snap_'+ticker)?.earningsHistoryYahoo||[];
+  return history.some(e=>{
+    if(!e.date||e.epsActual==null||!Number.isFinite(Number(e.epsActual)))return false;
+    const days=(Date.parse(eventDate+'T12:00:00Z')-Date.parse(e.date+'T12:00:00Z'))/86400000;
+    return days>=0&&days<=75;
+  });
+}
+function _isVerifiedEarningsDate(ticker,date){
+  // Retain legacy historical data outside the latest 90-day window; Yahoo
+  // often returns only four fiscal quarters, not the full chart history.
+  const age=(_todayETStart().getTime()-Date.parse(date+'T12:00:00Z'))/86400000;
+  return age>90||_hasEarningsActualEvidence(ticker,date);
+}
+function _earningsHistoryIsUsable(ticker,entry){
+  if(!entry)return false;
+  if(entry.override||entry.source==='manual'||entry.source==='manual-override')return true;
+  const date=entry.date;
+  if(_earningsConflictsWithUpcoming(ticker,date))return false;
+  if(!_isVerifiedEarningsDate(ticker,date))return false;
+  // Automatically collected calendar dates are estimates, not verified
+  // announcements. Keep older legacy data, but never call a recently
+  // promoted observation confirmed without independent evidence.
+  return true;
+}
+
 // Mines Finnhub calendar entries that are today or in the past into
 // earnings_confirmed_<ticker>, deduping against existing entries (within a
 // 4-day window, to tolerate minor date-shift noise between sources) and
@@ -609,15 +650,13 @@ function _todayETStart(){
 function _supplementConfirmedEarnings(ticker,earningsCalendar){
   try{
     const conf=S.get('earnings_confirmed_'+ticker)||[];
-    const cutoff=new Date();cutoff.setDate(cutoff.getDate()-_EARN_EVICT_DAYS);
     let changed=false;
     (earningsCalendar||[]).filter(e=>e.date&&e.date<=_todayET()).forEach(e=>{
-      if(new Date(e.date)<cutoff)return;
-      if(!conf.some(c=>Math.abs(new Date(c.date)-new Date(e.date))<4*86400000)){
-        conf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});changed=true;
-      }
+      if(!_hasEarningsActualEvidence(ticker,e.date))return;
+      if(conf.some(c=>Math.abs(Date.parse(c.date)-Date.parse(e.date))<4*86400000))return;
+      conf.push({date:e.date,hour:e.hour||null,addedTs:nowPT()});changed=true;
     });
-    if(changed)S.set('earnings_confirmed_'+ticker,conf.filter(c=>new Date(c.date)>=cutoff));
+    if(changed)S.set('earnings_confirmed_'+ticker,conf.slice(-20));
   }catch{}
 }
 
@@ -1339,36 +1378,22 @@ function saveEarningsPending(ticker, date, hour){
 // Call on every fetch. Returns true if any entries were promoted.
 function promoteEarningsPending(ticker){
   try{
-    const today=_todayET();
     const pending=S.get('earnings_pending_'+ticker)||[];
-    if(!pending.length)return false;
-    const cutoff=new Date();cutoff.setDate(cutoff.getDate()-_EARN_EVICT_DAYS);
+    const future=[];
     const confirmed=S.get('earnings_confirmed_'+ticker)||[];
     let changed=false;
-    const stillPending=[];
     pending.forEach(p=>{
-      if(p.date<=today){
-        // Date has passed -- promote to confirmed
-        if(new Date(p.date)>=cutoff){
-          const alreadyHave=confirmed.some(c=>Math.abs(new Date(c.date)-new Date(p.date))<4*86400000);
-          if(!alreadyHave){
-            confirmed.push({date:p.date,hour:p.hour||null,addedTs:nowPT()});
-            changed=true;
-          }
-        }
-        // Don't keep in pending -- it's been handled
-      }else{
-        stillPending.push(p); // still future -- keep in pending
+      if(p.date>_todayET()){future.push(p);return;}
+      if(_hasEarningsActualEvidence(ticker,p.date)&&
+          !confirmed.some(c=>Math.abs(Date.parse(c.date)-Date.parse(p.date))<4*86400000)){
+        confirmed.push({date:p.date,hour:p.hour||null,addedTs:nowPT()});changed=true;
       }
+      // Retain an unverified past observation briefly for delayed EPS feeds.
+      else if(!_hasEarningsActualEvidence(ticker,p.date)&&
+          (_todayETStart().getTime()-Date.parse(p.date+'T12:00:00Z'))<14*86400000){future.push(p);}
     });
-    if(changed){
-      const fresh=confirmed.filter(c=>new Date(c.date)>=cutoff);
-      S.set('earnings_confirmed_'+ticker,fresh);
-    }
-    // Update pending (remove promoted entries)
-    if(stillPending.length!==pending.length){
-      S.set('earnings_pending_'+ticker,stillPending);
-    }
+    if(changed)S.set('earnings_confirmed_'+ticker,confirmed.slice(-20));
+    if(future.length!==pending.length)S.set('earnings_pending_'+ticker,future);
     return changed;
   }catch{return false;}
 }

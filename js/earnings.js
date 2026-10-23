@@ -193,6 +193,7 @@ function buildRecentEarningsData(){
     try{
       const confirmed=S.get('earnings_confirmed_'+t)||[];
       const recentDates=confirmed.filter(c=>{
+        if(!_isVerifiedEarningsDate(t,c.date))return false;
         if(!c.date)return false;
         const d=new Date(c.date+'T12:00:00Z');
         if(d<cutoff)return false;
@@ -209,7 +210,9 @@ function buildRecentEarningsData(){
       // the Upcoming view, from Yahoo's earningsHistory
       let epsActual=null,epsEstimate=null,surprisePct=null,surpriseDollar=null;
       const eh=(snap.earningsHistoryYahoo||[]).filter(e=>e.date).sort((a,b)=>b.date.localeCompare(a.date));
-      const prevEh=eh.find(e=>e.epsActual!=null);
+      const prevEh=eh.find(e=>e.epsActual!=null&&e.date&&Math.abs(Date.parse(e.date+'T12:00:00Z')-Date.parse(mostRecent.date+'T12:00:00Z'))<=45*86400000);
+      // Yahoo earningsHistory dates can be fiscal quarter-end dates, not
+      // announcement dates. Without an unambiguous match, omit EPS.
       if(prevEh){epsActual=prevEh.epsActual;epsEstimate=prevEh.epsEstimate;surprisePct=prevEh.surprisePercent;surpriseDollar=prevEh.surpriseDollar;}
       const actuals=eh.filter(e=>e.epsActual!=null&&e.epsEstimate!=null);
       const{beatStreak,missStreak}=_computeBeatMissStreak(actuals);

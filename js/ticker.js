@@ -2763,6 +2763,7 @@ function _computeEarningsReactionEvents(hist2y,hist2ySP,earningsHistory){
   // For each past earnings date, compute moves
   const events=[];
   earningsHistory.forEach(e=>{
+    if(typeof currentTicker!=='undefined'&&typeof _earningsHistoryIsUsable==='function'&&!_earningsHistoryIsUsable(currentTicker,e))return;
     const eDate=e.date;
     if(!eDate||!stockMap[eDate])return;
     const idx=allDates.indexOf(eDate);
@@ -3052,7 +3053,7 @@ function renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span,cmpSerie
     const _earnSource=_withOvr.length?_withOvr:(earningsHistory||[]);
     _earnSource.forEach(e=>{
       const eff=_withOvr.length?_effectiveEarningsDate(e):e;
-      if(eff.date)earningsDateMap.set(eff.date,eff);
+      if(eff.date&&_earningsHistoryIsUsable(ticker,e))earningsDateMap.set(eff.date,eff);
     });
   }
 

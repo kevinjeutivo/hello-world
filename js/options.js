@@ -494,7 +494,7 @@ async function loadOptionsForTicker(){
     // Auto-render the table now that data, chips, and prefs are all ready.
     // Without this, a fresh fetch after tab navigation is never reflected until
     // the user manually taps "Load / Refresh Options Chain".
-    if(snap?.price) buildOptionsTable();
+    if(S.get('snap_'+t)?.price) buildOptionsTable();
   }catch(err){document.getElementById('options-content').innerHTML=`<div class="card"><div style="font-family:var(--mono);font-size:12px;color:var(--red)">Error: ${err.message}</div></div>`;}
 }
 

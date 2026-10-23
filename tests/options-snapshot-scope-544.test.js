@@ -1,0 +1,10 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const src = fs.readFileSync(path.join(__dirname, '../js/options.js'), 'utf8');
+const loadStart = src.indexOf('async function loadOptionsChain');
+const tableStart = src.indexOf('function buildOptionsTable()');
+assert.ok(tableStart > 0);
+assert.ok(src.includes("if(S.get('snap_'+t)?.price) buildOptionsTable();"), 'options auto-render must retrieve its own snapshot');
+assert.ok(!src.includes('if(snap?.price) buildOptionsTable();'), 'out-of-scope snap reference must not recur');
+console.log('Build 544 options snapshot scope regression passed');

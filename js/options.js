@@ -467,8 +467,7 @@ async function loadOptionsForTicker(){
         }
       }catch{}
     }
-    const snap=S.get('snap_'+t);
-    if(snap?.earningsDate){const today=new Date(),earningsD=new Date(snap.earningsDate);const warns=monthly.filter(e=>{const ed=new Date(e);return today<earningsD&&earningsD<=ed;});const timing=snap.earningsHour==='bmo'?' (before open)':snap.earningsHour==='amc'?' (after close)':'';const warnEl=document.getElementById('options-earnings-warn');warnEl.innerHTML=warns.length?`<div class="earnings-warn">Earnings on ${snap.earningsDate}${timing} falls within ${warns.join(', ')} window. Elevated assignment risk.</div>`:'';}
+    // Earnings warning is rendered with the table from the same snapshot.
     // FOMC warning -- separate from and styled distinctly (purple) from the
     // amber earnings warning above, since they're different kinds of risk.
     // Only meetings with an expected (more-likely-than-not) hike or cut are
@@ -527,7 +526,7 @@ function buildOptionsTable(){
     if(currentMode==='puts')proc(_expPuts(expCached),false);else proc(_expCalls(expCached),true);
   }
   rows.sort((a,b)=>a.expDate.localeCompare(b.expDate)||a.strike-b.strike);
-  if(!rows.length){document.getElementById('options-content').innerHTML='<div class="card"><div class="empty"><div class="empty-icon">&#x1F50D;</div>No options found in selected range</div></div>';document.getElementById('oi-chart-section').style.display='none';return;}
+  if(!rows.length){document.getElementById('options-earnings-warn').innerHTML='';document.getElementById('options-content').innerHTML='<div class="card"><div class="empty"><div class="empty-icon">&#x1F50D;</div>No options found in selected range</div></div>';document.getElementById('oi-chart-section').style.display='none';return;}
   cachedOIRows=rows;
     // Build rows HTML with:
   //   1. Colored expiration group header (date, DTE, color matches OI chart)
@@ -552,6 +551,17 @@ function buildOptionsTable(){
   const earningsHourStr=snap_for_opts?.earningsHour||null;
   const earningsTiming=earningsHourStr==='bmo'?' BMO':earningsHourStr==='amc'?' AMC':'';
   const earningsD=earningsDateStr?new Date(earningsDateStr+'T12:00:00Z'):null;
+  // Warning and table banner use exactly the same snapshot and displayed
+  // expiry groups; avoid a stale warning when a concurrent refresh changes it.
+  const warningEl=document.getElementById('options-earnings-warn');
+  if(warningEl){
+    const affected=earningsDateStr&&earningsDateStr>=_todayET()
+      ?expirations.filter(exp=>exp>=earningsDateStr):[];
+    const timing=earningsHourStr==='bmo'?' (before open)':earningsHourStr==='amc'?' (after close)':'';
+    warningEl.innerHTML=affected.length
+      ?`<div class="earnings-warn">Earnings on ${earningsDateStr}${timing} falls within ${affected.join(', ')} window. Elevated assignment risk.</div>`:'';
+  }
+
 
   const bannerEvents=[];
   if(earningsD){

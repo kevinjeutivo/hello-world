@@ -73,9 +73,6 @@ function _earningsPeriodMatch(history,eventDate){
     priorPairs:previous.filter(validPair)};
 }
 
-// Persist a compact pre-announcement EPS baseline for each tracked event.
-// A fiscal-period match alone does not prove the latest release was received.
-// Never infer first-observed time from a snapshot's fetch timestamp.
 function _earningsEventBoundary(date,hour){
   const d=Date.parse(date+'T12:00:00Z');
   if(!Number.isFinite(d))return null;
@@ -136,13 +133,78 @@ function _earningsObserveFreshSnapshot(ticker,snap){
   if(changed)S.set('earnings_observation_'+ticker,record);
 }
 
-function _classifyEarningsCardState(eh,ed,earningsDate,earningsHour,nowEpoch,ticker){
+
+// Diagnostic-only earnings feed observations. Never changes earnings classification.
+// Stored separately from portfolio and earnings overrides; bounded by age and size.
+function _earningsTelemetryCapture(ticker,providerHistory,source,snap){
+  if(!/^[A-Z0-9.^-]{1,16}$/.test(ticker||'')||!Array.isArray(providerHistory))return;
+  try{
+    const key='earnings_diag_'+ticker,now=Date.now();
+    const rows=providerHistory.filter(e=>e&&/^\d{4}-\d{2}-\d{2}$/.test(e.date||''))
+      .slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,6)
+      .map(e=>({period:e.date,actual:e.epsActual==null?null:Number(e.epsActual),estimate:e.epsEstimate==null?null:Number(e.epsEstimate)}));
+    const upcoming=/^\d{4}-\d{2}-\d{2}$/.test(snap?.earningsDate||'')?snap.earningsDate:null;
+    const fingerprint=JSON.stringify([upcoming,snap?.earningsHour||null,rows]);
+    const old=S.get(key)||{version:1,events:[]};
+    const events=Array.isArray(old.events)?old.events:[];
+    const prev=events[events.length-1];
+    // Log changes only, plus a daily heartbeat to establish feed stability.
+    if(!prev||prev.fingerprint!==fingerprint||now-prev.at>=86400000){
+      events.push({at:now,source:source||'Yahoo quoteSummary',upcoming,earningsHour:snap?.earningsHour||null,rows,fingerprint});
+    }
+    const retained=events.filter(e=>Number.isFinite(e.at)&&e.at>=now-30*86400000).slice(-45);
+    // If localStorage is full, don't interrupt the user's market-data refresh.
+    S.set(key,{version:1,events:retained});
+  }catch(e){/* Diagnostics must never affect market data. */}
+}
+function exportEarningsDiagnostics(){
+  const output=document.getElementById('earnings-diagnostics-json');
+  const panel=document.getElementById('earnings-diagnostics-panel');
+  const status=document.getElementById('earnings-diagnostics-status');
+  if(!output||!panel||!status)return;
+  try{
+    const data={schema:'income-engine-earnings-diagnostics-v1',exportedAt:new Date().toISOString(),tickers:{}};
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(!key||!key.startsWith('earnings_diag_'))continue;
+      const ticker=key.slice('earnings_diag_'.length);
+      if(!/^[A-Z0-9.^-]{1,16}$/.test(ticker))continue;
+      const item=S.get(key);
+      if(item?.events?.length)data.tickers[ticker]=item.events.map(({fingerprint,...entry})=>entry);
+    }
+    output.value=JSON.stringify(data,null,2);
+    panel.hidden=false;
+    const count=Object.keys(data.tickers).length;
+    status.textContent=count?`Showing diagnostics for ${count} ticker(s). Tap Copy or select the text manually.`:'No earnings observations recorded yet. You can still copy this empty diagnostic report.';
+  }catch(e){
+    panel.hidden=false;
+    output.value='';
+    status.textContent='Unable to prepare earnings diagnostics: '+e.message;
+  }
+}
+async function copyEarningsDiagnostics(){
+  const output=document.getElementById('earnings-diagnostics-json');
+  const status=document.getElementById('earnings-diagnostics-status');
+  if(!output||!output.value)return;
+  try{
+    if(!navigator.clipboard?.writeText)throw new Error('Clipboard API unavailable');
+    await navigator.clipboard.writeText(output.value);
+    status.textContent='Copied earnings diagnostics. Paste into ChatGPT.';
+  }catch(e){
+    output.focus();output.select();
+    status.textContent='Automatic copy unavailable. Text selected; use the iPhone Copy menu, then paste into ChatGPT.';
+  }
+}
+function closeEarningsDiagnostics(){
+  const panel=document.getElementById('earnings-diagnostics-panel');
+  if(panel)panel.hidden=true;
+}
+function _classifyEarningsCardState(eh,ed,earningsDate,earningsHour,nowEpoch){
   const match=_earningsPeriodMatch(eh,earningsDate);
   const sorted=match.entries;
   const todaysEntry=match.current;
   const prevEntries=match.previous;
-  const observed=_earningsEventStatus(ticker||'',earningsDate,earningsHour,eh,nowEpoch);
-  const confirmed=observed.state==='observed'||observed.state==='legacy-matched';
+  const confirmed=match.verified;
 
   let state;
   if(confirmed){
@@ -264,10 +326,9 @@ function _isPastMarketCloseET(){
 // calendar event itself. Yahoo history dates are fiscal period ends, not
 // announcement dates. Never substitute a previous quarter's actual for the
 // current report; a missing current estimate also blocks beat/miss claims.
-function _recentEarningsEPSState(history,eventDate,ticker,hour){
-  const status=_earningsEventStatus(ticker,eventDate,hour,history);
-  const match=status.match;
-  return {status:status.state,verified:status.state==='observed'||status.state==='legacy-matched',current:match.verified?match.current:null,
+function _recentEarningsEPSState(history,eventDate){
+  const match=_earningsPeriodMatch(history,eventDate);
+  return {verified:match.verified,current:match.verified?match.current:null,
     prior:match.prior,priorPairs:match.priorPairs,
     periodEnd:match.current?.date||null};
 }
@@ -305,7 +366,7 @@ function buildRecentEarningsData(){
       // Match EPS by fiscal period; otherwise show only clearly labeled prior
       // results, never a current-quarter beat or miss.
       const eh=(snap.earningsHistoryYahoo||[]);
-      const epsState=_recentEarningsEPSState(eh,mostRecent.date,t,mostRecent.hour);
+      const epsState=_recentEarningsEPSState(eh,mostRecent.date);
       const verified=epsState.verified&&!_earningsConflictsWithUpcoming(t,mostRecent.date);
       const cur=verified?epsState.current:null;
       const epsActual=cur?Number(cur.epsActual):null;
@@ -355,7 +416,7 @@ function buildRecentEarningsData(){
 
       results.push({
         ticker:t,snap,earningsDate:mostRecent.date,earningsHour:mostRecent.hour,daysAgo,
-        epsActual,epsEstimate,surprisePct,surpriseDollar,beatStreak,missStreak,verified,priorActual,priorPeriod,epsPeriod:epsState.periodEnd,epsStatus:epsState.status,reactionPct,excessReaction,hvrAtReport,hasPositions,preAnnouncementPrice,
+        epsActual,epsEstimate,surprisePct,surpriseDollar,beatStreak,missStreak,verified,priorActual,priorPeriod,epsPeriod:epsState.periodEnd,reactionPct,excessReaction,hvrAtReport,hasPositions,preAnnouncementPrice,
         _hist2y:h2 // reused by the render step's sparklines, avoiding a re-fetch of the same blob
       });
     }catch{}
@@ -466,8 +527,8 @@ function renderRecentEarningsCards(){
     // completed report may show its matched fiscal period for reassurance.
     // Delay language is reserved for a genuinely unverified recent event.
     const provenance=e.verified
-      ?(e.epsStatus==='observed'?`<div style="font-family:var(--mono);font-size:10px;color:var(--green);margin-bottom:8px">New EPS data observed after the report; Yahoo fiscal period ${e.epsPeriod||'unknown'}.</div>`:'')
-      :`<div style="font-family:var(--mono);font-size:10px;color:var(--warn);margin-bottom:8px">${e.epsStatus==='unknown'?'Current-quarter EPS period matched, but no pre-report baseline was recorded.':e.daysAgo<=2?'Awaiting newly observed current-quarter EPS from Yahoo.':'Current-quarter EPS update unverified in Yahoo data.'} Beat/miss pending.${e.priorPeriod?' Last known actual is from period '+e.priorPeriod+'.':''}</div>`;
+      ?(e.daysAgo<=2?`<div style="font-family:var(--mono);font-size:10px;color:var(--green);margin-bottom:8px">Latest report EPS matched to Yahoo fiscal period ${e.epsPeriod||'unknown'}.</div>`:'')
+      :`<div style="font-family:var(--mono);font-size:10px;color:var(--warn);margin-bottom:8px">${e.daysAgo<=2?'Awaiting current-quarter EPS update from Yahoo.':'Current-quarter EPS unverified in Yahoo data.'} Beat/miss pending.${e.priorPeriod?' Last known actual is from period '+e.priorPeriod+'.':''}</div>`;
     const posBadge=e.hasPositions?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(124,106,247,0.2);color:#b39ddb">You hold this</span>`:'';
     const hourUnknown=!e.earningsHour;
     const reactionStr=e.reactionPct!=null?`<div title="${hourUnknown?'Announcement hour unknown -- reaction day assumed (BMO convention), may be off by one session':''}"><span style="color:var(--text3);font-size:9px;display:block">PRICE REACTION${hourUnknown?' <span style="color:var(--warn)">&#x2022;</span>':''}</span><span style="color:${e.reactionPct>=0?'var(--green)':'var(--red)'}">${e.reactionPct>=0?'+':''}${e.reactionPct.toFixed(1)}%</span></div>`:'';
@@ -609,7 +670,7 @@ function renderEarningsCards(isLive=false){
     // never from a fetch timestamp. See _classifyEarningsCardState.
     const liveSnap=S.get('snap_'+e.ticker)||e.snap;
     const ed=new Date(e.earningsDate+'T12:00:00Z');
-    const cls=_classifyEarningsCardState(liveSnap.earningsHistoryYahoo||[],ed,e.earningsDate,e.earningsHour,undefined,e.ticker);
+    const cls=_classifyEarningsCardState(liveSnap.earningsHistoryYahoo||[],ed,e.earningsDate,e.earningsHour);
     const fwd=_nextForwardEstimate(liveSnap.earningsTrend,cls.state==='confirmed'?cls.todaysPeriodEndDate:null);
     const badgeBeatStreak=cls.state==='confirmed'?cls.todayBeatStreak:cls.prevBeatStreak;
     const badgeMissStreak=cls.state==='confirmed'?cls.todayMissStreak:cls.prevMissStreak;

@@ -179,6 +179,27 @@ function _isPastMarketCloseET(){
   }catch{return true;} // fail open -- don't hide data on an error here
 }
 
+// Classify the EPS data for a completed calendar event separately from the
+// calendar event itself. Yahoo history dates are fiscal period ends, not
+// announcement dates. Never substitute a previous quarter's actual for the
+// current report; a missing current estimate also blocks beat/miss claims.
+function _recentEarningsEPSState(history,eventDate){
+  const entries=(history||[]).filter(e=>e&&/^\d{4}-\d{2}-\d{2}$/.test(e.date||''))
+    .sort((a,b)=>b.date.localeCompare(a.date));
+  const eventMs=Date.parse(eventDate+'T12:00:00Z');
+  const isCurrent=e=>{
+    const days=(eventMs-Date.parse(e.date+'T12:00:00Z'))/86400000;
+    return days>=0&&days<=75;
+  };
+  const current=entries.find(isCurrent);
+  const verified=!!(current&&Number.isFinite(Number(current.epsActual))&&current.epsActual!=null&&
+    Number.isFinite(Number(current.epsEstimate))&&current.epsEstimate!=null);
+  const prior=entries.find(e=>!isCurrent(e)&&e.epsActual!=null&&Number.isFinite(Number(e.epsActual)));
+  const priorPairs=entries.filter(e=>!isCurrent(e)&&e.epsActual!=null&&e.epsEstimate!=null&&
+    Number.isFinite(Number(e.epsActual))&&Number.isFinite(Number(e.epsEstimate)));
+  return {verified,current:verified?current:null,prior,priorPairs,periodEnd:current?.date||null};
+}
+
 function buildRecentEarningsData(){
   const today=_todayETStart();
   const todayStr=_todayET();
@@ -193,7 +214,9 @@ function buildRecentEarningsData(){
     try{
       const confirmed=S.get('earnings_confirmed_'+t)||[];
       const recentDates=confirmed.filter(c=>{
-        if(!_isVerifiedEarningsDate(t,c.date))return false;
+        // Recent is a calendar-event view, not a claim that EPS is verified.
+        // Suppress superseded dates (SHOP), but retain reports awaiting Yahoo EPS.
+        if(_earningsConflictsWithUpcoming(t,c.date))return false;
         if(!c.date)return false;
         const d=new Date(c.date+'T12:00:00Z');
         if(d<cutoff)return false;
@@ -206,16 +229,23 @@ function buildRecentEarningsData(){
       const snap=S.get('snap_'+t);
       if(!snap)return;
 
-      // EPS actual/estimate/surprise, beat/miss streak -- same computation as
-      // the Upcoming view, from Yahoo's earningsHistory
-      let epsActual=null,epsEstimate=null,surprisePct=null,surpriseDollar=null;
-      const eh=(snap.earningsHistoryYahoo||[]).filter(e=>e.date).sort((a,b)=>b.date.localeCompare(a.date));
-      const prevEh=eh.find(e=>e.epsActual!=null&&e.date&&Math.abs(Date.parse(e.date+'T12:00:00Z')-Date.parse(mostRecent.date+'T12:00:00Z'))<=45*86400000);
-      // Yahoo earningsHistory dates can be fiscal quarter-end dates, not
-      // announcement dates. Without an unambiguous match, omit EPS.
-      if(prevEh){epsActual=prevEh.epsActual;epsEstimate=prevEh.epsEstimate;surprisePct=prevEh.surprisePercent;surpriseDollar=prevEh.surpriseDollar;}
-      const actuals=eh.filter(e=>e.epsActual!=null&&e.epsEstimate!=null);
-      const{beatStreak,missStreak}=_computeBeatMissStreak(actuals);
+      // Recent calendar placement is NOT proof Yahoo has updated this quarter.
+      // Match EPS by fiscal period; otherwise show only clearly labeled prior
+      // results, never a current-quarter beat or miss.
+      const eh=(snap.earningsHistoryYahoo||[]);
+      const epsState=_recentEarningsEPSState(eh,mostRecent.date);
+      const verified=epsState.verified&&!_earningsConflictsWithUpcoming(t,mostRecent.date);
+      const cur=verified?epsState.current:null;
+      const epsActual=cur?Number(cur.epsActual):null;
+      const epsEstimate=cur?Number(cur.epsEstimate):null;
+      const surprisePct=cur?.surprisePercent??null;
+      const surpriseDollar=cur?.surpriseDollar??null;
+      const priorActual=epsState.prior?.epsActual??null;
+      const priorPeriod=epsState.prior?.date??null;
+      const priorStreak=_computeBeatMissStreak(epsState.priorPairs);
+      const currentStreak=_computeBeatMissStreak(eh.filter(e=>e.date&&e.epsActual!=null&&e.epsEstimate!=null)
+        .sort((a,b)=>b.date.localeCompare(a.date)));
+      const {beatStreak,missStreak}=verified?currentStreak:priorStreak;
 
       // Price reaction + excess vs S&P -- reusing the same per-event
       // computation that powers the ticker page's relative-performance card
@@ -253,7 +283,7 @@ function buildRecentEarningsData(){
 
       results.push({
         ticker:t,snap,earningsDate:mostRecent.date,earningsHour:mostRecent.hour,daysAgo,
-        epsActual,epsEstimate,surprisePct,surpriseDollar,beatStreak,missStreak,reactionPct,excessReaction,hvrAtReport,hasPositions,preAnnouncementPrice,
+        epsActual,epsEstimate,surprisePct,surpriseDollar,beatStreak,missStreak,verified,priorActual,priorPeriod,epsPeriod:epsState.periodEnd,reactionPct,excessReaction,hvrAtReport,hasPositions,preAnnouncementPrice,
         _hist2y:h2 // reused by the render step's sparklines, avoiding a re-fetch of the same blob
       });
     }catch{}
@@ -358,8 +388,11 @@ function renderRecentEarningsCards(){
     const beatBadge=e.surprisePct!=null?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:${e.surprisePct>=0?'rgba(0,200,150,0.2)':'rgba(255,71,87,0.2)'};color:${e.surprisePct>=0?'var(--green)':'var(--red)'}">${e.surprisePct>=0?'Beat':'Missed'} ${Math.abs(e.surprisePct).toFixed(1)}%</span>`
       :e.surpriseDollar!=null?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:${e.surpriseDollar>=0?'rgba(0,200,150,0.2)':'rgba(255,71,87,0.2)'};color:${e.surpriseDollar>=0?'var(--green)':'var(--red)'}" title="Estimate too close to zero for a meaningful percentage">${e.surpriseDollar>=0?'Beat':'Missed'} by $${Math.abs(e.surpriseDollar).toFixed(2)}</span>`
       :'';
-    const streakBadge=e.beatStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(0,200,150,0.2);color:var(--green)">Beat Streak: ${e.beatStreak}Qs</span>`:'';
-    const missBadge=e.missStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,71,87,0.2);color:var(--red)">Miss Streak: ${e.missStreak}Qs</span>`:'';
+    const streakBadge=e.beatStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(0,200,150,0.2);color:var(--green)">Beat Streak: ${e.beatStreak}Qs${e.verified?' (incl. report)':' (through prior report)'}</span>`:'';
+    const missBadge=e.missStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,71,87,0.2);color:var(--red)">Miss Streak: ${e.missStreak}Qs${e.verified?' (incl. report)':' (through prior report)'}</span>`:'';
+    const provenance=e.verified
+      ?`<div style="font-family:var(--mono);font-size:10px;color:var(--green);margin-bottom:8px">Current report EPS matched to Yahoo fiscal period ${e.epsPeriod||'unknown'}; provider data may be delayed.</div>`
+      :`<div style="font-family:var(--mono);font-size:10px;color:var(--warn);margin-bottom:8px">Report date passed — latest-quarter EPS not yet verified in Yahoo data. Beat/miss pending.${e.priorPeriod?' Last known actual is from period '+e.priorPeriod+'.':''}</div>`;
     const posBadge=e.hasPositions?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(124,106,247,0.2);color:#b39ddb">You hold this</span>`:'';
     const hourUnknown=!e.earningsHour;
     const reactionStr=e.reactionPct!=null?`<div title="${hourUnknown?'Announcement hour unknown -- reaction day assumed (BMO convention), may be off by one session':''}"><span style="color:var(--text3);font-size:9px;display:block">PRICE REACTION${hourUnknown?' <span style="color:var(--warn)">&#x2022;</span>':''}</span><span style="color:${e.reactionPct>=0?'var(--green)':'var(--red)'}">${e.reactionPct>=0?'+':''}${e.reactionPct.toFixed(1)}%</span></div>`:'';
@@ -379,10 +412,12 @@ function renderRecentEarningsCards(){
         <div style="text-align:right"><div style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--text2)">${agoLabel}</div><div style="font-family:var(--mono);font-size:11px;color:var(--text2)">${e.earningsDate}${timing}</div></div>
       </div>
       ${sparkRows}
+      ${provenance}
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">${beatBadge}${streakBadge}${missBadge}${posBadge}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;font-family:var(--mono);font-size:11px">
-        <div><span style="color:var(--text3);font-size:9px;display:block">EPS ACTUAL</span>${e.epsActual!==null?`$${e.epsActual.toFixed(2)}`:'N/A'}</div>
-        <div><span style="color:var(--text3);font-size:9px;display:block">EPS ESTIMATE</span>${e.epsEstimate!==null?`$${e.epsEstimate.toFixed(2)}`:'N/A'}</div>
+        <div><span style="color:var(--text3);font-size:9px;display:block">EPS ACTUAL${e.verified?' (LATEST REPORT)':' (UNVERIFIED)'}</span>${e.epsActual!==null?`$${e.epsActual.toFixed(2)}`:'N/A'}</div>
+        <div><span style="color:var(--text3);font-size:9px;display:block">EPS ESTIMATE${e.verified?' (LATEST REPORT)':' (UNVERIFIED)'}</span>${e.epsEstimate!==null?`$${e.epsEstimate.toFixed(2)}`:'N/A'}</div>
+        ${!e.verified&&e.priorActual!=null?`<div><span style="color:var(--text3);font-size:9px;display:block">PRIOR EPS ACTUAL${e.priorPeriod?' ('+e.priorPeriod+')':''}</span>$${Number(e.priorActual).toFixed(2)}</div>`:''}
         ${preStr}
         ${hvrStr}
         ${reactionStr}

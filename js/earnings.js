@@ -64,11 +64,12 @@ function _earningsPeriodMatch(history,eventDate){
     const days=(eventMs-Date.parse(e.date+'T12:00:00Z'))/86400000;
     return days>=0&&days<45;
   };
-  const current=entries.find(belongs)||null;
+  const candidates=entries.filter(belongs);
+  const current=candidates.length===1?candidates[0]:null;
   const previous=entries.filter(e=>!belongs(e));
   const validPair=e=>e&&e.epsActual!=null&&e.epsEstimate!=null&&
     Number.isFinite(Number(e.epsActual))&&Number.isFinite(Number(e.epsEstimate));
-  return {entries,current,previous,verified:!!validPair(current),
+  return {entries,current,previous,ambiguous:candidates.length>1,verified:!!validPair(current),
     prior:previous.find(e=>e.epsActual!=null&&Number.isFinite(Number(e.epsActual)))||null,
     priorPairs:previous.filter(validPair)};
 }
@@ -90,17 +91,11 @@ function _earningsEventStatus(ticker,eventDate,hour,history,nowEpoch){
   const now=nowEpoch??Date.now();
   if(boundary==null)return {state:'unknown',match};
   if(now<boundary)return {state:'before',match};
-  const age=now-boundary;
-  // Existing older reports predate observation tracking; preserve legacy
-  // period-matched history, but do not claim observed freshness.
-  if(age>7*86400000)return {state:match.verified?'legacy-matched':'pending',match};
-  const record=S.get('earnings_observation_'+ticker);
-  const entry=record?.events?.[eventDate];
-  if(!match.verified)return {state:'pending',match};
-  if(!entry||entry.boundary!==boundary||!entry.baselineSeen)return {state:'unknown',match};
-  const current=match.current;
-  const signature=JSON.stringify([current.date,Number(current.epsActual),Number(current.epsEstimate)]);
-  return {state:entry.baselineSignature!==signature?'observed':'pending',match};
+  // A populated, period-matched actual+estimate is the primary evidence.
+  // Pre-report snapshots are diagnostic only: a user who first opens the app
+  // after earnings must see the same results as a user who opened it before.
+  // Never attribute a matching-period record before the announcement boundary.
+  return {state:match.verified?'observed':'pending',match};
 }
 function _earningsObserveFreshSnapshot(ticker,snap){
   if(!snap||!Array.isArray(snap.earningsHistoryYahoo))return;
@@ -207,7 +202,9 @@ function _classifyEarningsCardState(eh,ed,earningsDate,earningsHour,nowEpoch){
   const confirmed=match.verified;
 
   let state;
-  if(confirmed){
+  if(earningsDate>_todayET()){
+    state='before';
+  }else if(confirmed){
     state='confirmed';
   }else if(earningsDate!==_todayET()){
     state='before'; // a future (or, defensively, a past) calendar date -- unambiguous either way without data

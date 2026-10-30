@@ -1415,7 +1415,15 @@ v1.7 -- 2026-04-29
     <hr class="divider">
     <div class="card-title" style="font-size:12px;margin-bottom:6px">Earnings Feed Diagnostics</div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.5">Stores changes in Yahoo fiscal-period EPS and upcoming dates for up to 30 days (up to 45 observations per ticker). Export contains earnings feed observations only, not positions or account data.</div>
-    <button class="btn btn-secondary" onclick="exportEarningsDiagnostics()" style="width:100%">Export Earnings Diagnostics JSON</button>
+    <button class="btn btn-secondary" onclick="exportEarningsDiagnostics()" style="width:100%">Show Earnings Diagnostics</button>
+    <div id="earnings-diagnostics-panel" hidden style="margin-top:10px">
+      <div id="earnings-diagnostics-status" role="status" style="font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:8px;line-height:1.5"></div>
+      <textarea id="earnings-diagnostics-json" readonly spellcheck="false" aria-label="Earnings diagnostics JSON" style="width:100%;box-sizing:border-box;min-height:220px;max-height:360px;resize:vertical;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:var(--mono);font-size:11px;line-height:1.5;-webkit-user-select:text;user-select:text"></textarea>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-secondary" style="flex:1" onclick="copyEarningsDiagnostics()">Copy to Clipboard</button>
+        <button class="btn btn-secondary" style="flex:1" onclick="closeEarningsDiagnostics()">Close</button>
+      </div>
+    </div>
     <hr class="divider">
     <div class="card-title" style="font-size:12px;margin-bottom:6px"><span class="dot" style="background:var(--warn)"></span>Debug Log</div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">Last 20 internal events.</div>

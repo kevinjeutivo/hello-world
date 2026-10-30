@@ -1413,6 +1413,10 @@ v1.7 -- 2026-04-29
 - Clear All safety guard: strong warning with offline detection prevents accidental data loss on airplane
 - Offline detection: fleeting banner when network fails, persists as indicator dot</div>
     <hr class="divider">
+    <div class="card-title" style="font-size:12px;margin-bottom:6px">Earnings Feed Diagnostics</div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.5">Stores changes in Yahoo fiscal-period EPS and upcoming dates for up to 30 days (up to 45 observations per ticker). Export contains earnings feed observations only, not positions or account data.</div>
+    <button class="btn btn-secondary" onclick="exportEarningsDiagnostics()" style="width:100%">Export Earnings Diagnostics JSON</button>
+    <hr class="divider">
     <div class="card-title" style="font-size:12px;margin-bottom:6px"><span class="dot" style="background:var(--warn)"></span>Debug Log</div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:8px">Last 20 internal events.</div>
     <div id="debug-log-entries" style="font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.6;max-height:180px;overflow-y:auto;background:var(--surface2);border-radius:8px;padding:8px;margin-bottom:8px">No entries yet.</div>

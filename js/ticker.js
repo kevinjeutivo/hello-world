@@ -183,6 +183,7 @@ async function loadTicker(){
           if(qs.freeCashflowYahoo!=null&&qs.totalRevenueYahoo!=null&&qs.totalRevenueYahoo!==0)
             snap.fcfMarginYahoo=qs.freeCashflowYahoo/qs.totalRevenueYahoo;
           S.set('snap_'+t,snap);
+          if(typeof _earningsObserveFreshSnapshot==='function')_earningsObserveFreshSnapshot(t,snap);if(qs?.earningsHistoryYahoo?.length&&typeof _earningsTelemetryCapture==='function')_earningsTelemetryCapture(t,qs.earningsHistoryYahoo,'Yahoo quoteSummary',snap);
         }
       }catch{}
       recData=snap.recTrend&&snap.recTrend.length?snap.recTrend[0]:null;
@@ -3569,7 +3570,7 @@ async function refreshSingleTicker(){
         if(qs.totalAssets!=null)snap.totalAssets=qs.totalAssets;
         if(qs.earningsTrend&&qs.earningsTrend.length)snap.earningsTrend=qs.earningsTrend;
         if(qs.recTrend&&qs.recTrend.length)snap.recTrend=qs.recTrend;
-        if(qs.earningsHistoryYahoo&&qs.earningsHistoryYahoo.length)snap.earningsHistoryYahoo=qs.earningsHistoryYahoo;
+        if(qs.earningsHistoryYahoo&&qs.earningsHistoryYahoo.length){snap.earningsHistoryYahoo=qs.earningsHistoryYahoo;if(typeof _earningsTelemetryCapture==='function')_earningsTelemetryCapture(t,qs.earningsHistoryYahoo,'Yahoo quoteSummary',snap);}
         if(qs.revenueGrowthYahoo!=null)snap.revenueGrowthYahoo=qs.revenueGrowthYahoo;
         if(qs.operatingMarginsYahoo!=null)snap.operatingMarginsYahoo=qs.operatingMarginsYahoo;
         if(qs.freeCashflowYahoo!=null&&qs.totalRevenueYahoo!=null&&qs.totalRevenueYahoo!==0)

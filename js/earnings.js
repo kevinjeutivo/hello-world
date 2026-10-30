@@ -53,15 +53,32 @@ function _computeBeatMissStreak(actuals){
 // announcement date (noon UTC, matching this file's existing convention).
 // earningsDate: that same date as 'YYYY-MM-DD'. earningsHour: 'bmo'|'amc'|null.
 // nowEpoch: injectable for testing; defaults to the real current time.
-function _classifyEarningsCardState(eh,ed,earningsDate,earningsHour,nowEpoch){
-  const sorted=(eh||[]).filter(e=>e.date).sort((a,b)=>b.date.localeCompare(a.date));
-  const isTodaysPeriod=e=>{
-    const daysBefore=(ed-new Date(e.date+'T12:00:00Z'))/86400000;
-    return daysBefore>=0&&daysBefore<45;
+// Shared fiscal-period association for Upcoming and Recent cards.
+// Yahoo earningsHistory dates are fiscal period ends, not announcement dates.
+// A 45-day proximity match is a heuristic, not independent IR verification.
+function _earningsPeriodMatch(history,eventDate){
+  const entries=(history||[]).filter(e=>e&&/^\d{4}-\d{2}-\d{2}$/.test(e.date||''))
+    .slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const eventMs=Date.parse(eventDate+'T12:00:00Z');
+  const belongs=e=>{
+    const days=(eventMs-Date.parse(e.date+'T12:00:00Z'))/86400000;
+    return days>=0&&days<45;
   };
-  const todaysEntry=sorted.find(isTodaysPeriod);
-  const prevEntries=sorted.filter(e=>!isTodaysPeriod(e));
-  const confirmed=!!(todaysEntry&&todaysEntry.epsActual!=null&&todaysEntry.epsEstimate!=null);
+  const current=entries.find(belongs)||null;
+  const previous=entries.filter(e=>!belongs(e));
+  const validPair=e=>e&&e.epsActual!=null&&e.epsEstimate!=null&&
+    Number.isFinite(Number(e.epsActual))&&Number.isFinite(Number(e.epsEstimate));
+  return {entries,current,previous,verified:!!validPair(current),
+    prior:previous.find(e=>e.epsActual!=null&&Number.isFinite(Number(e.epsActual)))||null,
+    priorPairs:previous.filter(validPair)};
+}
+
+function _classifyEarningsCardState(eh,ed,earningsDate,earningsHour,nowEpoch){
+  const match=_earningsPeriodMatch(eh,earningsDate);
+  const sorted=match.entries;
+  const todaysEntry=match.current;
+  const prevEntries=match.previous;
+  const confirmed=match.verified;
 
   let state;
   if(confirmed){
@@ -184,20 +201,10 @@ function _isPastMarketCloseET(){
 // announcement dates. Never substitute a previous quarter's actual for the
 // current report; a missing current estimate also blocks beat/miss claims.
 function _recentEarningsEPSState(history,eventDate){
-  const entries=(history||[]).filter(e=>e&&/^\d{4}-\d{2}-\d{2}$/.test(e.date||''))
-    .sort((a,b)=>b.date.localeCompare(a.date));
-  const eventMs=Date.parse(eventDate+'T12:00:00Z');
-  const isCurrent=e=>{
-    const days=(eventMs-Date.parse(e.date+'T12:00:00Z'))/86400000;
-    return days>=0&&days<=75;
-  };
-  const current=entries.find(isCurrent);
-  const verified=!!(current&&Number.isFinite(Number(current.epsActual))&&current.epsActual!=null&&
-    Number.isFinite(Number(current.epsEstimate))&&current.epsEstimate!=null);
-  const prior=entries.find(e=>!isCurrent(e)&&e.epsActual!=null&&Number.isFinite(Number(e.epsActual)));
-  const priorPairs=entries.filter(e=>!isCurrent(e)&&e.epsActual!=null&&e.epsEstimate!=null&&
-    Number.isFinite(Number(e.epsActual))&&Number.isFinite(Number(e.epsEstimate)));
-  return {verified,current:verified?current:null,prior,priorPairs,periodEnd:current?.date||null};
+  const match=_earningsPeriodMatch(history,eventDate);
+  return {verified:match.verified,current:match.verified?match.current:null,
+    prior:match.prior,priorPairs:match.priorPairs,
+    periodEnd:match.current?.date||null};
 }
 
 function buildRecentEarningsData(){
@@ -390,9 +397,12 @@ function renderRecentEarningsCards(){
       :'';
     const streakBadge=e.beatStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(0,200,150,0.2);color:var(--green)">Beat Streak: ${e.beatStreak}Qs${e.verified?' (incl. report)':' (through prior report)'}</span>`:'';
     const missBadge=e.missStreak>=2?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,71,87,0.2);color:var(--red)">Miss Streak: ${e.missStreak}Qs${e.verified?' (incl. report)':' (through prior report)'}</span>`:'';
+    // A verified older report needs no transitional message. A newly
+    // completed report may show its matched fiscal period for reassurance.
+    // Delay language is reserved for a genuinely unverified recent event.
     const provenance=e.verified
-      ?`<div style="font-family:var(--mono);font-size:10px;color:var(--green);margin-bottom:8px">Current report EPS matched to Yahoo fiscal period ${e.epsPeriod||'unknown'}; provider data may be delayed.</div>`
-      :`<div style="font-family:var(--mono);font-size:10px;color:var(--warn);margin-bottom:8px">Report date passed — latest-quarter EPS not yet verified in Yahoo data. Beat/miss pending.${e.priorPeriod?' Last known actual is from period '+e.priorPeriod+'.':''}</div>`;
+      ?(e.daysAgo<=2?`<div style="font-family:var(--mono);font-size:10px;color:var(--green);margin-bottom:8px">Latest report EPS matched to Yahoo fiscal period ${e.epsPeriod||'unknown'}.</div>`:'')
+      :`<div style="font-family:var(--mono);font-size:10px;color:var(--warn);margin-bottom:8px">${e.daysAgo<=2?'Awaiting current-quarter EPS update from Yahoo.':'Current-quarter EPS unverified in Yahoo data.'} Beat/miss pending.${e.priorPeriod?' Last known actual is from period '+e.priorPeriod+'.':''}</div>`;
     const posBadge=e.hasPositions?`<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(124,106,247,0.2);color:#b39ddb">You hold this</span>`:'';
     const hourUnknown=!e.earningsHour;
     const reactionStr=e.reactionPct!=null?`<div title="${hourUnknown?'Announcement hour unknown -- reaction day assumed (BMO convention), may be off by one session':''}"><span style="color:var(--text3);font-size:9px;display:block">PRICE REACTION${hourUnknown?' <span style="color:var(--warn)">&#x2022;</span>':''}</span><span style="color:${e.reactionPct>=0?'var(--green)':'var(--red)'}">${e.reactionPct>=0?'+':''}${e.reactionPct.toFixed(1)}%</span></div>`:'';

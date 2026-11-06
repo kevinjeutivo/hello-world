@@ -330,6 +330,35 @@ function _recentEarningsEPSState(history,eventDate){
     periodEnd:match.current?.date||null};
 }
 
+// Resolve Recent's calendar dates against explicit Ticker-page corrections.
+// The override belongs to one reporting event, not all future events: only
+// dates matching the SAME Yahoo fiscal quarter can be displaced. Retain the
+// underlying confirmed cache untouched for diagnostics and backward compat.
+function _recentDatesWithManualPrecedence(ticker,confirmedDates,history){
+  const entries=(confirmedDates||[]).map(e=>({...e}));
+  const tracked=S.get('earnings_hist_'+ticker)?.data||[];
+  const overrides=tracked.filter(e=>e?.override?.date).map(e=>({
+    date:e.override.date,
+    hour:e.override.hour!=null?e.override.hour:e.hour,
+    source:'manual-override',override:e.override
+  }));
+  for(const manual of overrides){
+    const manualPeriod=_earningsPeriodMatch(history,manual.date).current?.date;
+    if(!manualPeriod)continue; // Cannot establish the quarter: do not suppress anything.
+    for(let i=entries.length-1;i>=0;i--){
+      const candidate=entries[i];
+      if(candidate.date===manual.date)continue;
+      const candidatePeriod=_earningsPeriodMatch(history,candidate.date).current?.date;
+      // Limit the override to a competing date for this quarter, rather
+      // than an unrelated future report or a distant historical event.
+      const separation=Math.abs(Date.parse(candidate.date+'T12:00:00Z')-Date.parse(manual.date+'T12:00:00Z'))/86400000;
+      if(candidatePeriod===manualPeriod&&separation<=45)entries.splice(i,1);
+    }
+    if(!entries.some(e=>e.date===manual.date))entries.push(manual);
+  }
+  return entries;
+}
+
 function buildRecentEarningsData(){
   const today=_todayETStart();
   const todayStr=_todayET();
@@ -342,8 +371,11 @@ function buildRecentEarningsData(){
   const results=[];
   watchlist.forEach(t=>{
     try{
+      const snap=S.get('snap_'+t);
+      if(!snap)return;
       const confirmed=S.get('earnings_confirmed_'+t)||[];
-      const recentDates=confirmed.filter(c=>{
+      const candidates=_recentDatesWithManualPrecedence(t,confirmed,snap.earningsHistoryYahoo||[]);
+      const recentDates=candidates.filter(c=>{
         // Recent is a calendar-event view, not a claim that EPS is verified.
         // Suppress superseded dates (SHOP), but retain reports awaiting Yahoo EPS.
         if(_earningsConflictsWithUpcoming(t,c.date))return false;
@@ -355,9 +387,6 @@ function buildRecentEarningsData(){
       }).sort((a,b)=>b.date.localeCompare(a.date));
       if(!recentDates.length)return;
       const mostRecent=recentDates[0];
-
-      const snap=S.get('snap_'+t);
-      if(!snap)return;
 
       // Recent calendar placement is NOT proof Yahoo has updated this quarter.
       // Match EPS by fiscal period; otherwise show only clearly labeled prior

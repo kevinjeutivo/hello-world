@@ -571,19 +571,10 @@ async function loadEarningsTab(){
     const t=watchlist[i];
     try{
       const snap=S.get('snap_'+t);
-      let _effEarningsDate=snap?.earningsDate,_effEarningsHour=snap?.earningsHour;
-      if(snap&&!_effEarningsDate){
-        // snap.earningsDate can come back empty if the live Finnhub calendar
-        // has already stopped listing today's date once the event has
-        // occurred, even same-day. Fall back to the confirmed/pending caches
-        // for a same-day match so the ticker doesn't silently drop out of
-        // Upcoming on the very day it reports.
-        const _todayStr=_todayET();
-        const _confMatch=(S.get('earnings_confirmed_'+t)||[]).find(c=>c.date===_todayStr);
-        const _pendMatch=(S.get('earnings_pending_'+t)||[]).find(p=>p.date===_todayStr);
-        const _fallback=_confMatch||_pendMatch;
-        if(_fallback){_effEarningsDate=_fallback.date;_effEarningsHour=_fallback.hour||null;}
-      }
+      // Use the same authoritative upcoming date as Ticker and Options.
+      // Historical pending/confirmed dates belong to Recent and must not
+      // resurrect an event that is absent from the current ticker snapshot.
+      const _effEarningsDate=snap?.earningsDate,_effEarningsHour=snap?.earningsHour;
       if(!snap||!_effEarningsDate)continue;
       // Use timezone-safe date comparison -- daysUntilDate compares calendar dates in local TZ
       // so a BMO ticker on earnings day doesn't vanish at night when UTC crosses midnight

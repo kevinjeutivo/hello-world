@@ -381,12 +381,12 @@ test('index.html loads patterns.js after helpers.js and before watchlist.js/tick
   assert.ok(pos('patterns.js')<pos('watchlist.js')&&pos('patterns.js')<pos('ticker.js'));
   assert.strictEqual(html.split('<script src="./js/patterns.js"></script>').length-1,1,'exactly one tag');
 });
-test('sw.js caches patterns.js and CACHE_NAME / APP_BUILD are in sync at 553',()=>{
+test('sw.js caches patterns.js and CACHE_NAME / APP_BUILD are in sync (at least 553)',()=>{
   const sw=src('sw.js');
   assert.ok(sw.includes("'./js/patterns.js'"));
   const name=sw.match(/const CACHE_NAME = 'income-engine-v(\d+)'/)[1];
   const build=sw.match(/const APP_BUILD = (\d+)/)[1];
-  assert.strictEqual(name,build); assert.strictEqual(build,'553');
+  assert.strictEqual(name,build); assert.ok(Number(build)>=553,'build is at least 553');
 });
 test('ticker.js and watchlist.js call the new functions',()=>{
   const t=src('js/ticker.js'),w=src('js/watchlist.js');

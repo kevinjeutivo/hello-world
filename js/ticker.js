@@ -263,8 +263,7 @@ async function loadTicker(){
     const snapFinal=S.get('snap_'+t)||snap;
     const _h2=S.get('hist2y_'+t);
     const _useTR=getRPTotalReturn();
-    const _tkCl=_useTR&&_h2?.adjcloses?_h2.adjcloses:_h2?.closes;
-    const _hist2y=_h2?{timestamps:_h2.timestamps.map(d=>new Date(d*1000)),closes:_tkCl,opens:_h2.opens||null,highs:_h2.highs||null,lows:_h2.lows||null}:null;
+    const _hist2y=_buildTickerHist2y(_h2);
     const _spKey=_useTR?'hist2y_sp500tr':'hist2y_sp500';
     const _sp2=S.get(_spKey)||((_useTR)?S.get('hist2y_sp500'):null);
     const _hist2ySP=_sp2?{timestamps:_sp2.timestamps.map(d=>new Date(d*1000)),closes:_sp2.closes}:null;
@@ -289,8 +288,7 @@ function restoreTickerFromCache(t){
     hist1y={timestamps:_ts.slice(-252),closes:_cl.slice(-252),volumes:_vl.slice(-252)};
   }
   const _rUseTR=getRPTotalReturn();
-  const _rTkCl=_rUseTR&&ch2?.adjcloses?ch2.adjcloses:ch2?.closes;
-  const hist2y=ch2?{timestamps:ch2.timestamps.map(d=>new Date(d*1000)),closes:_rTkCl,volumes:ch2.volumes||null,opens:ch2.opens||null,highs:ch2.highs||null,lows:ch2.lows||null}:null;
+  const hist2y=_buildTickerHist2y(ch2);
   const _rSpKey=_rUseTR?'hist2y_sp500tr':'hist2y_sp500';
   const sp2c=S.get(_rSpKey)||((_rUseTR)?S.get('hist2y_sp500'):null);
   const hist2ySP=sp2c?{timestamps:sp2c.timestamps.map(d=>new Date(d*1000)),closes:sp2c.closes}:null;
@@ -2253,6 +2251,33 @@ function getRelPerfEarningsToggle(){return S.get('rp_earnings_toggle')!=='off';}
 // State for total return toggle -- persisted to localStorage
 function getRPTotalReturn(){return S.get('rp_total_return')==='on';}
 
+// The Total Return toggle belongs to the Relative Performance card ONLY.
+// The history object handed to the Ticker tab therefore always carries the
+// ACTUAL closes in .closes (what 52W tiles, IVR range, gap detection, RSI,
+// and the multiple-history price lines must use) and the dividend-adjusted
+// series separately in .adjcloses (null when unavailable). Mixing adjusted
+// closes with raw opens/highs/lows made gap detection invent gaps.
+function _buildTickerHist2y(h2){
+  if(!h2||!Array.isArray(h2.timestamps))return null;
+  return{
+    timestamps:h2.timestamps.map(d=>new Date(d*1000)),
+    closes:h2.closes,
+    adjcloses:h2.adjcloses||null,
+    volumes:h2.volumes||null,
+    opens:h2.opens||null,
+    highs:h2.highs||null,
+    lows:h2.lows||null
+  };
+}
+
+// The one place the Total Return choice is applied to the ticker's own
+// series: returns a view whose .closes is the adjusted series when the
+// toggle is on and adjusted closes exist, else the history unchanged.
+function _rpTickerSeries(hist2y){
+  if(!hist2y||!getRPTotalReturn()||!hist2y.adjcloses)return hist2y;
+  return{...hist2y,closes:hist2y.adjcloses};
+}
+
 function toggleRPTotalReturn(){
   const newVal=!getRPTotalReturn();
   S.set('rp_total_return',newVal?'on':'off');
@@ -2910,7 +2935,7 @@ function renderRelPerfCard(ticker,hist2y,hist2ySP,earningsHistory){
   // Compute earnings pattern summary
   const earningsWithOvr=_getEarningsWithOverrides(ticker);
   const effectiveHistory=earningsWithOvr.map(e=>({..._effectiveEarningsDate(e),gapPct:e.gapPct,direction:e.direction,_idx:earningsWithOvr.indexOf(e)}));
-  const earnSummary=_computeEarningsPatternSummary(ticker,hist2y,hist2ySP,effectiveHistory);
+  const earnSummary=_computeEarningsPatternSummary(ticker,_rpTickerSeries(hist2y),hist2ySP,effectiveHistory);
 
   const _rpSpan=currentRPSpan||'2y';
   const _rpSpanLabel=_rpSpan==='6m'?'6 Months':_rpSpan==='1y'?'1 Year':'2 Years';
@@ -3149,7 +3174,7 @@ function _initRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span){
       cmpData={ticker:cmpTicker,timestamps:cmpC.timestamps,closes:cmpCloses};
     }
   }
-  renderRelPerfChart(ticker,hist2y,hist2ySP,earningsHistory,span||'2y',cmpData);
+  renderRelPerfChart(ticker,_rpTickerSeries(hist2y),hist2ySP,earningsHistory,span||'2y',cmpData);
 }
 
 function renderVolChart(hist6m,hist1y,hist2y,span,avgVol20){

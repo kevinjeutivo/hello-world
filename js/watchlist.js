@@ -833,6 +833,7 @@ function renderWatchlist(){
     const rsiTransBadge=_rsiTransitionBadgeHtml(t);
     const distBadge=_distBadgeHtml(t);
     const gapBadge=_gapBadgeHtml(t);
+    const patternBadge=_patternWatchlistBadgeHtml(t);
     const note=S.get('watchlist_note_'+t)||'';
     const expanded=_expandedNotes.has(t);
     return '<div class="watchlist-item" style="flex-direction:column;align-items:stretch;'+bgStyle+'" onclick="navigateToTicker(\''+t+'\')">'+
@@ -855,6 +856,7 @@ function renderWatchlist(){
       '</div>'+
       (rsiTransBadge?'<div style="width:100%;margin-top:4px">'+rsiTransBadge+'</div>':'')+
       (gapBadge?'<div style="width:100%;margin-top:4px">'+gapBadge+'</div>':'')+
+      (patternBadge?'<div style="width:100%;margin-top:4px">'+patternBadge+'</div>':'')+
       (note?
         '<div onclick="event.stopPropagation();_toggleNoteExpand(\''+t+'\')" style="width:100%;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-family:var(--mono);font-size:10px;color:var(--text2);cursor:pointer;display:flex;align-items:flex-start;gap:4px">'+
           '<span style="flex:1;'+(expanded?'white-space:normal;word-break:break-word':'white-space:nowrap;overflow:hidden;text-overflow:ellipsis')+'">'+_escHtml(note)+'</span>'+

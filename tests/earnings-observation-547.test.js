@@ -10,10 +10,13 @@ const snapshot={earningsDate:event,earningsHour:'amc',earningsHistoryYahoo:prior
 ctx._earningsObserveFreshSnapshot('INTC',snapshot);
 assert.equal(ctx._earningsEventStatus('INTC',event,'amc',prior,now).state,'before');
 now=Date.parse('2026-10-30T14:00:00Z');
-assert.equal(ctx._earningsEventStatus('INTC',event,'amc',prior,now).state,'pending','unchanged pre-event EPS must not count');
+// Build 550 replaced the pre-report-baseline rule: a populated, period-matched actual+estimate
+// counts as observed even if identical to the pre-event snapshot, so results do not depend on
+// whether the app was opened before the report (see tests/earnings-period-550.test.js).
+assert.equal(ctx._earningsEventStatus('INTC',event,'amc',prior,now).state,'observed','period-matched EPS counts without a changed baseline (build 550)');
 const changed=[{date:'2026-09-30',epsActual:0.61,epsEstimate:0.40}];
 assert.equal(ctx._earningsEventStatus('INTC',event,'amc',changed,now).state,'observed');
-assert.equal(ctx._recentEarningsEPSState(prior,event,'INTC','amc').verified,false);
+assert.equal(ctx._recentEarningsEPSState(prior,event,'INTC','amc').verified,true,'period-matched, so verified (build 550)');
 assert.equal(ctx._recentEarningsEPSState(changed,event,'INTC','amc').verified,true);
-assert.equal(ctx._earningsEventStatus('UNKNOWN',event,'amc',changed,now).state,'unknown','no baseline means no verification');
+assert.equal(ctx._earningsEventStatus('UNKNOWN',event,'amc',changed,now).state,'observed','a ticker with no stored baseline is still observed when its EPS is period-matched (build 550)');
 console.log('earnings observation regression passed');

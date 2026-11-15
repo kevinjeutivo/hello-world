@@ -2078,7 +2078,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
     </div>`;
   }
   el.innerHTML=`<div class="card">
-    <div class="card-title"><span class="dot"></span>${snap.ticker} -- ${snap.name} <span id="ticker-star-icon" data-ticker="${snap.ticker}" style="flex-shrink:0">${_starIconHtml(snap.ticker,15)}</span>${_distBadgeHtml(snap.ticker)}</div>
+    <div class="card-title" style="flex-wrap:wrap;row-gap:4px"><span class="dot"></span>${snap.ticker} -- ${snap.name} <span id="ticker-star-icon" data-ticker="${snap.ticker}" style="flex-shrink:0">${_starIconHtml(snap.ticker,15)}</span>${_distBadgeHtml(snap.ticker)}${_patternHeaderBadgeHtml(snap.ticker)}</div>
     ${tsChip(snap.ts,isLive,snap.tsEpoch)}
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><span style="font-family:var(--mono);font-size:28px;font-weight:500">$${snap.price?.toFixed(2)||'N/A'}</span>${_sparklineHtml(snap.ticker)}</div>
     <div style="font-family:var(--mono);font-size:13px;color:${chgColor};margin-bottom:6px">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>
@@ -2144,6 +2144,7 @@ Volume: green bars = up days, yellow bars = 20-day average. Spikes on breakouts 
 HVR (Historical Volatility Rank): where current 30-day realized volatility sits relative to its 1-year range. High HVR = elevated volatility, richer option premiums. Low HVR = compressed volatility, thinner premiums.</div></div>`:''}
   ${_rsiTransitionCardHtml(snap.ticker,hist2y)}
   ${_gapFillCardHtml(snap.ticker,hist2y)}
+  ${_patternsCardHtml(snap.ticker)}
   ${(hist2y&&hist2ySP)?renderRelPerfCard(snap.ticker,hist2y,hist2ySP,earningsHistory):''}  ${hist1y?`<div class="card"><div class="card-title"><span class="dot" style="background:teal"></span>Volume Profile -- Support / Resistance (1Y)</div><div class="chart-wrap" style="height:300px"><canvas id="vp-chart"></canvas></div><div id="vp-analysis"></div></div>`:''}
   <div class="card"><div class="card-title"><span class="dot" style="background:var(--accent2)"></span>Recent News (7 days)</div><div id="news-section">${renderNewsItems(news)}</div></div>
   ${upgradesData&&upgradesData.length?buildUpgradeTable(upgradesData):''}

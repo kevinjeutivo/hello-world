@@ -1061,6 +1061,22 @@
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
     <div class="commentary" style="font-size:12px;max-height:400px;overflow-y:auto">
+v4.4.6 -- 2026-11-15
+- Fixed a real correctness bug: the Relative Performance "Total Return" toggle was leaking into the rest of the Ticker tab. When it was on, the page's price history had its closes swapped for dividend-adjusted ones, and that one object fed the 52W High/Low tiles, the IVR 52-week range, the Gap Fill card, the RSI Signal card, and the price lines on the Multiple History and Next FY charts. The worst case was gap detection, which compares each day's actual open to the previous close: against adjusted closes it invented gaps (a synthetic 4%-yield stock with no real gaps produced 383 of them, versus 0 with actual closes). The toggle now only affects the Relative Performance card; everything else always uses actual closes. Because the toggle only redraws that card's chart, the other cards picked up the swap on the next full render of the ticker page.
+- The two places that built the Ticker tab's price history (live fetch and cache restore) are now one shared helper. They had already drifted apart: the live-fetch copy left out volumes.
+- Updated tests/earnings-observation-547.test.js, which had been failing since build 550 replaced the pre-report-baseline rule. Three assertions (first estimated as two) encoded the superseded behavior and now match build 550. No app code changed for this.
+- Added the missing Release Notes entry for build 553. Builds 521 to 552 still have no entries.
+- 16 new deterministic tests, including negative controls (adjusted closes really do invent 100+ gaps and shift the 52W low) and a hand-computed Relative Performance check (+4.0% on actual closes, +6.12% on adjusted).
+- Noticed, not changed: the Earnings tab's Recent view pairs actual stock closes with the total-return S&P series when the toggle is on. The effect on a single reaction day is negligible.
+- Service worker: v554
+
+v4.4.5 -- 2026-11-15
+- New: technical pattern badges. Golden Cross and Death Cross (50-day average crossing the 200-day, shown for 20 trading days) and 52W High / 52W Low (new closing high or low within 5 days). They appear as a bracket badge on Watchlist cards, an outlined pill in the Ticker tab header (tap it to open the card), and a Patterns card on the Ticker tab. The card is collapsed by default, and shows a single line with nothing to expand when no pattern is recent. Patterns are context, not predictions, and are not used in scoring.
+- Only the most recent cross is badged; a second cross within 60 trading days is flagged as whipsaw. Crosses need 200 days of cached closes and 52W badges need a full year. Missing price bars are skipped instead of blanking the 200-day average. New Guide section: Pattern Badges.
+- New js/patterns.js, registered in index.html and the service worker. 40 new deterministic tests, checked against hand-derived series, a naive reference on randomized series, and the Ticker tab's 52W tiles. Six of seven deliberate code mutations were caught on the first pass; the survivor exposed a missing case, which now has a test.
+- Found here and fixed in v4.4.6: the Total Return toggle leaking into the Ticker tab.
+- Service worker: v553
+
 v4.4.4 -- 2026-09-25
 - Guide documentation catch-up for the input-hardening arc: added a new "Add Ticker" entry to the Watchlist guide explaining the accepted ticker format, and expanded "FOMC meeting dates" to actually document the validation rules the editor enforces (real calendar dates only, a reasonable year range, no two meetings in the same month) -- both were genuinely undocumented behavior from earlier builds in this arc.
 - Found a real bug while cross-checking the Guide against the code, not just writing text: the Guide's own claim that Dashboard Notes has "No length limit" was true for normal live editing but contradicted by the backup-import validator, which silently capped it at 5000 characters -- a genuinely long note could be truncated on restore with no warning. Raised to 100,000 characters, far beyond anything realistic to type by hand, so the import path now actually matches what's documented.

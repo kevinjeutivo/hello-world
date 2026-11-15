@@ -660,6 +660,14 @@
     <div class="guide-kv"><span class="guide-key">MA50 / MA200</span><span class="guide-val">Dynamic support and resistance that moves with price. Price above both MAs = uptrend. MA50 crossing above MA200 (golden cross) = bullish. Below both = downtrend.</span></div>
     <div class="guide-kv"><span class="guide-key">High put OI</span><span class="guide-val">Market makers who sold puts must buy stock to hedge as price approaches put strikes. This buying creates gravitational support near high-OI put strikes.</span></div>
     <div class="guide-kv"><span class="guide-key">High call OI</span><span class="guide-val">Market makers who sold calls must sell stock to hedge as price approaches call strikes. This selling creates resistance near high-OI call strikes.</span></div>
+    <div class="guide-h3">Pattern Badges</div>
+    <div class="guide-kv"><span class="guide-key">Where they appear</span><span class="guide-val">A bracket badge on Watchlist cards (one per card, most relevant first), an outlined pill in the Ticker tab header (tap it to jump to the card), and a Patterns card on the Ticker tab. The card is a single line when nothing is recent and has nothing to expand. When a badge is active it starts collapsed with the badge showing in its header; tap to read what the pattern is usually taken to mean.</span></div>
+    <div class="guide-kv"><span class="guide-key">Golden Cross</span><span class="guide-val">The 50-day simple average of closes crossed above the 200-day average within the last 20 trading days. Often read as the longer-term trend turning up. It lags: price has usually been rising for weeks first.</span></div>
+    <div class="guide-kv"><span class="guide-key">Death Cross</span><span class="guide-val">The reverse: the 50-day average crossed below the 200-day within the last 20 trading days. Often read as the longer-term trend turning down. It also lags, and it can fail if price recovers.</span></div>
+    <div class="guide-kv"><span class="guide-key">Whipsaw</span><span class="guide-val">Only the most recent cross is badged. If it is the second cross within 60 trading days, the card says so: back-and-forth crossing is common when price moves sideways and weakens the signal. The card also lists the last few crosses with dates.</span></div>
+    <div class="guide-kv"><span class="guide-key">52W High / 52W Low</span><span class="guide-val">The latest close set the highest (or lowest) close of the past 252 trading days within the last 5 days. This uses closes, the same rule as the 52W tiles, so a close that only ties an earlier high does not count. Needs a full year of cached history.</span></div>
+    <div class="guide-kv"><span class="guide-key">History needed</span><span class="guide-val">Crosses need 200 days of cached closes. A ticker with less shows a single line saying so, with no badge.</span></div>
+    <div class="guide-kv"><span class="guide-key">How to read them</span><span class="guide-val">Context, not predictions: these describe what has already happened and are not used in conviction scores. They always use unadjusted daily closes, so the Relative Performance Total Return toggle does not change them.</span></div>
     <div class="guide-h3">Why Market Makers Hedge -- The Mechanics</div>
     <div class="guide-kv"><span class="guide-key">Delta</span><span class="guide-val">Every option has a delta -- how much its value changes per $1 move in the stock. A put has negative delta (gains value as the stock falls); a call has positive delta (gains value as the stock rises). Delta ranges from -1 to 0 for puts, 0 to 1 for calls.</span></div>
     <div class="guide-kv"><span class="guide-key">The market maker's position</span><span class="guide-val">When a retail trader buys an option, a market maker is typically on the other side -- short that option. Being short a put gives the market maker positive delta exposure (opposite of the put itself); being short a call gives them negative delta exposure.</span></div>
@@ -700,7 +708,7 @@
     <div class="guide-kv"><span class="guide-key">A&rarr;Z</span><span class="guide-val">Alphabetical by ticker.</span></div>
     <div class="guide-kv"><span class="guide-key">Opportunity</span><span class="guide-val">Ranked by the higher of that ticker's put or covered call conviction score. Run the conviction dashboards on the Dashboard tab first -- without scores computed, this sort has nothing to rank by.</span></div>
     <div class="guide-h3">Cards</div>
-    <div class="guide-kv"><span class="guide-key">Badges</span><span class="guide-val">HVR, unusual volume, RSI transition, and Gap Fill can each appear on a card when relevant -- see their respective Guide sections for what triggers each one.</span></div>
+    <div class="guide-kv"><span class="guide-key">Badges</span><span class="guide-val">HVR, unusual volume, RSI transition, Gap Fill, and pattern badges (golden/death cross, 52-week high/low) can each appear on a card when relevant -- see their respective Guide sections for what triggers each one.</span></div>
     <div class="guide-kv"><span class="guide-key">Notes</span><span class="guide-val">Tap a card's note area to add free text, up to 500 characters. Long notes truncate to one line -- tap the note itself to expand or collapse it.</span></div>
   </div>
 </div>
@@ -1660,6 +1668,7 @@ v1.7 -- 2026-04-29
 <div class="toast" id="toast"></div>
 <script src="./js/storage.js"></script>
 <script src="./js/helpers.js"></script>
+<script src="./js/patterns.js"></script>
 <script src="./js/ui.js"></script>
 <script src="./js/api.js"></script>
 <script src="./js/scoring.js"></script>

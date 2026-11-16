@@ -1,18 +1,21 @@
 // ============================================
-// Income Engine -- patterns.js (build 553)
+// Income Engine -- patterns.js (build 555)
 // Technical pattern badges, Phase 1: golden/death cross (50-day vs
 // 200-day simple moving average) and new 52-week high/low.
 //
 // Design rules (see tests/patterns.test.js):
 // - ONE shared computation (_computePatternsForTicker) feeds the watchlist
-//   badge, the Ticker-tab header badge and the Patterns card, so the three
-//   can never disagree about what is active.
+//   badge, the Ticker-tab header badge, the Patterns card and its chart, so
+//   they can never disagree about what is active.
 // - Always reads the RAW cached hist2y_<ticker> (unadjusted closes), never
-//   the Ticker tab's transformed copy, which can swap in dividend-adjusted
-//   closes when the Relative Performance "Total Return" toggle is on.
-//   Pattern badges must not flip with a presentation toggle.
+//   the Ticker tab's transformed copy. Pattern badges must not flip with a
+//   presentation toggle.
 // - Every output array is index-aligned with the input closes/timestamps.
 //   Nulls are never used in arithmetic (null-arithmetic bug class).
+// - "N days ago" is counted from the last cached bar, so a cache that has
+//   not been refreshed in weeks would claim "1d" for something weeks old.
+//   Price history older than PATTERN_STALE_DAYS therefore suppresses every
+//   badge and the card says how old the data is.
 // - Not wired into scoring. Badges are context, not signals.
 // ============================================
 
@@ -24,6 +27,9 @@ const PATTERN_52W_RECENT_DAYS=5;
 const PATTERN_52W_MIN_BARS=252;
 // Two crosses closer together than this are flagged as whipsaw.
 const PATTERN_WHIPSAW_DAYS=60;
+// Cached price history whose last bar is older than this many calendar
+// days is stale: no badges. (A long weekend is at most ~4.)
+const PATTERN_STALE_DAYS=7;
 
 const PATTERN_META={
   golden:{
@@ -48,9 +54,24 @@ const PATTERN_META={
   }
 };
 
+// Chart marker colors (Chart.js needs literal colors, not CSS variables).
+const PATTERN_CHART_COLORS={price:'#e8eaf0',sma50:'#ff9800',sma200:'#7c6af7',bullish:'#00c896',bearish:'#ff4757'};
+
 function _patternColor(bias){return bias==='bullish'?'var(--green)':'var(--red)';}
 function _patIsNum(v){return typeof v==='number'&&isFinite(v);}
 function _patDaysText(d){return d===0?'today':d+'d';}
+// Indirection so tests can pin "now".
+function _patNow(){return Date.now();}
+// Epoch seconds, epoch ms, Date or ISO string -> epoch ms (null if unusable).
+function _patTsMs(ts){
+  if(ts==null)return null;
+  let ms;
+  if(ts instanceof Date)ms=ts.getTime();
+  else if(typeof ts==='number')ms=ts<1e10?ts*1000:ts;
+  else if(typeof ts==='object'&&typeof ts.getTime==='function')ms=ts.getTime(); // Date from another realm
+  else ms=Date.parse(ts);
+  return _patIsNum(ms)?ms:null;
+}
 
 // Simple moving average aligned with `values` (same length). out[i] is the
 // mean of the last `period` NON-NULL values ending at i, and is null when
@@ -121,8 +142,10 @@ function _patWhipsaw(crosses){
 }
 
 // Pure core: closes (and optional index-aligned timestamps) in, everything
-// the badges and card need out. Returns null if there is no usable data.
-function _computePatternsFromSeries(closes,timestamps){
+// the badges, card and chart need out. Returns null if there is no usable
+// data. opts.now pins "now" (ms); opts.series also returns the aligned
+// arrays the chart draws.
+function _computePatternsFromSeries(closes,timestamps,opts){
   if(!Array.isArray(closes))return null;
   let lastIdx=closes.length-1;
   while(lastIdx>=0&&!_patIsNum(closes[lastIdx]))lastIdx--; // skip an unsettled/missing latest bar
@@ -132,14 +155,20 @@ function _computePatternsFromSeries(closes,timestamps){
   let validBars=0;
   for(let i=0;i<=lastIdx;i++)if(_patIsNum(closes[i]))validBars++;
 
+  // Data age, counted in calendar days from the last real bar to "now".
+  const nowMs=(opts&&_patIsNum(opts.now))?opts.now:_patNow();
+  const lastMs=_patTsMs(tsAt(lastIdx));
+  const ageDays=lastMs==null?null:Math.max(0,Math.floor((nowMs-lastMs)/86400000));
+  const stale=ageDays!=null&&ageDays>PATTERN_STALE_DAYS;
+
   const sma50=computeSMA(closes,50);
   const sma200=computeSMA(closes,200);
   const s50=sma50[lastIdx],s200=sma200[lastIdx];
   const out={
-    validBars,lastIdx,lastClose,lastTs:tsAt(lastIdx),
+    validBars,lastIdx,lastClose,lastTs:tsAt(lastIdx),ageDays,stale,
     hasSMA200:s200!=null,sma50:s50,sma200:s200,
     trend:null,pctVs200:null,crosses:[],lastCross:null,whipsaw:false,
-    week52:null,events:[]
+    week52:null,events:[],series:null
   };
   if(!out.hasSMA200)return out; // not enough history: no state, no events
 
@@ -173,15 +202,18 @@ function _computePatternsFromSeries(closes,timestamps){
       w.forEach(e=>events.push(e));
     }
   }
-  out.events=events;
+  // Stale price history: day counts would be measured from an old last bar,
+  // so nothing may claim to be "recent".
+  out.events=stale?[]:events;
+  if(opts&&opts.series)out.series={closes,sma50,sma200,ts:timestamps||null};
   return out;
 }
 
-function _computePatternsForTicker(ticker){
+function _computePatternsForTicker(ticker,opts){
   try{
     const h=S.get('hist2y_'+ticker);
     if(!h||!Array.isArray(h.closes))return null;
-    return _computePatternsFromSeries(h.closes,h.timestamps);
+    return _computePatternsFromSeries(h.closes,h.timestamps,opts);
   }catch{return null;}
 }
 
@@ -233,21 +265,24 @@ function _patternHeaderBadgeHtml(ticker){
 }
 
 function _patternsStatusText(p){
-  const parts=[];
+  const sentences=[];
   if(p.trend){
     let s='The 50-day average is '+p.trend+' the 200-day';
     if(p.lastCross){
       const d=_patDateStr(p.lastCross.ts);
       s+=' (since the '+PATTERN_META[p.lastCross.type].label.toLowerCase()+(d?' on '+d:'')+')';
     }else s+=' (no cross in the cached history)';
-    parts.push(s);
+    sentences.push(s);
   }
-  if(p.pctVs200!=null)parts.push('Price is '+Math.abs(p.pctVs200).toFixed(1)+'% '+(p.pctVs200>=0?'above':'below')+' the 200-day');
+  // One price sentence, not two: "Price is X% above the 200-day and Y% below its 52-week closing high."
+  const price=[];
+  if(p.pctVs200!=null)price.push(Math.abs(p.pctVs200).toFixed(1)+'% '+(p.pctVs200>=0?'above':'below')+' the 200-day');
   if(p.week52){
     const d=p.week52.pctFromHigh;
-    parts.push(d>-0.05?'Price is at its 52-week closing high':'Price is '+Math.abs(d).toFixed(1)+'% below its 52-week closing high');
+    price.push(d>-0.05?'at its 52-week closing high':Math.abs(d).toFixed(1)+'% below its 52-week closing high');
   }
-  return parts.length?parts.join('. ')+'.':'';
+  if(price.length)sentences.push('Price is '+price.join(' and '));
+  return sentences.length?sentences.join('. ')+'.':'';
 }
 
 function _patternsQuietText(p){
@@ -257,13 +292,138 @@ function _patternsQuietText(p){
   return bits.join(' &middot; ');
 }
 
-// Ticker-tab card. Three states: one-line (no history / nothing recent, no
-// expander at all) or a collapsed-by-default card whose header shows the
-// active badge(s). Expandability is exactly "there is an active event".
+// ── Chart ─────────────────────────────────────────────────────────────────
+
+// Pure model for the chart: labels plus the aligned series and one marker
+// per cross in the cached history and for the CURRENT 52-week high/low
+// (every historical new high would flood the chart in an uptrend). A marker
+// is "active" when it is one of the badge events. Crosses sit on the 50-day
+// line; 52W markers sit on the close.
+function _patternsChartModel(p){
+  if(!p||!p.series||!p.hasSMA200)return null;
+  const s=p.series,n=s.closes.length;
+  const activeKeys=new Set(p.events.map(e=>e.kind+':'+e.idx));
+  const markers=[];
+  p.crosses.forEach(c=>{
+    const y=s.sma50[c.idx];
+    if(!_patIsNum(y))return;
+    markers.push({kind:c.type,idx:c.idx,y,active:activeKeys.has(c.type+':'+c.idx),
+      text:PATTERN_META[c.type].label+(_patDateStr(c.ts)?' -- '+_patDateStr(c.ts):'')});
+  });
+  if(p.week52){
+    [['high52',p.week52.hiIdx],['low52',p.week52.loIdx]].forEach(([kind,idx])=>{
+      const y=s.closes[idx];
+      if(!_patIsNum(y))return;
+      markers.push({kind,idx,y,active:activeKeys.has(kind+':'+idx),
+        text:PATTERN_META[kind].label+' (closing)'+(_patDateStr(s.ts&&s.ts[idx])?' -- '+_patDateStr(s.ts[idx]):'')});
+    });
+  }
+  const fmtFull=new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',year:'numeric'});
+  const fmtMon=new Intl.DateTimeFormat('en-US',{month:'short'});
+  const labels=new Array(n).fill(''),shortLabels=new Array(n).fill('');
+  for(let i=0;i<n;i++){
+    const ms=_patTsMs(s.ts&&s.ts[i]);
+    if(ms==null)continue;
+    const d=new Date(ms);
+    labels[i]=fmtFull.format(d);
+    shortLabels[i]=fmtMon.format(d)+" '"+String(d.getFullYear()).slice(2);
+  }
+  return{n,labels,shortLabels,price:s.closes,sma50:s.sma50,sma200:s.sma200,markers};
+}
+
+// Chart.js config for the model. Marker datasets are sparse line datasets
+// (null everywhere except the marker bar) with showLine off. Styling follows
+// the other Ticker-tab charts (tick color, grid color, legend off).
+function _patternsChartConfig(m){
+  const C=PATTERN_CHART_COLORS;
+  const line=(label,data,color,width,dash)=>({label,data,borderColor:color,borderWidth:width,borderDash:dash||[],pointRadius:0,tension:0,fill:false,spanGaps:true});
+  const markerDs=(kind,bias,style,rotation)=>{
+    const color=C[bias];
+    const data=new Array(m.n).fill(null),info={};
+    m.markers.filter(k=>k.kind===kind).forEach(k=>{data[k.idx]=k.y;info[k.idx]=k;});
+    const isActive=c=>!!(info[c.dataIndex]&&info[c.dataIndex].active);
+    return{label:PATTERN_META[kind].label,data,showLine:false,markerInfo:info,
+      pointStyle:style,pointRotation:rotation,
+      pointRadius:c=>isActive(c)?7:4,pointHoverRadius:8,pointBorderWidth:2,pointBorderColor:color,
+      pointBackgroundColor:c=>isActive(c)?color:'transparent'};
+  };
+  return{
+    type:'line',
+    data:{labels:m.labels,datasets:[
+      line('Close',m.price,C.price,1.5),
+      line('50-day',m.sma50,C.sma50,1,[4,3]),
+      line('200-day',m.sma200,C.sma200,1,[4,3]),
+      markerDs('golden','bullish','triangle',0),
+      markerDs('death','bearish','triangle',180),
+      markerDs('high52','bullish','circle',0),
+      markerDs('low52','bearish','circle',0)
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{
+          title:items=>items.length?m.labels[items[0].dataIndex]:'',
+          label:item=>{
+            const ds=item.dataset;
+            if(ds.markerInfo){const k=ds.markerInfo[item.dataIndex];return k?k.text:'';}
+            const v=item.parsed&&item.parsed.y;
+            return _patIsNum(v)?ds.label+' $'+v.toFixed(2):'';
+          }
+        }}
+      },
+      scales:{
+        x:{ticks:{color:'#555870',font:{size:9},maxTicksLimit:6,maxRotation:0,callback:v=>m.shortLabels[v]},grid:{color:'#2a2e38'}},
+        y:{ticks:{color:'#555870',font:{size:9}},grid:{color:'#2a2e38'}}
+      }
+    }
+  };
+}
+
+function _patternsDestroyChart(){
+  try{if(typeof window!=='undefined'&&window._patternsChart){window._patternsChart.destroy();window._patternsChart=null;}}catch{}
+}
+
+// Built the first time the card is expanded: a Chart.js canvas inside a
+// display:none container sizes wrongly, and most visits never expand it.
+function _patternsEnsureChart(){
+  try{
+    if(typeof window==='undefined'||window._patternsChart)return;
+    const card=document.getElementById('patterns-card');
+    const canvas=document.getElementById('patterns-chart');
+    if(!card||!canvas)return;
+    const wrap=document.getElementById('patterns-chart-wrap');
+    if(typeof Chart==='undefined'){
+      if(wrap)wrap.innerHTML='<div style="font-family:var(--mono);font-size:10px;color:var(--text3)">Chart library not loaded.</div>';
+      return;
+    }
+    const t=card.getAttribute('data-ticker');
+    const m=_patternsChartModel(_computePatternsForTicker(t,{series:true}));
+    if(!m)return;
+    window._patternsChart=new Chart(canvas.getContext('2d'),_patternsChartConfig(m));
+  }catch(e){console.warn('patterns chart',e);}
+}
+
+// ── Card ──────────────────────────────────────────────────────────────────
+
+function _patternsGuideLinkHtml(kind,text){
+  return'<span onclick="_patternsOpenGuide('+(kind?"'"+kind+"'":'')+')" style="font-family:var(--mono);font-size:10px;color:var(--accent3);text-decoration:underline;cursor:pointer">'+text+' &rarr;</span>';
+}
+
+// Ticker-tab card. Four states: one-line (no history / stale history /
+// nothing recent, no expander at all) or a collapsed-by-default card whose
+// header shows the active badge(s). Expandability is exactly "there is an
+// active event".
 function _patternsCardHtml(ticker){
+  _patternsDestroyChart(); // the page is about to re-render; never leak the old chart
   const p=_computePatternsForTicker(ticker);
   if(!p)return'';
   const line=txt=>'<div class="card"><div style="font-family:var(--mono);font-size:11px;color:var(--text3)">'+txt+'</div></div>';
+  if(p.stale){
+    const d=_patDateStr(p.lastTs);
+    return line('Patterns: price history ends '+(d||'a while ago')+' ('+p.ageDays+' days old) -- refresh to update');
+  }
   if(!p.hasSMA200)return line('Patterns: needs 200 days of price history ('+p.validBars+' cached so far)');
   if(!p.events.length)return line(_patternsQuietText(p));
 
@@ -274,7 +434,20 @@ function _patternsCardHtml(ticker){
     +'<span class="gs-chevron" id="patterns-chevron">&#9658;</span></div>';
 
   const mono='font-family:var(--mono);';
+  const asOf=_patDateStr(p.lastTs);
   let body='<div style="'+mono+'font-size:11px;color:var(--text2);line-height:1.5;margin-bottom:10px">'+_patternsStatusText(p)+'</div>';
+  const C=PATTERN_CHART_COLORS;
+  body+='<div id="patterns-chart-wrap" style="position:relative;height:190px"><canvas id="patterns-chart"></canvas></div>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:4px 12px;'+mono+'font-size:9px;color:var(--text3);margin:6px 0 10px;line-height:1.4">'
+    +'<span><span style="color:'+C.price+'">&#9472;</span> Close</span>'
+    +'<span><span style="color:'+C.sma50+'">&#9482;</span> 50-day</span>'
+    +'<span><span style="color:'+C.sma200+'">&#9482;</span> 200-day</span>'
+    +'<span><span style="color:'+C.bullish+'">&#9650;</span> golden</span>'
+    +'<span><span style="color:'+C.bearish+'">&#9660;</span> death</span>'
+    +'<span>&#9675; 52W high/low</span>'
+    +'<span>large filled = active badge</span>'
+    +(asOf?'<span>closes through '+asOf+'</span>':'')
+    +'</div>';
   p.events.forEach(ev=>{
     const m=PATTERN_META[ev.kind];
     const color=_patternColor(ev.bias);
@@ -287,6 +460,7 @@ function _patternsCardHtml(ticker){
     if((ev.kind==='golden'||ev.kind==='death')&&p.whipsaw){
       body+='<div style="'+mono+'font-size:11px;color:var(--warn);line-height:1.5;margin-top:4px">Whipsaw: this is the second cross within '+PATTERN_WHIPSAW_DAYS+' trading days. Back-and-forth crossing is common when price moves sideways and weakens the signal.</div>';
     }
+    body+='<div style="margin-top:6px">'+_patternsGuideLinkHtml(ev.kind,'Definition in Guide')+'</div>';
     body+='</div>';
   });
   if(p.crosses.length){
@@ -296,9 +470,11 @@ function _patternsCardHtml(ticker){
     }).join(' &middot; ');
     body+='<div style="'+mono+'font-size:10px;color:var(--text3);margin-top:10px;padding-top:10px;border-top:1px solid var(--surface3)">Recent crosses in cached history: '+recent+'</div>';
   }
-  body+='<div style="'+mono+'font-size:9px;color:var(--text3);margin-top:6px;line-height:1.5">Patterns describe what has already happened and are context, not predictions. They use unadjusted daily closes.</div>';
+  body+='<div style="'+mono+'font-size:9px;color:var(--text3);margin-top:6px;line-height:1.5">Patterns describe what has already happened and are context, not predictions. They use unadjusted daily closes'+(asOf?' through '+asOf:'')+'.</div>';
+  body+='<div style="margin-top:6px">'+_patternsGuideLinkHtml('','All pattern definitions in the Guide')+'</div>';
 
-  return'<div class="card" id="patterns-card">'+head+'<div class="gs-body" id="patterns-body">'+body+'</div></div>';
+  const safeTicker=String(ticker).replace(/[&<>"']/g,'');
+  return'<div class="card" id="patterns-card" data-ticker="'+safeTicker+'" style="scroll-margin-top:170px">'+head+'<div class="gs-body" id="patterns-body">'+body+'</div></div>';
 }
 
 // Same collapse mechanism as the Guide sections and the Multiple History
@@ -311,6 +487,7 @@ function _patternsToggle(){
   const isOpen=bodyEl.classList.contains('open');
   bodyEl.classList.toggle('open',!isOpen);
   if(chev)chev.classList.toggle('open',!isOpen);
+  if(!isOpen)_patternsEnsureChart();
 }
 
 function _patternsOpenFromHeader(){
@@ -318,4 +495,27 @@ function _patternsOpenFromHeader(){
   if(bodyEl&&!bodyEl.classList.contains('open'))_patternsToggle();
   const card=document.getElementById('patterns-card');
   if(card&&card.scrollIntoView)card.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+// Jump from the card to the Guide: switch tab, open the Pattern Badges
+// section, scroll to that pattern's row (or the section top) and flash it.
+// Targets carry scroll-margin-top so they land below the sticky bars.
+function _patternsOpenGuide(kind){
+  try{
+    if(typeof showTab==='function')showTab('guide');
+    if(typeof openGuideSection==='function')openGuideSection('patterns');
+    const go=()=>{
+      const el=(kind&&document.getElementById('guide-pattern-'+kind))||document.getElementById('guide-pattern-section');
+      if(!el)return;
+      if(el.scrollIntoView)el.scrollIntoView({behavior:'auto',block:'start'});
+      try{
+        el.style.transition='background-color 0.4s';
+        el.style.backgroundColor='rgba(124,106,247,0.28)';
+        setTimeout(()=>{el.style.backgroundColor='';},1400);
+        setTimeout(()=>{el.style.transition='';},1900);
+      }catch{}
+    };
+    // after layout, so the section is open (and tab switched) when we measure
+    if(typeof requestAnimationFrame==='function')requestAnimationFrame(go);else go();
+  }catch(e){console.warn('patterns guide link',e);}
 }

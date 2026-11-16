@@ -400,6 +400,18 @@
     else if(!arr.includes(id))arr.push(id);
     _gsSave(arr);
   };
+  // Idempotent open (toggleGuide would close an already-open section).
+  // Persists like a manual open so initGuide restores it.
+  window.openGuideSection=function(id){
+    const body=document.getElementById('gb-'+id);
+    const chev=document.getElementById('gc-'+id);
+    if(!body)return false;
+    body.classList.add('open');
+    if(chev)chev.classList.add('open');
+    const arr=_gsOpen();
+    if(!arr.includes(id)){arr.push(id);_gsSave(arr);}
+    return true;
+  };
   window.initGuide=function(){
     const open=_gsOpen();
     open.forEach(id=>{
@@ -660,14 +672,6 @@
     <div class="guide-kv"><span class="guide-key">MA50 / MA200</span><span class="guide-val">Dynamic support and resistance that moves with price. Price above both MAs = uptrend. MA50 crossing above MA200 (golden cross) = bullish. Below both = downtrend.</span></div>
     <div class="guide-kv"><span class="guide-key">High put OI</span><span class="guide-val">Market makers who sold puts must buy stock to hedge as price approaches put strikes. This buying creates gravitational support near high-OI put strikes.</span></div>
     <div class="guide-kv"><span class="guide-key">High call OI</span><span class="guide-val">Market makers who sold calls must sell stock to hedge as price approaches call strikes. This selling creates resistance near high-OI call strikes.</span></div>
-    <div class="guide-h3">Pattern Badges</div>
-    <div class="guide-kv"><span class="guide-key">Where they appear</span><span class="guide-val">A bracket badge on Watchlist cards (one per card, most relevant first), an outlined pill in the Ticker tab header (tap it to jump to the card), and a Patterns card on the Ticker tab. The card is a single line when nothing is recent and has nothing to expand. When a badge is active it starts collapsed with the badge showing in its header; tap to read what the pattern is usually taken to mean.</span></div>
-    <div class="guide-kv"><span class="guide-key">Golden Cross</span><span class="guide-val">The 50-day simple average of closes crossed above the 200-day average within the last 20 trading days. Often read as the longer-term trend turning up. It lags: price has usually been rising for weeks first.</span></div>
-    <div class="guide-kv"><span class="guide-key">Death Cross</span><span class="guide-val">The reverse: the 50-day average crossed below the 200-day within the last 20 trading days. Often read as the longer-term trend turning down. It also lags, and it can fail if price recovers.</span></div>
-    <div class="guide-kv"><span class="guide-key">Whipsaw</span><span class="guide-val">Only the most recent cross is badged. If it is the second cross within 60 trading days, the card says so: back-and-forth crossing is common when price moves sideways and weakens the signal. The card also lists the last few crosses with dates.</span></div>
-    <div class="guide-kv"><span class="guide-key">52W High / 52W Low</span><span class="guide-val">The latest close set the highest (or lowest) close of the past 252 trading days within the last 5 days. This uses closes, the same rule as the 52W tiles, so a close that only ties an earlier high does not count. Needs a full year of cached history.</span></div>
-    <div class="guide-kv"><span class="guide-key">History needed</span><span class="guide-val">Crosses need 200 days of cached closes. A ticker with less shows a single line saying so, with no badge.</span></div>
-    <div class="guide-kv"><span class="guide-key">How to read them</span><span class="guide-val">Context, not predictions: these describe what has already happened and are not used in conviction scores. They always use unadjusted daily closes, so the Relative Performance Total Return toggle does not change them.</span></div>
     <div class="guide-h3">Why Market Makers Hedge -- The Mechanics</div>
     <div class="guide-kv"><span class="guide-key">Delta</span><span class="guide-val">Every option has a delta -- how much its value changes per $1 move in the stock. A put has negative delta (gains value as the stock falls); a call has positive delta (gains value as the stock rises). Delta ranges from -1 to 0 for puts, 0 to 1 for calls.</span></div>
     <div class="guide-kv"><span class="guide-key">The market maker's position</span><span class="guide-val">When a retail trader buys an option, a market maker is typically on the other side -- short that option. Being short a put gives the market maker positive delta exposure (opposite of the put itself); being short a call gives them negative delta exposure.</span></div>
@@ -687,6 +691,25 @@
     <div class="guide-kv"><span class="guide-key">20–30</span><span class="guide-val">Elevated — favorable environment. Premiums are rich and IV crush opportunities are available.</span></div>
     <div class="guide-kv"><span class="guide-key">Above 30</span><span class="guide-val">Fear spike — exceptional premiums but also exceptional gap risk. Size smaller, be selective. Markets can gap violently in either direction.</span></div>
     <div class="guide-kv"><span class="guide-key">Backwardation</span><span class="guide-val">VIX above VIX3M means near-term fear exceeds medium-term fear — historically a strong time to sell puts as the fear premium is concentrated in the near term.</span></div>
+  </div>
+</div>
+
+<!-- ── SECTION: Pattern Badges ────────────────────────────────────── -->
+<div class="card" id="guide-pattern-section" style="margin-bottom:8px;scroll-margin-top:140px">
+  <div class="gs-header" onclick="toggleGuide('patterns')">
+    <div class="card-title" style="margin:0"><span class="dot"></span>Pattern Badges Guide</div>
+    <span class="gs-chevron" id="gc-patterns">&#9658;</span>
+  </div>
+  <div class="gs-body" id="gb-patterns">
+    <div class="guide-kv" style="scroll-margin-top:140px;border-radius:4px"><span class="guide-key">Where they appear</span><span class="guide-val">A bracket badge on Watchlist cards (one per card, most relevant first), an outlined pill in the Ticker tab header (tap it to jump to the card), and a Patterns card on the Ticker tab. When nothing is recent the card is a single line with nothing to expand. When a badge is active it starts collapsed with the badge in its header; expand it for the chart, what each pattern is usually taken to mean, and a link back to this section.</span></div>
+    <div class="guide-kv" id="guide-pattern-golden" style="scroll-margin-top:140px;border-radius:4px"><span class="guide-key">Golden Cross</span><span class="guide-val">The 50-day average crossed above the 200-day average. Often read as the longer-term trend turning up. It lags: price has usually been rising for weeks already, so treat it as confirmation of a trend, not an early warning. For put selling: supportive context, since you would be taking assignment into a rising longer-term trend. Badged for 20 trading days after the cross; only the most recent cross is badged.</span></div>
+    <div class="guide-kv" id="guide-pattern-death" style="scroll-margin-top:140px;border-radius:4px"><span class="guide-key">Death Cross</span><span class="guide-val">The 50-day average crossed below the 200-day average. Often read as the longer-term trend turning down. It lags: much of the decline has usually already happened, and it can fail if price recovers. For put selling: a reason to be pickier about strikes and entry, since assignment would come into a weakening trend. Badged for 20 trading days after the cross; only the most recent cross is badged.</span></div>
+    <div class="guide-kv" id="guide-pattern-high52" style="scroll-margin-top:140px;border-radius:4px"><span class="guide-key">52W High</span><span class="guide-val">The latest close set the highest close of the past year. Often read as momentum: every holder from the past year is in profit and sellers are being absorbed. Stocks at highs can also pull back. For put selling: the trend is strong, but strikes comfortably below price still matter if a pullback comes. Badged when the closing high was set within the last 5 trading days. This uses closes, the same rule as the 52W tiles, so a close that only ties an earlier high does not count.</span></div>
+    <div class="guide-kv" id="guide-pattern-low52" style="scroll-margin-top:140px;border-radius:4px"><span class="guide-key">52W Low</span><span class="guide-val">The latest close set the lowest close of the past year. Often read as weakness: every buyer from the past year is underwater. A stock that looks cheap can keep falling (a falling knife). For put selling: assignment here would mean owning a stock in a clear downtrend, which is worth extra caution. Badged when the closing low was set within the last 5 trading days, by the same rule as the 52W tiles.</span></div>
+    <div class="guide-kv" style="scroll-margin-top:140px;border-radius:4px"><span class="guide-key">Whipsaw</span><span class="guide-val">If the most recent cross is the second cross within 60 trading days, the card says so: back-and-forth crossing is common when price moves sideways and weakens the signal. The card also lists the last few crosses with dates.</span></div>
+    <div class="guide-kv" style="scroll-margin-top:140px;border-radius:4px"><span class="guide-key">Reading the chart</span><span class="guide-val">The chart shows the 2 years of cached closes (white), the 50-day average (orange, dashed) and the 200-day average (purple, dashed). Triangles mark every cross in the cached history: up and green for golden, down and red for death, sitting on the 50-day line. Circles mark the current 52-week closing high and low. Large filled markers are active badges and small hollow ones are older history. Tap the chart to see the date, the close and both averages.</span></div>
+    <div class="guide-kv" style="scroll-margin-top:140px;border-radius:4px"><span class="guide-key">History and stale data</span><span class="guide-val">Crosses need 200 days of cached closes and 52W badges need a full year; a ticker with less shows a single line saying so. If the cached price history ends more than 7 days ago, all badges are suppressed and the card says how old the data is, because the day counts are measured from the last cached bar.</span></div>
+    <div class="guide-kv" style="scroll-margin-top:140px;border-radius:4px"><span class="guide-key">How to read them</span><span class="guide-val">Context, not predictions: these describe what has already happened and are not used in conviction scores. They always use unadjusted daily closes, so the Relative Performance Total Return toggle does not change them.</span></div>
   </div>
 </div>
 
@@ -1061,6 +1084,14 @@
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
     <div class="commentary" style="font-size:12px;max-height:400px;overflow-y:auto">
+v4.4.7 -- 2026-11-16
+- New: a chart in the expanded Patterns card. It shows the 2 years of cached closes with the 50-day (orange) and 200-day (purple) averages, a triangle for every golden (up, green) and death (down, red) cross in the cached history, and circles for the current 52-week closing high and low. Large filled markers are active badges; small hollow ones are older history. Tap the chart for the date, the close and both averages. The chart is only built the first time you expand the card and is destroyed when the page re-renders.
+- Fixed a real flaw found from a screenshot of an app instance whose price cache was weeks old: "N days ago" is counted from the last cached bar, so a seven-week-old cache showed "Death Cross - 1d". Price history whose last bar is more than 7 days old now suppresses every pattern badge, and the card says how old the data is. The card also states the date its closes run through. The RSI and gap badges count recency the same way and have no such guard (not changed here).
+- Guide: Pattern Badges was buried as a sub-heading inside the Support / Resistance section, which is why it was hard to find. It is now its own Pattern Badges Guide section, with one row per pattern (Golden Cross, Death Cross, 52W High, 52W Low) carrying the same meaning and put-selling text as the card. Each pattern in the expanded card has a "Definition in Guide" link that switches to the Guide, opens that section, scrolls to the pattern's row and flashes it. A drift test now fails if any pattern's card text and Guide text differ, or if a pattern has no Guide row.
+- The card's status line now reads as one price sentence, e.g. "Price is 6.0% above the 200-day and 3.2% below its 52-week closing high." The Patterns card and the Guide targets have a scroll margin so jumps land below the sticky banner and tab bar.
+- 33 new deterministic tests (stale boundary at 7 and 8 days, hand-derived chart markers and status wording, a stub Chart.js for the lazy build/destroy lifecycle, Guide link order, and the Guide drift guard).
+- Service worker: v555
+
 v4.4.6 -- 2026-11-15
 - Fixed a real correctness bug: the Relative Performance "Total Return" toggle was leaking into the rest of the Ticker tab. When it was on, the page's price history had its closes swapped for dividend-adjusted ones, and that one object fed the 52W High/Low tiles, the IVR 52-week range, the Gap Fill card, the RSI Signal card, and the price lines on the Multiple History and Next FY charts. The worst case was gap detection, which compares each day's actual open to the previous close: against adjusted closes it invented gaps (a synthetic 4%-yield stock with no real gaps produced 383 of them, versus 0 with actual closes). The toggle now only affects the Relative Performance card; everything else always uses actual closes. Because the toggle only redraws that card's chart, the other cards picked up the swap on the next full render of the ticker page.
 - The two places that built the Ticker tab's price history (live fetch and cache restore) are now one shared helper. They had already drifted apart: the live-fetch copy left out volumes.

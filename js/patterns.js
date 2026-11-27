@@ -474,7 +474,7 @@ function _patternsCardHtml(ticker){
   body+='<div style="margin-top:6px">'+_patternsGuideLinkHtml('','All pattern definitions in the Guide')+'</div>';
 
   const safeTicker=String(ticker).replace(/[&<>"']/g,'');
-  return'<div class="card" id="patterns-card" data-ticker="'+safeTicker+'" style="scroll-margin-top:170px">'+head+'<div class="gs-body" id="patterns-body">'+body+'</div></div>';
+  return'<div class="card" id="patterns-card" data-ticker="'+safeTicker+'" style="scroll-margin-top:200px">'+head+'<div class="gs-body" id="patterns-body">'+body+'</div></div>';
 }
 
 // Same collapse mechanism as the Guide sections and the Multiple History

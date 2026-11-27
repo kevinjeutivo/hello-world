@@ -32,23 +32,25 @@ function _normalizeDividendYield(raw){
 async function loadTicker(){
   const t=document.getElementById('ticker-select').value;if(!t)return;
   if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('options-ticker-select').value=t;clearOptionsState();currentBBSpan='6m';currentRPSpan='2y';_renderContextBar();}
-  // Cache-freshness gate. Two policies depending on session:
+  // Cache-freshness gate (rule shared via _isPriceCacheFresh in ui.js):
   //  - Market hours through 1hr after close (9:30am-5:00pm ET): 5-minute TTL.
-  //    Prices are actively moving so a short TTL keeps things reasonably current
-  //    while still avoiding a fetch on every single tab navigation.
-  //  - Outside that window (evening research, weekends): cache is always treated
-  //    as fresh regardless of age. After-hours/weekend data doesn't change, and
-  //    the 1hr buffer past close gives Yahoo's official close print time to settle.
-  //    Force Refresh / Prefetch All / the individual ticker refresh button remain
-  //    the only ways to pull fresh data in this window.
+  //  - Outside that window (evenings, weekends): the cache is fresh only if the
+  //    snapshot was taken at least an hour after the LAST COMPLETED CLOSE (so it
+  //    holds the official close print). A snapshot from mid-week or earlier is
+  //    refetched once, then stays fresh until the next close. This replaced
+  //    "outside the window, any age is fresh", which kept serving old data.
+  //  - Offline: serve whatever cache exists immediately instead of sitting
+  //    through fetch timeouts.
+  //  Force Refresh / Prefetch All / the ticker refresh button always pull fresh data.
   const _cachedSnap=S.get('snap_'+t);
-  if(_cachedSnap?.tsEpoch){
-    const _ageMs=Date.now()-_cachedSnap.tsEpoch;
-    const _ttlMs=_isMarketActiveWindow()?300000:Infinity; // 5min vs always-fresh
-    if(_ageMs>=0&&_ageMs<_ttlMs){
-      restoreTickerFromCache(t);
-      return;
-    }
+  if(_cachedSnap&&navigator.onLine===false){
+    restoreTickerFromCache(t);
+    showOfflineBanner(_cachedSnap.ts,_cachedSnap.tsEpoch);
+    return;
+  }
+  if(_cachedSnap?.tsEpoch&&_isPriceCacheFresh(_cachedSnap.tsEpoch)){
+    restoreTickerFromCache(t);
+    return;
   }
   document.getElementById('ticker-content').innerHTML=`<div class="card"><div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--text2)"><div class="spinner"></div>Loading ${t}...</div></div>`;
   try{

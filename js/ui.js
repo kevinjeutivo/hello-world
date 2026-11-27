@@ -324,7 +324,14 @@ function _updateHeaderTop(){
 function _updateNavTop(){
   try{
     const chrome = document.getElementById('sticky-chrome');
-    const chromeH = chrome ? Math.ceil(chrome.offsetHeight) : 130;
+    // The context bar is part of the chrome on the Ticker/Options tabs, but the
+    // Income account bar (the only thing positioned from this number) shows on
+    // the Income tab where the context bar is hidden -- so leave its height out,
+    // or the Income bar would sit one bar-height too low whenever this runs
+    // while the context bar is visible. offsetHeight is 0 while it is hidden.
+    const ctxBar = document.getElementById('context-bar');
+    const ctxBarH = ctxBar ? Math.ceil(ctxBar.offsetHeight||0) : 0;
+    const chromeH = chrome ? Math.ceil(chrome.offsetHeight) - ctxBarH : 130;
     dbgLog('chromeH='+chromeH);
     if(chromeH < 40 || chromeH > 300) return;
     if(chromeH === window._cachedChromeH) return;
@@ -474,6 +481,113 @@ const _tabScrollPos = {};
 let _activeTabName = 'dashboard'; // tracks which tab is currently shown
 let _lastTickerTabTicker = '';    // tracks which ticker was last shown on ticker tab
 
+// ── Context bar: the ticker in effect, pinned inside the sticky header ───────
+// Lives INSIDE #sticky-chrome (under the tabs), so the header's height --
+// VIX badge, wrapped market banner, font-size zoom -- is handled by layout and
+// the bar can never slide behind it. The Ticker and Options tabs share one
+// currentTicker, so one bar serves both.
+const CONTEXT_BAR_TABS=['ticker','options'];
+// While the regular session is open, a price older than this is flagged.
+const CONTEXT_BAR_INTRADAY_STALE_MS=30*60*1000;
+
+// New York wall-clock parts for an instant.
+function _etPartsAt(ms){
+  const fmt=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+  const p=fmt.formatToParts(new Date(ms));
+  const g=t=>parseInt(p.find(x=>x.type===t).value,10);
+  let h=g('hour');if(h===24)h=0;
+  return{y:g('year'),mo:g('month'),d:g('day'),h,mi:g('minute')};
+}
+
+// Epoch ms of a New York wall-clock time on a calendar date. The UTC offset is
+// read at a nearby instant, so EST and EDT both come out right.
+function _etWallToEpoch(y,mo,d,h,mi){
+  const asUtc=Date.UTC(y,mo-1,d,h,mi);
+  const probeMs=asUtc+5*3600000;
+  const pr=_etPartsAt(probeMs);
+  const offset=Date.UTC(pr.y,pr.mo-1,pr.d,pr.h,pr.mi)-probeMs; // ET wall minus UTC (negative)
+  return asUtc-offset;
+}
+
+// Most recent regular-session close (4:00pm ET, 1:00pm on early-close days)
+// at or before nowMs. Walks back over weekends and NYSE holidays.
+function _lastCompletedCloseEpoch(nowMs){
+  const t=_etPartsAt(nowMs);
+  for(let back=0;back<=14;back++){
+    const cal=new Date(Date.UTC(t.y,t.mo-1,t.d-back,17,0)); // 17:00 UTC is midday in New York on that date, in any DST state
+    const dow=cal.getUTCDay();
+    if(dow===0||dow===6)continue;
+    if(isNYSEHoliday(cal))continue;
+    const closeMins=_getSessionCloseMins(cal);
+    const ep=_etWallToEpoch(cal.getUTCFullYear(),cal.getUTCMonth()+1,cal.getUTCDate(),Math.floor(closeMins/60),closeMins%60);
+    if(ep<=nowMs)return ep;
+  }
+  return null;
+}
+
+// True while the regular session is open (9:30am to the day's close, ET).
+function _isRegularSessionAt(nowMs){
+  const t=_etPartsAt(nowMs);
+  const cal=new Date(Date.UTC(t.y,t.mo-1,t.d,17,0));
+  const dow=cal.getUTCDay();
+  if(dow===0||dow===6||isNYSEHoliday(cal))return false;
+  const mins=t.h*60+t.mi;
+  return mins>=570&&mins<_getSessionCloseMins(cal);
+}
+
+// Same wording and thresholds as relAge(), but against a given "now".
+function _ageTextAt(epoch,nowMs){
+  const diff=(nowMs-epoch)/1000;
+  if(diff<60)return'just now';
+  if(diff<3600)return Math.round(diff/60)+'m ago';
+  if(diff<86400)return Math.round(diff/3600)+'h ago';
+  return Math.round(diff/86400)+'d ago';
+}
+
+// Age tag for a price snapshot, or null when the price is current enough:
+//  1. 'session'  -- the snapshot predates the last completed session close, so
+//     at least one session has happened since (a Friday close viewed on Monday
+//     before the open is NOT flagged: nothing has traded since);
+//  2. 'intraday' -- the session is open and the snapshot is over 30 minutes old.
+function _priceAgeTag(snap,nowMs){
+  if(!snap)return null;
+  const ep=_recEpoch(snap);
+  if(ep==null)return null;
+  const now=nowMs==null?Date.now():nowMs;
+  const lastClose=_lastCompletedCloseEpoch(now);
+  const behind=lastClose!=null&&ep<lastClose;
+  const intraday=!behind&&_isRegularSessionAt(now)&&(now-ep)>CONTEXT_BAR_INTRADAY_STALE_MS;
+  if(!behind&&!intraday)return null;
+  return{kind:behind?'session':'intraday',text:_ageTextAt(ep,now)};
+}
+
+// Shows/hides and fills the bar. Visible on the Ticker and Options tabs when a
+// ticker is in effect. `snapOverride` is the Ticker render's own snap, so it
+// never depends on cache-write order; elsewhere the cached snapshot is used.
+function _renderContextBar(snapOverride){
+  const bar=document.getElementById('context-bar');
+  if(!bar)return;
+  const t=currentTicker;
+  if(!CONTEXT_BAR_TABS.includes(_activeTabName)||!t){bar.style.display='none';return;}
+  const snap=(snapOverride&&snapOverride.ticker===t)?snapOverride:S.get('snap_'+t);
+  const symEl=document.getElementById('context-bar-symbol');
+  const priceEl=document.getElementById('context-bar-price');
+  if(symEl&&symEl.textContent!==t)symEl.textContent=t;
+  let html='';
+  if(snap&&typeof snap.price==='number'&&isFinite(snap.price)){
+    const chg=snap.change||0,pct=snap.changePct||0;
+    const col=chg>=0?'var(--green)':'var(--red)',sign=chg>=0?'+':'';
+    html='$'+snap.price.toFixed(2)+' <span style="color:'+col+'">'+sign+chg.toFixed(2)+' ('+sign+pct.toFixed(2)+'%)</span>';
+    const tag=_priceAgeTag(snap);
+    if(tag){
+      const why=tag.kind==='session'?'This price predates the last market close':'The market is open and this price is over 30 minutes old';
+      html+=' <span style="color:var(--warn)" title="'+why+'">'+tag.text+'</span>';
+    }
+  }
+  if(priceEl&&priceEl.innerHTML!==html)priceEl.innerHTML=html;
+  bar.style.display='flex';
+}
+
 function showTab(name){
   // Save scroll position of the tab we're leaving
   _tabScrollPos[_activeTabName] = window.scrollY;
@@ -486,6 +600,8 @@ function showTab(name){
   const tabs=['dashboard','watchlist','ticker','options','income','vix','earnings','etf','market','guide'];
   document.querySelectorAll('.nav-tab')[tabs.indexOf(name)].classList.add('active');
   _activeTabName = name;
+  // Before the scroll restore below, so the header height is final when we scroll.
+  _renderContextBar();
 
   // Show income account bar only when income tab is active
 

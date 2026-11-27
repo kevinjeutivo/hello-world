@@ -620,7 +620,7 @@ test('missing Chart.js shows a note instead of throwing; missing canvas builds n
 test('only the ACTIVE card contains a chart canvas; quiet, short and stale cards do not',()=>{
   put('GOLD',BASE); put('QUIET2',BASE.concat(series([[120,69]]))); put('SHORT2',BASE.slice(0,150));
   const active=callRaw(ctx,'_patternsCardHtml','GOLD');
-  assert.ok(active.includes('id="patterns-chart"')&&active.includes('data-ticker="GOLD"')&&active.includes('scroll-margin-top:170px'));
+  assert.ok(active.includes('id="patterns-chart"')&&active.includes('data-ticker="GOLD"')&&active.includes('scroll-margin-top:200px'));
   assert.ok(active.includes('large filled = active badge')&&/closes through [A-Z][a-z]{2} \d{1,2}, \d{4}/.test(active));
   assert.ok(!callRaw(ctx,'_patternsCardHtml','QUIET2').includes('patterns-chart'));
   assert.ok(!callRaw(ctx,'_patternsCardHtml','SHORT2').includes('patterns-chart'));

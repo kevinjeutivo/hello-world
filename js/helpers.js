@@ -233,9 +233,9 @@ function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
 // (per-ticker snap freshness) and market.js (market tab price/yield/futures
 // freshness) -- news freshness is intentionally NOT gated by this, since news
 // can break at any hour regardless of whether the market itself is open.
-function _isMarketActiveWindow(){
+function _isMarketActiveWindow(nowMs){
   try{
-    const now=new Date();
+    const now=nowMs==null?new Date():new Date(nowMs); // optional instant, so callers and tests can ask about any time
     const etFmt=new Intl.DateTimeFormat('en-US',{
       timeZone:'America/New_York',
       weekday:'short',hour:'numeric',minute:'numeric',hour12:false

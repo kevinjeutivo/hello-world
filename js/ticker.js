@@ -31,7 +31,7 @@ function _normalizeDividendYield(raw){
 
 async function loadTicker(){
   const t=document.getElementById('ticker-select').value;if(!t)return;
-  if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('options-ticker-select').value=t;clearOptionsState();currentBBSpan='6m';currentRPSpan='2y';}
+  if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('options-ticker-select').value=t;clearOptionsState();currentBBSpan='6m';currentRPSpan='2y';_renderContextBar();}
   // Cache-freshness gate. Two policies depending on session:
   //  - Market hours through 1hr after close (9:30am-5:00pm ET): 5-minute TTL.
   //    Prices are actively moving so a short TTL keeps things reasonably current
@@ -1963,19 +1963,10 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
   if(isLive){_lastLiveRenderTicker=snap.ticker;_lastLiveRenderTime=Date.now();}
   const el=document.getElementById('ticker-content');
   const chgColor=snap.change>=0?'var(--green)':'var(--red)';const chgSign=snap.change>=0?'+':'';
-  // Sticky ticker/price bar -- stays pinned below the nav tabs as the page
-  // is scrolled, so the ticker being viewed doesn't get lost on a long page
-  // (or after switching tabs and back). Populated from the same snap this
-  // whole render already has, on every real render regardless of entry
-  // path (fresh fetch or cache restore both funnel through here).
-  const stickyBar=document.getElementById('ticker-sticky-bar');
-  if(stickyBar){
-    stickyBar.style.display='flex';
-    const symEl=document.getElementById('ticker-sticky-symbol');
-    const priceEl=document.getElementById('ticker-sticky-price');
-    if(symEl)symEl.textContent=snap.ticker;
-    if(priceEl)priceEl.innerHTML=snap.price!=null?`$${snap.price.toFixed(2)} <span style="color:${chgColor}">${chgSign}${(snap.change||0).toFixed(2)} (${chgSign}${(snap.changePct||0).toFixed(2)}%)</span>`:'';
-  }
+  // Context bar (ticker in effect, pinned inside the sticky header): see
+  // _renderContextBar in ui.js. Passing this render's snap means it never depends
+  // on cache-write order; both fresh fetches and cache restores funnel through here.
+  if(typeof _renderContextBar==='function')_renderContextBar(snap);
   const _tickerHasPositions=_getIncomePositionsForTicker(snap.ticker).length>0;
   let rsiStr='N/A',bbStr='',bbData=null;
   if(hist&&hist.closes&&hist.closes.length>20){

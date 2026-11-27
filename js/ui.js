@@ -535,6 +535,38 @@ function _isRegularSessionAt(nowMs){
   return mins>=570&&mins<_getSessionCloseMins(cal);
 }
 
+// ── Price-cache freshness (shared rule) ──────────────────────────────────────
+// While the market window is open (9:30am-5:00pm ET, weekdays) a snapshot is
+// fresh for 5 minutes. Outside the window it is fresh ONLY if it was taken at
+// least an hour after the last completed close -- the same one-hour buffer the
+// window already uses for the official close print to settle. The old rule
+// ("outside the window, any snapshot is fresh forever") kept serving a snapshot
+// taken mid-week all weekend, or weeks ago.
+const PRICE_CACHE_ACTIVE_TTL_MS=5*60*1000;
+const PRICE_CACHE_SETTLE_MS=60*60*1000;
+function _isPriceCacheFresh(epoch,nowMs){
+  if(typeof epoch!=='number'||!isFinite(epoch))return false;
+  const now=nowMs==null?Date.now():nowMs;
+  const age=now-epoch;
+  if(age<0)return false; // clock skew: refetch, as before
+  if(_isMarketActiveWindow(now))return age<PRICE_CACHE_ACTIVE_TTL_MS;
+  const lastClose=_lastCompletedCloseEpoch(now);
+  return lastClose!=null&&epoch>=lastClose+PRICE_CACHE_SETTLE_MS;
+}
+
+// Entry point for "show this ticker from what we have" (app launch, opening the
+// Ticker tab with an empty page). Restores from cache when the snapshot is
+// current or we are offline; otherwise runs the full loadTicker() fetch, which
+// itself falls back to the cache with the offline banner if the fetch fails.
+function _openTickerFromCacheOrRefresh(t){
+  if(!t)return;
+  const snap=S.get('snap_'+t);
+  if(!snap){restoreTickerFromCache(t);return;}
+  const online=typeof navigator==='undefined'||navigator.onLine!==false;
+  if(!online||_isPriceCacheFresh(snap.tsEpoch))restoreTickerFromCache(t);
+  else loadTicker();
+}
+
 // Same wording and thresholds as relAge(), but against a given "now".
 function _ageTextAt(epoch,nowMs){
   const diff=(nowMs-epoch)/1000;
@@ -614,7 +646,7 @@ function showTab(name){
       // Ticker changed since last visit -- reset scroll
       if(currentTicker!==_lastTickerTabTicker) _tabScrollPos['ticker']=0;
       _lastTickerTabTicker=currentTicker;
-      restoreTickerFromCache(currentTicker);
+      _openTickerFromCacheOrRefresh(currentTicker);
     }
   }
   if(name==='options'&&currentTicker){

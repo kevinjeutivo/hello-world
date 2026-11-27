@@ -1084,6 +1084,15 @@
     <hr class="divider">
     <div class="card-title" style="margin-bottom:10px"><span class="dot" style="background:var(--accent3)"></span>Release Notes</div>
     <div class="commentary" style="font-size:12px;max-height:400px;overflow-y:auto">
+v4.4.9 -- 2026-11-27
+- Fixed: the Ticker tab could show weeks-old data without refreshing. There were two causes. First, loadTicker treated any cached snapshot as fresh forever whenever the market window was closed (before 9:30am ET, after 5pm ET, weekends), so a snapshot taken mid-week was served all weekend. Second, and bigger, app launch and opening the Ticker tab restored the last ticker from cache with no age check at all, on any day at any hour.
+- One shared rule now decides freshness (_isPriceCacheFresh): during the market window (9:30am to 5pm ET, weekdays) a snapshot is fresh for 5 minutes, as before. Outside it, a snapshot is fresh only if it was taken at least an hour after the last completed close (the same one-hour buffer for the official close print). So a Friday 5:30pm snapshot opened on Sunday still loads instantly from cache with no network call, but a 3pm Friday snapshot, or anything from mid-week, is refetched once and then stays fresh until the next close.
+- Launch and opening the Ticker tab now go through the same rule: a current snapshot (or being offline) restores from cache as before; a stale one while online runs the normal ticker load with its spinner, and still falls back to the cache with the offline banner if the fetch fails. Offline with any cache now restores immediately instead of waiting on fetch timeouts.
+- _isMarketActiveWindow takes an optional time, so it can be tested for any instant. Without an argument it behaves exactly as before.
+- 30 new deterministic tests: hand-checked market dates (after-hours, the exact settle boundary, Thanksgiving evening, the 1pm early close the day after it, Christmas weekend, the daylight saving change), the real loadTicker gate run in a stubbed environment, and source guards so the old "fresh forever" rule and the ungated restores cannot come back.
+- Not changed: the Market tab uses the same "fresh forever when closed" rule (a follow-up). On holiday weekdays the window helper still counts 9:30am to 5pm as active, so the 5-minute rule applies (a few harmless extra fetches). Returning to an already-rendered Ticker tab does not re-check age; the price bar's age tag covers that case.
+- Service worker: v557
+
 v4.4.8 -- 2026-11-26
 - Fixed: the pinned ticker price bar disappeared behind the header whenever the VIX badge was showing. It was pinned with a hardcoded top of 130px, which only matched one particular header height; the VIX badge adds a row and the market banner can wrap differently. The bar now lives inside the sticky header, directly under the tabs, so layout keeps it flush whatever the VIX badge, banner wrapping or font size does. There is no measured or hardcoded offset left.
 - The bar is slimmer (22px tall, 12px symbol, 11px price) and is now also on the Options tab. The Ticker and Options tabs share one ticker in effect, so one bar serves both; it hides on every other tab and when no ticker is selected. One behavior change: on the Ticker tab it is now visible under the tabs even at the top of the page, instead of only pinning after you scroll.
@@ -1976,7 +1985,7 @@ function init(){
   // Apply saved sort mode button state
   setWatchlistSort(watchlistSort);
   const lt=S.get('last_ticker');
-  if(lt){currentTicker=lt;document.getElementById('ticker-select').value=lt;document.getElementById('options-ticker-select').value=lt;restoreTickerFromCache(lt);}
+  if(lt){currentTicker=lt;document.getElementById('ticker-select').value=lt;document.getElementById('options-ticker-select').value=lt;_openTickerFromCacheOrRefresh(lt);}
   restoreVIXFromCache();
   const cv=S.get('vix_hist');if(cv?.closes){const c=cv.closes.filter(x=>x!==null);if(c.length)updateVIXIndicator(c[c.length-1]);}else{_updateNavTop();}
   const ce=S.get('earnings_data');if(ce?.data){const today=new Date();earningsAllData=ce.data.map(e=>({...e,daysUntil:daysUntilDate(e.earningsDate)??Math.round((new Date(e.earningsDate)-today)/86400000)})).filter(e=>e.daysUntil>=0);}

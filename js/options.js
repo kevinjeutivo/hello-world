@@ -323,7 +323,7 @@ async function loadOptionsForTicker(){
       }
     }catch{}
   }
-  if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('ticker-select').value=t;document.getElementById('ticker-content').innerHTML='<div class="empty"><div class="empty-icon">&#x1F4C8;</div>Ticker changed -- visit Ticker tab to reload</div>';}
+  if(t!==currentTicker){currentTicker=t;S.set('last_ticker',t);document.getElementById('ticker-select').value=t;document.getElementById('ticker-content').innerHTML='<div class="empty"><div class="empty-icon">&#x1F4C8;</div>Ticker changed -- visit Ticker tab to reload</div>';_renderContextBar();}
   // Always clear stale OI chart and cached rows before fetching new ticker data
   // This prevents the previous ticker's OI chart from showing while new data loads
   cachedOIRows=null;

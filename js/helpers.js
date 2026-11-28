@@ -414,21 +414,32 @@ function _resolvePostMarketFields(freshQuote,prevSnap){
       marketState:freshState,
       postMarketPrice:freshQuote.postMarketPrice,
       postMarketChange:freshQuote.postMarketChange||null,
-      postMarketChangePct:freshQuote.postMarketChangePct||null
+      postMarketChangePct:freshQuote.postMarketChangePct||null,
+      // When this price was observed: Yahoo's own print time when given (seconds or ms), else now.
+      postMarketAsOf:_extTimeToMs(freshQuote.postMarketTime)??Date.now()
     };
   }
   if(freshState==='PRE'||freshState==='REGULAR'){
-    return{marketState:freshState,postMarketPrice:null,postMarketChange:null,postMarketChangePct:null};
+    return{marketState:freshState,postMarketPrice:null,postMarketChange:null,postMarketChangePct:null,postMarketAsOf:null};
   }
   if(prevSnap?.postMarketPrice!=null){
     return{
       marketState:prevSnap.marketState||freshState,
       postMarketPrice:prevSnap.postMarketPrice,
       postMarketChange:prevSnap.postMarketChange||null,
-      postMarketChangePct:prevSnap.postMarketChangePct||null
+      postMarketChangePct:prevSnap.postMarketChangePct||null,
+      // Keep the ORIGINAL observation time: a carried-forward price is only as fresh as when it was seen,
+      // not as the refresh that carried it. (Legacy snapshots without it fall back to their fetch time.)
+      postMarketAsOf:prevSnap.postMarketAsOf??prevSnap.tsEpoch??null
     };
   }
-  return{marketState:freshState,postMarketPrice:null,postMarketChange:null,postMarketChangePct:null};
+  return{marketState:freshState,postMarketPrice:null,postMarketChange:null,postMarketChangePct:null,postMarketAsOf:null};
+}
+
+// Yahoo times are epoch seconds; accept ms too. Null when unusable.
+function _extTimeToMs(t){
+  if(typeof t!=='number'||!isFinite(t)||t<=0)return null;
+  return t<1e12?t*1000:t;
 }
 
 // Cached per-expiration entries for a ticker, chronological:

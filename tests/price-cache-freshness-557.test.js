@@ -84,9 +84,9 @@ test('weekend: a mid-week snapshot and a weeks-old snapshot are stale -- the ori
   assert.strictEqual(fresh(utc(2026,11,11,22,0),SUN),false);        // Wednesday
   assert.strictEqual(fresh(utc(2026,10,24,22,30),SUN),false);       // three weeks earlier
 });
-test('Monday pre-market (8am ET): a Friday 5:30pm snapshot is fresh; a 4:30pm one is not',()=>{
+test('Monday pre-market (8am ET): last evening\'s snapshot is now STALE (build 558: the first look of the morning refetches to get the pre-market quote)',()=>{
   const now=utc(2026,11,16,13,0);
-  assert.strictEqual(fresh(utc(2026,11,13,22,30),now),true);
+  assert.strictEqual(fresh(utc(2026,11,13,22,30),now),false);
   assert.strictEqual(fresh(utc(2026,11,13,21,30),now),false);
 });
 test('market hours (Mon 10am ET): 5-minute TTL, strict at exactly 5:00',()=>{
@@ -122,8 +122,8 @@ test('Christmas weekend (Sat Dec 26): last close is the 1pm early close on Thu D
   assert.strictEqual(fresh(utc(2026,12,24,19,30),now),true);
   assert.strictEqual(fresh(utc(2026,12,24,17,0),now),false);
 });
-test('daylight saving: Monday Nov 2 pre-market 7am EST, last close was an EDT close (settle 21:00 UTC)',()=>{
-  const now=utc(2026,11,2,12,0);
+test('daylight saving: the Sunday after the clocks change (Nov 1), the last close was an EDT close (settle 21:00 UTC)',()=>{
+  const now=utc(2026,11,1,18,0);
   assert.strictEqual(fresh(utc(2026,10,30,21,30),now),true);
   assert.strictEqual(fresh(utc(2026,10,30,20,30),now),false);
 });

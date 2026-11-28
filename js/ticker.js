@@ -127,6 +127,7 @@ async function loadTicker(){
         postMarketPrice:_pmFields.postMarketPrice,
         postMarketChange:_pmFields.postMarketChange,
         postMarketChangePct:_pmFields.postMarketChangePct,
+        postMarketAsOf:_pmFields.postMarketAsOf,
         // Earnings from Finnhub calendar (BMO/AMC timing)
         earningsDate:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.date||null;})(),
         earningsHour:(()=>{const future=(earnings?.earningsCalendar||[]).filter(e=>e.date>=_todayET()).sort((a,b)=>a.date.localeCompare(b.date));return future[0]?.hour||null;})(),
@@ -2073,10 +2074,7 @@ function renderTickerContent(snap,hist,hist1y,news,recData,upgradesData,isLive,h
     ${tsChip(snap.ts,isLive,snap.tsEpoch)}
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><span style="font-family:var(--mono);font-size:28px;font-weight:500">$${snap.price?.toFixed(2)||'N/A'}</span>${_sparklineHtml(snap.ticker)}</div>
     <div style="font-family:var(--mono);font-size:13px;color:${chgColor};margin-bottom:6px">${chgSign}${snap.change?.toFixed(2)} (${chgSign}${snap.changePct?.toFixed(2)}%)</div>
-    ${(()=>{const _ms=getMarketState().state;const _isPre=_ms==='premarket';const _isOpen=_ms==='open';if(_isOpen||_isPre)return''; // suppress during open session and premarket
-if(!snap.postMarketPrice||snap.postMarketPrice===snap.price)return'';
-const _label=snap.marketState==='PRE'?'Pre-market':'After-hours';
-return`<div style="font-family:var(--mono);font-size:12px;color:${snap.postMarketPrice>snap.price?'var(--green)':'var(--red)'};margin-bottom:8px">${_label}: $${snap.postMarketPrice.toFixed(2)}${snap.postMarketChange?` <span style="font-size:11px">${snap.postMarketChange>=0?'+':''}${snap.postMarketChange.toFixed(2)} (${snap.postMarketChange>=0?'+':''}${snap.postMarketChangePct?.toFixed(2)||'0.00'}%)</span>`:''} <span style="font-size:10px;color:var(--text3)">(${snap.marketState||'extended'})</span></div>`;})()}
+    ${_extendedHoursHtml(snap)}
     ${_tickerHasPositions?`<div onclick="_openPositionsModal('${snap.ticker}')" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:8px"><span style="font-size:13px">&#x1F4CB;</span>View Positions</div>`:''}
     ${_tickerNoteSectionHtml(snap.ticker)}
     <div class="metrics-grid">
@@ -3550,6 +3548,7 @@ async function refreshSingleTicker(){
       postMarketPrice:_rPmFields.postMarketPrice,
       postMarketChange:_rPmFields.postMarketChange,
       postMarketChangePct:_rPmFields.postMarketChangePct,
+      postMarketAsOf:_rPmFields.postMarketAsOf,
       earningsDate:futE[0]?.date||null,earningsHour:futE[0]?.hour||null,
       // Same quoteSummary-preservation reasoning as loadTicker -- see there
       // for the full explanation. Seeded from the previous snap so a

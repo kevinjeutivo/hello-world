@@ -535,6 +535,21 @@ function _isRegularSessionAt(nowMs){
   return mins>=570&&mins<_getSessionCloseMins(cal);
 }
 
+// Pre-market: a trading day, 4:00am to 9:30am ET.
+function _isPremarketAt(nowMs){
+  const t=_etPartsAt(nowMs);
+  const cal=new Date(Date.UTC(t.y,t.mo-1,t.d,17,0));
+  const dow=cal.getUTCDay();
+  if(dow===0||dow===6||isNYSEHoliday(cal))return false;
+  const mins=t.h*60+t.mi;
+  return mins>=240&&mins<570;
+}
+// Epoch ms of 4:00am ET on the calendar date of nowMs.
+function _premarketStartEpoch(nowMs){
+  const t=_etPartsAt(nowMs);
+  return _etWallToEpoch(t.y,t.mo,t.d,4,0);
+}
+
 // ── Price-cache freshness (shared rule) ──────────────────────────────────────
 // While the market window is open (9:30am-5:00pm ET, weekdays) a snapshot is
 // fresh for 5 minutes. Outside the window it is fresh ONLY if it was taken at
@@ -544,12 +559,17 @@ function _isRegularSessionAt(nowMs){
 // taken mid-week all weekend, or weeks ago.
 const PRICE_CACHE_ACTIVE_TTL_MS=5*60*1000;
 const PRICE_CACHE_SETTLE_MS=60*60*1000;
+// Pre-market (4:00-9:30am ET): fresh only if taken today in pre-market, and for this long.
+const PRICE_CACHE_PREMARKET_TTL_MS=10*60*1000;
 function _isPriceCacheFresh(epoch,nowMs){
   if(typeof epoch!=='number'||!isFinite(epoch))return false;
   const now=nowMs==null?Date.now():nowMs;
   const age=now-epoch;
   if(age<0)return false; // clock skew: refetch, as before
   if(_isMarketActiveWindow(now))return age<PRICE_CACHE_ACTIVE_TTL_MS;
+  // Pre-market: last evening's snapshot cannot hold today's pre-market quote, so the first look of
+  // the morning refetches; later looks within the TTL use the cache.
+  if(_isPremarketAt(now))return epoch>=_premarketStartEpoch(now)&&age<PRICE_CACHE_PREMARKET_TTL_MS;
   const lastClose=_lastCompletedCloseEpoch(now);
   return lastClose!=null&&epoch>=lastClose+PRICE_CACHE_SETTLE_MS;
 }
@@ -593,6 +613,49 @@ function _priceAgeTag(snap,nowMs){
   return{kind:behind?'session':'intraday',text:_ageTextAt(ep,now)};
 }
 
+// ── Extended-hours price (pre-market / after-hours) ──────────────────────────
+// What, if anything, to show beside the regular price, decided by SESSION and by
+// when the extended price was actually observed (snap.postMarketAsOf), not by the
+// bare clock:
+//  - regular session: nothing;
+//  - pre-market (4:00-9:30am ET): only a pre-market quote observed today at or
+//    after 4:00am. Yesterday's after-hours price is never shown after 4:00am, so
+//    until the first pre-market print there is nothing to show;
+//  - after the close, overnight, weekends, holidays: only an after-hours quote
+//    observed after the most recent completed close, and never a pre-market one
+//    (a stale morning pre-market price must not resurface in the evening).
+// Returns {kind:'pre'|'post',label,price,change,pct,state} or null.
+function _extendedHoursLine(snap,nowMs){
+  if(!snap)return null;
+  const price=snap.postMarketPrice;
+  if(typeof price!=='number'||!isFinite(price)||price<=0||price===snap.price)return null;
+  const now=nowMs==null?Date.now():nowMs;
+  if(_isRegularSessionAt(now))return null;
+  const asOf=(typeof snap.postMarketAsOf==='number'&&isFinite(snap.postMarketAsOf))?snap.postMarketAsOf:(typeof snap.tsEpoch==='number'&&isFinite(snap.tsEpoch)?snap.tsEpoch:null);
+  if(asOf==null)return null;
+  const isPre=snap.marketState==='PRE';
+  let kind;
+  if(_isPremarketAt(now)){
+    if(!isPre||asOf<_premarketStartEpoch(now))return null;
+    kind='pre';
+  }else{
+    if(isPre)return null;
+    const lastClose=_lastCompletedCloseEpoch(now);
+    if(lastClose==null||asOf<lastClose)return null;
+    kind='post';
+  }
+  return{kind,label:kind==='pre'?'Pre-market':'After-hours',price,change:snap.postMarketChange??null,pct:snap.postMarketChangePct??null,state:snap.marketState||'extended'};
+}
+
+// The Ticker card's extended-hours line (markup unchanged from the old inline version).
+function _extendedHoursHtml(snap,nowMs){
+  const x=_extendedHoursLine(snap,nowMs);
+  if(!x)return'';
+  const chg=x.change;
+  const changeHtml=chg?` <span style="font-size:11px">${chg>=0?'+':''}${chg.toFixed(2)} (${chg>=0?'+':''}${x.pct!=null?Number(x.pct).toFixed(2):'0.00'}%)</span>`:'';
+  return`<div style="font-family:var(--mono);font-size:12px;color:${x.price>snap.price?'var(--green)':'var(--red)'};margin-bottom:8px">${x.label}: $${x.price.toFixed(2)}${changeHtml} <span style="font-size:10px;color:var(--text3)">(${x.state})</span></div>`;
+}
+
 // Shows/hides and fills the bar. Visible on the Ticker and Options tabs when a
 // ticker is in effect. `snapOverride` is the Ticker render's own snap, so it
 // never depends on cache-write order; elsewhere the cached snapshot is used.
@@ -609,7 +672,15 @@ function _renderContextBar(snapOverride){
   if(snap&&typeof snap.price==='number'&&isFinite(snap.price)){
     const chg=snap.change||0,pct=snap.changePct||0;
     const col=chg>=0?'var(--green)':'var(--red)',sign=chg>=0?'+':'';
-    html='$'+snap.price.toFixed(2)+' <span style="color:'+col+'">'+sign+chg.toFixed(2)+' ('+sign+pct.toFixed(2)+'%)</span>';
+    const ext=_extendedHoursLine(snap);
+    if(ext){
+      // Compact form so both fit the slim bar: percent only, then the extended quote.
+      const ep=(ext.pct!=null&&isFinite(Number(ext.pct)))?Number(ext.pct):(ext.price/snap.price-1)*100;
+      const ecol=ext.price>snap.price?'var(--green)':'var(--red)';
+      html='$'+snap.price.toFixed(2)+' <span style="color:'+col+'">'+sign+pct.toFixed(2)+'%</span> <span style="color:var(--text3)">&middot;</span> <span style="color:'+ecol+'" title="'+ext.label+' quote">'+(ext.kind==='pre'?'PM':'AH')+' $'+ext.price.toFixed(2)+' '+(ep>=0?'+':'')+ep.toFixed(2)+'%</span>';
+    }else{
+      html='$'+snap.price.toFixed(2)+' <span style="color:'+col+'">'+sign+chg.toFixed(2)+' ('+sign+pct.toFixed(2)+'%)</span>';
+    }
     const tag=_priceAgeTag(snap);
     if(tag){
       const why=tag.kind==='session'?'This price predates the last market close':'The market is open and this price is over 30 minutes old';

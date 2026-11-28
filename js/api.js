@@ -230,11 +230,15 @@ async function fetchAfterHoursPrice(symbol){
     const extPrice=marketState==='REGULAR'?null:
       isExtended?(marketState==='PRE'?prePrice:postPrice):
       isClosed?postPrice:null;
+    // When Yahoo says the extended-hours quote was printed (epoch seconds), if it says. Used to
+    // reject a stale print (e.g. an illiquid stock's pre-market quote left over from yesterday).
+    const extTime=extPrice?(isExtended?(marketState==='PRE'?q.preMarketTime:q.postMarketTime):(isClosed?q.postMarketTime:null)):null;
     return{
       // Extended-hours price
       postMarketPrice:extPrice,
       postMarketChange:isExtended?(marketState==='PRE'?q.preMarketChange:q.postMarketChange):(isClosed?q.postMarketChange||null:null),
       postMarketChangePct:isExtended?(marketState==='PRE'?q.preMarketChangePercent:q.postMarketChangePercent):(isClosed?q.postMarketChangePercent||null:null),
+      postMarketTime:extTime||null,
       marketState,
       hasExtended:!!extPrice,
       // Primary price fields (replaces Finnhub /quote)

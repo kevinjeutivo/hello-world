@@ -143,6 +143,7 @@ async function prefetchAll(){
           postMarketPrice:_pfPmFields.postMarketPrice,
           postMarketChange:_pfPmFields.postMarketChange,
           postMarketChangePct:_pfPmFields.postMarketChangePct,
+          postMarketAsOf:_pfPmFields.postMarketAsOf,
           earningsDate:_futE[0]?.date||null,earningsHour:_futE[0]?.hour||null,
           // Same quoteSummary-preservation reasoning as loadTicker/refreshSingleTicker
           // in ticker.js -- seeded from the previous snap so a quoteSummary
